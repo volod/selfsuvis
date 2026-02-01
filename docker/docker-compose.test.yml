@@ -1,0 +1,39 @@
+services:
+  api:
+    environment:
+      - BLUR_LAPL_VAR_MIN_FRAME=0
+      - DATA_DIR=/app/data_test
+      - XDG_CACHE_HOME=/app/cache
+      - TORCH_HOME=/app/cache/torch
+      - OPENCLIP_CACHE_DIR=/app/cache/open_clip
+    volumes:
+      - ../data_test:/app/data_test
+      - ../tests/assets:/app/tests/assets:ro
+      - ../cache_test:/app/cache
+  worker:
+    environment:
+      - BLUR_LAPL_VAR_MIN_FRAME=0
+      - DATA_DIR=/app/data_test
+      - XDG_CACHE_HOME=/app/cache
+      - TORCH_HOME=/app/cache/torch
+      - OPENCLIP_CACHE_DIR=/app/cache/open_clip
+    volumes:
+      - ../data_test:/app/data_test
+      - ../tests/assets:/app/tests/assets:ro
+      - ../cache_test:/app/cache
+  tests:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tests
+    environment:
+      - API_URL=http://api:8000
+      - ASSETS_DIR=/app/tests/assets
+      - INDEX_DIR_PATH=${INDEX_DIR_PATH}
+      - XDG_CACHE_HOME=/app/cache
+      - TORCH_HOME=/app/cache/torch
+      - OPENCLIP_CACHE_DIR=/app/cache/open_clip
+    volumes:
+      - ../cache_test:/app/cache
+    depends_on:
+      - api
+      - worker

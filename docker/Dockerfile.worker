@@ -1,0 +1,25 @@
+FROM python:3.10-slim AS builder
+
+WORKDIR /app
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+RUN python -m venv "$VIRTUAL_ENV"
+COPY requirements/ ./requirements/
+RUN pip install --no-cache-dir -r requirements/requirements_prod.txt
+
+FROM python:3.10-slim
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y ffmpeg libgl1 && rm -rf /var/lib/apt/lists/*
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+COPY --from=builder /opt/venv /opt/venv
+COPY worker ./worker
+COPY models ./models
+COPY pipeline ./pipeline
+
+ENV PYTHONPATH=/app
+
+CMD ["python", "worker/main.py"]
