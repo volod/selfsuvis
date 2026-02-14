@@ -1,43 +1,55 @@
+import io
 import os
 import uuid
-import io
-import requests
 from typing import List, Optional
 
-from fastapi import FastAPI, UploadFile, File, Form
+import requests
+from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
-from qdrant_client.http import models as qmodels
 from PIL import Image
+from qdrant_client.http import models as qmodels
 
-from pipeline.config import settings
-from pipeline.job_db import init_db, create_job, fetch_job
-from pipeline.processed_db import init_db as init_processed_db, get_by_hash, get_by_url, get_by_size
-from pipeline.utils import file_sha256
-from models.openclip_model import OpenCLIPEmbedder
+from app.schemas import TextQuery
 from models.dino_model import DINOEmbedder
-from pipeline.qdrant_utils import QdrantStore
-from pipeline.utils import ensure_dir, file_sha256_bytes
+from models.openclip_model import OpenCLIPEmbedder
+from pipeline.config import settings, validate_settings
+from pipeline.job_db import create_job, fetch_job, init_db
 from pipeline.logging_utils import get_logger
+from pipeline.processed_db import get_by_hash, get_by_size, get_by_url, init_db as init_processed_db
+from pipeline.qdrant_utils import QdrantStore
+from pipeline.utils import ensure_dir, file_sha256, file_sha256_bytes, resolve_allowed_path
 
 app = FastAPI()
 logger = get_logger(__name__)
 
 init_db()
 init_processed_db()
+validate_settings()
 
 clip_model = OpenCLIPEmbedder()
-try:
-    dino_model = DINOEmbedder("dinov2_vitb14") if settings.MODEL_NAME in {"dinov2", "dinov3"} else None
-except Exception:
-    dino_model = None
+dino_model = None
+if settings.MODEL_NAME in {"dinov2", "dinov3"}:
+    try:
+        dino_model = DINOEmbedder("dinov2_vitb14")
+    except Exception as exc:
+        logger.exception("DINO model failed to load, disabling: %s", exc)
+        dino_model = None
 
-store = QdrantStore(clip_dim=clip_model.image_dim(), dino_dim=dino_model.image_dim() if dino_model else None)
+store = QdrantStore(
+    clip_dim=clip_model.image_dim(),
+    dino_dim=dino_model.image_dim() if dino_model else None,
+)
 
 
-VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi"}
+def _error_response(message: str, status_code: int = 400, detail: Optional[str] = None) -> JSONResponse:
+    """Return a consistent error response."""
+    body = {"error": message}
+    if detail:
+        body["detail"] = detail
+    return JSONResponse(body, status_code=status_code)
 
 
-def _enqueue_job(payload: dict):
+def _enqueue_job(payload: dict) -> str:
     job_id = uuid.uuid4().hex
     create_job(job_id, payload)
     return job_id
@@ -56,6 +68,20 @@ def _payload_filter(search_type: str) -> Optional[qmodels.Filter]:
     )
 
 
+@app.get("/health")
+def health():
+    """Health check for container orchestration. Verifies Qdrant connectivity."""
+    try:
+        store.client.get_collections()
+        return {"status": "ok", "qdrant": "connected"}
+    except Exception as exc:
+        logger.warning("Health check failed: %s", exc)
+        return JSONResponse(
+            {"status": "unhealthy", "error": str(exc)},
+            status_code=503,
+        )
+
+
 @app.post("/index/video")
 async def index_video(
     file: Optional[UploadFile] = File(default=None),
@@ -63,16 +89,36 @@ async def index_video(
     enable_tiles: bool = Form(default=True),
 ):
     if file is None and path is None:
-        return JSONResponse({"error": "file or path required"}, status_code=400)
+        return _error_response("file or path required")
     ensure_dir(settings.VIDEOS_DIR)
     video_id = uuid.uuid4().hex
     if file is not None:
         video_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}.mp4")
-        content = await file.read()
+        total = 0
         with open(video_path, "wb") as f:
-            f.write(content)
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > settings.MAX_UPLOAD_BYTES:
+                    if os.path.exists(video_path):
+                        try:
+                            os.remove(video_path)
+                        except OSError:
+                            pass
+                    return _error_response(
+                        f"Upload exceeds max size {settings.MAX_UPLOAD_BYTES} bytes",
+                        status_code=413,
+                    )
+                f.write(chunk)
     else:
-        video_path = path
+        if path is None:
+            return _error_response("path required")
+        resolved = resolve_allowed_path(path, must_be_file=True)
+        if resolved is None:
+            return _error_response("path not allowed or not a file", status_code=403)
+        video_path = resolved
 
     job_id = _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
     logger.info("Enqueued video_id=%s job_id=%s", video_id, job_id)
@@ -95,19 +141,24 @@ async def index_dir(
     path: str = Form(...),
     enable_tiles: bool = Form(default=True),
 ):
-    if not os.path.isdir(path):
-        return JSONResponse({"error": "path is not a directory"}, status_code=400)
+    resolved = resolve_allowed_path(path, must_be_dir=True)
+    if resolved is None:
+        return _error_response("path not allowed or not a directory", status_code=403)
+    if not os.path.isdir(resolved):
+        return _error_response("path is not a directory")
     jobs = []
-    for root, _, files in os.walk(path):
+    for root, _, files in os.walk(resolved):
         for name in files:
             ext = os.path.splitext(name)[1].lower()
-            if ext not in VIDEO_EXTS:
+            if ext not in settings.VIDEO_EXTS:
                 continue
             video_path = os.path.join(root, name)
             video_id = uuid.uuid4().hex
-            job_id = _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
+            job_id = _enqueue_job(
+                {"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles}
+            )
             jobs.append({"video_id": video_id, "job_id": job_id, "video_path": video_path})
-    logger.info("Enqueued directory jobs=%s path=%s", len(jobs), path)
+    logger.info("Enqueued directory jobs=%s path=%s", len(jobs), resolved)
     return {"jobs": jobs}
 
 
@@ -118,10 +169,15 @@ async def precheck(
     url: Optional[str] = Form(default=None),
 ):
     if not file and not path and not url:
-        return JSONResponse({"error": "file, path, or url required"}, status_code=400)
+        return _error_response("file, path, or url required")
 
     if file is not None:
         content = await file.read()
+        if len(content) > settings.MAX_UPLOAD_BYTES:
+            return _error_response(
+                f"File exceeds max size {settings.MAX_UPLOAD_BYTES} bytes",
+                status_code=413,
+            )
         file_hash = file_sha256_bytes(content)
         existing = get_by_hash(file_hash)
         if existing:
@@ -129,9 +185,12 @@ async def precheck(
         return {"status": "new", "reason": "hash", "hash": file_hash}
 
     if path is not None:
-        if not os.path.exists(path) or not os.path.isfile(path):
-            return JSONResponse({"error": "path not found"}, status_code=400)
-        file_hash = file_sha256(path)
+        resolved = resolve_allowed_path(path, must_be_file=True)
+        if resolved is None:
+            return _error_response("path not allowed or not a file", status_code=403)
+        if not os.path.exists(resolved) or not os.path.isfile(resolved):
+            return _error_response("path not found")
+        file_hash = file_sha256(resolved)
         existing = get_by_hash(file_hash)
         if existing:
             return {"status": "duplicate", "reason": "hash", "existing": existing}
@@ -143,7 +202,7 @@ async def precheck(
         return {"status": "duplicate", "reason": "url", "existing": existing}
     size = None
     try:
-        head = requests.head(url, timeout=20, allow_redirects=True)
+        head = requests.head(url, timeout=settings.PRECHECK_URL_TIMEOUT, allow_redirects=True)
         if head.ok and head.headers.get("Content-Length"):
             size = int(head.headers["Content-Length"])
     except Exception:
@@ -161,14 +220,17 @@ async def precheck_dir(
     enqueue: bool = Form(default=False),
     enable_tiles: bool = Form(default=True),
 ):
-    if not os.path.isdir(path):
-        return JSONResponse({"error": "path is not a directory"}, status_code=400)
+    resolved = resolve_allowed_path(path, must_be_dir=True)
+    if resolved is None:
+        return _error_response("path not allowed or not a directory", status_code=403)
+    if not os.path.isdir(resolved):
+        return _error_response("path is not a directory")
     results = []
     jobs = []
-    for root, _, files in os.walk(path):
+    for root, _, files in os.walk(resolved):
         for name in files:
             ext = os.path.splitext(name)[1].lower()
-            if ext not in VIDEO_EXTS:
+            if ext not in settings.VIDEO_EXTS:
                 continue
             video_path = os.path.join(root, name)
             try:
@@ -203,7 +265,7 @@ async def precheck_dir(
                     entry["job_id"] = job_id
                     jobs.append({"video_id": video_id, "job_id": job_id, "video_path": video_path})
                 results.append(entry)
-    logger.info("Precheck dir path=%s results=%s enqueue=%s", path, len(results), enqueue)
+    logger.info("Precheck dir path=%s results=%s enqueue=%s", resolved, len(results), enqueue)
     return {"results": results, "jobs": jobs if enqueue else []}
 
 
@@ -211,7 +273,7 @@ async def precheck_dir(
 def job_status(job_id: str):
     job = fetch_job(job_id)
     if not job:
-        return JSONResponse({"error": "job not found"}, status_code=404)
+        return _error_response("job not found", status_code=404)
     return {
         "status": job["status"],
         "progress": job["progress"],
@@ -224,12 +286,21 @@ def job_status(job_id: str):
 @app.post("/query/image")
 async def query_image(
     file: UploadFile = File(...),
-    top_k: int = Form(default=20),
+    top_k: int = Form(default=20, ge=1, le=100),
     search_type: str = Form(default="both"),
     vector_space: str = Form(default="clip"),
     enable_rerank: bool = Form(default=True),
 ):
+    if search_type not in ("both", "frame", "tile"):
+        return _error_response("search_type must be both, frame, or tile")
+    if vector_space not in ("clip", "dino"):
+        return _error_response("vector_space must be clip or dino")
     content = await file.read()
+    if len(content) > settings.MAX_UPLOAD_BYTES:
+        return _error_response(
+            f"Image exceeds max size {settings.MAX_UPLOAD_BYTES} bytes",
+            status_code=413,
+        )
     image = Image.open(io.BytesIO(content))
     image = image.convert("RGB")
     clip_vec = clip_model.encode_images([image], batch_size=1)[0]
@@ -253,14 +324,14 @@ async def query_image(
 
 @app.post("/query/text")
 async def query_text(
-    payload: dict,
-    top_k: int = 20,
-    search_type: str = "both",
-    enable_rerank: bool = True,
+    payload: TextQuery,
+    top_k: int = Query(default=20, ge=1, le=100),
+    search_type: str = Query(default="both"),
+    enable_rerank: bool = Query(default=True),
 ):
-    text = payload.get("text") if payload else None
-    if not text:
-        return JSONResponse({"error": "text required"}, status_code=400)
+    if search_type not in ("both", "frame", "tile"):
+        return _error_response("search_type must be both, frame, or tile")
+    text = payload.text
     clip_vec = clip_model.encode_texts([text], batch_size=1)[0]
     results = _search_vectors(
         vector_space="clip",
@@ -280,7 +351,7 @@ def _search_vectors(
     top_k: int,
     enable_rerank: bool,
     image_query: Optional[Image.Image],
-):
+) -> List[dict]:
     k_retrieve = max(top_k, settings.K_RETRIEVE)
     filter_obj = _payload_filter(search_type)
 
@@ -299,7 +370,7 @@ def _search_vectors(
     return results[:top_k]
 
 
-def _format_results(scored: List[qmodels.ScoredPoint]):
+def _format_results(scored: List[qmodels.ScoredPoint]) -> List[dict]:
     results = []
     for p in scored:
         payload = p.payload or {}

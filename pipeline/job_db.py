@@ -1,22 +1,41 @@
 import json
 import os
 import sqlite3
+import threading
 import time
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from pipeline.config import settings
 from pipeline.utils import ensure_dir
 
+# Allowed columns for update_job (whitelist to prevent injection)
+_UPDATE_JOB_COLUMNS = frozenset(
+    {"status", "progress", "payload", "started_at", "finished_at", "error"}
+)
+
+_conn_local = threading.local()
+
+
+def _get_conn() -> sqlite3.Connection:
+    """Get thread-local connection. Creates one if not present."""
+    if not hasattr(_conn_local, "conn") or _conn_local.conn is None:
+        ensure_dir(os.path.dirname(settings.JOB_DB_PATH))
+        _conn_local.conn = sqlite3.connect(
+            settings.JOB_DB_PATH,
+            check_same_thread=False,
+            timeout=settings.SQLITE_TIMEOUT,
+        )
+        _conn_local.conn.row_factory = sqlite3.Row
+    return _conn_local.conn
+
 
 def _connect() -> sqlite3.Connection:
-    ensure_dir(os.path.dirname(settings.JOB_DB_PATH))
-    conn = sqlite3.connect(settings.JOB_DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Return connection for use in with-blocks. Prefer _get_conn for simple ops."""
+    return _get_conn()
 
 
 def init_db() -> None:
-    conn = _connect()
+    conn = _get_conn()
     with conn:
         conn.execute(
             """
@@ -32,25 +51,27 @@ def init_db() -> None:
             )
             """
         )
-    conn.close()
 
 
 def create_job(job_id: str, payload: Dict[str, Any]) -> None:
-    conn = _connect()
+    conn = _get_conn()
     now = time.time()
     with conn:
         conn.execute(
             "INSERT INTO jobs (id, status, progress_json, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
             (job_id, "pending", json.dumps({}), json.dumps(payload), now),
         )
-    conn.close()
 
 
 def update_job(job_id: str, **kwargs: Any) -> None:
-    conn = _connect()
+    """Update job. Only whitelisted columns are accepted."""
+    allowed = {k: v for k, v in kwargs.items() if k in _UPDATE_JOB_COLUMNS}
+    if not allowed:
+        return
+    conn = _get_conn()
     fields = []
     values = []
-    for k, v in kwargs.items():
+    for k, v in allowed.items():
         if k in {"progress", "payload"}:
             v = json.dumps(v)
             col = f"{k}_json"
@@ -61,22 +82,21 @@ def update_job(job_id: str, **kwargs: Any) -> None:
     values.append(job_id)
     with conn:
         conn.execute(f"UPDATE jobs SET {', '.join(fields)} WHERE id = ?", values)
-    conn.close()
 
 
 def fetch_job(job_id: str) -> Optional[Dict[str, Any]]:
-    conn = _connect()
+    conn = _get_conn()
     row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-    conn.close()
     if not row:
         return None
     return _row_to_dict(row)
 
 
 def fetch_next_pending() -> Optional[Dict[str, Any]]:
-    conn = _connect()
-    row = conn.execute("SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1").fetchone()
-    conn.close()
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
+    ).fetchone()
     if not row:
         return None
     return _row_to_dict(row)

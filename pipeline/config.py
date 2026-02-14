@@ -1,8 +1,36 @@
 import os
+from typing import List, Optional
+
+from pipeline.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 def _env(key: str, default: str) -> str:
     return os.getenv(key, default)
+
+
+def _env_int(key: str, default: int) -> int:
+    val = os.getenv(key, str(default))
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
+
+def _env_float(key: str, default: float) -> float:
+    val = os.getenv(key, str(default))
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
+def _parse_allowed_paths(val: Optional[str]) -> List[str]:
+    """Parse ALLOWED_INDEX_PATHS as comma-separated list. Empty means no restriction."""
+    if val is None or not val.strip():
+        return []
+    return [p.strip() for p in val.split(",") if p.strip()]
 
 
 class Settings:
@@ -14,6 +42,10 @@ class Settings:
     MODEL_NAME = _env("MODEL_NAME", "openclip")
     OPENCLIP_MODEL = _env("OPENCLIP_MODEL", "ViT-B-16")
     OPENCLIP_PRETRAINED = _env("OPENCLIP_PRETRAINED", "openai")
+
+    SAM_MODEL_TYPE = _env("SAM_MODEL_TYPE", "vit_h")
+    SAM_CHECKPOINT = _env("SAM_CHECKPOINT", "")
+    LABELS_FILE = _env("LABELS_FILE", os.path.join(DATA_DIR, "labels", "openclip_rich.txt"))
 
     DEVICE = _env("DEVICE", "auto")
     USE_FP16 = _env("USE_FP16", "true").lower() == "true"
@@ -69,6 +101,33 @@ class Settings:
     QDRANT_COLLECTION = _env("QDRANT_COLLECTION", "video_semantic")
 
     JOB_DB_PATH = _env("JOB_DB_PATH", os.path.join(DATA_DIR, "jobs.db"))
+
+    # Security and limits
+    ALLOWED_INDEX_PATHS = _parse_allowed_paths(os.getenv("ALLOWED_INDEX_PATHS"))
+    MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_BYTES", 2 * 1024 * 1024 * 1024)  # 2 GB default
+    MAX_DOWNLOAD_BYTES = _env_int("MAX_DOWNLOAD_BYTES", 2 * 1024 * 1024 * 1024)  # 2 GB default
+    PRECHECK_URL_TIMEOUT = _env_int("PRECHECK_URL_TIMEOUT", 20)
+    SQLITE_TIMEOUT = _env_float("SQLITE_TIMEOUT", 30.0)
+
+    # Worker and ffmpeg
+    WORKER_POLL_INTERVAL = _env_float("WORKER_POLL_INTERVAL", 2.0)
+    FFMPEG_TIMEOUT_SEC = _env_int("FFMPEG_TIMEOUT_SEC", 3600)  # 1 hour for long videos
+
+    # Video extensions (indexing)
+    VIDEO_EXTS = frozenset({".mp4", ".mov", ".mkv", ".avi"})
+
+
+def validate_settings() -> None:
+    """Validate critical settings at startup. Raises ValueError on invalid config."""
+    if settings.QDRANT_PORT < 1 or settings.QDRANT_PORT > 65535:
+        raise ValueError("QDRANT_PORT must be 1-65535")
+    if settings.MODEL_NAME not in {"openclip", "dinov2", "dinov3"}:
+        raise ValueError("MODEL_NAME must be openclip, dinov2, or dinov3")
+    if settings.MAX_UPLOAD_BYTES < 0 or settings.MAX_DOWNLOAD_BYTES < 0:
+        raise ValueError("MAX_UPLOAD_BYTES and MAX_DOWNLOAD_BYTES must be non-negative")
+    if settings.FFMPEG_TIMEOUT_SEC < 1:
+        raise ValueError("FFMPEG_TIMEOUT_SEC must be >= 1")
+    logger.info("Settings validated successfully")
 
 
 settings = Settings()

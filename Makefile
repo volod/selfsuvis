@@ -1,5 +1,4 @@
-.PHONY: up down logs venv
-.PHONY: test
+.PHONY: up down logs venv test test-unit
 
 up:
 	docker compose up --build
@@ -14,10 +13,11 @@ venv:
 	uv venv .venv
 	./scripts/install_requirements.sh requirements/requirements_dev.txt .venv
 
+# Integration tests (require API + worker + Qdrant)
 test:
-	INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
-	INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml down --remove-orphans
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml down --remove-orphans
 
-test-dir:
-	INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
-	INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml down --remove-orphans
+# Unit tests (no services required)
+test-unit:
+	pytest tests/unit/ -v

@@ -17,7 +17,7 @@ with tab_index:
     st.header("Index Video")
     uploaded = st.file_uploader("Upload video", type=["mp4", "mov", "mkv"]) 
     url_input = st.text_input("Or URL (HTTP/S)")
-    path_input = st.text_input("Or local path (inside container)")
+    path_input = st.text_input("Or directory path (inside container, for batch indexing)")
     enable_tiles = st.checkbox("Enable tile indexing", value=True)
     if st.button("Start Indexing"):
         if uploaded:

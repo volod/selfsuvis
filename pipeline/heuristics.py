@@ -2,7 +2,10 @@ from typing import Tuple
 
 import cv2
 import numpy as np
-from skimage.metrics import structural_similarity as ssim
+try:
+    from skimage.metrics import structural_similarity as ssim
+except Exception:
+    ssim = None
 
 from pipeline.config import settings
 
@@ -34,6 +37,8 @@ def mean_abs_diff(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def ssim_diff(a: np.ndarray, b: np.ndarray) -> float:
+    if ssim is None:
+        return 0.0
     score = ssim(a, b)
     return float(1.0 - score)
 

@@ -118,3 +118,107 @@ def test_index_dir_optional():
     resp.raise_for_status()
     data = resp.json()
     assert "jobs" in data
+
+
+# --- Tests for refactored functionality ---
+
+
+def test_health_endpoint():
+    """GET /health returns 200 with status ok when Qdrant is connected."""
+    resp = requests.get(f"{API_URL}/health")
+    resp.raise_for_status()
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert "qdrant" in data
+
+
+def test_query_text_missing_body():
+    """POST /query/text returns 422 when body is missing or invalid."""
+    resp = requests.post(f"{API_URL}/query/text", json={})
+    assert resp.status_code == 422
+
+
+def test_query_text_empty_text():
+    """POST /query/text returns 422 when text is empty (min_length=1)."""
+    resp = requests.post(f"{API_URL}/query/text", json={"text": ""})
+    assert resp.status_code == 422
+
+
+def test_query_text_invalid_search_type():
+    """POST /query/text returns 400 for invalid search_type."""
+    resp = requests.post(
+        f"{API_URL}/query/text",
+        json={"text": "green"},
+        params={"search_type": "invalid"},
+    )
+    assert resp.status_code == 400
+    assert "error" in resp.json()
+
+
+def test_query_text_invalid_top_k():
+    """POST /query/text returns 422 for top_k out of range."""
+    resp = requests.post(
+        f"{API_URL}/query/text",
+        json={"text": "green"},
+        params={"top_k": 999},
+    )
+    assert resp.status_code == 422
+
+
+def test_query_image_invalid_search_type():
+    """POST /query/image returns 400 for invalid search_type."""
+    resp = requests.post(
+        f"{API_URL}/query/image",
+        files={"file": ("img.png", b"x" * 100, "image/png")},
+        data={"search_type": "invalid"},
+    )
+    assert resp.status_code == 400
+
+
+def test_query_image_invalid_vector_space():
+    """POST /query/image returns 400 for invalid vector_space."""
+    resp = requests.post(
+        f"{API_URL}/query/image",
+        files={"file": ("img.png", b"x" * 100, "image/png")},
+        data={"vector_space": "invalid"},
+    )
+    assert resp.status_code == 400
+
+
+def test_index_video_no_file_no_path():
+    """POST /index/video returns 400 when neither file nor path provided."""
+    resp = requests.post(f"{API_URL}/index/video", data={})
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "error" in data
+
+
+def test_job_status_not_found():
+    """GET /jobs/{id} returns 404 for unknown job."""
+    resp = requests.get(f"{API_URL}/jobs/nonexistent-job-id-12345")
+    assert resp.status_code == 404
+    assert "error" in resp.json()
+
+
+def test_upload_size_limit_exceeded():
+    """POST /index/video returns 413 when upload exceeds MAX_UPLOAD_BYTES."""
+    # MAX_UPLOAD_BYTES=150000 in docker-compose.test.yml (allows test videos ~14KB)
+    large_content = b"x" * 200000
+    resp = requests.post(
+        f"{API_URL}/index/video",
+        files={"file": ("large.mp4", large_content, "video/mp4")},
+        data={"enable_tiles": "false"},
+    )
+    assert resp.status_code == 413
+    assert "error" in resp.json()
+
+
+def test_path_not_allowed_returns_403():
+    """POST /index/dir returns 403 when path is outside ALLOWED_INDEX_PATHS."""
+    # ALLOWED_INDEX_PATHS=/app/tests/assets in docker-compose.test.yml
+    resp = requests.post(
+        f"{API_URL}/index/dir",
+        data={"path": "/etc", "enable_tiles": "false"},
+    )
+    assert resp.status_code == 403
+    assert "error" in resp.json()

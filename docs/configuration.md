@@ -11,6 +11,14 @@ Key variables:
 - `DEDUP_COS_SIM_THRESH`, `MAX_TILES_PER_SEGMENT`
 - `LOG_LEVEL` = DEBUG | INFO | WARNING | ERROR
 
+Security and limits:
+- `ALLOWED_INDEX_PATHS` = comma-separated base dirs for path-based indexing (empty = no restriction)
+- `MAX_UPLOAD_BYTES`, `MAX_DOWNLOAD_BYTES` (default 2 GB each)
+- `PRECHECK_URL_TIMEOUT` (seconds for URL HEAD)
+- `SQLITE_TIMEOUT` (seconds for DB lock wait)
+- `FFMPEG_TIMEOUT_SEC` (default 3600)
+- `WORKER_POLL_INTERVAL` (default 2.0)
+
 Notes:
 - Frames are extracted at `SAMPLE_FPS_MAX` with ffmpeg, then adaptive skipping is applied.
 - Named vectors in Qdrant: `clip` (OpenCLIP), optional `dino`.

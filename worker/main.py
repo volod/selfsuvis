@@ -8,21 +8,19 @@ from pipeline.utils import file_sha256
 from pipeline.logging_utils import get_logger
 from pipeline.processed_db import init_db as init_processed_db, get_by_hash, upsert
 from pipeline.downloader import download_url
-from pipeline.config import settings
-
-
-POLL_INTERVAL = 2.0
+from pipeline.config import settings, validate_settings
 
 
 def main():
     init_db()
     init_processed_db()
+    validate_settings()
     logger = get_logger(__name__)
     logger.info("Worker started")
     while True:
         job = fetch_next_pending()
         if not job:
-            time.sleep(POLL_INTERVAL)
+            time.sleep(settings.WORKER_POLL_INTERVAL)
             continue
 
         job_id = job["id"]

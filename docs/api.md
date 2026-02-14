@@ -1,5 +1,9 @@
 # API
 
+## GET /health
+- Health check for container orchestration. Verifies Qdrant connectivity.
+- Returns `{ status: "ok", qdrant: "connected" }` or 503 on failure.
+
 ## POST /index/video
 - Upload file or provide `path` (local path on the API container)
 - Returns `{ video_id, job_id }`
@@ -31,7 +35,8 @@ Params:
 - `enable_rerank` = true | false
 
 ## POST /query/text
-Params:
-- `top_k`
+Body: `{ "text": "query string" }`
+Query params:
+- `top_k` (1-100, default 20)
 - `search_type` = tile | frame | both
 - `enable_rerank` = true | false

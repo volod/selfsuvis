@@ -1,6 +1,16 @@
 # Video Semantic Search (POC)
 
-Docs:
+Semantic search over video content: index videos, then search by text or image. Uses OpenCLIP for embeddings and Qdrant for vector storage.
+
+## Quick start
+
+```bash
+make up
+```
+
+Then open the Streamlit UI (default: http://localhost:8501), upload a video or provide a URL, start indexing, and run text or image queries.
+
+## Docs
 - Overview: docs/overview.md
 - Setup: docs/setup.md
 - API: docs/api.md

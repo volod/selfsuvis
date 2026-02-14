@@ -1,7 +1,9 @@
 import hashlib
 import os
 import time
-from typing import Dict, Any
+from typing import Any, Dict, List, Optional
+
+from pipeline.config import settings
 
 
 def ensure_dir(path: str) -> None:
@@ -20,6 +22,10 @@ def now_ts() -> float:
     return time.time()
 
 
+def now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
 def clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
@@ -33,6 +39,42 @@ def file_sha256(path: str, chunk_size: int = 1024 * 1024) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+def resolve_allowed_path(user_path: str, must_be_file: bool = False, must_be_dir: bool = False) -> Optional[str]:
+    """
+    Resolve user-supplied path against allowed base directories.
+    Returns the resolved absolute path if allowed, else None.
+    """
+    allowed = settings.ALLOWED_INDEX_PATHS
+    if not allowed:
+        # No restriction: accept any path that exists
+        resolved = os.path.abspath(os.path.realpath(user_path))
+        if must_be_file and not os.path.isfile(resolved):
+            return None
+        if must_be_dir and not os.path.isdir(resolved):
+            return None
+        return resolved
+
+    resolved = os.path.abspath(os.path.realpath(user_path))
+    for base in allowed:
+        base_abs = os.path.abspath(os.path.realpath(base))
+        try:
+            common = os.path.commonpath([base_abs, resolved])
+            if common == base_abs:
+                if must_be_file and not os.path.isfile(resolved):
+                    return None
+                if must_be_dir and not os.path.isdir(resolved):
+                    return None
+                return resolved
+        except ValueError:
+            continue
+    return None
+
+
+def resolve_allowed_paths_for_walk(user_dir: str) -> Optional[str]:
+    """Resolve directory for os.walk. Returns None if not allowed."""
+    return resolve_allowed_path(user_dir, must_be_dir=True)
 
 
 def file_sha256_bytes(data: bytes) -> str:
@@ -54,4 +96,3 @@ class RateTimer:
         if elapsed <= 0:
             return 0.0
         return self.count / elapsed
-

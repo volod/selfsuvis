@@ -1,0 +1,244 @@
+import argparse
+import os
+from typing import List, Optional
+
+import cv2
+
+from pipeline.elastic_indexer import bulk_index_jsonl
+from pipeline.frame_extractor import (
+    extract_frames_adaptive,
+    extract_frames_fixed,
+    extract_stream_frames,
+    FrameRecord,
+)
+from pipeline.logging_utils import get_logger
+
+
+VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi"}
+
+
+def _list_videos(path: str) -> List[str]:
+    videos: List[str] = []
+    for root, _, files in os.walk(path):
+        for name in files:
+            if os.path.splitext(name)[1].lower() in VIDEO_EXTS:
+                videos.append(os.path.join(root, name))
+    return videos
+
+
+def _safe_stem(path: str) -> str:
+    base = os.path.basename(path)
+    return os.path.splitext(base)[0]
+
+
+def _parse_steps(raw: Optional[str]) -> List[str]:
+    if not raw:
+        return ["extract", "describe", "index"]
+    steps = [s.strip() for s in raw.split(",") if s.strip()]
+    valid = {"extract", "describe", "index"}
+    for s in steps:
+        if s not in valid:
+            raise ValueError(f"Unknown step: {s}")
+    return steps
+
+
+def _load_existing_frames(out_dir: str) -> List[FrameRecord]:
+    frames: List[FrameRecord] = []
+    if not os.path.isdir(out_dir):
+        return frames
+    for name in sorted(os.listdir(out_dir)):
+        if not name.startswith("frame_") or not name.endswith(".png"):
+            continue
+        parts = name.split("_")
+        if len(parts) < 3:
+            continue
+        ms_part = parts[2].replace("ms.png", "")
+        try:
+            t_sec = int(ms_part) / 1000.0
+        except ValueError:
+            t_sec = 0.0
+        path = os.path.join(out_dir, name)
+        img = cv2.imread(path)
+        if img is None:
+            continue
+        h, w = img.shape[:2]
+        index = len(frames)
+        frames.append(FrameRecord(path=path, t_sec=t_sec, index=index, width=w, height=h))
+    return frames
+
+
+def run_file_mode(args: argparse.Namespace) -> None:
+    logger = get_logger(__name__)
+    input_path = args.input or args.dir
+    if not input_path:
+        input_path = "video_test"
+    steps = _parse_steps(args.steps)
+
+    if os.path.isdir(input_path):
+        videos = _list_videos(input_path)
+    else:
+        videos = [input_path]
+
+    if not videos:
+        logger.warning("No videos found in %s", input_path)
+        return
+
+    for video_path in videos:
+        video_name = _safe_stem(video_path)
+        out_dir = os.path.join(args.output_dir, video_name)
+        run_metadata = {
+            "pipeline": "v1",
+            "source": {"video_path": os.path.abspath(video_path), "stream_source": None},
+            "sampling": {
+                "mode": "adaptive" if args.adaptive else "fixed",
+                "interval_sec": args.interval if not args.adaptive else None,
+                "min_interval_sec": args.min_interval if args.adaptive else None,
+                "max_gap_sec": args.max_gap if args.adaptive else None,
+                "diff_threshold": args.diff_threshold if args.adaptive else None,
+                "probe_fps": args.probe_fps if args.adaptive else None,
+            },
+        }
+        frames: List[FrameRecord] = []
+        if "extract" in steps:
+            if args.adaptive:
+                frames = extract_frames_adaptive(
+                    video_path,
+                    out_dir,
+                    min_interval_sec=args.min_interval,
+                    max_gap_sec=args.max_gap,
+                    diff_threshold=args.diff_threshold,
+                    probe_fps=args.probe_fps,
+                )
+            else:
+                frames = extract_frames_fixed(
+                    video_path,
+                    out_dir,
+                    interval_sec=args.interval,
+                )
+        elif "describe" in steps:
+            frames = _load_existing_frames(out_dir)
+
+        result = None
+        if "describe" in steps:
+            from pipeline.agentic_system import process_frames
+
+            result = process_frames(
+                video_name,
+                frames,
+                out_dir,
+                run_metadata=run_metadata,
+                model_type=args.model_type,
+                sam_checkpoint=args.sam_checkpoint,
+                sam_model_type=args.sam_model_type,
+                labels_file=args.labels_file,
+                verbose=args.verbose,
+            )
+        if "index" in steps and args.es_url:
+            index_name = args.es_index or f"{video_name}_frames"
+            jsonl_path = result["jsonl_path"] if result else os.path.join(out_dir, f"{video_name}.jsonl")
+            bulk_index_jsonl(args.es_url, index_name, jsonl_path)
+
+
+def run_stream_mode(args: argparse.Namespace) -> None:
+    logger = get_logger(__name__)
+    if not args.source:
+        raise ValueError("--source is required for stream mode")
+    steps = _parse_steps(args.steps)
+    if "extract" not in steps:
+        raise ValueError("stream mode requires extract step")
+
+    video_name = args.stream_name or "stream"
+    out_dir = os.path.join(args.output_dir, video_name)
+    run_metadata = {
+        "pipeline": "v1",
+        "source": {"video_path": None, "stream_source": str(args.source)},
+        "sampling": {
+            "mode": "stream-adaptive",
+            "interval_sec": None,
+            "min_interval_sec": args.min_interval,
+            "max_gap_sec": args.max_gap,
+            "diff_threshold": args.diff_threshold,
+            "probe_fps": args.probe_fps,
+        },
+    }
+    frames = extract_stream_frames(
+        args.source,
+        out_dir,
+        min_interval_sec=args.min_interval,
+        max_gap_sec=args.max_gap,
+        diff_threshold=args.diff_threshold,
+        probe_fps=args.probe_fps,
+        max_frames=args.max_frames,
+    )
+    result = None
+    if "describe" in steps:
+        from pipeline.agentic_system import process_frames
+
+        result = process_frames(
+            video_name,
+            frames,
+            out_dir,
+            run_metadata=run_metadata,
+            model_type=args.model_type,
+            sam_checkpoint=args.sam_checkpoint,
+            sam_model_type=args.sam_model_type,
+            labels_file=args.labels_file,
+            verbose=args.verbose,
+        )
+    if "index" in steps and args.es_url:
+        index_name = args.es_index or f"{video_name}_frames"
+        jsonl_path = result["jsonl_path"] if result else os.path.join(out_dir, f"{video_name}.jsonl")
+        bulk_index_jsonl(args.es_url, index_name, jsonl_path)
+    logger.info("Stream mode completed frames=%s", len(frames))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Video processing pipeline")
+    parser.add_argument("--mode", choices=["file", "stream"], default="file")
+    parser.add_argument("--input", help="Video file path")
+    parser.add_argument("--dir", help="Directory containing videos")
+    parser.add_argument("--output-dir", default="video_test", help="Output directory")
+
+    parser.add_argument("--interval", type=float, default=1.0, help="Fixed interval in seconds")
+    parser.add_argument("--adaptive", action="store_true", help="Enable adaptive frame sampling")
+    parser.add_argument("--min-interval", type=float, default=1.0, help="Minimum interval for adaptive sampling")
+    parser.add_argument("--max-gap", type=float, default=10.0, help="Max gap between kept frames")
+    parser.add_argument("--diff-threshold", type=float, default=0.12, help="Frame diff threshold")
+    parser.add_argument("--probe-fps", type=float, default=5.0, help="Probe fps for adaptive sampling")
+
+    parser.add_argument("--source", help="Stream source (URL or device index)")
+    parser.add_argument("--stream-name", help="Name for stream output directory")
+    parser.add_argument("--max-frames", type=int, default=None, help="Max frames for stream mode")
+    parser.add_argument(
+        "--steps",
+        default="extract,describe,index",
+        help="Comma-separated steps: extract,describe,index",
+    )
+
+    parser.add_argument(
+        "--model-type",
+        choices=["openclip_sam", "openclip_only"],
+        default="openclip_sam",
+        help="Vision model stack",
+    )
+    parser.add_argument("--sam-checkpoint", help="Path to SAM checkpoint file")
+    parser.add_argument("--sam-model-type", default=None, help="SAM model type (vit_h/vit_l/vit_b)")
+    parser.add_argument("--labels-file", help="Path to label vocabulary file")
+    parser.add_argument("--verbose", action="store_true", help="Verbose logging per frame")
+
+    parser.add_argument("--es-url", help="Elasticsearch base URL, e.g. http://localhost:9200")
+    parser.add_argument("--es-index", help="Elasticsearch index name")
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.mode == "file":
+        run_file_mode(args)
+    else:
+        run_stream_mode(args)
+
+
+if __name__ == "__main__":
+    main()
