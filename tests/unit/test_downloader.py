@@ -24,7 +24,7 @@ def test_download_url_content_length_exceeds_max():
     """When Content-Length exceeds max_bytes, raises ValueError before writing."""
     mock_response = _make_response(headers={"Content-Length": "200"})
 
-    with patch("pipeline.downloader.requests.get", return_value=mock_response):
+    with patch("pipeline.downloader.safe_request", return_value=mock_response):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             dest = f.name
         try:
@@ -40,7 +40,7 @@ def test_download_url_stream_exceeds_max():
     """When streamed bytes exceed max_bytes, raises ValueError."""
     mock_response = _make_response(iter_content=lambda **kw: iter([b"x" * 5, b"y" * 10]))
 
-    with patch("pipeline.downloader.requests.get", return_value=mock_response):
+    with patch("pipeline.downloader.safe_request", return_value=mock_response):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             dest = f.name
         try:
@@ -59,7 +59,7 @@ def test_download_url_within_limit():
         iter_content=lambda **kw: iter([content]),
     )
 
-    with patch("pipeline.downloader.requests.get", return_value=mock_response):
+    with patch("pipeline.downloader.safe_request", return_value=mock_response):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             dest = f.name
         try:

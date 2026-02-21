@@ -108,6 +108,8 @@ class Settings:
     MAX_DOWNLOAD_BYTES = _env_int("MAX_DOWNLOAD_BYTES", 2 * 1024 * 1024 * 1024)  # 2 GB default
     PRECHECK_URL_TIMEOUT = _env_int("PRECHECK_URL_TIMEOUT", 20)
     SQLITE_TIMEOUT = _env_float("SQLITE_TIMEOUT", 30.0)
+    MAX_REDIRECTS = _env_int("MAX_REDIRECTS", 5)
+    ALLOW_PRIVATE_URLS = _env("ALLOW_PRIVATE_URLS", "false").lower() == "true"
 
     # Worker and ffmpeg
     WORKER_POLL_INTERVAL = _env_float("WORKER_POLL_INTERVAL", 2.0)
@@ -115,6 +117,18 @@ class Settings:
 
     # Video extensions (indexing)
     VIDEO_EXTS = frozenset({".mp4", ".mov", ".mkv", ".avi"})
+
+    # API auth and rate limiting
+    API_KEY = _env("API_KEY", "")
+    RATE_LIMIT_PER_MIN = _env_int("RATE_LIMIT_PER_MIN", 120)
+    RATE_LIMIT_BURST = _env_int("RATE_LIMIT_BURST", 60)
+    TRUST_PROXY_HEADERS = _env("TRUST_PROXY_HEADERS", "false").lower() == "true"
+
+    # Input limits
+    MAX_IMAGE_PIXELS = _env_int("MAX_IMAGE_PIXELS", 80_000_000)
+    MAX_DIR_FILES = _env_int("MAX_DIR_FILES", 5000)
+    MAX_DIR_BYTES = _env_int("MAX_DIR_BYTES", 50 * 1024 * 1024 * 1024)  # 50 GB
+    MAX_DIR_DEPTH = _env_int("MAX_DIR_DEPTH", 10)
 
 
 def validate_settings() -> None:
@@ -133,6 +147,14 @@ def validate_settings() -> None:
         raise ValueError("MOTION_LOW and MOTION_HIGH must be non-negative and MOTION_LOW <= MOTION_HIGH")
     if settings.SAMPLE_FPS_MIN <= 0 or settings.SAMPLE_FPS_MAX < settings.SAMPLE_FPS_MIN:
         raise ValueError("SAMPLE_FPS_MIN must be > 0 and SAMPLE_FPS_MAX >= SAMPLE_FPS_MIN")
+    if settings.MAX_REDIRECTS < 0:
+        raise ValueError("MAX_REDIRECTS must be >= 0")
+    if settings.RATE_LIMIT_PER_MIN < 0 or settings.RATE_LIMIT_BURST < 0:
+        raise ValueError("RATE_LIMIT_PER_MIN and RATE_LIMIT_BURST must be >= 0")
+    if settings.MAX_IMAGE_PIXELS < 0:
+        raise ValueError("MAX_IMAGE_PIXELS must be >= 0")
+    if settings.MAX_DIR_FILES < 0 or settings.MAX_DIR_BYTES < 0 or settings.MAX_DIR_DEPTH < 0:
+        raise ValueError("MAX_DIR_FILES/MAX_DIR_BYTES/MAX_DIR_DEPTH must be >= 0")
     logger.info("Settings validated successfully")
 
 
