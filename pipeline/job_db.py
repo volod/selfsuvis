@@ -93,6 +93,7 @@ def fetch_job(job_id: str) -> Optional[Dict[str, Any]]:
 
 
 def fetch_next_pending() -> Optional[Dict[str, Any]]:
+    """Fetch next pending job without claiming. Prefer fetch_and_claim_next_pending for workers."""
     conn = _get_conn()
     row = conn.execute(
         "SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
@@ -100,6 +101,29 @@ def fetch_next_pending() -> Optional[Dict[str, Any]]:
     if not row:
         return None
     return _row_to_dict(row)
+
+
+def fetch_and_claim_next_pending() -> Optional[Dict[str, Any]]:
+    """Atomically claim the next pending job (set status to running). Returns None if none pending or already claimed by another worker."""
+    conn = _get_conn()
+    now = time.time()
+    with conn:
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        job_id = row["id"]
+        cursor = conn.execute(
+            "UPDATE jobs SET status = ?, started_at = ? WHERE id = ? AND status = 'pending'",
+            ("running", now, job_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+    out = _row_to_dict(row)
+    out["started_at"] = now
+    out["status"] = "running"
+    return out
 
 
 def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:

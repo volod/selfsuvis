@@ -1,6 +1,6 @@
 import argparse
 import os
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import cv2
 
@@ -15,6 +15,42 @@ from pipeline.logging_utils import get_logger
 
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi"}
+
+
+def _run_metadata(args: argparse.Namespace, mode: str, video_path: Optional[str] = None, stream_source: Optional[str] = None) -> Dict[str, Any]:
+    """Build run_metadata dict for file or stream mode."""
+    if mode == "stream":
+        return {
+            "pipeline": "v1",
+            "source": {"video_path": None, "stream_source": stream_source or ""},
+            "sampling": {
+                "mode": "stream-adaptive",
+                "interval_sec": None,
+                "min_interval_sec": args.min_interval,
+                "max_gap_sec": args.max_gap,
+                "diff_threshold": args.diff_threshold,
+                "probe_fps": args.probe_fps,
+            },
+        }
+    return {
+        "pipeline": "v1",
+        "source": {"video_path": video_path, "stream_source": stream_source},
+        "sampling": {
+            "mode": "adaptive" if args.adaptive else "fixed",
+            "interval_sec": args.interval if not args.adaptive else None,
+            "min_interval_sec": args.min_interval if args.adaptive else None,
+            "max_gap_sec": args.max_gap if args.adaptive else None,
+            "diff_threshold": args.diff_threshold if args.adaptive else None,
+            "probe_fps": args.probe_fps if args.adaptive else None,
+        },
+    }
+
+
+def _jsonl_path(result: Optional[Dict[str, Any]], out_dir: str, video_name: str) -> str:
+    """Return jsonl path from process_frames result or default path."""
+    if result and "jsonl_path" in result:
+        return result["jsonl_path"]
+    return os.path.join(out_dir, f"{video_name}.jsonl")
 
 
 def _list_videos(path: str) -> List[str]:
@@ -86,18 +122,7 @@ def run_file_mode(args: argparse.Namespace) -> None:
     for video_path in videos:
         video_name = _safe_stem(video_path)
         out_dir = os.path.join(args.output_dir, video_name)
-        run_metadata = {
-            "pipeline": "v1",
-            "source": {"video_path": os.path.abspath(video_path), "stream_source": None},
-            "sampling": {
-                "mode": "adaptive" if args.adaptive else "fixed",
-                "interval_sec": args.interval if not args.adaptive else None,
-                "min_interval_sec": args.min_interval if args.adaptive else None,
-                "max_gap_sec": args.max_gap if args.adaptive else None,
-                "diff_threshold": args.diff_threshold if args.adaptive else None,
-                "probe_fps": args.probe_fps if args.adaptive else None,
-            },
-        }
+        run_metadata = _run_metadata(args, "file", video_path=os.path.abspath(video_path))
         frames: List[FrameRecord] = []
         if "extract" in steps:
             if args.adaptive:
@@ -135,8 +160,7 @@ def run_file_mode(args: argparse.Namespace) -> None:
             )
         if "index" in steps and args.es_url:
             index_name = args.es_index or f"{video_name}_frames"
-            jsonl_path = result["jsonl_path"] if result else os.path.join(out_dir, f"{video_name}.jsonl")
-            bulk_index_jsonl(args.es_url, index_name, jsonl_path)
+            bulk_index_jsonl(args.es_url, index_name, _jsonl_path(result, out_dir, video_name))
 
 
 def run_stream_mode(args: argparse.Namespace) -> None:
@@ -149,18 +173,7 @@ def run_stream_mode(args: argparse.Namespace) -> None:
 
     video_name = args.stream_name or "stream"
     out_dir = os.path.join(args.output_dir, video_name)
-    run_metadata = {
-        "pipeline": "v1",
-        "source": {"video_path": None, "stream_source": str(args.source)},
-        "sampling": {
-            "mode": "stream-adaptive",
-            "interval_sec": None,
-            "min_interval_sec": args.min_interval,
-            "max_gap_sec": args.max_gap,
-            "diff_threshold": args.diff_threshold,
-            "probe_fps": args.probe_fps,
-        },
-    }
+    run_metadata = _run_metadata(args, "stream", stream_source=str(args.source))
     frames = extract_stream_frames(
         args.source,
         out_dir,
@@ -187,8 +200,7 @@ def run_stream_mode(args: argparse.Namespace) -> None:
         )
     if "index" in steps and args.es_url:
         index_name = args.es_index or f"{video_name}_frames"
-        jsonl_path = result["jsonl_path"] if result else os.path.join(out_dir, f"{video_name}.jsonl")
-        bulk_index_jsonl(args.es_url, index_name, jsonl_path)
+        bulk_index_jsonl(args.es_url, index_name, _jsonl_path(result, out_dir, video_name))
     logger.info("Stream mode completed frames=%s", len(frames))
 
 

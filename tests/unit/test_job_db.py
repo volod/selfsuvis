@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import config
-from pipeline.job_db import create_job, fetch_job, init_db, update_job
+from pipeline.job_db import create_job, fetch_and_claim_next_pending, fetch_job, init_db, update_job
 
 
 @pytest.fixture
@@ -50,3 +50,21 @@ def test_update_job_empty_kwargs_no_op(temp_job_db):
     update_job("job3", unknown_key="value")
     job = fetch_job("job3")
     assert job["status"] == "pending"
+
+
+def test_fetch_and_claim_next_pending(temp_job_db):
+    """fetch_and_claim_next_pending atomically claims the next pending job."""
+    create_job("a", {"video_id": "v1"})
+    create_job("b", {"video_id": "v2"})
+    job1 = fetch_and_claim_next_pending()
+    assert job1 is not None
+    assert job1["id"] == "a"
+    assert job1["status"] == "running"
+    assert job1["started_at"] is not None
+    assert fetch_job("a")["status"] == "running"
+    job2 = fetch_and_claim_next_pending()
+    assert job2 is not None
+    assert job2["id"] == "b"
+    assert job2["status"] == "running"
+    none_job = fetch_and_claim_next_pending()
+    assert none_job is None

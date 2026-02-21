@@ -9,6 +9,9 @@ if [[ ! -d "$VENV_PATH" ]]; then
   exit 1
 fi
 
+# Ensure pip is available in the venv (uv-created venvs do not include it by default)
+uv pip install --python "$VENV_PATH" pip
+
 detect_cuda_version() {
   local cuda_version=""
   if command -v nvidia-smi >/dev/null 2>&1; then
@@ -45,6 +48,7 @@ map_cuda_to_torch_index() {
   esac
 }
 
+# Install deps; numpy<2 is required for opencv-python compatibility (see requirements_prod.txt)
 uv pip install --python "$VENV_PATH" -r "$REQ_FILE"
 
 CUDA_VERSION=$(detect_cuda_version)

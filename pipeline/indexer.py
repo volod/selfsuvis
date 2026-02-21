@@ -124,7 +124,7 @@ class VideoIndexer:
                 hist_d = histogram_diff(last_kept_small, small_for_diff)
                 try:
                     ssim_d = ssim_diff(last_kept_small, small_for_diff)
-                except Exception:
+                except (ValueError, TypeError):
                     ssim_d = 0.0
 
             frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))

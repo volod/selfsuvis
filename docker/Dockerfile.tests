@@ -19,7 +19,11 @@ COPY app ./app
 COPY models ./models
 COPY pipeline ./pipeline
 COPY tests ./tests
+COPY docker/pytest.ini /app/pytest.ini
 
 ENV PYTHONPATH=/app
+ENV PYTEST_CACHE_DIR=/tmp/.pytest_cache
 
-CMD ["pytest", "-q"]
+# Run only API integration tests (unit tests need cv2/libGL and are run via make test-unit)
+# pytest.ini sets cache_dir=/tmp/.pytest_cache so cache is writable as non-root
+CMD ["pytest", "tests/test_api.py", "-q"]

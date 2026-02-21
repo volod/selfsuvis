@@ -65,3 +65,25 @@ def test_parse_allowed_paths_multiple():
     """_parse_allowed_paths returns comma-separated paths."""
     result = config._parse_allowed_paths("/tmp, /var, /home")
     assert result == ["/tmp", "/var", "/home"]
+
+
+def test_validate_settings_invalid_tile_size(monkeypatch):
+    """validate_settings raises when TILE_SIZE < 1."""
+    orig = config.settings.TILE_SIZE
+    monkeypatch.setattr(config.settings, "TILE_SIZE", 0)
+    with pytest.raises(ValueError) as exc_info:
+        config.validate_settings()
+    assert "TILE_SIZE" in str(exc_info.value)
+    monkeypatch.setattr(config.settings, "TILE_SIZE", orig)
+
+
+def test_validate_settings_invalid_motion_range(monkeypatch):
+    """validate_settings raises when MOTION_LOW > MOTION_HIGH."""
+    low, high = config.settings.MOTION_LOW, config.settings.MOTION_HIGH
+    monkeypatch.setattr(config.settings, "MOTION_LOW", 0.1)
+    monkeypatch.setattr(config.settings, "MOTION_HIGH", 0.05)
+    with pytest.raises(ValueError) as exc_info:
+        config.validate_settings()
+    assert "MOTION" in str(exc_info.value)
+    monkeypatch.setattr(config.settings, "MOTION_LOW", low)
+    monkeypatch.setattr(config.settings, "MOTION_HIGH", high)

@@ -127,6 +127,12 @@ def validate_settings() -> None:
         raise ValueError("MAX_UPLOAD_BYTES and MAX_DOWNLOAD_BYTES must be non-negative")
     if settings.FFMPEG_TIMEOUT_SEC < 1:
         raise ValueError("FFMPEG_TIMEOUT_SEC must be >= 1")
+    if settings.TILE_SIZE < 1 or settings.STRIDE < 1:
+        raise ValueError("TILE_SIZE and STRIDE must be >= 1")
+    if settings.MOTION_LOW < 0 or settings.MOTION_HIGH < 0 or settings.MOTION_LOW > settings.MOTION_HIGH:
+        raise ValueError("MOTION_LOW and MOTION_HIGH must be non-negative and MOTION_LOW <= MOTION_HIGH")
+    if settings.SAMPLE_FPS_MIN <= 0 or settings.SAMPLE_FPS_MAX < settings.SAMPLE_FPS_MIN:
+        raise ValueError("SAMPLE_FPS_MIN must be > 0 and SAMPLE_FPS_MAX >= SAMPLE_FPS_MIN")
     logger.info("Settings validated successfully")
 
 

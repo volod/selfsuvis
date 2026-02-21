@@ -16,8 +16,9 @@ def test_dhash_deterministic():
 
 def test_dhash_different_images():
     pytest.importorskip("cv2", reason="cv2 required for dhash")
-    img1 = np.zeros((64, 64), dtype=np.uint8)
-    img2 = np.ones((64, 64), dtype=np.uint8) * 255
+    # Use images with different gradients (flat 0/255 yield same dhash)
+    img1 = np.tile(np.linspace(0, 255, 64, dtype=np.uint8), (64, 1))
+    img2 = np.tile(np.linspace(255, 0, 64, dtype=np.uint8), (64, 1))
     h1 = dhash(img1)
     h2 = dhash(img2)
     assert h1 != h2

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from PIL import Image
 from qdrant_client.http import models as qmodels
 
-from app.schemas import TextQuery
+from app.schemas import ErrorResponse, QueryResponse, TextQuery
 from models.dino_model import DINOEmbedder
 from models.openclip_model import OpenCLIPEmbedder
 from pipeline.config import settings, validate_settings
@@ -31,7 +31,7 @@ dino_model = None
 if settings.MODEL_NAME in {"dinov2", "dinov3"}:
     try:
         dino_model = DINOEmbedder("dinov2_vitb14")
-    except Exception as exc:
+    except (RuntimeError, OSError, ValueError) as exc:
         logger.exception("DINO model failed to load, disabling: %s", exc)
         dino_model = None
 
@@ -68,7 +68,16 @@ def _payload_filter(search_type: str) -> Optional[qmodels.Filter]:
     )
 
 
-@app.get("/health")
+_ERROR_RESPONSES = {
+    400: {"model": ErrorResponse, "description": "Bad request"},
+    403: {"model": ErrorResponse, "description": "Forbidden"},
+    404: {"model": ErrorResponse, "description": "Not found"},
+    413: {"model": ErrorResponse, "description": "Payload too large"},
+    503: {"model": ErrorResponse, "description": "Service unavailable"},
+}
+
+
+@app.get("/health", responses={503: {"model": ErrorResponse, "description": "Qdrant unreachable"}})
 def health():
     """Health check for container orchestration. Verifies Qdrant connectivity."""
     try:
@@ -77,17 +86,22 @@ def health():
     except Exception as exc:
         logger.warning("Health check failed: %s", exc)
         return JSONResponse(
-            {"status": "unhealthy", "error": str(exc)},
+            {"error": str(exc)},
             status_code=503,
         )
 
 
-@app.post("/index/video")
+@app.post(
+    "/index/video",
+    summary="Index a video from upload or allowed path",
+    responses={400: _ERROR_RESPONSES[400], 403: _ERROR_RESPONSES[403], 413: _ERROR_RESPONSES[413]},
+)
 async def index_video(
     file: Optional[UploadFile] = File(default=None),
     path: Optional[str] = Form(default=None),
     enable_tiles: bool = Form(default=True),
 ):
+    """Accept video file upload or a path (within ALLOWED_INDEX_PATHS). Returns video_id and job_id."""
     if file is None and path is None:
         return _error_response("file or path required")
     ensure_dir(settings.VIDEOS_DIR)
@@ -105,8 +119,8 @@ async def index_video(
                     if os.path.exists(video_path):
                         try:
                             os.remove(video_path)
-                        except OSError:
-                            pass
+                        except OSError as e:
+                            logger.warning("Could not remove partial upload path=%s err=%s", video_path, e)
                     return _error_response(
                         f"Upload exceeds max size {settings.MAX_UPLOAD_BYTES} bytes",
                         status_code=413,
@@ -125,7 +139,7 @@ async def index_video(
     return {"video_id": video_id, "job_id": job_id}
 
 
-@app.post("/index/url")
+@app.post("/index/url", summary="Index a video from URL", responses={400: _ERROR_RESPONSES[400]})
 async def index_url(
     url: str = Form(...),
     enable_tiles: bool = Form(default=True),
@@ -136,7 +150,11 @@ async def index_url(
     return {"video_id": video_id, "job_id": job_id}
 
 
-@app.post("/index/dir")
+@app.post(
+    "/index/dir",
+    summary="Index all videos in an allowed directory",
+    responses={403: _ERROR_RESPONSES[403]},
+)
 async def index_dir(
     path: str = Form(...),
     enable_tiles: bool = Form(default=True),
@@ -235,7 +253,8 @@ async def precheck_dir(
             video_path = os.path.join(root, name)
             try:
                 file_hash = file_sha256(video_path)
-            except Exception:
+            except OSError as e:
+                logger.debug("Hash failed for path=%s err=%s", video_path, e)
                 results.append({"path": video_path, "status": "error", "reason": "hash_failed"})
                 continue
             existing = get_by_hash(file_hash)
@@ -269,8 +288,13 @@ async def precheck_dir(
     return {"results": results, "jobs": jobs if enqueue else []}
 
 
-@app.get("/jobs/{job_id}")
+@app.get(
+    "/jobs/{job_id}",
+    summary="Get job status by id",
+    responses={404: _ERROR_RESPONSES[404]},
+)
 def job_status(job_id: str):
+    """Return status, progress, started_at, finished_at, and error for a job."""
     job = fetch_job(job_id)
     if not job:
         return _error_response("job not found", status_code=404)
@@ -283,7 +307,12 @@ def job_status(job_id: str):
     }
 
 
-@app.post("/query/image")
+@app.post(
+    "/query/image",
+    response_model=QueryResponse,
+    summary="Search by image",
+    responses={400: _ERROR_RESPONSES[400], 413: _ERROR_RESPONSES[413]},
+)
 async def query_image(
     file: UploadFile = File(...),
     top_k: int = Form(default=20, ge=1, le=100),
@@ -319,10 +348,15 @@ async def query_image(
         enable_rerank=enable_rerank,
         image_query=image,
     )
-    return {"results": results}
+    return QueryResponse(results=results)
 
 
-@app.post("/query/text")
+@app.post(
+    "/query/text",
+    response_model=QueryResponse,
+    summary="Search by text",
+    responses={400: _ERROR_RESPONSES[400]},
+)
 async def query_text(
     payload: TextQuery,
     top_k: int = Query(default=20, ge=1, le=100),
@@ -341,7 +375,7 @@ async def query_text(
         enable_rerank=enable_rerank,
         image_query=None,
     )
-    return {"results": results}
+    return QueryResponse(results=results)
 
 
 def _search_vectors(
@@ -374,19 +408,20 @@ def _format_results(scored: List[qmodels.ScoredPoint]) -> List[dict]:
     results = []
     for p in scored:
         payload = p.payload or {}
+        result_type = payload.get("type") or "frame"
         result = {
             "id": p.id,
-            "score": p.score,
-            "type": payload.get("type"),
-            "video_id": payload.get("video_id"),
-            "segment_id": payload.get("segment_id"),
-            "t_sec": payload.get("t_sec"),
-            "thumbnail_path": payload.get("tile_path") or payload.get("frame_path"),
+            "score": float(p.score),
+            "type": result_type,
+            "video_id": payload.get("video_id") or "",
+            "segment_id": payload.get("segment_id") or 0,
+            "t_sec": payload.get("t_sec") or 0.0,
+            "thumbnail_path": payload.get("tile_path") or payload.get("frame_path") or "",
             "frame_path": payload.get("frame_path"),
             "tile_path": payload.get("tile_path"),
             "bbox": None,
         }
-        if payload.get("type") == "tile":
+        if result_type == "tile":
             result["bbox"] = {
                 "x": payload.get("x"),
                 "y": payload.get("y"),

@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 try:
     from skimage.metrics import structural_similarity as ssim
-except Exception:
+except (ImportError, ModuleNotFoundError):
     ssim = None
 
 from pipeline.config import settings

@@ -54,6 +54,7 @@ Containers run as the current host user via `UID`/`GID` to avoid root-owned file
 ```bash
 make test-dir
 ```
+Runs the same stack as `make test`. Set `INDEX_DIR_PATH` to a path visible to the API container for directory-indexing tests.
 
 ## Integration tests (refactored functionality)
 
@@ -62,6 +63,12 @@ When API is running, these tests verify:
 - **Validation**: query_text (missing body, empty text, invalid search_type, invalid top_k), query_image (invalid search_type, invalid vector_space)
 - **Errors**: index_video no file/path (400), job not found (404)
 - **Security**: upload size limit (413), path outside ALLOWED_INDEX_PATHS (403)
+
+## Lint
+```bash
+make lint
+```
+Runs `ruff check` and `ruff format --check`. Install ruff first (e.g. `pip install ruff` or add to dev requirements).
 
 ## Notes
 - Tests are integration-style and will skip if `API_URL` is unreachable.

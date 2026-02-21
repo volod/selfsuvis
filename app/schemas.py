@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,9 @@ class TextQuery(BaseModel):
 
 
 class Match(BaseModel):
+    """Single search result (frame or tile)."""
+
+    id: Union[int, str]
     score: float
     type: Literal["tile", "frame"]
     video_id: str

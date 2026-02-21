@@ -31,7 +31,7 @@ class QdrantStore:
             try:
                 self.client.get_collection(self.collection)
                 exists = True
-            except Exception:
+            except (UnexpectedResponse, Exception):
                 exists = False
         if not exists:
             self.client.create_collection(

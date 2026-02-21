@@ -2,7 +2,7 @@ import os
 import time
 import uuid
 
-from pipeline.job_db import init_db, fetch_next_pending, update_job
+from pipeline.job_db import init_db, fetch_and_claim_next_pending, update_job
 from pipeline.indexer import VideoIndexer
 from pipeline.utils import file_sha256
 from pipeline.logging_utils import get_logger
@@ -11,21 +11,20 @@ from pipeline.downloader import download_url
 from pipeline.config import settings, validate_settings
 
 
-def main():
+def main() -> None:
     init_db()
     init_processed_db()
     validate_settings()
     logger = get_logger(__name__)
     logger.info("Worker started")
     while True:
-        job = fetch_next_pending()
+        job = fetch_and_claim_next_pending()
         if not job:
             time.sleep(settings.WORKER_POLL_INTERVAL)
             continue
 
         job_id = job["id"]
         payload = job["payload"]
-        update_job(job_id, status="running", started_at=time.time())
         logger.info("Job started id=%s video_id=%s", job_id, payload.get("video_id"))
 
         indexer = VideoIndexer(enable_tiles=payload.get("enable_tiles", True))
@@ -53,8 +52,8 @@ def main():
                 if url and video_path and os.path.exists(video_path):
                     try:
                         os.remove(video_path)
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        logger.warning("Could not remove duplicate video file path=%s err=%s", video_path, e)
                 logger.info("Skipping duplicate video_id=%s hash=%s", payload.get("video_id"), file_hash)
                 update_job(
                     job_id,
@@ -80,13 +79,15 @@ def main():
         except Exception as exc:
             logger.exception("Job failed id=%s error=%s", job_id, exc)
             if "video_path" in locals() and video_path and os.path.exists(video_path):
-                size_bytes = os.path.getsize(video_path)
-                mtime = os.path.getmtime(video_path)
                 try:
+                    size_bytes = os.path.getsize(video_path)
+                    mtime = os.path.getmtime(video_path)
                     file_hash = file_sha256(video_path)
                     upsert(file_hash, payload.get("video_id", uuid.uuid4().hex), video_path, size_bytes, mtime, "error", {"error": str(exc)})
-                except Exception:
-                    pass
+                except OSError as e:
+                    logger.warning("Could not read video for error record path=%s err=%s", video_path, e)
+                except Exception as e:
+                    logger.warning("Could not upsert error record for path=%s err=%s", video_path, e)
             update_job(job_id, status="error", error=str(exc), finished_at=time.time())
 
 

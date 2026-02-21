@@ -40,6 +40,7 @@ services:
       - XDG_CACHE_HOME=/app/cache
       - TORCH_HOME=/app/cache/torch
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
+      - PYTEST_CACHE_DIR=/tmp/.pytest_cache
     volumes:
       - ../cache_test:/app/cache
     depends_on:
