@@ -1,4 +1,5 @@
 import os
+import pathlib
 import uuid
 from typing import Optional
 
@@ -51,7 +52,10 @@ async def index_video(
     ensure_dir(settings.VIDEOS_DIR)
     video_id = uuid.uuid4().hex
     if file is not None:
-        video_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}.mp4")
+        upload_ext = pathlib.Path(file.filename or "").suffix.lower()
+        if upload_ext not in settings.VIDEO_EXTS:
+            upload_ext = ".mp4"
+        video_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}{upload_ext}")
         total = 0
         with open(video_path, "wb") as f:
             while True:
@@ -131,7 +135,7 @@ async def index_dir(
                 return error_response(limit_error)
             video_id = uuid.uuid4().hex
             job_id = _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
-            jobs.append({"video_id": video_id, "job_id": job_id, "video_path": video_path})
+            jobs.append({"video_id": video_id, "job_id": job_id})
     logger.info("Enqueued directory jobs=%s path=%s", len(jobs), resolved)
     return {"jobs": jobs}
 
@@ -213,7 +217,7 @@ async def precheck_dir(
             try:
                 total_bytes += os.path.getsize(video_path)
             except OSError:
-                results.append({"path": video_path, "status": "error", "reason": "stat_failed"})
+                results.append({"filename": os.path.basename(video_path), "status": "error", "reason": "stat_failed"})
                 continue
             file_count += 1
             limit_error = _check_dir_limits(root, resolved, file_count, total_bytes)
@@ -223,20 +227,20 @@ async def precheck_dir(
                 file_hash = file_sha256(video_path)
             except OSError as e:
                 logger.debug("Hash failed for path=%s err=%s", video_path, e)
-                results.append({"path": video_path, "status": "error", "reason": "hash_failed"})
+                results.append({"filename": os.path.basename(video_path), "status": "error", "reason": "hash_failed"})
                 continue
             existing = get_by_hash(file_hash)
             if existing:
-                results.append({"path": video_path, "status": "duplicate", "reason": "hash", "existing": existing})
+                results.append({"filename": os.path.basename(video_path), "status": "duplicate", "reason": "hash", "existing": existing})
             else:
-                entry = {"path": video_path, "status": "new", "reason": "hash", "hash": file_hash}
+                entry = {"filename": os.path.basename(video_path), "status": "new", "reason": "hash", "hash": file_hash}
                 if enqueue:
                     video_id = uuid.uuid4().hex
                     job_id = _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
                     entry["enqueued"] = True
                     entry["video_id"] = video_id
                     entry["job_id"] = job_id
-                    jobs.append({"video_id": video_id, "job_id": job_id, "video_path": video_path})
+                    jobs.append({"video_id": video_id, "job_id": job_id})
                 results.append(entry)
     logger.info("Precheck dir path=%s results=%s enqueue=%s", resolved, len(results), enqueue)
     return {"results": results, "jobs": jobs if enqueue else []}

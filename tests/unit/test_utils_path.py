@@ -6,32 +6,36 @@ from pipeline import config
 from pipeline.utils import resolve_allowed_path, resolve_allowed_paths_for_walk
 
 
-def test_resolve_allowed_path_must_be_file_rejects_dir(tmp_path):
+def test_resolve_allowed_path_must_be_file_rejects_dir(tmp_path, monkeypatch):
     """When must_be_file=True, directory returns None."""
+    monkeypatch.setattr(config.settings, "ALLOWED_INDEX_PATHS", [str(tmp_path)])
     d = tmp_path / "subdir"
     d.mkdir()
     result = resolve_allowed_path(str(d), must_be_file=True)
     assert result is None
 
 
-def test_resolve_allowed_path_must_be_dir_rejects_file(tmp_path):
+def test_resolve_allowed_path_must_be_dir_rejects_file(tmp_path, monkeypatch):
     """When must_be_dir=True, file returns None."""
+    monkeypatch.setattr(config.settings, "ALLOWED_INDEX_PATHS", [str(tmp_path)])
     f = tmp_path / "file.txt"
     f.write_text("x")
     result = resolve_allowed_path(str(f), must_be_dir=True)
     assert result is None
 
 
-def test_resolve_allowed_path_no_restriction_no_type_check(tmp_path):
-    """When no restriction and no must_be_*, any existing path resolves."""
+def test_resolve_allowed_path_within_base_no_type_check(tmp_path, monkeypatch):
+    """Path inside allowed base with no type check resolves."""
+    monkeypatch.setattr(config.settings, "ALLOWED_INDEX_PATHS", [str(tmp_path)])
     d = tmp_path / "dir"
     d.mkdir()
     result = resolve_allowed_path(str(d), must_be_file=False, must_be_dir=False)
     assert result == str(d.resolve())
 
 
-def test_resolve_allowed_paths_for_walk_delegates(tmp_path):
+def test_resolve_allowed_paths_for_walk_delegates(tmp_path, monkeypatch):
     """resolve_allowed_paths_for_walk returns same as resolve_allowed_path with must_be_dir."""
+    monkeypatch.setattr(config.settings, "ALLOWED_INDEX_PATHS", [str(tmp_path)])
     d = tmp_path / "subdir"
     d.mkdir()
     r1 = resolve_allowed_paths_for_walk(str(d))
@@ -88,3 +92,15 @@ def test_resolve_allowed_path_traversal_blocked(tmp_path, monkeypatch):
     result = resolve_allowed_path(traversal, must_be_dir=True)
     # tmp_path is parent of base, so traversal resolves to tmp_path which is outside base
     assert result is None
+
+
+def test_resolve_allowed_path_empty_allowed_denies_all(tmp_path, monkeypatch):
+    """When ALLOWED_INDEX_PATHS is empty, all paths are denied (fail-closed)."""
+    monkeypatch.setattr(config.settings, "ALLOWED_INDEX_PATHS", [])
+    f = tmp_path / "file.txt"
+    f.write_text("x")
+    d = tmp_path / "subdir"
+    d.mkdir()
+    assert resolve_allowed_path(str(f), must_be_file=True) is None
+    assert resolve_allowed_path(str(d), must_be_dir=True) is None
+    assert resolve_allowed_path(str(f)) is None

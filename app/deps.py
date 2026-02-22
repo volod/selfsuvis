@@ -1,3 +1,4 @@
+import hmac
 import time
 from dataclasses import dataclass
 from typing import Dict
@@ -20,7 +21,7 @@ def _get_client_key(request: Request) -> str:
 def require_api_key(x_api_key: str = Header(default="")) -> None:
     if not settings.API_KEY:
         return
-    if x_api_key != settings.API_KEY:
+    if not hmac.compare_digest(x_api_key, settings.API_KEY):
         raise HTTPException(status_code=403, detail="Invalid API key")
 
 
@@ -43,6 +44,16 @@ class _TokenBucket:
 
 
 _limiters: Dict[str, _TokenBucket] = {}
+# Maximum number of distinct client keys tracked simultaneously.
+# When the cap is reached, the oldest entry is evicted (insertion-order LRU).
+# Prevents unbounded memory growth from spoofed/unique source IPs.
+_MAX_LIMITERS = 50_000
+
+
+def _evict_oldest_limiter() -> None:
+    if len(_limiters) >= _MAX_LIMITERS:
+        oldest = next(iter(_limiters))
+        del _limiters[oldest]
 
 
 def rate_limit(request: Request) -> None:
@@ -51,6 +62,7 @@ def rate_limit(request: Request) -> None:
     key = _get_client_key(request)
     bucket = _limiters.get(key)
     if bucket is None:
+        _evict_oldest_limiter()
         bucket = _TokenBucket(
             capacity=max(1.0, float(settings.RATE_LIMIT_BURST)),
             refill_rate=float(settings.RATE_LIMIT_PER_MIN) / 60.0,

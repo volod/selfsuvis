@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests as requests_lib
 
 from pipeline.downloader import download_url
 
@@ -37,18 +38,17 @@ def test_download_url_content_length_exceeds_max():
 
 
 def test_download_url_stream_exceeds_max():
-    """When streamed bytes exceed max_bytes, raises ValueError."""
+    """When streamed bytes exceed max_bytes, raises ValueError and cleans up partial file."""
     mock_response = _make_response(iter_content=lambda **kw: iter([b"x" * 5, b"y" * 10]))
 
     with patch("pipeline.downloader.safe_request", return_value=mock_response):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             dest = f.name
-        try:
-            with pytest.raises(ValueError) as exc_info:
-                download_url("http://example.com/video.mp4", dest, max_bytes=10)
-            assert "exceeded max size" in str(exc_info.value)
-        finally:
-            Path(dest).unlink(missing_ok=True)
+        with pytest.raises(ValueError) as exc_info:
+            download_url("http://example.com/video.mp4", dest, max_bytes=10)
+        assert "exceeded max size" in str(exc_info.value)
+        # Partial file must have been cleaned up
+        assert not Path(dest).exists()
 
 
 def test_download_url_within_limit():
@@ -67,3 +67,21 @@ def test_download_url_within_limit():
             assert Path(dest).read_bytes() == content
         finally:
             Path(dest).unlink(missing_ok=True)
+
+
+def test_download_url_cleanup_on_http_error():
+    """When iter_content raises an exception, the partial file is removed."""
+
+    def _raising_iter(**kw):
+        yield b"partial"
+        raise requests_lib.RequestException("network error")
+
+    mock_response = _make_response(iter_content=_raising_iter)
+
+    with patch("pipeline.downloader.safe_request", return_value=mock_response):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
+            dest = f.name
+        with pytest.raises(requests_lib.RequestException):
+            download_url("http://example.com/video.mp4", dest, max_bytes=10_000)
+        # Partial file must have been cleaned up
+        assert not Path(dest).exists()

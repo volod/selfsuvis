@@ -8,6 +8,20 @@ import requests
 from pipeline.config import settings
 
 
+def _peer_ip(resp: requests.Response) -> Optional[ipaddress._BaseAddress]:
+    """Extract the actual peer IP from a response's underlying socket.
+
+    Used for post-connect validation to close the DNS-rebinding window between
+    validate_url (pre-connect) and the actual TCP connection.
+    """
+    try:
+        sock = resp.raw._fp.fp.raw._sock  # type: ignore[attr-defined]
+        addr = sock.getpeername()[0]
+        return ipaddress.ip_address(addr)
+    except Exception:
+        return None
+
+
 def _iter_resolved_ips(host: str) -> Iterable[ipaddress._BaseAddress]:
     try:
         infos = socket.getaddrinfo(host, None)
@@ -85,5 +99,11 @@ def safe_request(
                 raise ValueError("Redirect without location")
             current = urljoin(current, location)
             continue
+        # Post-connect validation: re-check the actual peer IP to close the
+        # DNS-rebinding window between pre-connect resolve and TCP connect.
+        peer = _peer_ip(resp)
+        if peer is not None and not _is_ip_allowed(peer):
+            resp.close()
+            raise ValueError(f"Post-connect IP validation failed: {peer} is not allowed")
         return resp
     raise ValueError("Too many redirects")

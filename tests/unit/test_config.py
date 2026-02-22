@@ -87,3 +87,21 @@ def test_validate_settings_invalid_motion_range(monkeypatch):
     assert "MOTION" in str(exc_info.value)
     monkeypatch.setattr(config.settings, "MOTION_LOW", low)
     monkeypatch.setattr(config.settings, "MOTION_HIGH", high)
+
+
+def test_validate_settings_no_api_key_logs_warning(monkeypatch, caplog):
+    """validate_settings logs a warning when API_KEY is not set."""
+    import logging
+    monkeypatch.setattr(config.settings, "API_KEY", "")
+    with caplog.at_level(logging.WARNING, logger="pipeline.config"):
+        config.validate_settings()
+    assert any("API_KEY" in r.message for r in caplog.records)
+
+
+def test_validate_settings_no_allowed_paths_logs_warning(monkeypatch, caplog):
+    """validate_settings logs a warning when ALLOWED_INDEX_PATHS is empty."""
+    import logging
+    monkeypatch.setattr(config.settings, "ALLOWED_INDEX_PATHS", [])
+    with caplog.at_level(logging.WARNING, logger="pipeline.config"):
+        config.validate_settings()
+    assert any("ALLOWED_INDEX_PATHS" in r.message for r in caplog.records)

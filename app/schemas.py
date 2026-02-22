@@ -17,7 +17,7 @@ class JobStatus(BaseModel):
 
 
 class TextQuery(BaseModel):
-    text: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=1000)
 
 
 class Match(BaseModel):

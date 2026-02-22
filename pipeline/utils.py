@@ -11,7 +11,9 @@ def ensure_dir(path: str) -> None:
 
 
 def stable_point_id(*parts: Any) -> int:
-    h = hashlib.sha1()
+    # Uses SHA-256. Changing this function changes all Qdrant point IDs;
+    # existing indexed data must be wiped and re-indexed after an upgrade.
+    h = hashlib.sha256()
     for p in parts:
         h.update(str(p).encode("utf-8"))
         h.update(b"|")
@@ -45,16 +47,13 @@ def resolve_allowed_path(user_path: str, must_be_file: bool = False, must_be_dir
     """
     Resolve user-supplied path against allowed base directories.
     Returns the resolved absolute path if allowed, else None.
+
+    Fail-closed: returns None when ALLOWED_INDEX_PATHS is empty so that
+    path-based endpoints are disabled rather than open to the whole filesystem.
     """
     allowed = settings.ALLOWED_INDEX_PATHS
     if not allowed:
-        # No restriction: accept any path that exists
-        resolved = os.path.abspath(os.path.realpath(user_path))
-        if must_be_file and not os.path.isfile(resolved):
-            return None
-        if must_be_dir and not os.path.isdir(resolved):
-            return None
-        return resolved
+        return None
 
     resolved = os.path.abspath(os.path.realpath(user_path))
     for base in allowed:

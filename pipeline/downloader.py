@@ -23,11 +23,18 @@ def download_url(
         if content_length and int(content_length) > max_bytes:
             raise ValueError(f"Content-Length {content_length} exceeds max download size {max_bytes}")
         written = 0
-        with open(dest_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=chunk_size):
-                if not chunk:
-                    continue
-                written += len(chunk)
-                if written > max_bytes:
-                    raise ValueError(f"Download exceeded max size {max_bytes} bytes")
-                f.write(chunk)
+        try:
+            with open(dest_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=chunk_size):
+                    if not chunk:
+                        continue
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise ValueError(f"Download exceeded max size {max_bytes} bytes")
+                    f.write(chunk)
+        except Exception:
+            try:
+                os.remove(dest_path)
+            except OSError:
+                pass
+            raise

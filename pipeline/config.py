@@ -155,6 +155,17 @@ def validate_settings() -> None:
         raise ValueError("MAX_IMAGE_PIXELS must be >= 0")
     if settings.MAX_DIR_FILES < 0 or settings.MAX_DIR_BYTES < 0 or settings.MAX_DIR_DEPTH < 0:
         raise ValueError("MAX_DIR_FILES/MAX_DIR_BYTES/MAX_DIR_DEPTH must be >= 0")
+    if not settings.API_KEY:
+        logger.warning(
+            "API_KEY is not set; the API is unauthenticated and open to any caller. "
+            "Set the API_KEY environment variable for production use."
+        )
+    if not settings.ALLOWED_INDEX_PATHS:
+        logger.warning(
+            "ALLOWED_INDEX_PATHS is not set; path-based indexing endpoints "
+            "(/index/video path=, /index/dir, /index/precheck path=, /index/precheck_dir) "
+            "are disabled. Set ALLOWED_INDEX_PATHS to a comma-separated list of allowed base directories."
+        )
     logger.info("Settings validated successfully")
 
 

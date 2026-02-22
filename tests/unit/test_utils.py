@@ -4,6 +4,7 @@ import hashlib
 import tempfile
 from pathlib import Path
 
+from pipeline import config
 from pipeline.utils import (
     RateTimer,
     clamp,
@@ -51,18 +52,28 @@ def test_file_sha256():
         Path(path).unlink(missing_ok=True)
 
 
-def test_resolve_allowed_path_no_restriction(tmp_path):
-    """When ALLOWED_INDEX_PATHS is empty, paths are allowed."""
-    # Create a real file and dir
+def test_resolve_allowed_path_empty_allowed_denies_all(tmp_path, monkeypatch):
+    """When ALLOWED_INDEX_PATHS is empty, all paths are denied (fail-closed)."""
     f = tmp_path / "file.txt"
     f.write_text("x")
     d = tmp_path / "subdir"
     d.mkdir()
-    # Without restriction (empty ALLOWED_INDEX_PATHS), these should resolve
-    resolved_file = resolve_allowed_path(str(f), must_be_file=True)
-    resolved_dir = resolve_allowed_path(str(d), must_be_dir=True)
-    assert resolved_file == str(f.resolve())
-    assert resolved_dir == str(d.resolve())
+    monkeypatch.setattr(config.settings, "ALLOWED_INDEX_PATHS", [])
+    assert resolve_allowed_path(str(f), must_be_file=True) is None
+    assert resolve_allowed_path(str(d), must_be_dir=True) is None
+
+
+def test_resolve_allowed_path_within_explicit_base(tmp_path, monkeypatch):
+    """When ALLOWED_INDEX_PATHS is set, paths inside the base resolve correctly."""
+    base = tmp_path / "allowed"
+    base.mkdir()
+    f = base / "file.txt"
+    f.write_text("x")
+    d = base / "subdir"
+    d.mkdir()
+    monkeypatch.setattr(config.settings, "ALLOWED_INDEX_PATHS", [str(base)])
+    assert resolve_allowed_path(str(f), must_be_file=True) == str(f.resolve())
+    assert resolve_allowed_path(str(d), must_be_dir=True) == str(d.resolve())
 
 
 def test_rate_timer():

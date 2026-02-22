@@ -6,16 +6,40 @@ import streamlit as st
 
 API_URL = os.getenv("API_URL", "http://api:8000")
 
+# If API_KEY is configured, send it with every request.
+_API_KEY = os.getenv("API_KEY", "")
+_HEADERS = {"X-API-Key": _API_KEY} if _API_KEY else {}
+
 st.set_page_config(page_title="Video Semantic Search", layout="wide")
 
 st.title("Video Semantic Search (POC)")
+
+
+def _render_results(results):
+    st.subheader("Results")
+    cols = st.columns(4)
+    for i, r in enumerate(results):
+        col = cols[i % 4]
+        with col:
+            thumb = r.get("thumbnail_path")
+            if thumb and os.path.exists(thumb):
+                st.image(thumb, use_column_width=True)
+            st.write(f"Score: {r['score']:.4f}")
+            st.write(f"Video: {r['video_id']}")
+            st.write(f"t={r['t_sec']:.2f}s")
+            if r.get("frame_path"):
+                st.caption(r.get("frame_path"))
+            if r.get("tile_path"):
+                st.caption(r.get("tile_path"))
+            if r.get("video_id"):
+                st.code(f"mpv \"./data/videos/{r['video_id']}.mp4\" --start={r['t_sec']:.2f}")
 
 
 tab_index, tab_image, tab_text = st.tabs(["Index Video", "Image Query", "Text Query"])
 
 with tab_index:
     st.header("Index Video")
-    uploaded = st.file_uploader("Upload video", type=["mp4", "mov", "mkv"]) 
+    uploaded = st.file_uploader("Upload video", type=["mp4", "mov", "mkv"])
     url_input = st.text_input("Or URL (HTTP/S)")
     path_input = st.text_input("Or directory path (inside container, for batch indexing)")
     enable_tiles = st.checkbox("Enable tile indexing", value=True)
@@ -23,13 +47,13 @@ with tab_index:
         if uploaded:
             files = {"file": (uploaded.name, uploaded.getvalue(), uploaded.type)}
             data = {"enable_tiles": str(enable_tiles).lower()}
-            resp = requests.post(f"{API_URL}/index/video", files=files, data=data)
+            resp = requests.post(f"{API_URL}/index/video", files=files, data=data, headers=_HEADERS)
         elif url_input:
             data = {"url": url_input, "enable_tiles": str(enable_tiles).lower()}
-            resp = requests.post(f"{API_URL}/index/url", data=data)
+            resp = requests.post(f"{API_URL}/index/url", data=data, headers=_HEADERS)
         elif path_input:
             data = {"path": path_input, "enable_tiles": str(enable_tiles).lower()}
-            resp = requests.post(f"{API_URL}/index/dir", data=data)
+            resp = requests.post(f"{API_URL}/index/dir", data=data, headers=_HEADERS)
         else:
             st.error("Upload a video or provide URL/path.")
             resp = None
@@ -47,7 +71,7 @@ with tab_index:
 
     job_id = st.text_input("Job ID", value=st.session_state.get("job_id", ""))
     if st.button("Refresh Status") and job_id:
-        resp = requests.get(f"{API_URL}/jobs/{job_id}")
+        resp = requests.get(f"{API_URL}/jobs/{job_id}", headers=_HEADERS)
         if resp.ok:
             st.json(resp.json())
         else:
@@ -71,7 +95,7 @@ with tab_image:
                 "vector_space": vector_space,
                 "enable_rerank": str(enable_rerank).lower(),
             }
-            resp = requests.post(f"{API_URL}/query/image", files=files, data=data)
+            resp = requests.post(f"{API_URL}/query/image", files=files, data=data, headers=_HEADERS)
             if resp.ok:
                 results = resp.json().get("results", [])
                 _render_results(results)
@@ -91,29 +115,9 @@ with tab_text:
             "search_type": search_type_t,
             "enable_rerank": enable_rerank_t,
         }
-        resp = requests.post(f"{API_URL}/query/text", json=payload, params=params)
+        resp = requests.post(f"{API_URL}/query/text", json=payload, params=params, headers=_HEADERS)
         if resp.ok:
             results = resp.json().get("results", [])
             _render_results(results)
         else:
             st.error(resp.text)
-
-
-def _render_results(results):
-    st.subheader("Results")
-    cols = st.columns(4)
-    for i, r in enumerate(results):
-        col = cols[i % 4]
-        with col:
-            thumb = r.get("thumbnail_path")
-            if thumb and os.path.exists(thumb):
-                st.image(thumb, use_column_width=True)
-            st.write(f"Score: {r['score']:.4f}")
-            st.write(f"Video: {r['video_id']}")
-            st.write(f"t={r['t_sec']:.2f}s")
-            if r.get("frame_path"):
-                st.caption(r.get("frame_path"))
-            if r.get("tile_path"):
-                st.caption(r.get("tile_path"))
-            if r.get("video_id"):
-                st.code(f"mpv \"./data/videos/{r['video_id']}.mp4\" --start={r['t_sec']:.2f}")
