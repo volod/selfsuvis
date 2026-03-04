@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from pipeline.config import settings
 from pipeline.logging_utils import get_logger
 from pipeline.utils import ensure_dir, now_iso
 from typing import TYPE_CHECKING
@@ -201,6 +202,76 @@ def matching_agent(
     return tracks, updated_tracks, next_track_id
 
 
+def _process_frame_to_record(
+    rec: Any,
+    video_name: str,
+    tagger: Optional[Any],
+    segmenter: Optional[Any],
+    ontology: Dict[str, Any],
+    prev_segments: Optional[List[Segment]],
+    prev_tracks: Dict[str, int],
+    next_track_id: int,
+    base_metadata: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], Optional[List[Segment]], Dict[str, int], int]:
+    """Process one frame through agents and return (record_dict, ontology, prev_segments, prev_tracks, next_track_id).
+    Returns (None, ontology, ...) if frame could not be read."""
+    frame = cv2.imread(rec.path)
+    if frame is None:
+        return (None, ontology, prev_segments, prev_tracks, next_track_id)
+
+    description, segments = image_to_text_agent(frame, tagger=tagger, segmenter=segmenter)
+    warnings = recognition_correctness_agent(description, segments)
+    ontology = ontology_agent(ontology, segments, rec.index, rec.t_sec)
+
+    tracks, prev_tracks, next_track_id = matching_agent(
+        segments, prev_segments, prev_tracks, next_track_id
+    )
+    prev_segments = segments
+
+    entities = [
+        {
+            "name": seg.label,
+            "type": "region",
+            "bbox": seg.bbox,
+            "dominant_color": _dominant_color_name(seg.mean_color[::-1]),
+        }
+        for seg in segments
+    ]
+
+    ontology_entities = []
+    for name, ent in ontology.get("entities", {}).items():
+        colors = ent.get("colors", {})
+        dominant = None
+        if colors:
+            dominant = max(colors.items(), key=lambda item: item[1])[0]
+        ontology_entities.append(
+            {
+                "name": name,
+                "count": ent.get("count", 0),
+                "first_seen": ent.get("first_seen"),
+                "last_seen": ent.get("last_seen"),
+                "dominant_color": dominant,
+            }
+        )
+
+    record = formatter_agent(
+        video_name=video_name,
+        frame_index=rec.index,
+        t_sec=rec.t_sec,
+        width=rec.width,
+        height=rec.height,
+        description=description,
+        segments=segments,
+        entities=entities,
+        tracks=tracks,
+        warnings=warnings,
+        frame_path=rec.path,
+        ontology_entities=ontology_entities,
+        metadata=base_metadata,
+    )
+    return (record, ontology, prev_segments, prev_tracks, next_track_id)
+
+
 def formatter_agent(
     video_name: str,
     frame_index: int,
@@ -288,59 +359,19 @@ def process_frames(
 
     with open(jsonl_path, "w", encoding="utf-8") as f:
         for rec in frame_records:
-            frame = cv2.imread(rec.path)
-            if frame is None:
+            record, ontology, prev_segments, prev_tracks, next_track_id = _process_frame_to_record(
+                rec,
+                video_name,
+                tagger,
+                segmenter,
+                ontology,
+                prev_segments,
+                prev_tracks,
+                next_track_id,
+                base_metadata,
+            )
+            if record is None:
                 continue
-            description, segments = image_to_text_agent(frame, tagger=tagger, segmenter=segmenter)
-            warnings = recognition_correctness_agent(description, segments)
-            ontology = ontology_agent(ontology, segments, rec.index, rec.t_sec)
-
-            tracks, prev_tracks, next_track_id = matching_agent(
-                segments, prev_segments, prev_tracks, next_track_id
-            )
-            prev_segments = segments
-
-            entities = [
-                {
-                    "name": seg.label,
-                    "type": "region",
-                    "bbox": seg.bbox,
-                    "dominant_color": _dominant_color_name(seg.mean_color[::-1]),
-                }
-                for seg in segments
-            ]
-
-            ontology_entities = []
-            for name, ent in ontology.get("entities", {}).items():
-                colors = ent.get("colors", {})
-                dominant = None
-                if colors:
-                    dominant = max(colors.items(), key=lambda item: item[1])[0]
-                ontology_entities.append(
-                    {
-                        "name": name,
-                        "count": ent.get("count", 0),
-                        "first_seen": ent.get("first_seen"),
-                        "last_seen": ent.get("last_seen"),
-                        "dominant_color": dominant,
-                    }
-                )
-
-            record = formatter_agent(
-                video_name=video_name,
-                frame_index=rec.index,
-                t_sec=rec.t_sec,
-                width=rec.width,
-                height=rec.height,
-                description=description,
-                segments=segments,
-                entities=entities,
-                tracks=tracks,
-                warnings=warnings,
-                frame_path=rec.path,
-                ontology_entities=ontology_entities,
-                metadata=base_metadata,
-            )
             if verbose:
                 logger.info(
                     "frame=%s t=%.3fs size=%sx%s desc=%s",

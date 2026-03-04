@@ -9,6 +9,10 @@ from pipeline.config import settings
 
 
 def _get_client_key(request: Request) -> str:
+    """Derive client key for rate limiting. When TRUST_PROXY_HEADERS is True,
+    uses X-Forwarded-For. WARNING: Only enable TRUST_PROXY_HEADERS behind a
+    trusted reverse proxy that strips/overwrites this header; otherwise clients
+    can spoof it and bypass or dilute rate limiting."""
     if settings.TRUST_PROXY_HEADERS:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:

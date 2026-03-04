@@ -195,8 +195,15 @@ def test_index_video_no_file_no_path():
 
 def test_job_status_not_found():
     """GET /jobs/{id} returns 404 for unknown job."""
-    resp = requests.get(f"{API_URL}/jobs/nonexistent-job-id-12345")
+    resp = requests.get(f"{API_URL}/jobs/0123456789abcdef0123456789abcdef")
     assert resp.status_code == 404
+    assert "error" in resp.json()
+
+
+def test_job_status_invalid_id_returns_400():
+    """GET /jobs/{id} returns 400 for invalid job_id (non-hex or too long)."""
+    resp = requests.get(f"{API_URL}/jobs/invalid-job-id-with-dashes")
+    assert resp.status_code == 400
     assert "error" in resp.json()
 
 

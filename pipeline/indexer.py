@@ -1,5 +1,6 @@
 import os
 import shutil
+from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Tuple
 
 import cv2
@@ -28,6 +29,20 @@ from pipeline.utils import ensure_dir, stable_point_id, RateTimer
 from pipeline.logging_utils import get_logger
 
 
+@dataclass
+class _IndexFrameState:
+    """Mutable state carried across frame processing iterations."""
+
+    prev_small: Optional[np.ndarray] = None
+    last_kept_embed: Optional[np.ndarray] = None
+    last_kept_time: float = -1.0
+    last_kept_frame: Optional[np.ndarray] = None
+    last_kept_small: Optional[np.ndarray] = None
+    eff_fps: float = 0.0
+    skip_step: int = 1
+    segment_count: int = 0
+
+
 class VideoIndexer:
     def __init__(self, enable_tiles: bool = True):
         self.logger = get_logger(__name__)
@@ -50,6 +65,130 @@ class VideoIndexer:
             return None
         return self.dino_model.encode_images([Image.new("RGB", (224, 224))]).shape[1]
 
+    def _process_frame(
+        self,
+        video_id: str,
+        frame_path: str,
+        t_sec: float,
+        frame: np.ndarray,
+        state: "_IndexFrameState",
+        cell_state: Dict[Tuple[int, int], Tuple[float, float]],
+    ) -> Tuple[Optional[Tuple[Dict[str, Any], List[qmodels.PointStruct], int]], "_IndexFrameState"]:
+        """Process one frame: motion/quality, keep decision, segment and points. Returns (result, new_state).
+        result is None if frame skipped, else (segment_dict, frame_points, tile_count)."""
+        small = downsample_gray(frame, settings.STAB_SIZE)
+        prev_small = state.prev_small if state.prev_small is not None else small
+
+        if settings.STAB_ENABLE:
+            aligned, dx, dy, resp = phase_corr_align(
+                prev_small.astype(np.float32), small.astype(np.float32)
+            )
+            if (
+                resp >= settings.PHASECORR_MIN_RESPONSE
+                and abs(dx) <= settings.STAB_MAX_SHIFT
+                and abs(dy) <= settings.STAB_MAX_SHIFT
+            ):
+                small_for_diff = aligned.astype(np.uint8)
+            else:
+                small_for_diff = small
+        else:
+            small_for_diff = small
+
+        motion = mean_abs_diff(prev_small, small_for_diff)
+        eff_fps = state.eff_fps
+        if motion < settings.MOTION_LOW:
+            eff_fps = max(settings.SAMPLE_FPS_MIN, eff_fps * 0.5)
+        elif motion > settings.MOTION_HIGH:
+            eff_fps = min(settings.SAMPLE_FPS_MAX, eff_fps * 1.5)
+        fps = settings.SAMPLE_FPS_MAX
+        skip_step = max(1, int(round(fps / eff_fps)))
+
+        new_state = _IndexFrameState(
+            prev_small=small,
+            last_kept_embed=state.last_kept_embed,
+            last_kept_time=state.last_kept_time,
+            last_kept_frame=state.last_kept_frame,
+            last_kept_small=state.last_kept_small,
+            eff_fps=eff_fps,
+            skip_step=skip_step,
+            segment_count=state.segment_count,
+        )
+
+        if not frame_quality_ok(frame):
+            return (None, new_state)
+
+        hist_d = 0.0
+        ssim_d = 0.0
+        if state.last_kept_small is not None:
+            hist_d = histogram_diff(state.last_kept_small, small_for_diff)
+            try:
+                ssim_d = ssim_diff(state.last_kept_small, small_for_diff)
+            except (ValueError, TypeError):
+                ssim_d = 0.0
+
+        frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        embed = self.clip_model.encode_images([frame_pil], batch_size=1)[0]
+
+        drift = 1.0
+        if state.last_kept_embed is not None:
+            drift = float(1.0 - np.dot(state.last_kept_embed, embed))
+
+        time_gap = t_sec - state.last_kept_time
+        keep = (
+            hist_d > settings.HIST_THRESH
+            or ssim_d > settings.HIST_THRESH
+            or drift > settings.EMBED_DRIFT_THRESH
+            or time_gap > settings.MAX_GAP_SEC
+        )
+
+        if not keep:
+            return (None, new_state)
+
+        segment_id = state.segment_count
+        segment_dict = {
+            "segment_id": segment_id,
+            "start_t": t_sec,
+            "end_t": t_sec,
+            "rep_frame_t": t_sec,
+            "rep_frame_path": frame_path,
+        }
+
+        last_kept_small = downsample_gray(frame, settings.STAB_SIZE)
+        frame_id = stable_point_id(video_id, segment_id, int(t_sec * 1000), "frame")
+        payload = {
+            "type": "frame",
+            "video_id": video_id,
+            "segment_id": segment_id,
+            "t_sec": t_sec,
+            "frame_path": frame_path,
+        }
+        vectors = {"clip": embed.tolist()}
+        if self.dino_model:
+            dino_vec = self.dino_model.encode_images([frame_pil], batch_size=1)[0]
+            vectors["dino"] = dino_vec.tolist()
+        frame_point = qmodels.PointStruct(id=frame_id, vector=vectors, payload=payload)
+
+        tile_count = 0
+        tile_points: List[qmodels.PointStruct] = []
+        index_tiles = self.enable_tiles or drift > settings.TILE_INDEX_IF_EMBED_DRIFT_GT
+        if index_tiles:
+            tile_points, tile_count = self._index_tiles(
+                frame, frame_path, video_id, segment_id, t_sec, embed, cell_state
+            )
+
+        new_state = _IndexFrameState(
+            prev_small=small,
+            last_kept_embed=embed,
+            last_kept_time=t_sec,
+            last_kept_frame=frame,
+            last_kept_small=last_kept_small,
+            eff_fps=eff_fps,
+            skip_step=skip_step,
+            segment_count=segment_id + 1,
+        )
+
+        return ((segment_dict, [frame_point] + tile_points, 1 + tile_count), new_state)
+
     def index_video(self, video_path: str, video_id: str, progress_cb=None) -> Dict[str, Any]:
         ensure_dir(settings.VIDEOS_DIR)
         self.logger.info("Indexing video_id=%s path=%s", video_id, video_path)
@@ -65,15 +204,19 @@ class VideoIndexer:
         eff_fps = settings.SAMPLE_FPS_BASE
         skip_step = max(1, int(round(fps / eff_fps)))
 
-        segments = []
+        segments: List[Dict[str, Any]] = []
         points: List[qmodels.PointStruct] = []
 
-        last_kept_embed = None
-        last_kept_time = -1.0
-        last_kept_frame = None
-        last_kept_small = None
-
-        prev_small = None
+        state = _IndexFrameState(
+            prev_small=None,
+            last_kept_embed=None,
+            last_kept_time=-1.0,
+            last_kept_frame=None,
+            last_kept_small=None,
+            eff_fps=eff_fps,
+            skip_step=skip_step,
+            segment_count=0,
+        )
 
         frame_timer = RateTimer()
         embed_timer = RateTimer()
@@ -86,110 +229,24 @@ class VideoIndexer:
         idx = 0
         while idx < len(frames):
             frame_path, t_sec = frames[idx]
-            idx += skip_step
+            idx += state.skip_step
 
             frame = cv2.imread(frame_path)
             if frame is None:
                 continue
             frame_timer.tick()
 
-            small = downsample_gray(frame, settings.STAB_SIZE)
-            if prev_small is None:
-                prev_small = small
-
-            if settings.STAB_ENABLE:
-                aligned, dx, dy, resp = phase_corr_align(prev_small.astype(np.float32), small.astype(np.float32))
-                if resp >= settings.PHASECORR_MIN_RESPONSE and abs(dx) <= settings.STAB_MAX_SHIFT and abs(dy) <= settings.STAB_MAX_SHIFT:
-                    small_for_diff = aligned.astype(np.uint8)
-                else:
-                    small_for_diff = small
-            else:
-                small_for_diff = small
-
-            motion = mean_abs_diff(prev_small, small_for_diff)
-            if motion < settings.MOTION_LOW:
-                eff_fps = max(settings.SAMPLE_FPS_MIN, eff_fps * 0.5)
-            elif motion > settings.MOTION_HIGH:
-                eff_fps = min(settings.SAMPLE_FPS_MAX, eff_fps * 1.5)
-            skip_step = max(1, int(round(fps / eff_fps)))
-            prev_small = small
-
-            if not frame_quality_ok(frame):
-                continue
-
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            hist_d = 0.0
-            ssim_d = 0.0
-            if last_kept_small is not None:
-                hist_d = histogram_diff(last_kept_small, small_for_diff)
-                try:
-                    ssim_d = ssim_diff(last_kept_small, small_for_diff)
-                except (ValueError, TypeError):
-                    ssim_d = 0.0
-
-            frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            embed = self.clip_model.encode_images([frame_pil], batch_size=1)[0]
+            result, state = self._process_frame(video_id, frame_path, t_sec, frame, state, cell_state)
             embed_timer.tick()
 
-            drift = 1.0
-            if last_kept_embed is not None:
-                drift = float(1.0 - np.dot(last_kept_embed, embed))
-
-            time_gap = t_sec - last_kept_time
-            keep = (
-                hist_d > settings.HIST_THRESH
-                or ssim_d > settings.HIST_THRESH
-                or drift > settings.EMBED_DRIFT_THRESH
-                or time_gap > settings.MAX_GAP_SEC
-            )
-
-            if not keep:
+            if result is None:
                 continue
 
-            segment_id = len(segments)
-            segments.append(
-                {
-                    "segment_id": segment_id,
-                    "start_t": t_sec,
-                    "end_t": t_sec,
-                    "rep_frame_t": t_sec,
-                    "rep_frame_path": frame_path,
-                }
-            )
-
-            last_kept_embed = embed
-            last_kept_time = t_sec
-            last_kept_frame = frame
-            last_kept_small = downsample_gray(frame, settings.STAB_SIZE)
-
-            frame_id = stable_point_id(video_id, segment_id, int(t_sec * 1000), "frame")
-            payload = {
-                "type": "frame",
-                "video_id": video_id,
-                "segment_id": segment_id,
-                "t_sec": t_sec,
-                "frame_path": frame_path,
-            }
-            vectors = {"clip": embed.tolist()}
-            if self.dino_model:
-                dino_vec = self.dino_model.encode_images([frame_pil], batch_size=1)[0]
-                vectors["dino"] = dino_vec.tolist()
-            points.append(qmodels.PointStruct(id=frame_id, vector=vectors, payload=payload))
+            segment_dict, frame_and_tile_points, count = result
+            segments.append(segment_dict)
+            points.extend(frame_and_tile_points)
             frames_indexed += 1
-
-            index_tiles = self.enable_tiles or drift > settings.TILE_INDEX_IF_EMBED_DRIFT_GT
-            if index_tiles:
-                tile_points, tile_count = self._index_tiles(
-                    frame,
-                    frame_path,
-                    video_id,
-                    segment_id,
-                    t_sec,
-                    embed,
-                    cell_state,
-                )
-                points.extend(tile_points)
-                tiles_indexed += tile_count
+            tiles_indexed += count - 1
 
             if len(points) >= 128:
                 self.store.upsert_points(points)

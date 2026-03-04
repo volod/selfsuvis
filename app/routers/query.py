@@ -13,6 +13,18 @@ from pipeline.config import settings
 
 router = APIRouter(tags=["query"], dependencies=[Depends(require_api_key), Depends(rate_limit)])
 
+_VALID_SEARCH_TYPES = frozenset({"both", "frame", "tile"})
+_VALID_VECTOR_SPACES = frozenset({"clip", "dino"})
+
+
+def _validate_query_params(search_type: str, vector_space: str | None = None) -> str | None:
+    """Return error message if params invalid, else None."""
+    if search_type not in _VALID_SEARCH_TYPES:
+        return "search_type must be both, frame, or tile"
+    if vector_space is not None and vector_space not in _VALID_VECTOR_SPACES:
+        return "vector_space must be clip or dino"
+    return None
+
 
 @router.post(
     "/query/image",
@@ -27,10 +39,9 @@ async def query_image(
     vector_space: str = Form(default="clip"),
     enable_rerank: bool = Form(default=True),
 ):
-    if search_type not in ("both", "frame", "tile"):
-        return error_response("search_type must be both, frame, or tile")
-    if vector_space not in ("clip", "dino"):
-        return error_response("vector_space must be clip or dino")
+    err = _validate_query_params(search_type, vector_space)
+    if err:
+        return error_response(err)
     try:
         content = await read_upload_limited(file, settings.MAX_UPLOAD_BYTES)
     except ValueError as exc:
@@ -74,8 +85,9 @@ async def query_text(
     search_type: str = Query(default="both"),
     enable_rerank: bool = Query(default=True),
 ):
-    if search_type not in ("both", "frame", "tile"):
-        return error_response("search_type must be both, frame, or tile")
+    err = _validate_query_params(search_type)
+    if err:
+        return error_response(err)
     text = payload.text
     clip_vec = clip_model.encode_texts([text], batch_size=1)[0]
     results = search_vectors(

@@ -78,6 +78,7 @@ def main() -> None:
             )
         except Exception as exc:
             logger.exception("Job failed id=%s error=%s", job_id, exc)
+            # Only upsert error state if we have a valid video_path (may be undefined if failure was early)
             if "video_path" in locals() and video_path and os.path.exists(video_path):
                 try:
                     size_bytes = os.path.getsize(video_path)

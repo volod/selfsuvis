@@ -1,13 +1,13 @@
 import os
 import pathlib
 import uuid
-from typing import Optional
+from typing import Generator, Optional, Tuple
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from app.api_utils import ERROR_RESPONSES, error_response
 from app.deps import rate_limit, require_api_key
-from app.services.upload_utils import hash_upload_limited
+from app.services.upload_utils import hash_upload_limited, write_upload_to_path
 from app.state import logger
 from pipeline.config import settings
 from pipeline.net_utils import safe_request, validate_url
@@ -36,6 +36,39 @@ def _check_dir_limits(root: str, base: str, file_count: int, total_bytes: int) -
     return ""
 
 
+class _DirLimitExceeded(Exception):
+    """Raised when directory scan exceeds configured limits."""
+
+    def __init__(self, msg: str) -> None:
+        self.msg = msg
+        super().__init__(msg)
+
+
+def _iter_video_paths_in_allowed_dir(
+    resolved: str,
+) -> Generator[Tuple[str, str, int, int, bool], None, None]:
+    """Yield (video_path, root, file_count, total_bytes, stat_failed) for each video file.
+    stat_failed is True when os.path.getsize failed. Raises _DirLimitExceeded on limit."""
+    file_count = 0
+    total_bytes = 0
+    for root, _, files in os.walk(resolved):
+        for name in files:
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in settings.VIDEO_EXTS:
+                continue
+            video_path = os.path.join(root, name)
+            try:
+                total_bytes += os.path.getsize(video_path)
+            except OSError:
+                yield (video_path, root, file_count, total_bytes, True)
+                continue
+            file_count += 1
+            limit_error = _check_dir_limits(root, resolved, file_count, total_bytes)
+            if limit_error:
+                raise _DirLimitExceeded(limit_error)
+            yield (video_path, root, file_count, total_bytes, False)
+
+
 @router.post(
     "/index/video",
     summary="Index a video from upload or allowed path",
@@ -56,24 +89,11 @@ async def index_video(
         if upload_ext not in settings.VIDEO_EXTS:
             upload_ext = ".mp4"
         video_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}{upload_ext}")
-        total = 0
-        with open(video_path, "wb") as f:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > settings.MAX_UPLOAD_BYTES:
-                    if os.path.exists(video_path):
-                        try:
-                            os.remove(video_path)
-                        except OSError as e:
-                            logger.warning("Could not remove partial upload path=%s err=%s", video_path, e)
-                    return error_response(
-                        f"Upload exceeds max size {settings.MAX_UPLOAD_BYTES} bytes",
-                        status_code=413,
-                    )
-                f.write(chunk)
+        try:
+            await write_upload_to_path(file, video_path, settings.MAX_UPLOAD_BYTES)
+        except ValueError as exc:
+            logger.warning("Upload overflow path=%s err=%s", video_path, exc)
+            return error_response(str(exc), status_code=413)
     else:
         if path is None:
             return error_response("path required")
@@ -117,65 +137,51 @@ async def index_dir(
     if not os.path.isdir(resolved):
         return error_response("path is not a directory")
     jobs = []
-    file_count = 0
-    total_bytes = 0
-    for root, _, files in os.walk(resolved):
-        for name in files:
-            ext = os.path.splitext(name)[1].lower()
-            if ext not in settings.VIDEO_EXTS:
+    try:
+        for video_path, _, _, _, stat_failed in _iter_video_paths_in_allowed_dir(resolved):
+            if stat_failed:
                 continue
-            video_path = os.path.join(root, name)
-            try:
-                total_bytes += os.path.getsize(video_path)
-            except OSError:
-                continue
-            file_count += 1
-            limit_error = _check_dir_limits(root, resolved, file_count, total_bytes)
-            if limit_error:
-                return error_response(limit_error)
             video_id = uuid.uuid4().hex
             job_id = _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
             jobs.append({"video_id": video_id, "job_id": job_id})
+    except _DirLimitExceeded as e:
+        return error_response(e.msg)
     logger.info("Enqueued directory jobs=%s path=%s", len(jobs), resolved)
     return {"jobs": jobs}
 
 
-@router.post("/index/precheck")
-async def precheck(
-    file: Optional[UploadFile] = File(default=None),
-    path: Optional[str] = Form(default=None),
-    url: Optional[str] = Form(default=None),
-):
-    if not file and not path and not url:
-        return error_response("file, path, or url required")
+async def _precheck_file(file: UploadFile):
+    """Precheck by file upload hash."""
+    try:
+        file_hash, _ = await hash_upload_limited(file, settings.MAX_UPLOAD_BYTES)
+    except ValueError as exc:
+        return error_response(str(exc), status_code=413)
+    existing = get_by_hash(file_hash)
+    if existing:
+        return {"status": "duplicate", "reason": "hash", "existing": existing}
+    return {"status": "new", "reason": "hash", "hash": file_hash}
 
-    if file is not None:
-        try:
-            file_hash, _ = await hash_upload_limited(file, settings.MAX_UPLOAD_BYTES)
-        except ValueError as exc:
-            return error_response(str(exc), status_code=413)
-        existing = get_by_hash(file_hash)
-        if existing:
-            return {"status": "duplicate", "reason": "hash", "existing": existing}
-        return {"status": "new", "reason": "hash", "hash": file_hash}
 
-    if path is not None:
-        resolved = resolve_allowed_path(path, must_be_file=True)
-        if resolved is None:
-            return error_response("path not allowed or not a file", status_code=403)
-        if not os.path.exists(resolved) or not os.path.isfile(resolved):
-            return error_response("path not found")
-        file_hash = file_sha256(resolved)
-        existing = get_by_hash(file_hash)
-        if existing:
-            return {"status": "duplicate", "reason": "hash", "existing": existing}
-        return {"status": "new", "reason": "hash", "hash": file_hash}
+def _precheck_path(path: str):
+    """Precheck by allowed path and file hash."""
+    resolved = resolve_allowed_path(path, must_be_file=True)
+    if resolved is None:
+        return error_response("path not allowed or not a file", status_code=403)
+    if not os.path.exists(resolved) or not os.path.isfile(resolved):
+        return error_response("path not found")
+    file_hash = file_sha256(resolved)
+    existing = get_by_hash(file_hash)
+    if existing:
+        return {"status": "duplicate", "reason": "hash", "existing": existing}
+    return {"status": "new", "reason": "hash", "hash": file_hash}
 
+
+def _precheck_url(url: str):
+    """Precheck by URL (existing by URL or size match)."""
     try:
         validate_url(url)
     except ValueError as exc:
         return error_response(str(exc))
-
     existing = get_by_url(url)
     if existing:
         return {"status": "duplicate", "reason": "url", "existing": existing}
@@ -193,6 +199,21 @@ async def precheck(
     return {"status": "unknown", "reason": "url_unmatched", "size_bytes": size}
 
 
+@router.post("/index/precheck")
+async def precheck(
+    file: Optional[UploadFile] = File(default=None),
+    path: Optional[str] = Form(default=None),
+    url: Optional[str] = Form(default=None),
+):
+    if not file and not path and not url:
+        return error_response("file, path, or url required")
+    if file is not None:
+        return await _precheck_file(file)
+    if path is not None:
+        return _precheck_path(path)
+    return _precheck_url(url)
+
+
 @router.post("/index/precheck_dir")
 async def precheck_dir(
     path: str = Form(...),
@@ -206,23 +227,11 @@ async def precheck_dir(
         return error_response("path is not a directory")
     results = []
     jobs = []
-    file_count = 0
-    total_bytes = 0
-    for root, _, files in os.walk(resolved):
-        for name in files:
-            ext = os.path.splitext(name)[1].lower()
-            if ext not in settings.VIDEO_EXTS:
-                continue
-            video_path = os.path.join(root, name)
-            try:
-                total_bytes += os.path.getsize(video_path)
-            except OSError:
+    try:
+        for video_path, _, _, _, stat_failed in _iter_video_paths_in_allowed_dir(resolved):
+            if stat_failed:
                 results.append({"filename": os.path.basename(video_path), "status": "error", "reason": "stat_failed"})
                 continue
-            file_count += 1
-            limit_error = _check_dir_limits(root, resolved, file_count, total_bytes)
-            if limit_error:
-                return error_response(limit_error)
             try:
                 file_hash = file_sha256(video_path)
             except OSError as e:
@@ -242,5 +251,7 @@ async def precheck_dir(
                     entry["job_id"] = job_id
                     jobs.append({"video_id": video_id, "job_id": job_id})
                 results.append(entry)
+    except _DirLimitExceeded as e:
+        return error_response(e.msg)
     logger.info("Precheck dir path=%s results=%s enqueue=%s", resolved, len(results), enqueue)
     return {"results": results, "jobs": jobs if enqueue else []}

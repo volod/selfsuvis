@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import cv2
 
+from pipeline.config import settings
 from pipeline.elastic_indexer import bulk_index_jsonl
 from pipeline.frame_extractor import (
     extract_frames_adaptive,
@@ -12,9 +13,6 @@ from pipeline.frame_extractor import (
     FrameRecord,
 )
 from pipeline.logging_utils import get_logger
-
-
-VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi"}
 
 
 def _run_metadata(args: argparse.Namespace, mode: str, video_path: Optional[str] = None, stream_source: Optional[str] = None) -> Dict[str, Any]:
@@ -57,7 +55,7 @@ def _list_videos(path: str) -> List[str]:
     videos: List[str] = []
     for root, _, files in os.walk(path):
         for name in files:
-            if os.path.splitext(name)[1].lower() in VIDEO_EXTS:
+            if os.path.splitext(name)[1].lower() in settings.VIDEO_EXTS:
                 videos.append(os.path.join(root, name))
     return videos
 

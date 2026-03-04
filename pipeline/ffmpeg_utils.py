@@ -24,7 +24,7 @@ def extract_frames(video_path: str, video_id: str) -> List[Tuple[str, float]]:
         "2",
         pattern,
     ]
-    logger.info("Running ffmpeg: %s", " ".join(cmd))
+    logger.info("Running ffmpeg for video_id=%s", video_id)
     subprocess.run(cmd, check=True, timeout=settings.FFMPEG_TIMEOUT_SEC)
 
     frames = sorted([f for f in os.listdir(out_dir) if f.startswith("frame_")])

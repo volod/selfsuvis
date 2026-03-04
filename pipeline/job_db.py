@@ -29,11 +29,6 @@ def _get_conn() -> sqlite3.Connection:
     return _conn_local.conn
 
 
-def _connect() -> sqlite3.Connection:
-    """Return connection for use in with-blocks. Prefer _get_conn for simple ops."""
-    return _get_conn()
-
-
 def init_db() -> None:
     conn = _get_conn()
     with conn:
