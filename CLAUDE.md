@@ -11,6 +11,8 @@ Local video semantic search server: index videos by content, then search by text
 ### Development environment
 ```bash
 make venv          # Create .venv and install all deps (requires uv on PATH)
+make venv-pip      # Install pip into an existing .venv (if uv created it without pip)
+make docker-check  # Verify Docker daemon is reachable (run if you get permission denied)
 ```
 
 ### Run the stack
@@ -35,6 +37,7 @@ make test-unit-no-cv2
 # Integration tests (requires Docker; uses GPU by default)
 make test
 make test-no-gpu   # If NVIDIA Container Toolkit is not installed
+INDEX_DIR_PATH=/your/path make test  # Override the directory used in dir-indexing tests
 ```
 
 ### Lint
@@ -58,7 +61,7 @@ make lint          # ruff check + ruff format --check
 The indexing pipeline lives entirely in `pipeline/` and is driven by `VideoIndexer` in `pipeline/indexer.py`:
 
 1. **Frame extraction** (`ffmpeg_utils.py`) — ffmpeg decodes at `SAMPLE_FPS_MAX`
-2. **Adaptive sampling + stabilisation** (`heuristics.py`) — histogram diff, phase correlation, embed drift, motion level
+2. **Adaptive sampling + stabilisation** (`heuristics.py`, `frame_extractor.py`) — keep/skip decision centralised in `_should_keep_frame()` (histogram diff, mean abs diff, SSIM); phase correlation, embed drift, and motion level used later in `indexer.py`
 3. **Segment / keyframe selection** — per-segment keyframes chosen
 4. **Full-frame CLIP embedding** — each keyframe embedded and upserted to Qdrant
 5. **Tile extraction** (`TILE_SIZE`/`STRIDE`) — overlapping sliding window

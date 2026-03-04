@@ -104,16 +104,16 @@ with tab_image:
 
 with tab_text:
     st.header("Text Query")
-    text = st.text_input("Query", value="green field")
-    search_type_t = st.selectbox("Search type", ["both", "frame", "tile"], index=0, key="text_type")
-    enable_rerank_t = st.checkbox("Enable rerank", value=True, key="text_rerank")
-    top_k_t = st.slider("Top-K", min_value=5, max_value=50, value=20, key="text_topk")
+    text = st.text_input("Query", value="green field", max_chars=1000)
+    search_type_text = st.selectbox("Search type", ["both", "frame", "tile"], index=0, key="text_type")
+    enable_rerank_text = st.checkbox("Enable rerank", value=True, key="text_rerank")
+    top_k_text = st.slider("Top-K", min_value=5, max_value=50, value=20, key="text_topk")
     if st.button("Search", key="text_search"):
         payload = {"text": text}
         params = {
-            "top_k": top_k_t,
-            "search_type": search_type_t,
-            "enable_rerank": enable_rerank_t,
+            "top_k": top_k_text,
+            "search_type": search_type_text,
+            "enable_rerank": enable_rerank_text,
         }
         resp = requests.post(f"{API_URL}/query/text", json=payload, params=params, headers=_HEADERS)
         if resp.ok:

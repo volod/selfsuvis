@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from typing import Optional
 
 from pipeline.job_db import init_db, fetch_and_claim_next_pending, update_job
 from pipeline.indexer import VideoIndexer
@@ -32,6 +33,7 @@ def main() -> None:
         def progress_cb(progress):
             update_job(job_id, progress=progress)
 
+        video_path: Optional[str] = None
         try:
             video_id = payload["video_id"]
             video_path = payload.get("video_path")
@@ -78,8 +80,8 @@ def main() -> None:
             )
         except Exception as exc:
             logger.exception("Job failed id=%s error=%s", job_id, exc)
-            # Only upsert error state if we have a valid video_path (may be undefined if failure was early)
-            if "video_path" in locals() and video_path and os.path.exists(video_path):
+            # Only upsert error state if video_path was set and the file exists
+            if video_path and os.path.exists(video_path):
                 try:
                     size_bytes = os.path.getsize(video_path)
                     mtime = os.path.getmtime(video_path)

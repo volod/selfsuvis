@@ -13,22 +13,24 @@ async def write_upload_to_path(
     chunk_size: int = 1024 * 1024,
 ) -> int:
     """Stream upload to dest_path, enforcing max_bytes. Returns total bytes written.
-    On overflow, removes partial file and raises ValueError."""
+    On overflow, closes and removes the partial file, then raises ValueError."""
     total = 0
-    with open(dest_path, "wb") as f:
-        while True:
-            chunk = await file.read(chunk_size)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > max_bytes:
-                if os.path.exists(dest_path):
-                    try:
-                        os.remove(dest_path)
-                    except OSError:
-                        pass
-                raise ValueError(f"Upload exceeds max size {max_bytes} bytes")
-            f.write(chunk)
+    try:
+        with open(dest_path, "wb") as f:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise ValueError(f"Upload exceeds max size {max_bytes} bytes")
+                f.write(chunk)
+    except ValueError:
+        try:
+            os.remove(dest_path)
+        except OSError:
+            pass
+        raise
     return total
 
 

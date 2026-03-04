@@ -81,29 +81,32 @@ def safe_request(
 ) -> requests.Response:
     max_redirects = settings.MAX_REDIRECTS if max_redirects is None else max_redirects
     session = requests.Session()
-    current = url
-    for _ in range(max_redirects + 1):
-        validate_url(current)
-        resp = session.request(
-            method,
-            current,
-            timeout=timeout,
-            allow_redirects=False,
-            stream=stream,
-            **kwargs,
-        )
-        if resp.is_redirect or resp.is_permanent_redirect:
-            location = resp.headers.get("Location")
-            resp.close()
-            if not location:
-                raise ValueError("Redirect without location")
-            current = urljoin(current, location)
-            continue
-        # Post-connect validation: re-check the actual peer IP to close the
-        # DNS-rebinding window between pre-connect resolve and TCP connect.
-        peer = _peer_ip(resp)
-        if peer is not None and not _is_ip_allowed(peer):
-            resp.close()
-            raise ValueError(f"Post-connect IP validation failed: {peer} is not allowed")
-        return resp
-    raise ValueError("Too many redirects")
+    try:
+        current = url
+        for _ in range(max_redirects + 1):
+            validate_url(current)
+            resp = session.request(
+                method,
+                current,
+                timeout=timeout,
+                allow_redirects=False,
+                stream=stream,
+                **kwargs,
+            )
+            if resp.is_redirect or resp.is_permanent_redirect:
+                location = resp.headers.get("Location")
+                resp.close()
+                if not location:
+                    raise ValueError("Redirect without location")
+                current = urljoin(current, location)
+                continue
+            # Post-connect validation: re-check the actual peer IP to close the
+            # DNS-rebinding window between pre-connect resolve and TCP connect.
+            peer = _peer_ip(resp)
+            if peer is not None and not _is_ip_allowed(peer):
+                resp.close()
+                raise ValueError(f"Post-connect IP validation failed: {peer} is not allowed")
+            return resp
+        raise ValueError("Too many redirects")
+    finally:
+        session.close()

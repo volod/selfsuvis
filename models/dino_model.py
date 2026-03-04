@@ -24,7 +24,12 @@ class DINOEmbedder:
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]
         )
-        self.logger.info("DINO loaded: %s on %s", model_name, self.device)
+        # Cache the embedding dimension so we can return a correct empty array
+        # without a forward pass. Dimension varies by model variant (e.g. 768 for
+        # vitb14, 1024 for vitl14).
+        dummy = Image.new("RGB", (224, 224))
+        self._embed_dim: int = self.encode_images([dummy], batch_size=1).shape[1]
+        self.logger.info("DINO loaded: %s on %s (dim=%d)", model_name, self.device, self._embed_dim)
 
     def _resolve_device(self) -> str:
         if settings.DEVICE == "cpu":
@@ -60,8 +65,8 @@ class DINOEmbedder:
             feats = torch.nn.functional.normalize(feats, dim=-1)
             embeddings.append(feats.detach().cpu().numpy())
         if not embeddings:
-            return np.zeros((0, 768), dtype=np.float32)
+            return np.zeros((0, self._embed_dim), dtype=np.float32)
         return np.vstack(embeddings).astype(np.float32)
 
     def image_dim(self) -> int:
-        return self.encode_images([Image.new("RGB", (224, 224))]).shape[1]
+        return self._embed_dim
