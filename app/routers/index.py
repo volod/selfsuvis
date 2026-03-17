@@ -46,27 +46,26 @@ class _DirLimitExceeded(Exception):
 
 def _iter_video_paths_in_allowed_dir(
     resolved: str,
-) -> Generator[Tuple[str, str, int, int, bool], None, None]:
-    """Yield (video_path, root, file_count, total_bytes, stat_failed) for each video file.
+) -> Generator[Tuple[str, bool], None, None]:
+    """Yield (video_path, stat_failed) for each video file under `resolved`.
     stat_failed is True when os.path.getsize failed. Raises _DirLimitExceeded on limit."""
     file_count = 0
     total_bytes = 0
     for root, _, files in os.walk(resolved):
         for name in files:
-            ext = os.path.splitext(name)[1].lower()
-            if ext not in settings.VIDEO_EXTS:
+            if os.path.splitext(name)[1].lower() not in settings.VIDEO_EXTS:
                 continue
             video_path = os.path.join(root, name)
             try:
                 total_bytes += os.path.getsize(video_path)
             except OSError:
-                yield (video_path, root, file_count, total_bytes, True)
+                yield video_path, True
                 continue
             file_count += 1
             limit_error = _check_dir_limits(root, resolved, file_count, total_bytes)
             if limit_error:
                 raise _DirLimitExceeded(limit_error)
-            yield (video_path, root, file_count, total_bytes, False)
+            yield video_path, False
 
 
 @router.post(
@@ -138,7 +137,7 @@ async def index_dir(
         return error_response("path is not a directory")
     jobs = []
     try:
-        for video_path, _, _, _, stat_failed in _iter_video_paths_in_allowed_dir(resolved):
+        for video_path, stat_failed in _iter_video_paths_in_allowed_dir(resolved):
             if stat_failed:
                 continue
             video_id = uuid.uuid4().hex
@@ -228,7 +227,7 @@ async def precheck_dir(
     results = []
     jobs = []
     try:
-        for video_path, _, _, _, stat_failed in _iter_video_paths_in_allowed_dir(resolved):
+        for video_path, stat_failed in _iter_video_paths_in_allowed_dir(resolved):
             if stat_failed:
                 results.append({"filename": os.path.basename(video_path), "status": "error", "reason": "stat_failed"})
                 continue

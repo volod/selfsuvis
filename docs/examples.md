@@ -1,10 +1,11 @@
 # Examples
 
 ## End-to-end test
-1. `docker compose up --build`
-2. Upload a sample flight video in the UI
-3. Run text query: `green field`
-4. Run image query with a reference crop
+1. `make up`
+2. Open http://localhost:8501
+3. Upload a video or provide a URL
+4. Run text query (e.g. "green field")
+5. Run image query with a reference crop
 
 ## CLI flow (index + query)
 ```bash
@@ -15,3 +16,6 @@
 ```bash
 ./scripts/precheck_dir.sh /path/to/video_dir true true
 ```
+
+---
+[← Architecture](architecture.md) | [Data layout →](data_layout.md)

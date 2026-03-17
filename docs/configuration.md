@@ -1,6 +1,6 @@
 # Configuration
 
-Defaults live in `pipeline/config.py` and can be overridden with env vars.
+Defaults are in `env/dev.env`, `env/test.env`, and `env/prod.env`. Set `APP_ENV` (dev|test|prod) to select; env vars override file values. See `env/README.md`.
 
 Key variables:
 - `MODEL_NAME` = openclip | dinov2 | dinov3
@@ -56,3 +56,6 @@ The Streamlit UI reads `API_KEY` from the environment and forwards it as `X-API-
 ### Re-indexing after upgrade
 
 Qdrant point IDs are derived from video/frame/tile metadata using SHA-256 (changed from SHA-1 in a previous release). If upgrading from an older version, run `scripts/reset_qdrant.sh` and re-index all videos to avoid ID collisions with stale data.
+
+---
+[← Helpers](helpers.md) | [Architecture →](architecture.md)

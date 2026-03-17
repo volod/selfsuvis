@@ -1,21 +1,40 @@
+# Run all services as current host user so data/cache dirs are owned by you.
+# Requires: UID and GID env vars (make up sets these automatically).
+# Loads env/prod.env by default; set APP_ENV=dev or APP_ENV=test to use other env files.
+
 services:
   qdrant:
-    image: qdrant/qdrant:v1.7.4
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.qdrant
+    user: "0:0"
+    environment:
+      - UID=${UID}
+      - GID=${GID}
     ports:
       - "6333:6333"
     volumes:
       - ../data/qdrant:/qdrant/storage
+      - ../docker/qdrant-config.yaml:/qdrant/config/config.yaml:ro
 
   api:
     build:
       context: ..
       dockerfile: docker/Dockerfile.api
+    user: "${UID}:${GID}"
+    env_file:
+      - ../env/prod.env
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - DATA_DIR=/app/data
+      - HOME=/app/cache
+      - XDG_CACHE_HOME=/app/cache
+      - TORCH_HOME=/app/cache/torch
+      - OPENCLIP_CACHE_DIR=/app/cache/open_clip
     volumes:
       - ../data:/app/data
+      - ../cache:/app/cache
     ports:
       - "8000:8000"
     depends_on:
@@ -30,12 +49,20 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.worker
+    user: "${UID}:${GID}"
+    env_file:
+      - ../env/prod.env
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - DATA_DIR=/app/data
+      - HOME=/app/cache
+      - XDG_CACHE_HOME=/app/cache
+      - TORCH_HOME=/app/cache/torch
+      - OPENCLIP_CACHE_DIR=/app/cache/open_clip
     volumes:
       - ../data:/app/data
+      - ../cache:/app/cache
     depends_on:
       - qdrant
     deploy:
@@ -48,6 +75,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ui
+    user: "${UID}:${GID}"
+    env_file:
+      - ../env/prod.env
     environment:
       - API_URL=http://api:8000
       - DATA_DIR=/app/data

@@ -1,5 +1,11 @@
 # Helpers
 
+## Install scripts (run with sudo when noted)
+- `./scripts/install_system_deps.sh` — ffmpeg, OpenCV deps (Linux). Add `--with-python` for Python/venv.
+- `./scripts/install_nvidia_docker.sh` — NVIDIA Container Toolkit for Docker GPU
+- `./scripts/install_requirements.sh` — install Python deps into venv (called by `make venv`)
+- `./scripts/ensure_venv_pip.sh` — ensure pip in venv (called by `make venv`)
+
 ## Pre-download weights for offline use
 ```bash
 python scripts/prepare_models.py
@@ -7,6 +13,8 @@ DOWNLOAD_DINO=true DINO_MODEL=dinov2_vitb14 python scripts/prepare_models.py
 ```
 
 ## Sample API flow (index + query)
+
+Scripts use `API_URL` (default `http://localhost:8000`). When `API_KEY` is set, add `-H "X-API-Key: $API_KEY"` to curl calls.
 ```bash
 ./scripts/sample_requests.sh /path/to/video.mp4 /path/to/image.jpg
 ```
@@ -58,3 +66,12 @@ python scripts/list_processed.py
 ```bash
 python scripts/hash_video.py /path/to/video.mp4
 ```
+
+## Test CLI (end-to-end)
+```bash
+./scripts/test_cli.sh
+```
+Requires `make up` running. Indexes test assets and runs text/image queries.
+
+---
+[← UI](ui.md) | [Configuration →](configuration.md)

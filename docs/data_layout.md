@@ -1,6 +1,6 @@
 # Data Layout
 
-Default data root is `./data`.
+Default data root is `./data`. Model cache is `./cache`.
 
 ```
 ./data/
@@ -10,4 +10,13 @@ Default data root is `./data`.
   qdrant/        Qdrant storage volume
   jobs.db        job queue state
   processed.db   dedup registry (hash-based)
+
+./cache/        model downloads (torch, open_clip)
+  torch/
+  open_clip/
 ```
+
+`make up` creates `data/` and `cache/` with correct ownership. Integration tests use `./data_test` and `./cache_test` instead.
+
+---
+[← Examples](examples.md) | [Performance →](performance.md)

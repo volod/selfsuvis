@@ -66,3 +66,6 @@ DEDUP_COS_SIM_THRESH=0.97
 PHASH_HAMMING_MAX=4
 CELL_WINDOW_SEC=8
 ```
+
+---
+[← Data layout](data_layout.md) | [Troubleshooting →](troubleshooting.md)

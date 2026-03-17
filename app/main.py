@@ -1,9 +1,11 @@
-from fastapi import FastAPI, Request
+from fastapi import Request
+from fastapi.responses import HTMLResponse
 
 from app.routers.health import router as health_router
 from app.routers.index import router as index_router
 from app.routers.jobs import router as jobs_router
 from app.routers.query import router as query_router
+from app.services.form_templates import get_index_form_html
 
 app = FastAPI()
 
@@ -21,3 +23,9 @@ app.include_router(health_router)
 app.include_router(index_router)
 app.include_router(jobs_router)
 app.include_router(query_router)
+
+
+@app.get("/index/form", response_class=HTMLResponse, include_in_schema=False)
+async def index_form():
+    """Simple HTML form to upload a local video or submit a URL for indexing."""
+    return get_index_form_html()

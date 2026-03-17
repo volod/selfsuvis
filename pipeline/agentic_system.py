@@ -84,6 +84,18 @@ def _segment_kmeans(frame_bgr: np.ndarray, k: int = 4) -> List[Segment]:
     return segments
 
 
+def _bbox_iou(a: Segment, b: Segment) -> float:
+    """Intersection-over-union for two bounding boxes."""
+    ax, ay, aw, ah = a.bbox
+    bx, by, bw, bh = b.bbox
+    ix1, iy1 = max(ax, bx), max(ay, by)
+    ix2, iy2 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    if ix2 <= ix1 or iy2 <= iy1:
+        return 0.0
+    inter = (ix2 - ix1) * (iy2 - iy1)
+    return inter / max(aw * ah + bw * bh - inter, 1)
+
+
 def image_to_text_agent(
     frame_bgr: np.ndarray,
     tagger: Optional[Any] = None,
@@ -162,30 +174,17 @@ def matching_agent(
     tracks: List[Dict[str, Any]] = []
     updated_tracks: Dict[str, int] = {}
 
-    def iou(a: Segment, b: Segment) -> float:
-        ax, ay, aw, ah = a.bbox
-        bx, by, bw, bh = b.bbox
-        ax2, ay2 = ax + aw, ay + ah
-        bx2, by2 = bx + bw, by + bh
-        inter_x1, inter_y1 = max(ax, bx), max(ay, by)
-        inter_x2, inter_y2 = min(ax2, bx2), min(ay2, by2)
-        if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
-            return 0.0
-        inter = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
-        union = aw * ah + bw * bh - inter
-        return inter / max(union, 1)
-
     for seg in segments:
         track_id = None
         if prev_segments:
-            best = 0.0
+            best_score = 0.0
             best_seg = None
             for prev in prev_segments:
-                score = iou(seg, prev)
-                if score > best:
-                    best = score
+                score = _bbox_iou(seg, prev)
+                if score > best_score:
+                    best_score = score
                     best_seg = prev
-            if best_seg and best >= iou_threshold:
+            if best_seg and best_score >= iou_threshold:
                 track_id = prev_tracks.get(best_seg.segment_id)
         if track_id is None:
             track_id = next_track_id
@@ -202,6 +201,22 @@ def matching_agent(
     return tracks, updated_tracks, next_track_id
 
 
+def _build_ontology_entities(ontology: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Flatten ontology entities dict into a list for the frame record."""
+    result = []
+    for name, ent in ontology.get("entities", {}).items():
+        colors = ent.get("colors", {})
+        dominant_color = max(colors, key=colors.get) if colors else None
+        result.append({
+            "name": name,
+            "count": ent.get("count", 0),
+            "first_seen": ent.get("first_seen"),
+            "last_seen": ent.get("last_seen"),
+            "dominant_color": dominant_color,
+        })
+    return result
+
+
 def _process_frame_to_record(
     rec: Any,
     video_name: str,
@@ -213,8 +228,8 @@ def _process_frame_to_record(
     next_track_id: int,
     base_metadata: Dict[str, Any],
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], Optional[List[Segment]], Dict[str, int], int]:
-    """Process one frame through agents and return (record_dict, ontology, prev_segments, prev_tracks, next_track_id).
-    Returns (None, ontology, ...) if frame could not be read."""
+    """Process one frame through agents. Returns (record_dict, ontology, prev_segments, prev_tracks, next_track_id).
+    record_dict is None if the frame could not be read."""
     frame = cv2.imread(rec.path)
     if frame is None:
         return (None, ontology, prev_segments, prev_tracks, next_track_id)
@@ -222,11 +237,7 @@ def _process_frame_to_record(
     description, segments = image_to_text_agent(frame, tagger=tagger, segmenter=segmenter)
     warnings = recognition_correctness_agent(description, segments)
     ontology = ontology_agent(ontology, segments, rec.index, rec.t_sec)
-
-    tracks, prev_tracks, next_track_id = matching_agent(
-        segments, prev_segments, prev_tracks, next_track_id
-    )
-    prev_segments = segments
+    tracks, prev_tracks, next_track_id = matching_agent(segments, prev_segments, prev_tracks, next_track_id)
 
     entities = [
         {
@@ -237,22 +248,6 @@ def _process_frame_to_record(
         }
         for seg in segments
     ]
-
-    ontology_entities = []
-    for name, ent in ontology.get("entities", {}).items():
-        colors = ent.get("colors", {})
-        dominant = None
-        if colors:
-            dominant = max(colors.items(), key=lambda item: item[1])[0]
-        ontology_entities.append(
-            {
-                "name": name,
-                "count": ent.get("count", 0),
-                "first_seen": ent.get("first_seen"),
-                "last_seen": ent.get("last_seen"),
-                "dominant_color": dominant,
-            }
-        )
 
     record = formatter_agent(
         video_name=video_name,
@@ -266,10 +261,10 @@ def _process_frame_to_record(
         tracks=tracks,
         warnings=warnings,
         frame_path=rec.path,
-        ontology_entities=ontology_entities,
+        ontology_entities=_build_ontology_entities(ontology),
         metadata=base_metadata,
     )
-    return (record, ontology, prev_segments, prev_tracks, next_track_id)
+    return (record, ontology, segments, prev_tracks, next_track_id)
 
 
 def formatter_agent(

@@ -1,4 +1,4 @@
-.PHONY: help up down logs venv venv-pip docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint
+.PHONY: help up down logs data-dirs fix-data venv venv-pip docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint
 
 # Default target: show help when no target is given
 help:
@@ -35,17 +35,23 @@ help:
 	@echo "  Docker permission denied:  sudo usermod -aG docker \$$USER  then log out and back in (or newgrp docker)"
 	@echo "  GPU driver error:           sudo ./scripts/install_nvidia_docker.sh  or  make test-no-gpu"
 	@echo "  Unable to open database:   sudo chown -R \$$(id -u):\$$(id -g) data_test cache_test"
+	@echo "  Root-owned data/cache:    make fix-data"
 	@echo ""
 	@echo "  Run  make <target>  or  make help  to show this again."
 
-up: docker-check
-	docker compose up --build
+# Ensure data/cache dirs exist and are owned by current user (avoids root-owned files from containers)
+# Pre-create Qdrant Snapshots dir to avoid "Permission denied" when running as non-root
+data-dirs:
+	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/qdrant/Snapshots cache && chown -R $$HOST_UID:$$HOST_GID data cache' 2>/dev/null && echo "Data directories data and cache are ready." || (mkdir -p data/qdrant/Snapshots cache && echo "Created data and cache. If Qdrant fails with Permission denied, run: make fix-data")
+
+up: docker-check data-dirs
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml up --build
 
 down: docker-check
-	docker compose down
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml down
 
 logs: docker-check
-	docker compose logs -f --tail=100
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml logs -f --tail=100
 
 venv:
 	uv venv .venv
@@ -55,6 +61,11 @@ venv:
 # Install pip into existing .venv (when uv created it without pip)
 venv-pip:
 	./scripts/ensure_venv_pip.sh .venv
+
+# Fix ownership of data and cache (run if Qdrant fails with "Permission denied" on Snapshots)
+fix-data:
+	@echo "Fixing ownership of data/ and cache/..."
+	@sudo chown -R $$(id -u):$$(id -g) data cache 2>/dev/null && echo "Done. Run make up again." || echo "Run: sudo chown -R $$(id -u):$$(id -g) data cache"
 
 # Verify Docker daemon is reachable (fixes permission-denied before running test/up)
 docker-check:

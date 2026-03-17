@@ -1,76 +1,53 @@
 # Tests
 
-## Unit tests (no services required)
-
+## Unit tests (no Docker)
 ```bash
 make test-unit
 # or
 pytest tests/unit/ -v
 ```
 
-Unit tests cover:
-- **utils**: clamp, stable_point_id, file_sha256, file_sha256_bytes, resolve_allowed_path, RateTimer
-- **utils_path**: path validation with ALLOWED_INDEX_PATHS (inside/outside base, must_be_file/dir, traversal)
-- **dedup**: PhashLRU (eviction, near-duplicate), dhash (when cv2 available)
-- **heuristics**: downsample_gray, mean_intensity, histogram_diff, mean_abs_diff, edge_density, tile_std, tile_entropy (when cv2/skimage available)
-- **downloader**: max_bytes limit (Content-Length and stream)
-- **config**: validate_settings, _parse_allowed_paths
-- **job_db**: update_job whitelist
-- **ffmpeg**: extract_frames timeout
-
-## Assets
-Small test videos and a reference image live in:
-```
-./tests/assets/
-```
-
-## API tests (pytest)
-These require a running API + worker + Qdrant.
+Uses `.venv` if present. Skips cv2-dependent tests if numpy/opencv mismatch:
 ```bash
-pytest -q
+make test-unit-no-cv2
 ```
 
-Optional env vars:
-- `API_URL` (default `http://localhost:8000`)
-- `ASSETS_DIR` (default `./tests/assets`)
-- `INDEX_DIR_PATH` (path to a directory for precheck_dir test)
+Unit tests cover: utils, utils_path, dedup, heuristics, downloader, config, job_db, ffmpeg, net_utils, frame_extractor, processed_db, etc.
 
-## CLI test (end-to-end)
+## Integration tests (Docker)
 ```bash
-./scripts/test_cli.sh
+make test          # with GPU
+make test-no-gpu   # without GPU (NVIDIA Container Toolkit not required)
 ```
 
-## Docker Compose test
-```bash
-make test
-```
+Runs `test-dirs` first to create `data_test` and `cache_test` with correct ownership. Then starts api, worker, qdrant, and a tests container. Uses `docker/docker-compose.test.yml` with `ALLOWED_INDEX_PATHS=/app/tests/assets` and `MAX_UPLOAD_BYTES=150000`.
 
-Note: the compose test stack uses `./data_test` as its data volume to avoid polluting `./data`.
-Model weights are cached under `./cache_test` and reused across test runs.
-Containers run as the current host user via `UID`/`GID` to avoid root-owned files in `data_test` and `cache_test`.
-`HOME` is set to `/app/cache` so libraries that default to `~/.cache` still write to a writable location.
-
-## Docker Compose directory test
+Directory-indexing tests:
 ```bash
 make test-dir
 ```
-Runs the same stack as `make test`. Set `INDEX_DIR_PATH` to a path visible to the API container for directory-indexing tests.
+Same as `make test`; `INDEX_DIR_PATH` is set for dir tests.
 
-## Integration tests (refactored functionality)
+## Assets
+```
+./tests/assets/   # small test videos and reference image
+```
 
-When API is running, these tests verify:
-- **Health**: GET /health returns 200 with qdrant connected
-- **Validation**: query_text (missing body, empty text, invalid search_type, invalid top_k), query_image (invalid search_type, invalid vector_space)
-- **Errors**: index_video no file/path (400), job not found (404)
-- **Security**: upload size limit (413), path outside ALLOWED_INDEX_PATHS (403)
+## Integration test coverage
+- Health, index (video/url/dir), precheck, precheck_dir, jobs, query (image/text)
+- Validation, errors (400, 403, 404, 413), job_id validation
 
 ## Lint
 ```bash
 make lint
 ```
-Runs `ruff check` and `ruff format --check`. Install ruff first (e.g. `pip install ruff` or add to dev requirements).
+Runs `ruff check` and `ruff format --check`. Install ruff first (e.g. `pip install ruff`).
 
-## Notes
-- Tests are integration-style and will skip if `API_URL` is unreachable.
-- For directory tests, set `INDEX_DIR_PATH` to a path visible to the API container.
-- docker-compose.test.yml sets ALLOWED_INDEX_PATHS=/app/tests/assets and MAX_UPLOAD_BYTES=150000 for integration tests.
+## CLI test (end-to-end)
+```bash
+./scripts/test_cli.sh
+```
+Requires `make up` running; indexes test assets and runs queries.
+
+---
+[← Licensing](licensing.md) | [README ↑](../README.md)

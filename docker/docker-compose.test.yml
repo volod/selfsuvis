@@ -1,6 +1,8 @@
 services:
   api:
     user: "${UID}:${GID}"
+    env_file:
+      - ../env/test.env
     environment:
       - ALLOWED_INDEX_PATHS=/app/tests/assets
       - BLUR_LAPL_VAR_MIN_FRAME=0
@@ -16,6 +18,8 @@ services:
       - ../cache_test:/app/cache
   worker:
     user: "${UID}:${GID}"
+    env_file:
+      - ../env/test.env
     environment:
       - BLUR_LAPL_VAR_MIN_FRAME=0
       - DATA_DIR=/app/data_test

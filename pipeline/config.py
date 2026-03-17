@@ -1,9 +1,21 @@
 import os
+from pathlib import Path
 from typing import List, Optional
+
+from dotenv import load_dotenv
 
 from pipeline.logging_utils import get_logger
 
 logger = get_logger(__name__)
+
+# Load env file before reading settings. APP_ENV selects env/dev.env, env/test.env, or env/prod.env.
+_env_name = os.getenv("APP_ENV", "dev")
+_env_dir = Path(__file__).resolve().parent.parent / "env"
+_env_file = _env_dir / f"{_env_name}.env"
+if _env_file.exists():
+    load_dotenv(_env_file)
+else:
+    load_dotenv()  # Fallback: project root .env if present
 
 
 def _env(key: str, default: str) -> str:

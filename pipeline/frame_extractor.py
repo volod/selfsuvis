@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Generator, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -53,6 +53,20 @@ def _should_keep_frame(
     return False
 
 
+def _iter_stepped_frames(
+    cap: cv2.VideoCapture, step: int
+) -> Generator[Tuple[int, np.ndarray], None, None]:
+    """Yield (frame_idx, frame_bgr) for every `step`-th decoded frame."""
+    frame_idx = 0
+    while True:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            break
+        if frame_idx % step == 0:
+            yield frame_idx, frame
+        frame_idx += 1
+
+
 def extract_frames_fixed(
     video_path: str,
     out_dir: str,
@@ -103,29 +117,18 @@ def extract_frames_adaptive(
         raise RuntimeError(f"failed to open video: {video_path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-    step = 1
-    if fps > 0 and probe_fps > 0:
-        step = max(1, int(round(fps / probe_fps)))
+    step = max(1, int(round(fps / probe_fps))) if fps > 0 and probe_fps > 0 else 1
 
     frames: List[FrameRecord] = []
     idx = 0
-    frame_idx = 0
     last_kept_small = None
     last_kept_t = -1e9
 
     try:
-        while True:
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                break
-            if frame_idx % step != 0:
-                frame_idx += 1
-                continue
-
+        for frame_idx, frame in _iter_stepped_frames(cap, step):
             t_sec = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
             if t_sec <= 0.0 and fps > 0:
                 t_sec = frame_idx / fps
-
             small = downsample_gray(frame, 64)
             if _should_keep_frame(small, last_kept_small, t_sec, last_kept_t, min_interval_sec, max_gap_sec, diff_threshold):
                 h, w = frame.shape[:2]
@@ -135,8 +138,6 @@ def extract_frames_adaptive(
                 last_kept_small = small
                 last_kept_t = t_sec
                 idx += 1
-
-            frame_idx += 1
     finally:
         cap.release()
 
@@ -159,31 +160,17 @@ def extract_stream_frames(
         raise RuntimeError(f"failed to open stream source: {source}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-    step = 1
-    if fps > 0 and probe_fps > 0:
-        step = max(1, int(round(fps / probe_fps)))
+    step = max(1, int(round(fps / probe_fps))) if fps > 0 and probe_fps > 0 else 1
 
     frames: List[FrameRecord] = []
     idx = 0
-    frame_idx = 0
     last_kept_small = None
     last_kept_t = 0.0
     t_sec = 0.0
 
     try:
-        while True:
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                break
-            if frame_idx % step != 0:
-                frame_idx += 1
-                continue
-
-            if fps > 0:
-                t_sec = frame_idx / fps
-            else:
-                t_sec += 1.0 / max(probe_fps, 1.0)
-
+        for frame_idx, frame in _iter_stepped_frames(cap, step):
+            t_sec = frame_idx / fps if fps > 0 else t_sec + 1.0 / max(probe_fps, 1.0)
             small = downsample_gray(frame, 64)
             if _should_keep_frame(small, last_kept_small, t_sec, last_kept_t, min_interval_sec, max_gap_sec, diff_threshold):
                 h, w = frame.shape[:2]
@@ -195,8 +182,6 @@ def extract_stream_frames(
                 idx += 1
                 if max_frames is not None and idx >= max_frames:
                     break
-
-            frame_idx += 1
     finally:
         cap.release()
 

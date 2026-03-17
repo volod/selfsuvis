@@ -5,3 +5,6 @@
 - DINOv3: license ambiguity; use only if you accept the risk.
 
 This POC does not ship model weights; you download them separately.
+
+---
+[← Troubleshooting](troubleshooting.md) | [Tests →](tests.md)
