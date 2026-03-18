@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data venv venv-pip docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint
+.PHONY: help up down logs data-dirs fix-data venv venv-cuda venv-pip docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint
 
 # Default target: show help when no target is given
 help:
@@ -15,7 +15,8 @@ help:
 	@echo ""
 	@echo "  Local dev (venv)"
 	@echo "  -----------------"
-	@echo "  make venv            Create .venv, install pip, and install Python deps (requires uv on PATH)"
+	@echo "  make venv            Create .venv, install deps; auto-detects CUDA via nvidia-smi (requires uv on PATH)"
+	@echo "  make venv-cuda       Same as venv but forces CUDA wheel install (use if nvidia-smi is absent but GPU present)"
 	@echo "  make venv-pip        Install pip into an existing .venv (e.g. after uv venv .venv)"
 	@echo ""
 	@echo "  Tests"
@@ -57,6 +58,12 @@ venv:
 	uv venv .venv
 	./scripts/ensure_venv_pip.sh .venv
 	./scripts/install_requirements.sh requirements/requirements_dev.txt .venv
+
+# Force CUDA torch wheels regardless of nvidia-smi detection (use when GPU is present but nvidia-smi absent)
+venv-cuda:
+	uv venv .venv
+	./scripts/ensure_venv_pip.sh .venv
+	FORCE_CUDA=1 ./scripts/install_requirements.sh requirements/requirements_dev.txt .venv
 
 # Install pip into existing .venv (when uv created it without pip)
 venv-pip:

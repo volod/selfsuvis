@@ -1,6 +1,8 @@
 # Video Semantic Search (POC)
 
-Semantic search over video content: index videos, then search by text or image. Uses OpenCLIP for embeddings and Qdrant for vector storage.
+Semantic search over video content: 
+index videos, then search by text or image. 
+Uses OpenCLIP for embeddings and Qdrant for vector storage.
 
 ## Quick start
 
@@ -26,3 +28,16 @@ Then open the Streamlit UI (default: http://localhost:8501), upload a video or p
 - [Troubleshooting](docs/troubleshooting.md)
 - [Licensing](docs/licensing.md)
 - [Tests](docs/tests.md)
+
+## Sources 
+- [build-your-own-x](https://github.com/codecrafters-io/build-your-own-x)
+
+- [dinov3 github](https://github.com/facebookresearch/dinov3)
+- [dinov3 paper](https://ai.meta.com/research/publications/dinov3/)
+
+- [self-supervised pretraining](https://arxiv.org/html/2502.11831v1)
+- [V-JEPA 2](https://arxiv.org/abs/2506.09985)
+- [IntPhys 2](https://arxiv.org/abs/2506.09849)
+
+# Skils
+/office-hours → /plan-ceo-review → /plan-eng-review → [build] → /review → /qa → /ship

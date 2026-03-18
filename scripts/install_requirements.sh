@@ -34,30 +34,47 @@ detect_cuda_version() {
 map_cuda_to_torch_index() {
   local cuda_version="$1"
   case "$cuda_version" in
+    13.*) echo "cu126" ;;
+    12.9*) echo "cu126" ;;
+    12.8*) echo "cu126" ;;
+    12.7*) echo "cu126" ;;
+    12.6*) echo "cu126" ;;
+    12.5*) echo "cu126" ;;
     12.4*) echo "cu124" ;;
     12.3*) echo "cu121" ;;
     12.2*) echo "cu121" ;;
     12.1*) echo "cu121" ;;
     12.0*) echo "cu121" ;;
     11.8*) echo "cu118" ;;
-    11.7*) echo "cu117" ;;
-    11.6*) echo "cu116" ;;
-    11.5*) echo "cu115" ;;
-    11.4*) echo "cu113" ;;
+    11.7*) echo "cu118" ;;
+    11.6*) echo "cu118" ;;
     *) echo "" ;;
   esac
 }
 
-# Install deps; numpy<2 is required for opencv-python compatibility (see requirements_prod.txt)
+# Install deps; opencv-python>=4.10 supports numpy 2.x (see requirements_prod.txt)
 uv pip install --python "$VENV_PATH" -r "$REQ_FILE"
 
 CUDA_VERSION=$(detect_cuda_version)
-TORCH_CUDA_INDEX=$(map_cuda_to_torch_index "$CUDA_VERSION")
 
-if [[ -n "$TORCH_CUDA_INDEX" ]]; then
-  if ! uv pip install --python "$VENV_PATH" --upgrade --index-url "https://download.pytorch.org/whl/$TORCH_CUDA_INDEX" torch==2.2.0 torchvision==0.17.0; then
-    uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.2.0 torchvision==0.17.0
+# Allow caller to force a specific CUDA index (e.g. FORCE_CUDA=cu126 or FORCE_CUDA=1 for auto-latest)
+if [[ -n "${FORCE_CUDA:-}" ]]; then
+  if [[ "$FORCE_CUDA" == "1" ]]; then
+    TORCH_CUDA_INDEX="cu126"
+  else
+    TORCH_CUDA_INDEX="$FORCE_CUDA"
   fi
 else
-  uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.2.0 torchvision==0.17.0
+  TORCH_CUDA_INDEX=$(map_cuda_to_torch_index "$CUDA_VERSION")
+fi
+
+if [[ -n "$TORCH_CUDA_INDEX" ]]; then
+  echo "CUDA $CUDA_VERSION detected → installing torch with $TORCH_CUDA_INDEX wheels"
+  if ! uv pip install --python "$VENV_PATH" --upgrade --index-url "https://download.pytorch.org/whl/$TORCH_CUDA_INDEX" torch==2.10.0 torchvision==0.25.0; then
+    echo "CUDA wheel install failed, falling back to CPU"
+    uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.10.0 torchvision==0.25.0
+  fi
+else
+  echo "No CUDA detected → installing CPU-only torch"
+  uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.10.0 torchvision==0.25.0
 fi
