@@ -1,19 +1,41 @@
 # Overview
 
-On-prem, single-machine POC for video semantic search with **image-to-video** and **text-to-video** retrieval. Designed for an NVIDIA GPU (e.g. RTX 3060 12GB) and offline operation after dependencies are installed.
+**Outdoor autonomy perception stack** — spatial memory engine for robotics. Ingest mission video from drones, rovers, or ground vehicles → extract frames → estimate camera poses (pycolmap SfM) → build dense 3D maps (nerfstudio 3DGS) → embed with OpenCLIP + DINOv3 → caption with Florence-2 → store in PostgreSQL + Qdrant → search by text or image.
 
-**Image-to-video**: Given an image (screenshot, photo), find video segments that look similar. Video frames and the query image are embedded with the same OpenCLIP encoder; nearest-neighbor search returns the most similar stored frames.
-
-**Text-to-video**: Given a text query (e.g. "green field"), find matching segments. OpenCLIP maps text and images into a shared embedding space, so text queries search the same frame vectors.
+Each new mission auto-registers against a persistent global 3D map. The system detects environmental change over time across missions. Robots can query the world model during flight via a REST API.
 
 ## Features
-- Video ingestion + segmentation using change detection (histogram + semantic drift + max gap)
-- Adaptive sampling, stabilization-aware motion scoring
+
+**Search and retrieval**
+- Text-to-video and image-to-video retrieval (OpenCLIP shared embedding space)
+- "Find more like this" — similarity search on DINOv3 embeddings (fallback: CLIP)
+- Optional DINOv3 reranking for image queries (70/30 CLIP/DINO blend)
+
+**3D mapping and pose**
+- Camera pose estimation via pycolmap Structure-from-Motion (CPU)
+- 3D Gaussian Splatting reconstruction via nerfstudio splatfacto (GPU, optional)
+- Embedded 3DGS viewer in Streamlit (SuperSplat iframe)
+
+**Multi-mission intelligence**
+- Multi-mission change detection using GPS-bbox Qdrant filter + embedding distance
+- Persistent global map: Phase 1 GPS point cloud in ENU frame (~50km radius)
+- Robot advisory API (`POST /query/pose`) — p99 < 200ms, GPS-based, advisory use only
+
+**Active learning loop**
+- Per-frame uncertainty scoring: `0.6×DINOv3_dist + 0.4×(1−caption_confidence)`
+- Auto-tags top-K frames as `needs_annotation`; novel frames (DINOv3 dist > 0.5) as `novel`
+- Mission summary HTML report auto-generated at end of each mission
+
+**Ingestion**
+- Upload local files, index by path/directory, or submit URL
+- Video streaming via MediaMTX (RTSP/RTMP/WebRTC/HLS)
+- Adaptive sampling + stabilization-aware change detection
 - Full-frame and tile embeddings with dedup heuristics
-- OpenCLIP shared embedding space for text + image queries
-- Optional DINOv2/DINOv3 embeddings for image-only rerank or search
-- Vector search via Qdrant (named vectors: clip, optional dino)
-- FastAPI + Streamlit UI
+
+**Infrastructure**
+- PostgreSQL 16 as primary SQL store (missions, frames, jobs, active learning, global map)
+- Qdrant vector DB (named vectors: `clip`, optional `dino`)
+- Async-native worker with `SELECT FOR UPDATE SKIP LOCKED` for safe concurrent job claiming
 - Docker stack runs as current user; data and cache owned by you
 
 ---

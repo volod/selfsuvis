@@ -4,6 +4,52 @@ How the video indexing pipeline works, how to trigger it, and how to run each st
 
 ## Overview
 
+Two separate frame extraction passes per mission; SfM must complete before 3DGS starts.
+
+```
+Video file / URL / RTSP (MediaMTX)
+      │
+      ├─► GPS extraction          pipeline/gps_extractor.py
+      │   (ffprobe → SRT → GPMF → null fallback)
+      │
+      ├─► Pass A: Dense frames (SFM_FPS=2fps)
+      │      │
+      │      ▼
+      │   SfM (pycolmap)          pipeline/sfm.py   CPU ~5min/1000 frames
+      │      │ pose_status=success
+      │      ▼
+      │   3DGS (nerfstudio)       pipeline/mapper.py  GPU ~10min (separate container)
+      │   → maps/{mission_id}/splat.ply
+      │
+      └─► Pass B: Sparse keyframes (adaptive)
+             │
+             ▼
+          Florence-2 caption      pipeline/florence_model.py
+             │
+             ▼
+          OpenCLIP + DINOv3 embed models/openclip_model.py, models/dino_model.py
+             │
+             ▼
+          Tile extract + filter + dedup  (unchanged from v0)
+             │
+             ▼
+          Qdrant upsert           pipeline/qdrant_utils.py
+          (gps_json, mission_id, pose_json payloads included)
+             │
+             ▼
+          Active learning         pipeline/active_learning.py
+          al_score = 0.6×DINOv3_dist + 0.4×(1−caption_confidence)
+          al_tag: needs_annotation > novel > none
+             │
+             ▼
+          Mission report          pipeline/report_generator.py → reports/{id}/summary.html
+             │
+             ▼
+          Change detection        pipeline/change_detection.py → change_detections table
+```
+
+### Legacy search-only overview (steps 1–8, unchanged)
+
 ```
 Video file / URL
       │
@@ -14,7 +60,7 @@ Video file / URL
 2. Adaptive sampling     motion/quality/SSIM check → keep or skip
       │
       ▼
-3. Full-frame embedding  OpenCLIP → 512-d CLIP vector (+ optional DINOv2)
+3. Full-frame embedding  OpenCLIP → CLIP vector (+ optional DINOv3)
       │
       ▼
 4. Segment upsert        Qdrant "frame" points
@@ -415,15 +461,103 @@ Output files:
 
 ---
 
+## New pipeline stages (v1)
+
+### GPS extraction (`pipeline/gps_extractor.py`)
+
+Auto-detects GPS telemetry from drone video in priority order:
+1. ffprobe GPS atoms (MP4 location tag, some DJI formats)
+2. SRT sidecar file (same filename, `.srt` extension — standard DJI format)
+3. GPMF binary format (GoPro Max, GoPro Hero)
+4. Null fallback with warning
+
+Output: `List[Optional[dict]]` with `{lat, lon, alt, timestamp_ms}` per frame, synced to frame timestamps from ffprobe. Written to `frames.gps_json` per keyframe.
+
+Override auto-detection: `GPS_SIDECAR_PATH=/path/to/file.srt`
+
+---
+
+### Structure-from-Motion (`pipeline/sfm.py`)
+
+Runs pycolmap on the **dense frame set** (extracted at `SFM_FPS=2fps`). Outputs per-frame `pose_json` (`{rotation_matrix, translation, intrinsics}`). Sets `missions.pose_status` to `success` or `failed`.
+
+Camera model: `PYCOLMAP_CAMERA_MODEL` env var (default `SIMPLE_RADIAL`). Set `PINHOLE` or `RADIAL` for known drone hardware (DJI, GoPro) to significantly improve pose accuracy.
+
+Estimated runtime: ~5 minutes per 1000 frames on CPU.
+
+---
+
+### 3DGS reconstruction (`pipeline/mapper.py`)
+
+Runs nerfstudio `splatfacto` in a separate Docker container via HTTP. Triggered only after `pose_status=success`. Sequential: SfM must complete first (v1 design).
+
+Output: `maps/{mission_id}/splat.ply` — viewable via the SuperSplat iframe in Streamlit.
+
+Estimated runtime: ~10 minutes on GPU. Set `NERFSTUDIO_API_URL` to point at the nerfstudio wrapper service.
+
+---
+
+### Florence-2 captioning (`pipeline/florence_model.py`)
+
+Runs `microsoft/Florence-2-large` per keyframe. Outputs `caption` (text) and `caption_confidence` (logit-derived float). Both stored in PostgreSQL `frames` table.
+
+Batch size: `FLORENCE_BATCH_SIZE` (default 16). Auto-fallback to batch=1 on OOM.
+
+---
+
+### Active learning scoring (`pipeline/active_learning.py`)
+
+Computed after embeddings are available:
+
+```
+active_learning_score = 0.6 × DINOv3_distance_from_nearest_centroid
+                      + 0.4 × (1 − caption_confidence)
+```
+
+Cluster centroids: k-means (k=20) over all mission DINOv3 embeddings, updated after each mission, stored in `embedding_clusters` table.
+
+**al_tag assignment** (precedence):
+1. `needs_annotation` — top-`AL_TAG_K` (default 50) frames by score
+2. `novel` — DINOv3 distance > 0.5 from any centroid
+3. `none` — all others
+
+If `MODEL_NAME=openclip` (no DINOv3), score uses CLIP embedding distance only.
+
+---
+
+### Mission summary report (`pipeline/report_generator.py`)
+
+Auto-generated HTML report at end of each mission: `reports/{mission_id}/summary.html`
+
+Contents: mission metadata, top-5 frames by `active_learning_score` (thumbnails + captions), 3D camera path screenshot, uncertainty histogram, `al_tag` distribution.
+
+---
+
+### Multi-mission change detection (`pipeline/change_detection.py`)
+
+Triggered post-pipeline after `pose_status=success`. Finds prior-mission frames in the same GPS area via Qdrant filter, computes embedding distance, flags pairs above `CHANGE_DETECTION_THRESHOLD`.
+
+Default filter strategy (`GPS_FILTER_2D=false`): lat-only Qdrant filter → Python post-filter on lon. Enable `GPS_FILTER_2D=true` only after validating 2D Qdrant payload index performance (see TODOS.md P1).
+
+Results stored in `change_detections` table. Accessible via `GET /missions/{id}/changes`.
+
+---
+
 ## Key configuration reference
 
 All settings live in `pipeline/config.py` and are read from environment variables, with defaults from `env/dev.env`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SAMPLE_FPS_MAX` | `5` | ffmpeg decode rate |
-| `SAMPLE_FPS_BASE` | `2` | Starting adaptive rate |
+| `SAMPLE_FPS_MAX` | `5` | ffmpeg decode rate (max) |
+| `SAMPLE_FPS_BASE` | `2` | Starting adaptive rate for search keyframes |
 | `SAMPLE_FPS_MIN` | `0.5` | Minimum adaptive rate |
+| `SFM_FPS` | `2` | Dense frame rate for pycolmap SfM |
+| `PYCOLMAP_CAMERA_MODEL` | `SIMPLE_RADIAL` | pycolmap camera model |
+| `FLORENCE_BATCH_SIZE` | `16` | Florence-2 batch size |
+| `GPS_FILTER_2D` | `false` | Enable 2D Qdrant GPS bbox filter |
+| `AL_TAG_K` | `50` | Top-K frames for needs_annotation |
+| `CHANGE_DETECTION_THRESHOLD` | `0.35` | Cosine threshold for change detection |
 | `HIST_THRESH` | `0.25` | Histogram / SSIM keep threshold |
 | `EMBED_DRIFT_THRESH` | `0.15` | CLIP drift keep threshold |
 | `MAX_GAP_SEC` | `10` | Force-keep interval |

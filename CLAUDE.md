@@ -2,9 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Rules
+
+- **Never make git commits without an explicit user request.** Do not commit as part of any workflow, review, or copy operation unless the user explicitly says "commit" or "make a commit."
+
 ## What this project is
 
-Local video semantic search server: index videos by content, then search by text or image query. Uses OpenCLIP for embeddings, Qdrant for vector storage, FastAPI as the API, Streamlit as the UI, and a background worker for video processing.
+**Outdoor autonomy perception stack** — spatial memory engine for robotics. Ingest mission video from drones, rovers, or vehicles → extract frames → estimate camera poses (pycolmap SfM) → build dense 3D maps (nerfstudio splatfacto) → embed frames (OpenCLIP + DINOv3) → caption with Florence-2 → store in PostgreSQL + Qdrant → search by text or image query.
+
+Self-improvement loop: each mission auto-tags uncertain/novel frames (`al_tag`) for annotation, building training data for future self-supervised model fine-tuning.
+
+Multi-mission features: change detection across GPS-overlapping missions, robot advisory API (`POST /query/pose`), persistent GPS-based global map.
 
 ## Commands
 
@@ -17,9 +25,17 @@ make docker-check  # Verify Docker daemon is reachable (run if you get permissio
 
 ### Run the stack
 ```bash
-make up            # Build and start all containers (API, worker, Qdrant, UI)
+make up            # Build and start all containers (API, worker, Qdrant, UI, PostgreSQL, nginx, mediamtx)
 make down          # Stop all containers
 make logs          # Stream logs (last 100 lines)
+```
+
+### PostgreSQL migration (first run or after wipe)
+```bash
+# After `make up postgres` starts, run once:
+python scripts/migrate_postgres.py   # creates all tables
+# Reset Qdrant if switching MODEL_NAME or re-indexing from scratch:
+scripts/reset_qdrant.sh
 ```
 
 ### Tests
@@ -48,52 +64,66 @@ make lint          # ruff check + ruff format --check
 ## Architecture
 
 ### Services (each is a separate container / process)
-- **`app/`** — FastAPI API. Handles HTTP, auth, rate limiting, job enqueueing, and query serving. Entrypoint: `app/main.py`.
-- **`worker/main.py`** — Long-running background process. Polls SQLite job queue, downloads/copies video, runs the full indexing pipeline, marks jobs done.
+- **`app/`** — FastAPI API. Handles HTTP, auth, rate limiting, job enqueueing, query serving, and robot pose API. Entrypoint: `app/main.py`.
+- **`worker/main.py`** — Async-native background process (`asyncio.run`). Polls PostgreSQL job queue via `SELECT FOR UPDATE SKIP LOCKED`, runs the full indexing pipeline, marks jobs done.
 - **`ui/app.py`** — Streamlit frontend. Forwards `API_KEY` header on every request to the API.
-- **Qdrant** — External vector DB. Named vectors: `clip` (always present), `dino` (optional).
+- **PostgreSQL 16** — Primary SQL store (replaces SQLite). Stores jobs, processed_files, missions, frames, embedding_clusters, change_detections, global_map, global_map_missions. Connection via `asyncpg`.
+- **Qdrant** — Vector DB. Named vectors: `clip` (always present), `dino` (when `MODEL_NAME=dinov3`).
+- **nginx** — Serves `DATA_DIR/maps/` as `/static/maps/` for SuperSplat iframe; adds CORS headers for `.ply` fetch.
+- **MediaMTX** — RTSP/RTMP/WebRTC streaming server for video ingestion.
+- **nerfstudio** — *(optional, GPU machines only — `docker-compose.override.yml`)* 3DGS reconstruction via `ns-train splatfacto`. Exposed as a thin FastAPI HTTP wrapper called by `pipeline/mapper.py`.
 
 ### Model wrappers (in `models/`)
 - **`models/openclip_model.py`** — `OpenCLIPEmbedder`: batched image + text embedding via OpenCLIP. Configured by `OPENCLIP_MODEL`, `OPENCLIP_PRETRAINED`, `DEVICE`, `USE_FP16`.
-- **`models/dino_model.py`** — `DINOEmbedder`: DINOv2/v3 image embedding. Loaded only when `MODEL_NAME` is `dinov2` or `dinov3`.
+- **`models/dino_model.py`** — `DINOEmbedder`: DINOv3 image embedding. Loaded only when `MODEL_NAME=dinov3`.
+- **`pipeline/florence_model.py`** — Florence-2 (`microsoft/Florence-2-large`) for image-to-text captioning. Batched inference; `FLORENCE_BATCH_SIZE` env var (default 16); OOM fallback to batch=1.
 
 ### Pipeline (in `pipeline/`)
-The indexing pipeline lives entirely in `pipeline/` and is driven by `VideoIndexer` in `pipeline/indexer.py`:
+The indexing pipeline is orchestrated by `VideoIndexer` in `pipeline/indexer.py`. Two separate frame extraction passes per mission:
 
-1. **Frame extraction** (`ffmpeg_utils.py`) — ffmpeg decodes at `SAMPLE_FPS_MAX`
-2. **Adaptive sampling + stabilisation** (`heuristics.py`, `frame_extractor.py`) — keep/skip decision centralised in `_should_keep_frame()` (histogram diff, mean abs diff, SSIM); phase correlation, embed drift, and motion level used later in `indexer.py`
-3. **Segment / keyframe selection** — per-segment keyframes chosen
-4. **Full-frame CLIP embedding** — each keyframe embedded and upserted to Qdrant
-5. **Tile extraction** (`TILE_SIZE`/`STRIDE`) — overlapping sliding window
-6. **Tile quality filters** — blur, intensity, sky, edge density, std, entropy (`heuristics.py`)
-7. **Dedup** — perceptual hash LRU (`dedup.py`) + cosine similarity via `RecentEmbeddingIndex` (`recent_index.py`)
-8. **Qdrant upsert** (`qdrant_utils.py`) — stable point IDs derived with SHA-256
+**Pass A — Dense frames for SfM** (pycolmap needs multi-view overlap):
+1. `pipeline/gps_extractor.py` — extract GPS from video (ffprobe atoms → SRT sidecar → GPMF → null fallback)
+2. `pipeline/ffmpeg_utils.py` — dense extraction at `SFM_FPS` (default 2 fps)
+3. `pipeline/sfm.py` — pycolmap Structure-from-Motion (CPU, ~5 min/1000 frames); writes `pose_json` per frame, sets `pose_status`
+4. `pipeline/mapper.py` — nerfstudio splatfacto (GPU, separate container, ~10 min); runs **after** SfM completes (`pose_status=success`); writes `maps/{mission_id}/splat.ply`
+
+**Pass B — Sparse keyframes for search** (existing adaptive logic):
+5. `ffmpeg_utils.py` — adaptive frame extraction (histogram diff, SSIM, embed drift, `MAX_GAP_SEC`)
+6. `pipeline/florence_model.py` — Florence-2 captioning per keyframe; stores `caption`, `caption_confidence`
+7. `models/openclip_model.py` + `models/dino_model.py` — CLIP + DINOv3 embeddings → Qdrant upsert
+8. Tile extraction + quality filters + dedup (unchanged from v0)
+9. `pipeline/active_learning.py` — compute `active_learning_score = 0.6×DINOv3_dist + 0.4×(1−caption_confidence)`; assign `al_tag` (`needs_annotation` | `novel` | `none`)
+10. `pipeline/report_generator.py` — HTML mission summary (`reports/{mission_id}/summary.html`)
+11. `pipeline/change_detection.py` — post-pipeline; GPS bbox Qdrant filter + embedding distance; writes `change_detections` table
 
 ### Agentic scene-understanding system (optional, separate from main indexing)
-`pipeline/agentic_system.py` implements a multi-agent pipeline for structured scene analysis:
-- **`image_to_text_agent`** — generates scene descriptions; optionally uses `OpenCLIPTagger` (zero-shot label matching) and `SAMSegmenter` (SAM mask segmentation). Falls back to k-means colour segmentation if SAM is unavailable.
-- **`ontology_agent`** / **`matching_agent`** — builds entity ontology and tracks segments across frames via IoU matching.
-- **`process_frames`** — top-level entry point; writes `.jsonl` (one record per frame) + `.ontology.json` to an output directory.
-
-`pipeline/elastic_indexer.py` can bulk-ingest the JSONL output into Elasticsearch (`ensure_index` + `bulk_index_jsonl`). Not wired into the default Docker stack.
-
-`pipeline/vision_models.py` — `OpenCLIPTagger` (zero-shot classification using `pipeline/label_vocab.py`) and `SAMSegmenter` (SAM-based mask generation); used exclusively by the agentic system.
+`pipeline/agentic_system.py` implements a multi-agent pipeline for structured scene analysis — not part of the default indexing flow. See `docs/pipeline.md` for details.
 
 ### Search (query path)
 - Text → OpenCLIP text embedding → Qdrant `clip` vector search
-- Image → OpenCLIP image embedding → Qdrant `clip` search; optionally reranked with DINO score (70/30 blend)
+- Image → OpenCLIP image embedding → Qdrant `clip` search; optionally reranked with DINOv3 score (70/30 blend)
+- "Find more like this" → Qdrant `search()` on `dino` (or `clip` fallback) embedding of clicked frame
 - `app/services/search.py` orchestrates the search; `app/state.py` holds shared model/store instances
 
+### Robot pose API
+- `app/routers/robot.py` — `POST /query/pose`
+- Request: `{lat, lon, alt, heading_deg, radius_m (default 50), top_k (default 5)}`
+- GPS coordinates required in v1 (tx/ty/tz-only path deferred to v2)
+- Latency target: p99 < 200ms (advisory use only)
+- Auth: `X-API-Key` header
+
 ### Job system
-- `pipeline/job_db.py` — SQLite-backed job queue (`jobs.db`). API enqueues; worker polls and claims.
-- `pipeline/processed_db.py` — SQLite dedup registry (`processed.db`). Tracks SHA-256 of processed files to skip re-indexing duplicates.
+- `pipeline/job_db.py` — asyncpg-backed PostgreSQL job queue. API enqueues; worker polls and claims with `SELECT FOR UPDATE SKIP LOCKED`.
+- `pipeline/processed_db.py` — asyncpg-backed PostgreSQL dedup registry (`processed_files` table). Tracks SHA-256 of processed files.
 
 ### Key data files (inside `./data/` by default)
-- `frames/` — extracted frames keyed by `video_id`
+- `frames/` — extracted keyframes keyed by `video_id`
 - `tiles/` — extracted tiles keyed by `video_id/segment_id`
 - `videos/` — stored video copies keyed by `video_id`
+- `maps/{mission_id}/splat.ply` — 3DGS output from nerfstudio splatfacto
+- `reports/{mission_id}/summary.html` — auto-generated mission summary
 - `qdrant/` — Qdrant storage volume
-- `jobs.db`, `processed.db`
+- PostgreSQL tables: `jobs`, `processed_files`, `missions`, `frames`, `embedding_clusters`, `change_detections`, `global_map`, `global_map_missions`
 
 ## Configuration
 
@@ -102,25 +132,45 @@ All config lives in `pipeline/config.py` as a `Settings` class. Every field read
 Critical env vars:
 - `API_KEY` — empty = unauthenticated (startup warning logged)
 - `ALLOWED_INDEX_PATHS` — comma-separated allowed base dirs for path-based indexing. **Empty = all path endpoints return 403** (fail-closed)
+- `DATABASE_URL` — PostgreSQL connection string (e.g. `postgresql://user:pass@postgres:5432/selfsuvis`)
 - `MODEL_NAME` — `openclip` (default) | `dinov2` | `dinov3`
 - `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`
-- `DATA_DIR` — root for frames/tiles/videos/DBs
+- `DATA_DIR` — root for frames/tiles/videos/maps/reports
 - `DEVICE` — `auto` (default, prefers CUDA) | `cpu` | `cuda`; `USE_FP16` (default `true`) — FP16 on CUDA
+
+**Pipeline tuning:**
+- `SFM_FPS` — dense frame extraction rate for pycolmap (default `2`; separate from search keyframes)
+- `PYCOLMAP_CAMERA_MODEL` — `SIMPLE_RADIAL` (default) | `PINHOLE` | `RADIAL`
+- `FLORENCE_BATCH_SIZE` — Florence-2 batch size (default `16`; auto-falls back to `1` on OOM)
+- `GPS_SIDECAR_PATH` — override auto-detection of GPS sidecar file
+- `GPS_FILTER_2D` — `false` (default; uses lat-only Qdrant filter + Python lon post-filter) | `true` (requires validated Qdrant 2D payload indexes)
+
+**Active learning:**
+- `AL_TAG_K` — top-K frames tagged `needs_annotation` per mission (default `50`)
+- `CHANGE_DETECTION_THRESHOLD` — cosine distance threshold for change detection (default `0.35` for CLIP, `0.25` for DINOv3)
+
+**UI / services:**
+- `STATIC_SERVER_URL` — nginx static base URL for splat.ply fetch (default `http://localhost:8080`)
+- `SUPERSPLAT_SERVER_URL` — SuperSplat viewer URL for 3DGS iframe (default `http://localhost:8090`)
+- `NERFSTUDIO_API_URL` — nerfstudio FastAPI wrapper URL (default `http://nerfstudio:8000`)
 - `SAM_CHECKPOINT`, `SAM_MODEL_TYPE` — required to activate SAM segmentation in the agentic system
-- `LABELS_FILE` — path to newline-separated label vocab for zero-shot CLIP tagging (defaults to `pipeline/label_vocab.py` built-in list)
+- `LABELS_FILE` — label vocab for zero-shot CLIP tagging
 - `ALLOW_PRIVATE_URLS` — allow private/loopback IPs in URL downloads (default `false`)
 
 ## Security invariants
 
 - API key check uses `hmac.compare_digest` (timing-safe) in `app/deps.py`
 - Rate limiter is a per-client token bucket with LRU eviction (cap `_MAX_LIMITERS=50_000`)
-- Path-based endpoints (`/index/video path=`, `/index/dir`, etc.) validate against `ALLOWED_INDEX_PATHS` via `resolve_allowed_path()` in `pipeline/utils.py`
+- Path-based endpoints validate against `ALLOWED_INDEX_PATHS` via `resolve_allowed_path()` in `pipeline/utils.py`
 - Qdrant point IDs use SHA-256 (`stable_point_id`). **Upgrading from SHA-1 requires wiping Qdrant and re-indexing** — run `scripts/reset_qdrant.sh`
 - URL downloads validate peer IP post-connect to prevent DNS rebinding (`pipeline/net_utils.py`)
+- Robot API (`POST /query/pose`) requires `X-API-Key`
 
 ## Testing notes
 
 - Unit tests in `tests/unit/` require no running services. Some (`test_frame_extractor.py`, `test_heuristics.py`) depend on cv2; skip with `make test-unit-no-cv2` if there's an OpenCV/numpy version mismatch.
 - cv2-free unit tests: `test_utils.py`, `test_utils_path.py`, `test_dedup.py`, `test_job_db.py`, `test_downloader.py`, `test_config.py`, `test_deps.py`, `test_net_utils.py`, `test_ffmpeg.py`.
+- New unit tests to write (from eng review): `test_gps_utils.py`, `test_active_learning.py`, `test_job_db_postgres.py`, `test_change_detection.py`, `test_report_generator.py`.
+- New integration tests to write: `test_robot_api.py`, `test_migration.py`.
 - Integration tests use `data_test/` and `cache_test/` volumes (not `data/`) to avoid polluting dev data.
 - Containers run as the current host `UID`/`GID` to avoid root-owned files in `data_test`.

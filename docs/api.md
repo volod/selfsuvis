@@ -47,5 +47,31 @@ All index, jobs, and query endpoints require `X-API-Key` when `API_KEY` is set. 
 - Query params: `top_k`, `search_type`, `enable_rerank`
 - Returns `{ results: [...] }`
 
+## GET /missions
+- Returns list of missions with metadata (mission_id, video_id, pose_status, map_status, frame_count, al_tag distribution)
+
+## GET /missions/{mission_id}
+- Returns full mission metadata including report_path
+
+## GET /missions/{mission_id}/changes
+- Returns change detections for this mission vs. prior missions (frame pairs with embedding_distance, change_score)
+
+## GET /missions/{mission_id}/export
+- **Annotation queue export.** Auth: `X-API-Key` required.
+- Query params: `al_tag` (needs_annotation|novel|all, default needs_annotation), `limit` (1–500, default 200)
+- Returns: ZIP download (`Content-Type: application/zip`) containing:
+  - `manifest.json` — export_version, exported_at, frames array per DESIGN.md export format spec
+  - `{frame_id}.jpg` — JPEG for each frame in the export
+- Uses `StreamingResponse` — does not buffer full ZIP in memory
+- 404 if mission not found; 400 if `al_tag` value is invalid
+- Export format is the v2 CVAT import contract; do not rename fields without a version bump (see DESIGN.md)
+
+## POST /query/pose
+- **Robot advisory API.** Auth: `X-API-Key` required.
+- Body: `{ "lat": float, "lon": float, "alt": float|null, "heading_deg": float, "radius_m": 50, "top_k": 5 }`
+- GPS coordinates required (tx/ty/tz-only path returns 400 in v1)
+- Returns `{ frames: [...], query_ms: int }` — frames near the given GPS position with captions, al_tag, pose, gps
+- Latency target: p99 < 200ms (advisory use only; hard real-time obstacle avoidance is out of scope)
+
 ---
 [← Develop](develop.md) | [UI →](ui.md)
