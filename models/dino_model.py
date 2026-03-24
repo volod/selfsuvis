@@ -1,5 +1,7 @@
 from typing import List
 
+import os
+
 import numpy as np
 import torch
 from PIL import Image
@@ -49,7 +51,17 @@ class DINOEmbedder:
             raise RuntimeError(
                 "Failed to load DINO model. Ensure weights are available offline or predownloaded."
             ) from exc
-        return model.to(self.device)
+        model = model.to(self.device)
+        # Load fine-tuned checkpoint when DINO_CHECKPOINT is configured
+        ckpt = settings.DINO_CHECKPOINT
+        if ckpt and os.path.isfile(ckpt):
+            import torch as _torch
+            state = _torch.load(ckpt, map_location=self.device)
+            model.load_state_dict(state)
+            self.logger.info("DINO: loaded fine-tuned checkpoint %s", ckpt)
+        elif ckpt:
+            self.logger.warning("DINO_CHECKPOINT set but file not found: %s", ckpt)
+        return model
 
     def encode_images(self, images: List[Image.Image], batch_size: int = 16) -> np.ndarray:
         embeddings = []

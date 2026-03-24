@@ -114,6 +114,47 @@ class Settings:
 
     JOB_DB_PATH = _env("JOB_DB_PATH", os.path.join(DATA_DIR, "jobs.db"))
 
+    # PostgreSQL (replaces SQLite in production)
+    DATABASE_URL = _env("DATABASE_URL", "")
+
+    # Reports and maps output directories
+    REPORTS_DIR = _env("REPORTS_DIR", os.path.join(DATA_DIR, "reports"))
+    MAPS_DIR = _env("MAPS_DIR", os.path.join(DATA_DIR, "maps"))
+
+    # Pipeline — SfM and 3DGS
+    SFM_FPS = _env_float("SFM_FPS", 2.0)
+    PYCOLMAP_CAMERA_MODEL = _env("PYCOLMAP_CAMERA_MODEL", "SIMPLE_RADIAL")
+
+    # Pipeline — Florence-2 captioning
+    FLORENCE_BATCH_SIZE = _env_int("FLORENCE_BATCH_SIZE", 16)
+
+    # Pipeline — GPS extraction
+    GPS_SIDECAR_PATH = _env("GPS_SIDECAR_PATH", "")
+    GPS_FILTER_2D = _env("GPS_FILTER_2D", "false").lower() == "true"
+
+    # Active learning
+    AL_TAG_K = _env_int("AL_TAG_K", 50)
+    # Switch from KMeans to MiniBatchKMeans when total embedded frame count exceeds this.
+    # Default 25_000 ≈ 50 missions × 500 frames.
+    KMEANS_BATCH_THRESHOLD = _env_int("KMEANS_BATCH_THRESHOLD", 25_000)
+
+    # Change detection cosine-distance thresholds (per model family)
+    CHANGE_DETECTION_THRESHOLD_CLIP = _env_float("CHANGE_DETECTION_THRESHOLD_CLIP", 0.35)
+    CHANGE_DETECTION_THRESHOLD_DINO = _env_float("CHANGE_DETECTION_THRESHOLD_DINO", 0.25)
+
+    # Services
+    STATIC_SERVER_URL = _env("STATIC_SERVER_URL", "http://localhost:8080")
+    SUPERSPLAT_SERVER_URL = _env("SUPERSPLAT_SERVER_URL", "http://localhost:8090")
+    NERFSTUDIO_API_URL = _env("NERFSTUDIO_API_URL", "http://nerfstudio:8000")
+    # ICP fusion mapper service (docker-compose.override.yml, port 8100 on host / 8000 in container)
+    MAPPER_API_URL = _env("MAPPER_API_URL", "http://mapper:8000")
+
+    # CVAT annotation service (http://localhost:8091 when running via make cvat-up)
+    CVAT_URL = _env("CVAT_URL", "http://localhost:8091")
+    # HMAC-SHA256 secret for verifying CVAT webhook payloads (X-Hook-Secret header).
+    # If empty, signature verification is skipped (dev mode only).
+    CVAT_WEBHOOK_SECRET = _env("CVAT_WEBHOOK_SECRET", "")
+
     # Security and limits
     ALLOWED_INDEX_PATHS = _parse_allowed_paths(os.getenv("ALLOWED_INDEX_PATHS"))
     MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_BYTES", 2 * 1024 * 1024 * 1024)  # 2 GB default
@@ -123,9 +164,34 @@ class Settings:
     MAX_REDIRECTS = _env_int("MAX_REDIRECTS", 5)
     ALLOW_PRIVATE_URLS = _env("ALLOW_PRIVATE_URLS", "false").lower() == "true"
 
+    # Robot identity (used to tag Qdrant payloads for multi-robot filtering)
+    ROBOT_ID = _env("ROBOT_ID", "robot_0")
+
+    # Self-supervised DINOv3 domain adaptation (scripts/finetune_dino.py)
+    SSL_CHECKPOINT_DIR = _env("SSL_CHECKPOINT_DIR", os.path.join(DATA_DIR, "checkpoints"))
+    SSL_FINETUNE_EPOCHS = _env_int("SSL_FINETUNE_EPOCHS", 10)
+    SSL_FINETUNE_LR = _env_float("SSL_FINETUNE_LR", 1e-5)
+    SSL_FINETUNE_BATCH_SIZE = _env_int("SSL_FINETUNE_BATCH_SIZE", 32)
+    SSL_FINETUNE_FREEZE_BLOCKS = _env_int("SSL_FINETUNE_FREEZE_BLOCKS", 10)
+    SSL_FINETUNE_TEMPERATURE = _env_float("SSL_FINETUNE_TEMPERATURE", 0.07)
+    # "temporal": consecutive frames from same video dir; "augment": two augmented views
+    SSL_FINETUNE_APPROACH = _env("SSL_FINETUNE_APPROACH", "temporal")
+    # Path to fine-tuned DINOv3 backbone weights. When set and the file exists,
+    # DINOEmbedder loads this checkpoint instead of the pretrained hub weights.
+    DINO_CHECKPOINT = _env("DINO_CHECKPOINT", "")
+
+    # Edge model hydration (scripts/export_onnx.py, scripts/build_gallery.py, pipeline/edge_inference.py)
+    EDGE_MODELS_DIR = _env("EDGE_MODELS_DIR", os.path.join(DATA_DIR, "models"))
+    EDGE_GALLERY_DIR = _env("EDGE_GALLERY_DIR", os.path.join(DATA_DIR, "gallery"))
+    EDGE_ONNX_PATH = _env("EDGE_ONNX_PATH", "")       # path to quantized ONNX for EdgeClassifier
+    EDGE_GALLERY_PATH = _env("EDGE_GALLERY_PATH", "")  # path to gallery NPZ for EdgeClassifier
+    EDGE_TOP_K = _env_int("EDGE_TOP_K", 3)
+
     # Worker and ffmpeg
     WORKER_POLL_INTERVAL = _env_float("WORKER_POLL_INTERVAL", 2.0)
     FFMPEG_TIMEOUT_SEC = _env_int("FFMPEG_TIMEOUT_SEC", 3600)  # 1 hour for long videos
+    # Maximum RTSP recording duration in seconds (caps duration_sec in POST /index/rtsp)
+    RTSP_MAX_DURATION_SEC = _env_int("RTSP_MAX_DURATION_SEC", 3600)
 
     # Video extensions (indexing)
     VIDEO_EXTS = frozenset({".mp4", ".mov", ".mkv", ".avi"})

@@ -198,6 +198,50 @@ def _precheck_url(url: str):
     return {"status": "unknown", "reason": "url_unmatched", "size_bytes": size}
 
 
+@router.post(
+    "/index/rtsp",
+    summary="Index a live RTSP/RTMP stream",
+    responses={400: ERROR_RESPONSES[400]},
+)
+async def index_rtsp(
+    stream_url: str = Form(...),
+    mission_id: Optional[str] = Form(default=None),
+    duration_sec: Optional[int] = Form(default=None),
+    enable_tiles: bool = Form(default=True),
+):
+    """Record a live RTSP or RTMP stream and queue it for indexing.
+
+    The worker records the stream to a local MP4 using ffmpeg, then indexes
+    it through the standard pipeline.
+
+    - stream_url:   rtsp:// or rtmp:// URL (credentials in URL not allowed)
+    - mission_id:   Optional mission label; defaults to a generated video_id
+    - duration_sec: Record at most this many seconds (capped at RTSP_MAX_DURATION_SEC)
+    - enable_tiles: Whether to extract and index tiles (default true)
+    """
+    from pipeline.rtsp_ingest import validate_rtsp_url
+    try:
+        validate_rtsp_url(stream_url)
+    except ValueError as exc:
+        return error_response(str(exc))
+
+    video_id = uuid.uuid4().hex
+    effective_mission_id = mission_id or video_id
+    job_id = _enqueue_job({
+        "video_id": video_id,
+        "mission_id": effective_mission_id,
+        "video_url": stream_url,
+        "ingest_mode": "rtsp",
+        "duration_sec": duration_sec,
+        "enable_tiles": enable_tiles,
+    })
+    logger.info(
+        "Enqueued RTSP stream video_id=%s mission_id=%s job_id=%s url=%s",
+        video_id, effective_mission_id, job_id, stream_url,
+    )
+    return {"video_id": video_id, "mission_id": effective_mission_id, "job_id": job_id}
+
+
 @router.post("/index/precheck")
 async def precheck(
     file: Optional[UploadFile] = File(default=None),

@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data venv venv-cuda venv-pip docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint
+.PHONY: help up down logs data-dirs fix-data venv venv-cuda venv-pip docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs
 
 # Default target: show help when no target is given
 help:
@@ -8,7 +8,11 @@ help:
 	@echo ""
 	@echo "  Stack (Docker)"
 	@echo "  ---------------"
-	@echo "  make up              Start API, worker, Qdrant, and UI (docker compose up --build)"
+	@echo "  make up              Start main stack + mapper ICP service (docker-compose.override.yml auto-loaded)
+  make cvat-up         Start CVAT annotation service (http://localhost:8091)
+  make cvat-down       Stop CVAT services
+  make cvat-admin      Create CVAT superuser (first-time setup)
+  make mapper-logs     Stream mapper (ICP fusion) container logs"
 	@echo "  make down            Stop all containers"
 	@echo "  make logs            Stream container logs (last 100 lines)"
 	@echo "  make docker-check    Check that Docker daemon is reachable (run if you get permission denied)"
@@ -115,6 +119,24 @@ test-unit:
 # Unit tests excluding cv2-dependent tests (use when numpy 2.x breaks opencv)
 test-unit-no-cv2:
 	$(if $(wildcard .venv/bin/python),.venv/bin/python -m pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py,pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py)
+
+cvat-up: docker-check
+	docker compose -f docker/docker-compose.cvat.yml up -d
+	@echo ""
+	@echo "CVAT starting at http://localhost:8090"
+	@echo "First time? Run: make cvat-admin"
+
+cvat-down: docker-check
+	docker compose -f docker/docker-compose.cvat.yml down
+
+cvat-logs: docker-check
+	docker compose -f docker/docker-compose.cvat.yml logs -f --tail=100
+
+cvat-admin: docker-check
+	docker compose -f docker/docker-compose.cvat.yml exec cvat_server python manage.py createsuperuser
+
+mapper-logs: docker-check
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml -f docker/docker-compose.override.yml logs -f --tail=100 mapper
 
 # Lint (requires: pip install ruff)
 lint:

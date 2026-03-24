@@ -123,21 +123,37 @@ class VideoIndexer:
         frame_path: str,
         frame_pil: Image.Image,
         clip_embed: np.ndarray,
+        mission_id: Optional[str] = None,
+        gps: Optional[Dict[str, float]] = None,
+        enu: Optional[Dict[str, float]] = None,
+        robot_id: Optional[str] = None,
+        global_map_id: Optional[int] = None,
     ) -> qmodels.PointStruct:
         """Build a Qdrant point for one keyframe."""
         vectors: Dict[str, Any] = {"clip": clip_embed.tolist()}
         if self.dino_model:
             vectors["dino"] = self.dino_model.encode_images([frame_pil], batch_size=1)[0].tolist()
+        payload: Dict[str, Any] = {
+            "type": "frame",
+            "video_id": video_id,
+            "segment_id": segment_id,
+            "t_sec": t_sec,
+            "frame_path": frame_path,
+        }
+        if mission_id is not None:
+            payload["mission_id"] = mission_id
+        if robot_id is not None:
+            payload["robot_id"] = robot_id
+        if gps is not None:
+            payload["gps"] = gps
+        if enu is not None:
+            payload["enu"] = enu
+        if global_map_id is not None:
+            payload["global_map_id"] = global_map_id
         return qmodels.PointStruct(
             id=stable_point_id(video_id, segment_id, int(t_sec * 1000), "frame"),
             vector=vectors,
-            payload={
-                "type": "frame",
-                "video_id": video_id,
-                "segment_id": segment_id,
-                "t_sec": t_sec,
-                "frame_path": frame_path,
-            },
+            payload=payload,
         )
 
     # ── main frame processing ─────────────────────────────────────────────────
@@ -150,6 +166,11 @@ class VideoIndexer:
         frame: np.ndarray,
         state: "_IndexFrameState",
         cell_state: Dict[Tuple[int, int], Tuple[float, float]],
+        mission_id: Optional[str] = None,
+        gps: Optional[Dict[str, float]] = None,
+        enu: Optional[Dict[str, float]] = None,
+        robot_id: Optional[str] = None,
+        global_map_id: Optional[int] = None,
     ) -> Tuple[Optional[Tuple[Dict[str, Any], List[qmodels.PointStruct], int]], "_IndexFrameState"]:
         """Process one frame. Returns (result, new_state); result is None if frame is skipped."""
         small = downsample_gray(frame, settings.STAB_SIZE)
@@ -180,13 +201,17 @@ class VideoIndexer:
             "rep_frame_t": t_sec,
             "rep_frame_path": frame_path,
         }
-        frame_point = self._build_frame_point(video_id, segment_id, t_sec, frame_path, frame_pil, embed)
+        frame_point = self._build_frame_point(
+            video_id, segment_id, t_sec, frame_path, frame_pil, embed,
+            mission_id=mission_id, gps=gps, enu=enu, robot_id=robot_id, global_map_id=global_map_id,
+        )
 
         tile_points: List[qmodels.PointStruct] = []
         tile_count = 0
         if self.enable_tiles or drift > settings.TILE_INDEX_IF_EMBED_DRIFT_GT:
             tile_points, tile_count = self._index_tiles(
-                frame, frame_path, video_id, segment_id, t_sec, embed, cell_state
+                frame, frame_path, video_id, segment_id, t_sec, embed, cell_state,
+                mission_id=mission_id, robot_id=robot_id, global_map_id=global_map_id,
             )
 
         new_state = dataclasses.replace(
@@ -199,16 +224,53 @@ class VideoIndexer:
         )
         return (segment_dict, [frame_point] + tile_points, 1 + tile_count), new_state
 
-    def index_video(self, video_path: str, video_id: str, progress_cb=None) -> Dict[str, Any]:
+    def index_video(
+        self,
+        video_path: str,
+        video_id: str,
+        mission_id: Optional[str] = None,
+        robot_id: Optional[str] = None,
+        site_enu_origin=None,
+        global_map_id: Optional[int] = None,
+        progress_cb=None,
+    ) -> Dict[str, Any]:
         ensure_dir(settings.VIDEOS_DIR)
         self.logger.info("Indexing video_id=%s path=%s", video_id, video_path)
         dst_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}.mp4")
         if os.path.abspath(video_path) != os.path.abspath(dst_path):
             shutil.copy(video_path, dst_path)
 
+        effective_mission_id = mission_id or video_id
+        effective_robot_id = robot_id or settings.ROBOT_ID
+
         frames = extract_frames(dst_path, video_id)
         if not frames:
             return {"segments": 0, "tiles": 0, "frames": 0}
+
+        # Pre-compute GPS + ENU for every extracted frame
+        gps_lookup: Dict[float, Optional[Dict[str, float]]] = {}
+        enu_lookup: Dict[float, Optional[Dict[str, float]]] = {}
+        try:
+            from pipeline.gps_extractor import extract_gps
+            from pipeline.gps_registration import gps_to_enu
+            timestamps_ms = [t * 1000.0 for _, t in frames]
+            gps_list = extract_gps(dst_path, timestamps_ms)
+            # Use the site's canonical ENU origin when provided (multi-site ENU support).
+            # Fall back to the mission's own first-frame origin for backwards compatibility.
+            enu_origin = site_enu_origin
+            if enu_origin is None:
+                for g in gps_list:
+                    if g is not None:
+                        enu_origin = (g["lat"], g["lon"], g["alt"])
+                        break
+            for (_, t_sec), g in zip(frames, gps_list):
+                if g is not None:
+                    gps_lookup[t_sec] = {"lat": g["lat"], "lon": g["lon"], "alt": g["alt"]}
+                    if enu_origin is not None:
+                        tx, ty, tz = gps_to_enu(g["lat"], g["lon"], g["alt"], *enu_origin)
+                        enu_lookup[t_sec] = {"tx": float(tx), "ty": float(ty), "tz": float(tz)}
+        except Exception:
+            self.logger.debug("GPS extraction unavailable or failed for video_id=%s", video_id)
 
         eff_fps = settings.SAMPLE_FPS_BASE
         state = _IndexFrameState(
@@ -233,7 +295,14 @@ class VideoIndexer:
                 continue
             frame_timer.tick()
 
-            result, state = self._process_frame(video_id, frame_path, t_sec, frame, state, cell_state)
+            result, state = self._process_frame(
+                video_id, frame_path, t_sec, frame, state, cell_state,
+                mission_id=effective_mission_id,
+                gps=gps_lookup.get(t_sec),
+                enu=enu_lookup.get(t_sec),
+                robot_id=effective_robot_id,
+                global_map_id=global_map_id,
+            )
             embed_timer.tick()
 
             if result is None:
@@ -277,6 +346,9 @@ class VideoIndexer:
         t_sec: float,
         segment_embed: np.ndarray,
         cell_state: Dict[Tuple[int, int], Tuple[float, float]],
+        mission_id: Optional[str] = None,
+        robot_id: Optional[str] = None,
+        global_map_id: Optional[int] = None,
     ) -> Tuple[List[qmodels.PointStruct], int]:
         h, w, _ = frame.shape
         tile_points: List[qmodels.PointStruct] = []
@@ -323,20 +395,27 @@ class VideoIndexer:
             if self.dino_model:
                 vectors["dino"] = self.dino_model.encode_images([tile_pil], batch_size=1)[0].tolist()
 
+            tile_payload: Dict[str, Any] = {
+                "type": "tile",
+                "video_id": video_id,
+                "segment_id": segment_id,
+                "t_sec": t_sec,
+                "frame_path": frame_path,
+                "tile_path": tile_path,
+                "x": x, "y": y,
+                "w": settings.TILE_SIZE,
+                "h": settings.TILE_SIZE,
+            }
+            if mission_id is not None:
+                tile_payload["mission_id"] = mission_id
+            if robot_id is not None:
+                tile_payload["robot_id"] = robot_id
+            if global_map_id is not None:
+                tile_payload["global_map_id"] = global_map_id
             tile_points.append(qmodels.PointStruct(
                 id=stable_point_id(video_id, segment_id, int(t_sec * 1000), "tile", x, y),
                 vector=vectors,
-                payload={
-                    "type": "tile",
-                    "video_id": video_id,
-                    "segment_id": segment_id,
-                    "t_sec": t_sec,
-                    "frame_path": frame_path,
-                    "tile_path": tile_path,
-                    "x": x, "y": y,
-                    "w": settings.TILE_SIZE,
-                    "h": settings.TILE_SIZE,
-                },
+                payload=tile_payload,
             ))
             count += 1
 

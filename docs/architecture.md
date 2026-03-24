@@ -56,7 +56,7 @@ Video file / URL / RTSP (MediaMTX)
         │   → pose_json per frame, pose_status=success/failed            │  │
         │   → pipeline/mapper.py (nerfstudio, GPU ~10min)                │  │
         │     [only if pose_status=success]                              │  │
-        │   → maps/{mission_id}/splat.ply                                │  │
+        │   → maps/{mission_id}/splat.ply  (or scene-{N}/splat.ply)     │  │
         │                                                                │  │
         └── Pass B: Sparse keyframes (adaptive) ─────────────────────────┘  │
             pipeline/florence_model.py → caption, caption_confidence        │

@@ -1,0 +1,12 @@
+# Mapper service dependencies — ICP fusion only.
+# Intentionally minimal: no torch, CLIP, Florence-2, or web framework.
+# open3d pulls its own visualization stack (dash, flask, ipython); those are
+# unused in headless container mode but unavoidable via pip.
+numpy>=1.26.4
+open3d>=0.18
+plyfile>=0.9
+scipy>=1.10.0
+python-dotenv==1.0.1
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+asyncpg>=0.29.0

@@ -16,10 +16,11 @@ Video file / URL / RTSP (MediaMTX)
       │      │
       │      ▼
       │   SfM (pycolmap)          pipeline/sfm.py   CPU ~5min/1000 frames
-      │      │ pose_status=success
+      │      │ pose_status=success  (N connected components → scene_count)
       │      ▼
       │   3DGS (nerfstudio)       pipeline/mapper.py  GPU ~10min (separate container)
-      │   → maps/{mission_id}/splat.ply
+      │   → maps/{mission_id}/splat.ply          (single scene)
+      │   → maps/{mission_id}/scene-{N}/splat.ply (multi-scene chunking)
       │
       └─► Pass B: Sparse keyframes (adaptive)
              │
@@ -88,7 +89,7 @@ Video file / URL
 make up
 ```
 
-Starts Qdrant, API (port 8000), worker, and UI (port 8501). The worker polls `jobs.db` and processes jobs automatically.
+Starts Qdrant, API (port 8000), worker, UI (port 8501), PostgreSQL (port 5432), nginx (port 8080), and MediaMTX (port 8554). The worker polls the PostgreSQL job queue (`SELECT FOR UPDATE SKIP LOCKED`) and processes jobs automatically.
 
 ### 2. Index a video
 
@@ -491,9 +492,13 @@ Estimated runtime: ~5 minutes per 1000 frames on CPU.
 
 Runs nerfstudio `splatfacto` in a separate Docker container via HTTP. Triggered only after `pose_status=success`. Sequential: SfM must complete first (v1 design).
 
-Output: `maps/{mission_id}/splat.ply` — viewable via the SuperSplat iframe in Streamlit.
+**Scene chunking:** When pycolmap finds multiple disconnected connected components (e.g. takeoff → transit → inspection), each component is trained separately:
+- Single scene: `maps/{mission_id}/splat.ply`
+- Multi-scene: `maps/{mission_id}/scene-{N}/splat.ply` (one file per component)
 
-Estimated runtime: ~10 minutes on GPU. Set `NERFSTUDIO_API_URL` to point at the nerfstudio wrapper service.
+The Streamlit admin panel shows a scene selector when `scene_count > 1`.
+
+Estimated runtime: ~10 minutes per scene on GPU. Set `NERFSTUDIO_API_URL` to point at the nerfstudio wrapper service.
 
 ---
 

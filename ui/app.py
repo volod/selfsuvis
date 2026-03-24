@@ -23,7 +23,7 @@ def _render_results(results):
         with col:
             thumb = r.get("thumbnail_path")
             if thumb and os.path.exists(thumb):
-                st.image(thumb, use_column_width=True)
+                st.image(thumb, use_container_width=True)
             st.write(f"Score: {r['score']:.4f}")
             st.write(f"Video: {r['video_id']}")
             st.write(f"t={r['t_sec']:.2f}s")
@@ -35,7 +35,9 @@ def _render_results(results):
                 st.code(f"mpv \"./data/videos/{r['video_id']}.mp4\" --start={r['t_sec']:.2f}")
 
 
-tab_index, tab_image, tab_text = st.tabs(["Index Video", "Image Query", "Text Query"])
+tab_index, tab_image, tab_text, tab_admin = st.tabs(
+    ["Index Video", "Image Query", "Text Query", "Admin"]
+)
 
 with tab_index:
     st.header("Index Video")
@@ -101,6 +103,119 @@ with tab_image:
                 _render_results(results)
             else:
                 st.error(resp.text)
+
+with tab_admin:
+    st.header("Admin")
+    col_refresh, _ = st.columns([1, 5])
+    with col_refresh:
+        if st.button("Refresh", key="admin_refresh"):
+            st.rerun()
+
+    try:
+        resp = requests.get(f"{API_URL}/admin/stats", headers=_HEADERS, timeout=5)
+        if resp.ok:
+            stats = resp.json()
+        else:
+            st.error(f"API error {resp.status_code}: {resp.text}")
+            stats = None
+    except requests.exceptions.RequestException as exc:
+        st.error(f"Could not reach API: {exc}")
+        stats = None
+
+    if stats:
+        jobs = stats.get("jobs", {})
+        al_tags = stats.get("al_tags", {})
+        worker_active = stats.get("worker_active", False)
+
+        # Worker status badge
+        if worker_active:
+            st.success("Worker: ACTIVE")
+        else:
+            st.info("Worker: idle")
+
+        # Queue depth metric
+        st.metric("Queue depth (pending)", jobs.get("pending", 0))
+
+        # Job status breakdown
+        st.subheader("Job Status")
+        col_p, col_r, col_d, col_e = st.columns(4)
+        col_p.metric("Pending", jobs.get("pending", 0))
+        col_r.metric("Running", jobs.get("running", 0))
+        col_d.metric("Done", jobs.get("done", 0))
+        col_e.metric("Error", jobs.get("error", 0))
+
+        # AL tag distribution bar chart
+        st.subheader("AL Tag Distribution")
+        na = al_tags.get("needs_annotation", 0)
+        novel = al_tags.get("novel", 0)
+        none_count = al_tags.get("none", 0)
+        total = na + novel + none_count
+
+        if total == 0:
+            st.caption("No indexed frames yet.")
+        else:
+            # Use st.bar_chart with a simple dict
+            import pandas as pd
+            chart_data = pd.DataFrame(
+                {"count": [na, novel, none_count]},
+                index=["needs_annotation", "novel", "none"],
+            )
+            st.bar_chart(chart_data)
+            st.caption(
+                f"Total frames: {total} — "
+                f"ANNOTATE: {na} ({100*na//total}%) · "
+                f"NOVEL: {novel} ({100*novel//total}%) · "
+                f"none: {none_count} ({100*none_count//total}%)"
+            )
+
+    # ── 3DGS Scene Viewer ────────────────────────────────────────────────────
+    st.subheader("3DGS Scene Viewer")
+    supersplat_url = os.getenv("SUPERSPLAT_SERVER_URL", "http://localhost:8090")
+    static_url = os.getenv("STATIC_SERVER_URL", "http://localhost:8080")
+
+    try:
+        missions_resp = requests.get(
+            f"{API_URL}/admin/missions", headers=_HEADERS, timeout=5
+        )
+        missions_list = missions_resp.json() if missions_resp.ok else []
+    except requests.exceptions.RequestException:
+        missions_list = []
+
+    done_missions = [m for m in missions_list if m.get("splat_paths")]
+    if not done_missions:
+        st.caption("No missions with 3DGS maps yet.")
+    else:
+        mission_options = {
+            f"{m['id']} ({m.get('scene_count', 1)} scene(s))": m
+            for m in done_missions
+        }
+        selected_label = st.selectbox(
+            "Mission", list(mission_options.keys()), key="viewer_mission"
+        )
+        selected_mission = mission_options[selected_label]
+        splat_paths = selected_mission.get("splat_paths", [])
+
+        if len(splat_paths) > 1:
+            scene_labels = [os.path.basename(os.path.dirname(p)) for p in splat_paths]
+            chosen_label = st.selectbox(
+                "Scene", scene_labels, key="viewer_scene"
+            )
+            scene_idx = scene_labels.index(chosen_label)
+            chosen_splat = splat_paths[scene_idx]
+        else:
+            chosen_splat = splat_paths[0]
+
+        # Build static URL for the splat.ply (served by nginx at /static/maps/)
+        mission_id = selected_mission["id"]
+        rel_path = os.path.relpath(
+            chosen_splat,
+            os.environ.get("MAPS_DIR", "data/maps"),
+        )
+        splat_static_url = f"{static_url}/static/maps/{rel_path}"
+        viewer_url = f"{supersplat_url}/?load={splat_static_url}"
+
+        st.caption(f"splat.ply: `{chosen_splat}`")
+        st.components.v1.iframe(viewer_url, height=600, scrolling=False)
 
 with tab_text:
     st.header("Text Query")

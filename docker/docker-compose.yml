@@ -3,6 +3,23 @@
 # Loads env/prod.env by default; set APP_ENV=dev or APP_ENV=test to use other env files.
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    user: "0:0"
+    environment:
+      POSTGRES_USER: selfsuvis
+      POSTGRES_PASSWORD: selfsuvis
+      POSTGRES_DB: selfsuvis
+    volumes:
+      - ../data/postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U selfsuvis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   qdrant:
     build:
       context: ..
@@ -28,6 +45,7 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - DATA_DIR=/app/data
+      - DATABASE_URL=postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis
       - HOME=/app/cache
       - XDG_CACHE_HOME=/app/cache
       - TORCH_HOME=/app/cache/torch
@@ -38,7 +56,10 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - qdrant
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
     deploy:
       resources:
         reservations:
@@ -56,6 +77,7 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - DATA_DIR=/app/data
+      - DATABASE_URL=postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis
       - HOME=/app/cache
       - XDG_CACHE_HOME=/app/cache
       - TORCH_HOME=/app/cache/torch
@@ -64,7 +86,10 @@ services:
       - ../data:/app/data
       - ../cache:/app/cache
     depends_on:
-      - qdrant
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
     deploy:
       resources:
         reservations:
@@ -87,3 +112,23 @@ services:
       - "8501:8501"
     depends_on:
       - api
+
+  nginx:
+    image: nginx:1.25-alpine
+    user: "0:0"
+    volumes:
+      - ../docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../data:/app/data:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
+
+  mediamtx:
+    image: bluenviron/mediamtx:1.9.0
+    ports:
+      - "8554:8554"   # RTSP
+      - "1935:1935"   # RTMP
+      - "8889:8889"   # WebRTC
+    environment:
+      MTX_PROTOCOLS: tcp
