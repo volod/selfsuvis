@@ -150,6 +150,9 @@ class VideoIndexer:
             payload["enu"] = enu
         if global_map_id is not None:
             payload["global_map_id"] = global_map_id
+        # Model version provenance: lets queries be traced back to the model that
+        # produced the embedding.  Stored as-is; "base" means the pretrained backbone.
+        payload["model_version_id"] = settings.MODEL_VERSION_ID
         return qmodels.PointStruct(
             id=stable_point_id(video_id, segment_id, int(t_sec * 1000), "frame"),
             vector=vectors,

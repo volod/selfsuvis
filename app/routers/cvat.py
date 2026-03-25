@@ -81,6 +81,93 @@ async def _mark_frames_annotated(frame_ids: List[str]) -> int:
         await conn.close()
 
 
+async def _maybe_trigger_finetune() -> None:
+    """Enqueue a supervised_finetune job if conditions are met.
+
+    Guards:
+    1. SUP_AUTO_TRIGGER must be true.
+    2. Total annotated frames >= MIN_ANNOTATED_FRAMES.
+    3. New annotated since last retrain >= MIN_NEW_ANNOTATED_SINCE_RETRAIN.
+    4. No supervised_finetune job is already queued or running (dedup).
+
+    DB errors are caught and logged so the webhook always returns 200.
+    """
+    import asyncio
+    import time
+    import uuid
+    import asyncpg
+
+    from pipeline.config import settings
+    from pipeline.job_db_pg import create_job
+
+    if not settings.SUP_AUTO_TRIGGER:
+        return
+
+    db_url = settings.DATABASE_URL
+    if not db_url:
+        return
+
+    try:
+        # Acquire in-process lock to prevent duplicate enqueue from concurrent webhooks
+        from app.state import _finetune_lock
+        if _finetune_lock.locked():
+            logger.debug("_maybe_trigger_finetune: finetune lock held, skipping")
+            return
+
+        async with _finetune_lock:
+            conn = await asyncpg.connect(db_url, timeout=10)
+            try:
+                # Count total annotated frames
+                total_annotated = await conn.fetchval(
+                    "SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'"
+                )
+                if total_annotated < settings.MIN_ANNOTATED_FRAMES:
+                    logger.debug(
+                        "_maybe_trigger_finetune: %d annotated < threshold %d",
+                        total_annotated, settings.MIN_ANNOTATED_FRAMES,
+                    )
+                    return
+
+                # Check retrain watermark
+                watermark_row = await conn.fetchrow(
+                    "SELECT value FROM system_state WHERE key = 'last_retrain_watermark'"
+                )
+                last_watermark = int(watermark_row["value"]) if watermark_row else 0
+                delta = total_annotated - last_watermark
+                if delta < settings.MIN_NEW_ANNOTATED_SINCE_RETRAIN:
+                    logger.debug(
+                        "_maybe_trigger_finetune: delta=%d < min_new=%d (watermark=%d)",
+                        delta, settings.MIN_NEW_ANNOTATED_SINCE_RETRAIN, last_watermark,
+                    )
+                    return
+
+                # Dedup: skip if a finetune job is already queued or running
+                existing = await conn.fetchrow(
+                    "SELECT id FROM jobs WHERE type = 'supervised_finetune' "
+                    "AND status IN ('pending', 'running') LIMIT 1"
+                )
+                if existing:
+                    logger.debug(
+                        "_maybe_trigger_finetune: finetune job already active id=%s",
+                        existing["id"],
+                    )
+                    return
+
+                # All guards passed — enqueue
+                job_id = uuid.uuid4().hex
+                await create_job(conn, job_id, {}, job_type="supervised_finetune")
+                logger.info(
+                    "_maybe_trigger_finetune: enqueued job_id=%s "
+                    "(total_annotated=%d watermark=%d delta=%d)",
+                    job_id, total_annotated, last_watermark, delta,
+                )
+            finally:
+                await conn.close()
+
+    except Exception as exc:
+        logger.warning("_maybe_trigger_finetune failed (non-fatal): %s", exc)
+
+
 # ── Webhook router (no API key — CVAT uses HMAC secret) ──────────────────────
 
 webhook_router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -130,6 +217,8 @@ async def cvat_webhook(
                         "CVAT webhook: task_id=%s completed → %d frames annotated",
                         task_id, count,
                     )
+                    # Attempt to trigger supervised fine-tuning (non-fatal on error)
+                    await _maybe_trigger_finetune()
                     return {"status": "ok", "event": event, "annotated": count}
                 else:
                     logger.info(

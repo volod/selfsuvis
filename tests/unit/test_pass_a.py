@@ -67,8 +67,9 @@ _asyncpg_stub = _make_stub("asyncpg", connect=AsyncMock())
 # pipeline.sfm stub
 _sfm_stub = _make_stub("pipeline.sfm", run_sfm=MagicMock())
 
-# pipeline.mapper stub
-_mapper_stub = _make_stub("pipeline.mapper", run_mapper=MagicMock())
+# pipeline.mapper is NOT stubbed at module level — worker.main imports it
+# lazily inside _run_pass_a (not at the module top level), so no stub is
+# needed here.  Individual tests patch pipeline.mapper.run_mapper as needed.
 
 # pipeline.gps_registration stub
 _ensure_stub("pipeline.gps_registration",
@@ -78,7 +79,10 @@ _ensure_stub("pipeline.gps_registration",
 _ensure_stub("pipeline.global_map_db",
     get_or_create_global_map=AsyncMock(),
     get_global_map_splats=AsyncMock(),
-    register_mission=AsyncMock())
+    register_mission=AsyncMock(),
+    update_mission_splat_path=AsyncMock(),
+    update_global_map_splat=AsyncMock(),
+    get_global_map_origin=AsyncMock())
 
 
 # ---------------------------------------------------------------------------
@@ -372,21 +376,27 @@ class TestPassAGpsRegFailures(unittest.TestCase):
 
 class TestPassAMapperImportFailures(unittest.TestCase):
 
-    def test_asyncpg_hidden_returns_after_sfm_and_gps_gracefully(self):
-        """Simulate asyncpg import failure by temporarily replacing with None."""
-        real_asyncpg = sys.modules.get("asyncpg")
-        sys.modules["asyncpg"] = None  # type: ignore[assignment]
-        try:
-            with (
-                patch("pipeline.sfm.run_sfm", return_value=_SFM_OUT),
-                patch("pipeline.gps_registration.register_mission_gps", return_value=(_ENU_ORIGIN, _GLOBAL_POSES)),
-            ):
-                logger = _make_logger()
-                _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
-                # Should log a debug message about skipping
-                logger.debug.assert_called()
-        finally:
-            sys.modules["asyncpg"] = real_asyncpg  # type: ignore[assignment]
+    def test_asyncpg_connect_failure_returns_gracefully(self):
+        """When asyncpg.connect raises, the mapper/DB step is skipped gracefully.
+
+        asyncpg is now a top-level import in worker.main (not lazy), so simulating
+        a missing module via sys.modules is not applicable.  Instead we simulate
+        an unreachable database by raising on connect — the real production failure
+        mode for environments without a live PostgreSQL instance.
+        """
+        with (
+            patch("pipeline.sfm.run_sfm", return_value=_SFM_OUT),
+            patch("pipeline.gps_registration.register_mission_gps", return_value=(_ENU_ORIGIN, _GLOBAL_POSES)),
+            patch("asyncpg.connect", new_callable=AsyncMock, side_effect=OSError("connection refused")),
+            patch("pipeline.mapper.run_mapper", return_value=_MAPPER_RESULT),
+            patch("pipeline.global_map_db.get_or_create_global_map", new_callable=AsyncMock),
+            patch("pipeline.global_map_db.get_global_map_splats", new_callable=AsyncMock),
+            patch("pipeline.global_map_db.register_mission", new_callable=AsyncMock),
+        ):
+            logger = _make_logger()
+            _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
+            # mapper/DB step failure is logged as a warning
+            logger.warning.assert_called()
 
     def test_mapper_hidden_returns_gracefully(self):
         real_mapper = sys.modules.get("pipeline.mapper")

@@ -52,16 +52,39 @@ class DINOEmbedder:
                 "Failed to load DINO model. Ensure weights are available offline or predownloaded."
             ) from exc
         model = model.to(self.device)
-        # Load fine-tuned checkpoint when DINO_CHECKPOINT is configured
+        # Resolve checkpoint: DINO_CHECKPOINT env var takes priority,
+        # then active_checkpoint.txt (written by POST /admin/reload-model).
         ckpt = settings.DINO_CHECKPOINT
+        if not ckpt:
+            from pathlib import Path
+            active_txt = Path(settings.SUP_CHECKPOINT_DIR) / "active_checkpoint.txt"
+            if active_txt.exists():
+                ckpt = active_txt.read_text().strip()
+                if ckpt:
+                    self.logger.info("DINO: using active_checkpoint.txt → %s", ckpt)
+
         if ckpt and os.path.isfile(ckpt):
             import torch as _torch
             state = _torch.load(ckpt, map_location=self.device)
             model.load_state_dict(state)
             self.logger.info("DINO: loaded fine-tuned checkpoint %s", ckpt)
         elif ckpt:
-            self.logger.warning("DINO_CHECKPOINT set but file not found: %s", ckpt)
+            self.logger.warning("DINO checkpoint set but file not found: %s", ckpt)
         return model
+
+    def load_backbone_checkpoint(self, path: str) -> None:
+        """Hot-swap backbone weights in-place.
+
+        Loads a backbone state_dict from path and replaces the current model weights.
+        Python reference assignment to app.state.dino_model is GIL-atomic, so
+        in-flight inference calls that captured the old reference complete normally.
+
+        Raises RuntimeError on any load failure (caller's model is unchanged).
+        """
+        import torch as _torch
+        state = _torch.load(path, map_location=self.device)
+        self.model.load_state_dict(state)
+        self.logger.info("DINO: hot-swapped backbone checkpoint %s", path)
 
     def encode_images(self, images: List[Image.Image], batch_size: int = 16) -> np.ndarray:
         embeddings = []

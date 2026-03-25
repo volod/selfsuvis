@@ -76,9 +76,10 @@ _ensure_stub("pipeline.global_map_db",
     get_global_map_origin=AsyncMock(),
     list_global_maps=AsyncMock())
 
-# Stub pipeline.sfm and pipeline.mapper
+# Stub pipeline.sfm
 _ensure_stub("pipeline.sfm", run_sfm=MagicMock())
-_ensure_stub("pipeline.mapper", run_mapper=MagicMock())
+# pipeline.mapper is NOT stubbed at module level — worker.main imports it
+# lazily inside _run_pass_a, so no stub is needed here.
 
 # Stub pipeline.gps_extractor
 _ensure_stub("pipeline.gps_extractor", extract_gps=MagicMock())

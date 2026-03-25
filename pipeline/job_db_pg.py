@@ -17,13 +17,14 @@ logger = get_logger(__name__)
 
 # Columns that update_job is allowed to touch (prevents injection of arbitrary column names)
 _UPDATE_JOB_COLUMNS = frozenset(
-    {"status", "progress", "payload", "started_at", "finished_at", "error"}
+    {"status", "progress", "payload", "started_at", "finished_at", "error", "type"}
 )
 
 _CREATE_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS jobs (
         id            TEXT PRIMARY KEY,
         status        TEXT NOT NULL DEFAULT 'pending',
+        type          TEXT,
         progress_json TEXT NOT NULL DEFAULT '{}',
         payload_json  TEXT NOT NULL DEFAULT '{}',
         created_at    DOUBLE PRECISION,
@@ -39,14 +40,15 @@ async def init_db(conn) -> None:
     await conn.execute(_CREATE_TABLE_SQL)
 
 
-async def create_job(conn, job_id: str, payload: Dict[str, Any]) -> None:
+async def create_job(conn, job_id: str, payload: Dict[str, Any], job_type: Optional[str] = None) -> None:
     """Insert a new job in 'pending' state."""
     now = time.time()
     await conn.execute(
-        "INSERT INTO jobs (id, status, progress_json, payload_json, created_at)"
-        " VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO jobs (id, status, type, progress_json, payload_json, created_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
         job_id,
         "pending",
+        job_type,
         "{}",
         json.dumps(payload),
         now,
@@ -128,6 +130,7 @@ def _row_to_dict(row) -> Dict[str, Any]:
     return {
         "id": row["id"],
         "status": row["status"],
+        "type": row["type"],
         "progress": json.loads(row["progress_json"] or "{}"),
         "payload": json.loads(row["payload_json"] or "{}"),
         "created_at": row["created_at"],

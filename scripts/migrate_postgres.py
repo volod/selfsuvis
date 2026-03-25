@@ -35,13 +35,15 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://selfsuvis:selfsuvis@local
 
 _MIGRATIONS = [
     # ── jobs ─────────────────────────────────────────────────────────────────
-    # asyncpg-backed job queue (replaces SQLite job_db.py in production).
+    # asyncpg-backed job queue (replaces SQLite job_db.py).
     # Worker claims rows with SELECT FOR UPDATE SKIP LOCKED.
+    # type: 'index' (default), 'supervised_finetune', 'reembed', or NULL for legacy rows.
     """
     CREATE TABLE IF NOT EXISTS jobs (
         id            TEXT PRIMARY KEY,
         status        TEXT NOT NULL DEFAULT 'pending'
-                          CHECK (status IN ('pending','running','done','error')),
+                          CHECK (status IN ('pending','running','finished','error')),
+        type          TEXT,
         progress_json TEXT NOT NULL DEFAULT '{}',
         payload_json  TEXT NOT NULL DEFAULT '{}',
         created_at    DOUBLE PRECISION NOT NULL,
@@ -51,6 +53,7 @@ _MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs (status, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_type_status    ON jobs (type, status)",
 
     # ── processed_files ──────────────────────────────────────────────────────
     # Dedup registry: tracks SHA-256 of every processed video to prevent
@@ -214,6 +217,63 @@ _MIGRATIONS = [
     # Idempotent via IF NOT EXISTS — safe to re-run on existing databases.
     "ALTER TABLE missions ADD COLUMN IF NOT EXISTS robot_id TEXT NOT NULL DEFAULT 'robot_0'",
     "CREATE INDEX IF NOT EXISTS idx_missions_robot_id ON missions (robot_id)",
+
+    # ── global map: add splat_path to missions ───────────────────────────────
+    # Required for global_map_db.get_global_map_splats — the query JOINs missions
+    # on splat_path IS NOT NULL to return existing scene splats as ICP targets.
+    # Populated by the worker after nerfstudio splatfacto completes.
+    "ALTER TABLE missions ADD COLUMN IF NOT EXISTS splat_path TEXT",
+
+    # ── active learning loop closure ─────────────────────────────────────────
+    # cvat_label: CVAT annotation label written back to frames after annotation.
+    # Populated by _mark_frames_annotated when CVAT fires a webhook for a completed job.
+    "ALTER TABLE frames ADD COLUMN IF NOT EXISTS cvat_label TEXT",
+
+    # jobs.type: routes worker dispatch to index / supervised_finetune / reembed handlers.
+    # NULL for legacy index jobs created before this migration.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS type TEXT",
+
+    # system_state: key/value store for durable runtime state.
+    # Keys used:
+    #   last_retrain_watermark   — annotated frame count at last successful supervised finetune
+    #   active_dino_checkpoint   — path to the currently active DINOv3 checkpoint (authoritative source)
+    """
+    CREATE TABLE IF NOT EXISTS system_state (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        updated_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())
+    )
+    """,
+
+    # model_checkpoints: provenance registry for trained DINOv3 checkpoints.
+    # Tracks which annotation batch trained which checkpoint, annotation count,
+    # eval accuracy, and when the checkpoint was created.
+    # model_version_id is stored in every Qdrant frame payload at re-embed time
+    # so results can be traced back to the model that produced them.
+    """
+    CREATE TABLE IF NOT EXISTS model_checkpoints (
+        id               SERIAL PRIMARY KEY,
+        checkpoint_path  TEXT NOT NULL UNIQUE,
+        model_version_id TEXT NOT NULL,
+        annotation_count INTEGER NOT NULL DEFAULT 0,
+        best_accuracy    DOUBLE PRECISION,
+        distribution_shift DOUBLE PRECISION,
+        created_at       DOUBLE PRECISION NOT NULL,
+        notes            TEXT
+    )
+    """,
+
+    # gpu_jobs: semaphore table for GPU resource isolation.
+    # Workers check-in before allocating GPU memory and check-out on completion.
+    # Stale entries (started_at older than GPU_JOB_TIMEOUT_SEC) are evicted on check-in.
+    """
+    CREATE TABLE IF NOT EXISTS gpu_jobs (
+        job_id     TEXT PRIMARY KEY,
+        job_type   TEXT NOT NULL,
+        worker_id  TEXT NOT NULL,
+        started_at DOUBLE PRECISION NOT NULL
+    )
+    """,
 ]
 
 

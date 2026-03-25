@@ -46,10 +46,11 @@ class MockConn:
         q = query.strip().upper()
 
         if "INSERT INTO JOBS" in q:
-            job_id, status, progress_json, payload_json, created_at = args
+            job_id, status, job_type, progress_json, payload_json, created_at = args
             self._jobs[job_id] = _Row(
                 id=job_id,
                 status=status,
+                type=job_type,
                 progress_json=progress_json,
                 payload_json=payload_json,
                 created_at=created_at,

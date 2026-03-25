@@ -154,6 +154,14 @@ class Settings:
     # HMAC-SHA256 secret for verifying CVAT webhook payloads (X-Hook-Secret header).
     # If empty, signature verification is skipped (dev mode only).
     CVAT_WEBHOOK_SECRET = _env("CVAT_WEBHOOK_SECRET", "")
+    # JSON dict mapping CVAT label names to canonical vocabulary.
+    # Example: '{"automobile":"car","person":"pedestrian"}'
+    # Labels absent from the dict are passed through unchanged.
+    # Applied in AnnotatedFrameDataset.from_xml() and from_db() to normalize
+    # label names across CVAT tasks before building the class vocabulary.
+    CVAT_LABEL_MAPPINGS: dict = __import__("json").loads(
+        _env("CVAT_LABEL_MAPPINGS", "{}")
+    )
 
     # Security and limits
     ALLOWED_INDEX_PATHS = _parse_allowed_paths(os.getenv("ALLOWED_INDEX_PATHS"))
@@ -167,8 +175,20 @@ class Settings:
     # Robot identity (used to tag Qdrant payloads for multi-robot filtering)
     ROBOT_ID = _env("ROBOT_ID", "robot_0")
 
+    # Worker identity (used in gpu_jobs table for resource isolation)
+    WORKER_ID = _env("WORKER_ID", __import__("socket").gethostname())
+    # Maximum seconds a gpu_jobs entry may be held before it is considered stale.
+    GPU_JOB_TIMEOUT_SEC = _env_int("GPU_JOB_TIMEOUT_SEC", 3600)
+
+    # Model version provenance: ID stored in Qdrant frame payloads at embed/re-embed time.
+    # Set automatically by the worker after a successful supervised fine-tune.
+    # Override via env var to annotate frames embedded with a known checkpoint.
+    MODEL_VERSION_ID = _env("MODEL_VERSION_ID", "base")
+
     # Self-supervised DINOv3 domain adaptation (scripts/finetune_dino.py)
     SSL_CHECKPOINT_DIR = _env("SSL_CHECKPOINT_DIR", os.path.join(DATA_DIR, "checkpoints"))
+    # Supervised CVAT fine-tuning (scripts/supervised_finetune_dino.py)
+    SUP_CHECKPOINT_DIR = _env("SUP_CHECKPOINT_DIR", os.path.join(DATA_DIR, "checkpoints", "supervised"))
     SSL_FINETUNE_EPOCHS = _env_int("SSL_FINETUNE_EPOCHS", 10)
     SSL_FINETUNE_LR = _env_float("SSL_FINETUNE_LR", 1e-5)
     SSL_FINETUNE_BATCH_SIZE = _env_int("SSL_FINETUNE_BATCH_SIZE", 32)
@@ -179,6 +199,34 @@ class Settings:
     # Path to fine-tuned DINOv3 backbone weights. When set and the file exists,
     # DINOEmbedder loads this checkpoint instead of the pretrained hub weights.
     DINO_CHECKPOINT = _env("DINO_CHECKPOINT", "")
+
+    SUP_FINETUNE_EPOCHS = _env_int("SUP_FINETUNE_EPOCHS", 10)
+    SUP_FINETUNE_LR = _env_float("SUP_FINETUNE_LR", 1e-5)
+    SUP_FINETUNE_BATCH_SIZE = _env_int("SUP_FINETUNE_BATCH_SIZE", 16)
+    SUP_FINETUNE_FREEZE_BLOCKS = _env_int("SUP_FINETUNE_FREEZE_BLOCKS", 8)
+    SUP_FINETUNE_TEMPERATURE = _env_float("SUP_FINETUNE_TEMPERATURE", 0.07)
+
+    # Active learning loop closure
+    # Whether the CVAT webhook auto-triggers supervised fine-tuning.
+    SUP_AUTO_TRIGGER = _env("SUP_AUTO_TRIGGER", "true").lower() == "true"
+    # Minimum annotated frames before any finetune job is enqueued.
+    MIN_ANNOTATED_FRAMES = _env_int("MIN_ANNOTATED_FRAMES", 50)
+    # Minimum new annotated frames since last retrain before re-triggering.
+    MIN_NEW_ANNOTATED_SINCE_RETRAIN = _env_int("MIN_NEW_ANNOTATED_SINCE_RETRAIN", 100)
+    # Batch size for re-embedding sweeps (frames per Qdrant upsert call).
+    REEMBED_BATCH_SIZE = _env_int("REEMBED_BATCH_SIZE", 256)
+    # CVAT API bearer token for fetching annotation labels via REST API.
+    CVAT_API_TOKEN = _env("CVAT_API_TOKEN", "")
+    # Fraction of annotated frames held out for eval gate (0.0 disables gate).
+    SUP_EVAL_FRACTION = _env_float("SUP_EVAL_FRACTION", 0.1)
+    # Minimum frames per class in the eval split (single-class → reject).
+    SUP_MIN_PER_CLASS_EVAL = _env_int("SUP_MIN_PER_CLASS_EVAL", 2)
+    # Minimum total frames required to run the eval gate; below this → reject.
+    SUP_MIN_EVAL_GATE_FRAMES = _env_int("SUP_MIN_EVAL_GATE_FRAMES", 20)
+    # Minimum 1-NN eval accuracy required to promote a checkpoint.
+    SUP_EVAL_GATE_THRESHOLD = _env_float("SUP_EVAL_GATE_THRESHOLD", 0.6)
+    # Intra-vs-inter cosine gap above this value triggers an overfitting warning (not a gate).
+    SUP_OVERFITTING_SHIFT_THRESHOLD = _env_float("SUP_OVERFITTING_SHIFT_THRESHOLD", 0.9)
 
     # Edge model hydration (scripts/export_onnx.py, scripts/build_gallery.py, pipeline/edge_inference.py)
     EDGE_MODELS_DIR = _env("EDGE_MODELS_DIR", os.path.join(DATA_DIR, "models"))

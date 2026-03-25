@@ -1,6 +1,17 @@
+"""Unit tests for pipeline.frame_extractor.
+
+Requires a working cv2 installation.  Skipped automatically when cv2 is not
+importable (e.g. NumPy 2.x / OpenCV binary incompatibility in the test venv).
+Run the full suite including these tests with: make test-unit  (Docker stack)
+or after installing a compatible OpenCV wheel.
+"""
 import os
 
-from pipeline.frame_extractor import extract_frames_fixed
+import pytest
+
+cv2 = pytest.importorskip("cv2", reason="cv2 not available (NumPy 2.x incompatibility)")
+
+from pipeline.frame_extractor import extract_frames_fixed  # noqa: E402
 
 
 def test_extract_frames_fixed_from_video_test(tmp_path):
@@ -10,7 +21,7 @@ def test_extract_frames_fixed_from_video_test(tmp_path):
         "mixkit-curved-highway-going-down-a-hill-40848-4k.mp4",
     )
     if not os.path.exists(video_path):
-        return
+        pytest.skip("test video file not present")
 
     out_dir = tmp_path / "frames"
     frames = extract_frames_fixed(video_path, str(out_dir), interval_sec=1.0, max_frames=2)

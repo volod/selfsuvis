@@ -74,9 +74,21 @@ services added to `docker/docker-compose.yml`.
   `icp_results` now includes `"fused_splat"` path.
 - `tests/unit/test_splat_transform.py` — 27 tests (quat math + apply_transform + merge +
   _fuse_splat_files); all passing.
-**Remaining (blocked on real mission data):**
-  - Worker wires `get_global_map_splats` → `run_mapper(target_splat_paths=...)` → `register_mission`.
-**Depends on:** nerfstudio splatfacto producing real splat.ply from actual missions.
+**Worker wiring — DONE:**
+- `scripts/migrate_postgres.py`: `ALTER TABLE missions ADD COLUMN IF NOT EXISTS splat_path TEXT` —
+  required for `get_global_map_splats` JOIN to find registered mission splats.
+- `pipeline/global_map_db.py`: `update_mission_splat_path(conn, mission_id, splat_path)` —
+  sets `missions.splat_path` after nerfstudio produces a splat; enables discovery by future missions.
+- `worker/main.py` `_db_and_map` (three fixes):
+  1. Calls `update_mission_splat_path` after every successful 3DGS run.
+  2. Calls `update_global_map_splat(conn, global_map_id, fused_path)` when ICP produces a fused.ply.
+  3. Bootstrap-registers the first mission at a site (or non-converged ICP) with an identity
+     transform so `get_global_map_splats` can return its splat to the next mission as an ICP target.
+- Synthetic splat.ply test data: 100-Gaussian and 50K-Gaussian PLY files via `write_splat_from_arrays`.
+- `tests/unit/test_worker_global_map.py`: 35 tests covering all three fixes, discovery chain,
+  bootstrap, ICP converged/not-converged, mapper skipped, fused_splat=None, multiple targets;
+  all passing.
+**Depends on:** nerfstudio splatfacto producing real splat.ply from actual missions (for production use).
 
 ### ✅ [P2][M] tx/ty/tz-only robot query path (no GPS) — DONE
 **Implemented:**
@@ -155,7 +167,7 @@ export DINO_CHECKPOINT=data/checkpoints/dino_ssl_best.pt
 make up   # DINOEmbedder picks up the checkpoint automatically
 ```
 
-### [P2][M] Edge model hydration — export fine-tuned DINOv3 for on-device object identification
+### ✅ [P2][M] Edge model hydration — export fine-tuned DINOv3 for on-device object identification — DONE
 **What:** Export the fine-tuned DINOv3 backbone to ONNX, attach a lightweight mission-object
 classifier head, quantize to INT8, and ship a self-contained inference package that runs on
 the robot's edge compute (Jetson Orin, Hailo-8, or CPU-only ARM SBC) to identify
@@ -208,15 +220,73 @@ labels = clf.classify(frame_pil)   # [(label, score), ...]
 **Depends on:** Self-supervised domain adaptation (✅ done — `dino_ssl_best.pt` required);
 `onnxruntime` (CPU) or `onnxruntime-gpu` (Jetson); `onnxruntime-tools` for quantization.
 
-### [P3][XL] Supervised fine-tuning on CVAT-annotated frames
+**Implemented:**
+- `scripts/export_onnx.py` — torch → ONNX export (`torch.onnx.export`, opset 17, dynamic batch);
+  `--validate` flag runs PyTorch ↔ ONNX parity check (max abs diff < 1e-3);
+  `--quantize` + `--calibration-dir` runs static INT8 quantization via `onnxruntime.quantization`.
+- `pipeline/edge_inference.py` — `EdgeClassifier`: loads (quantized) ONNX + gallery NPZ;
+  `embed(img)` → L2-normalised (D,) float32; `classify(img)` → `[(label, score), ...]` sorted
+  cosine-sim descending; `from_torch()` classmethod for dev/testing without ONNX.
+  `build_gallery()` — embeds representative frames per label, saves `embeddings/labels/label_names`
+  NPZ; works with ONNX or PyTorch backbone; validates all paths upfront.
+- `scripts/build_gallery.py` — CLI: `--onnx` or `--checkpoint`; `--labels label:path,...` or
+  `--labels-file` (JSON/YAML); outputs NPZ to `--output`.
+- `pipeline/config.py`: `EDGE_MODELS_DIR`, `EDGE_GALLERY_DIR`, `EDGE_ONNX_PATH`,
+  `EDGE_GALLERY_PATH`, `EDGE_TOP_K` env vars.
+- `tests/unit/test_edge_inference.py`: 30 tests (preprocessing, build_gallery, EdgeClassifier,
+  from_torch, integration smoke); all passing.
+
+### ✅ [P3][XL] Supervised fine-tuning on CVAT-annotated frames — DONE
 **What:** Use CVAT-annotated frames (al_tag=annotated) to teach DINOv3 semantic category
-boundaries via supervised contrastive loss or a lightweight classification head.
+boundaries via Supervised Contrastive Loss (SupCon, Khosla et al. NeurIPS 2020).
 **Why:** Hard negative mining with semantic labels and class boundary learning cannot be
 derived from self-supervised objectives alone. Completes the active learning loop.
-**Effort:** XL (human: ~1 month / CC: ~1 week)
-**Depends on:** CVAT annotation integration (✅ done); >1000 annotated frames (data dependency —
-annotators must process missions through CVAT first); self-supervised domain adaptation above
-(train supervised on top of the domain-adapted checkpoint, not the generic pretrained one)
+**Implemented:**
+- `scripts/make_test_cvat_archive.py` — generates a synthetic 1001-frame annotated CVAT 1.1
+  archive. 6 VisDrone-inspired categories: car (240), truck (180), bus (120), pedestrian (200),
+  bicycle (160), motor (101). Solid-colored drone-view JPEGs + per-frame bounding box annotations.
+  Outputs `data_test/cvat_frames/`, `data_test/cvat_annotations.xml`, `data_test/cvat_test_archive.zip`.
+  Run once after git clone: `python scripts/make_test_cvat_archive.py`
+- `pipeline/supervised_finetune.py`:
+  - `SupConLoss` — Supervised Contrastive Loss (eq. 2, Khosla 2020). Pulls together embeddings
+    with matching labels, pushes apart embeddings from different classes. Returns 0.0 when no
+    anchor has any positive (graceful handling of single-class batches).
+  - `CvatAnnotationParser` — parses CVAT XML 1.1; majority-vote label per image when multiple
+    boxes; basename matching for flexible directory structures.
+  - `AnnotatedFrameDataset` — intersection of annotated frames + frames found on disk; returns
+    `(view1, view2, label_idx)` for SupCon training or `(view1, label_idx)` for cross-entropy.
+  - `SupervisedFineTuner` — DINOv3 backbone (same freeze strategy as `DINOFineTuner`, default
+    freeze_blocks=8) + two-layer MLP projection head; accepts optional `ssl_checkpoint` to
+    warm-start from a domain-adapted backbone before supervised fine-tuning.
+  - `SupervisedFinetuneConfig` — mirrors `FinetuneConfig`; adds `cvat_xml_path`, `ssl_checkpoint`.
+  - `run_supervised_finetune(cfg)` — training loop: two views per sample → cat → `SupConLoss`;
+    AdamW + CosineAnnealingLR; per-epoch + best checkpoint saves (`dino_sup_best.pt`).
+  - `config_from_settings()` — reads `SUP_FINETUNE_*` env vars; inherits `DINO_CHECKPOINT` as
+    `ssl_checkpoint` warm-start.
+- `scripts/supervised_finetune_dino.py` — CLI entry point; `--ssl-checkpoint` for warm-start.
+- `pipeline/config.py`: added `SUP_CHECKPOINT_DIR`, `SUP_FINETUNE_EPOCHS`, `SUP_FINETUNE_LR`,
+  `SUP_FINETUNE_BATCH_SIZE`, `SUP_FINETUNE_FREEZE_BLOCKS`, `SUP_FINETUNE_TEMPERATURE`.
+- `tests/unit/test_supervised_finetune.py`: 26 tests (SupConLoss maths, gradient flow, CvatAnnotationParser,
+  AnnotatedFrameDataset, config defaults, E2E training loop stub); all passing.
+
+**Usage:**
+```bash
+# 1. Generate test fixture archive (once after git clone)
+python scripts/make_test_cvat_archive.py
+# → data_test/cvat_test_archive.zip  (1001 frames, 6 classes)
+
+# 2. Fine-tune supervised (warm-starts from SSL checkpoint if available)
+python scripts/supervised_finetune_dino.py \
+    --frames-dir data_test/cvat_frames \
+    --cvat-xml   data_test/cvat_annotations.xml \
+    --output-dir data/checkpoints/supervised \
+    --ssl-checkpoint data/checkpoints/dino_ssl_best.pt
+
+# 3. Use supervised checkpoint (same as SSL)
+export DINO_CHECKPOINT=data/checkpoints/supervised/dino_sup_best.pt
+make up
+```
+**Depends on:** CVAT annotation integration (✅ done); self-supervised domain adaptation (✅ done).
 
 ---
 
@@ -369,3 +439,159 @@ exposes `PYCOLMAP_CAMERA_MODEL="SIMPLE_RADIAL"` with validation against allowed 
   PoseQuery, PoseMatch, PoseQueryResponse Pydantic models; radius_m validation (ge=1.0, le=5000.0).
 - `app/main.py`: robot_router registered.
 - `tests/unit/test_robot_api.py`: 14 tests, all passing.
+
+---
+
+## Active Learning Loop Closure — Deferred items (from /plan-ceo-review 2026-03-25)
+
+### ✅ [P1][S] Fix CVAT label fetch-back: key on frame_id, not basename — DONE
+**What:** The planned CVAT label fetch-back matches frames by `basename(frame_path)`, which silently assigns labels to wrong frames across missions (`frame_0042.jpg` exists in every mission). The CVAT webhook handler already has selfsuvis `frame_id` from the `cvat_tasks` table — use `frame_id` as the key, not filename.
+**Why:** Multi-mission deployments will mislabel frames with no error. Silent correctness bug.
+**Implemented:** `app/routers/cvat.py` — `_frames_for_cvat_task(task_id)` returns `frame_id` values
+via `SELECT frame_id FROM cvat_tasks WHERE cvat_task_id = $1`; `_mark_frames_annotated(frame_ids)`
+uses `WHERE id = ANY($1::text[])` — no basename matching anywhere.
+**Effort:** S (human: 2h / CC: 5min)
+**Priority:** P1 — fix before shipping the auto-trigger pipeline
+**Depends on:** `cvat_label` schema migration (ALTER TABLE frames ADD COLUMN cvat_label TEXT)
+
+---
+
+### ✅ [P1][S] Reconcile `from_db` with `SupervisedFinetuneConfig.cvat_xml_path` — DONE
+**What:** `SupervisedFinetuneConfig` currently has a required `cvat_xml_path: str` field. The worker job handler (`handle_supervised_finetune_job`) calls `run_supervised_finetune` via the DB path — without a CVAT XML file. These two call paths are not reconciled in the implementation contract.
+**Implemented:** `pipeline/supervised_finetune.py` — `SupervisedFinetuneConfig.cvat_xml_path: Optional[str] = None`;
+`run_supervised_finetune(cfg)`: when `cvat_xml_path` is None, calls `AnnotatedFrameDataset.from_db(transform, two_views=True, mission_id=cfg.mission_id)` to load labelled frames from the `frames` table directly.
+**Effort:** S (human: 1h / CC: 5min)
+**Priority:** P1 — must be in implementation contract before writing code
+**Depends on:** CEO plan active learning loop closure
+
+---
+
+### ✅ [P2][S] Hot-reload endpoint: add atomic reference swap or drain for in-flight inference — DONE
+**What:** The current plan has `asyncio.Lock` serialising concurrent reloads but inference calls do NOT hold the lock. A reload mid-batch will silently use old weights for some frames and new weights for others in the same request.
+**Implemented:** `app/routers/admin.py` `POST /admin/reload-model` — uses GIL-atomic reference assignment:
+`state.dino_model` is reassigned to the new `DINOEmbedder` object after loading; in-flight inference
+calls hold their own captured reference to the old object and complete normally. `dino_model_lock`
+(from `app/state.py`) gates concurrent reload attempts only (not inference). Documented in endpoint
+docstring. Returns 409 if a reload is already in progress.
+**Effort:** S (human: 2h / CC: 10min)
+**Priority:** P2 — correctness bug but corruption window is tiny in practice
+
+---
+
+### ✅ [P2][S] Wrap `_maybe_trigger_finetune` enqueue in try/except to prevent CVAT retry storms — DONE
+**What:** asyncpg errors in `_maybe_trigger_finetune` propagate to the webhook handler, returning 500 to CVAT. CVAT retries the webhook, potentially enqueueing duplicate fine-tune jobs despite the SQL dedup guard (race between retry and the job being picked up by the worker).
+**Implemented:** `app/routers/cvat.py` — `_maybe_trigger_finetune()` wraps the entire function body in
+`try/except Exception as exc` with `logger.warning("_maybe_trigger_finetune failed (non-fatal): %s", exc)`.
+The webhook handler calls it without `await`-level exception propagation; CVAT always receives a 200 response.
+**Effort:** S (human: 30min / CC: 2min)
+**Priority:** P2
+
+---
+
+### ✅ [P2][S] Add per-batch no-positive guard in SupCon training loop — DONE
+**What:** With 500 frames / 6 classes / batch_size=16, ~8% of batches have zero positive pairs. `SupConLoss.forward` returns `tensor(0.0)`, optimizer takes a zero gradient step, scheduler still advances. The loss curve looks like convergence but training has stalled.
+**Implemented:** `pipeline/supervised_finetune.py` training loop — after computing loss, checks
+`if not valid.any(): logger.debug("Batch has no positives — skipping optimizer step"); continue`.
+`valid` is computed from `SupConLoss` internals tracking which anchors have at least one positive.
+**Effort:** S (human: 1h / CC: 5min)
+**Priority:** P2
+
+---
+
+### ✅ DONE — [P2][M] 1-NN eval_accuracy does not detect overfitting on fine-tuned embeddings
+**What:** SupCon trains the backbone to cluster same-class embeddings together. 1-NN accuracy on the fine-tuned backbone will increase monotonically with training epochs regardless of generalisation — it is a training convergence signal, not an overfitting detector.
+**Why:** The plan presents the eval gate as preventing silent regressions, but it cannot detect the most common failure mode (overfitting on a small annotated set).
+**Pros of fixing:** Genuine overfitting detection improves checkpoint quality.
+**Cons:** Requires a truly held-out set drawn before training begins (not just a post-training split) — changes the `stratified_split` contract.
+**Context:** Research item: evaluate alternatives — (a) cosine similarity distribution shift between annotated and unannotated frames, (b) linear probe on frozen backbone instead of 1-NN, (c) accept current monotone 1-NN as "good enough convergence signal" since overfitting risk at 500 frames + 8 frozen blocks is genuinely low.
+**Effort:** M (human: 1 day / CC: 30min)
+**Priority:** P2 — lower since overfitting risk at 500 frames is practically low
+**Implemented:** Added `_eval_distribution_shift()` in `pipeline/supervised_finetune.py`: computes intra-class vs. inter-class cosine similarity gap (gap ≈ 0 = no separation, gap ≈ 0.5 = healthy, gap > 0.9 = potential overfitting). Logged as warning when gap exceeds `SUP_OVERFITTING_SHIFT_THRESHOLD` (default 0.9, configurable via env var). Not used as a gate — warning only, since overfitting risk at 500 frames is low. `distribution_shift` value returned in result dict and persisted in `model_checkpoints` table.
+
+---
+
+### ✅ DONE — [P3][S] Suppress dino vector search during active reembed job (fall back to clip)
+**What:** During a re-embedding sweep, Qdrant contains a mix of old-model and new-model `dino` vectors. Cosine similarity between them is meaningless — search quality degrades silently.
+**Why:** Users querying during the sweep get incorrect ranked results with no warning.
+**Pros:** Consistent search quality throughout the sweep.
+**Cons:** Requires a job-awareness flag in the search path; adds complexity.
+**Context:** Simplest mitigation: expose a `GET /admin/reembed-status` endpoint; the search service checks if a reembed job is running and falls back to `clip` vector search. Or: set a Redis/DB flag during sweep and read it in `app/services/search.py`.
+**Effort:** S (human: 2h / CC: 10min)
+**Priority:** P3 — reembed window is short (~8 min for 500K frames)
+**Implemented:** `_reembed_is_active()` in `app/services/search.py` queries `jobs` table for a running reembed job; dino reranking is suppressed (falls back to clip-only) when active, with an info log. `GET /admin/reembed-status` endpoint added to `app/routers/admin.py` returns `{active, job_id, frames_reembedded}`.
+
+---
+
+### ✅ [P2][S] Add retrain watermark to prevent infinite retrigger after threshold is crossed — DONE
+**What:** Store `last_retrain_watermark` (annotated frame count at last successful fine-tune) in a `system_state` DB table or as a `settings`-namespaced row. Only trigger fine-tuning when `total_annotated - last_retrain_watermark >= MIN_NEW_ANNOTATED_SINCE_RETRAIN` (new config var, default 100). Worker updates watermark after successful job completion.
+**Implemented:**
+- `scripts/migrate_postgres.py`: `CREATE TABLE IF NOT EXISTS system_state (key TEXT PK, value TEXT)`.
+  Initial `last_retrain_watermark=0` row inserted if absent.
+- `pipeline/config.py`: `MIN_NEW_ANNOTATED_SINCE_RETRAIN` env var (default 100).
+- `app/routers/cvat.py` `_maybe_trigger_finetune`: reads `system_state.last_retrain_watermark`;
+  only enqueues if `total_annotated - watermark >= MIN_NEW_ANNOTATED_SINCE_RETRAIN`.
+- `worker/main.py` supervised_finetune job handler: updates `system_state` watermark to
+  `total_annotated` after a successful (accepted) checkpoint.
+**Effort:** S (human: 2h / CC: 10min)
+**Priority:** P2
+**Depends on:** `cvat_label` column migration (P1)
+
+---
+
+### ✅ DONE — [P3][M] Establish model version provenance (annotations → checkpoint → embeddings → served results)
+**What:** Track which annotation batch trained which checkpoint, which checkpoint produced which Qdrant embeddings, and which model version served each query. Store `model_version_id` in Qdrant payload at upsert time and in a `model_checkpoints` PostgreSQL table.
+**Why:** Without provenance, rollback requires wiping and re-embedding, "model v3 improved by 12%" claims are unverifiable, and debugging retrieval regressions is impossible.
+**Pros:** Enables rollback, A/B comparison, and credible improvement metrics.
+**Cons:** M-size effort; Qdrant schema change; adds payload bytes per point.
+**Context:** Codex outside voice finding. Not needed for v1 single-developer deployment. Required before production multi-user use.
+**Effort:** M (human: 3 days / CC: 1h)
+**Priority:** P3
+**Implemented:** `model_checkpoints` table in `scripts/migrate_postgres.py` (checkpoint_path, model_version_id, annotation_count, best_accuracy, distribution_shift, created_at, notes). `MODEL_VERSION_ID` env var in `pipeline/config.py` (default `"base"`). `model_version_id` added to Qdrant frame payload in `pipeline/indexer.py` `_build_frame_point()`. Worker `handle_finetune_job()` inserts provenance row and updates `settings.MODEL_VERSION_ID` to `sup_{job_id[:8]}` after accepted checkpoint.
+
+---
+
+### ✅ DONE — [P3][S] Single authoritative active-model-version source (eliminate split-brain)
+**What:** Replace the three-way active model source (`DINO_CHECKPOINT` env var, `active_checkpoint.txt`, job `payload.checkpoint`) with a single authoritative source: a `system_state.active_dino_checkpoint` DB row. All components (API startup, worker trigger, reload endpoint) read from DB.
+**Why:** Three independent sources of truth create split-brain risk in multi-replica or restart scenarios.
+**Pros:** Single source of truth; survives DB-backed restarts; no env var drift.
+**Cons:** DB connection required at API startup; fallback logic for cold-start.
+**Context:** Codex outside voice finding. For v1 single-node deployment, file + env var is acceptable. Fix before horizontal scaling.
+**Effort:** S (human: 2h / CC: 15min)
+**Priority:** P3
+**Implemented:** `_resolve_dino_checkpoint()` in `app/state.py` reads `system_state.active_dino_checkpoint` from DB at startup; overrides `settings.DINO_CHECKPOINT` if found; falls back to env var silently on DB failure. Worker `handle_finetune_job()` writes `active_dino_checkpoint` to `system_state` after every accepted checkpoint.
+
+---
+
+### ✅ DONE — [P3][S] Label taxonomy normalization across CVAT tasks
+**What:** Add a normalization layer in `_mark_frames_annotated` / `from_db` that maps CVAT task-specific label names to a canonical vocabulary. Flag conflicting labels (same frame annotated differently across tasks).
+**Why:** Different CVAT tasks may use renamed classes or partial coverage. `SELECT DISTINCT cvat_label` silently produces a mixed ontology.
+**Pros:** Training data integrity; cleaner class distributions.
+**Cons:** Requires a canonical-vocab config or a `label_mappings` table.
+**Context:** Codex outside voice finding. Only relevant once multiple annotation campaigns are in use.
+**Effort:** S (human: 3h / CC: 20min)
+**Priority:** P3
+**Implemented:** `_normalize_labels()` in `pipeline/supervised_finetune.py` applies a `Dict[str,str]` mapping to raw labels; logs a warning when the same frame gets conflicting labels after normalization. Applied in both `from_xml()` and `from_db()` before vocabulary build. `CVAT_LABEL_MAPPINGS` JSON env var in `pipeline/config.py` (default `{}`). `config_from_settings()` passes mappings through.
+
+---
+
+### ✅ DONE — [P3][S] GPU resource isolation for concurrent fine-tuning + inference + re-embedding
+**What:** Add a GPU job serialization mechanism: a PostgreSQL advisory lock or `gpu_jobs` semaphore table that gates concurrent GPU work. Workers check-in before allocating GPU memory and check-out on completion.
+**Why:** Fine-tuning, live inference, and re-embedding all hit the same GPU. On a 24GB A10, concurrent fine-tune + re-embed + inference easily OOMs silently.
+**Pros:** Prevents CUDA OOM; predictable GPU scheduling.
+**Cons:** Adds polling complexity in worker.
+**Context:** Codex outside voice finding. Not needed on CPU-only. Critical on shared GPU machines.
+**Effort:** S (human: 4h / CC: 20min)
+**Priority:** P3
+**Implemented:** `gpu_jobs` table in `scripts/migrate_postgres.py`; `_gpu_checkin()`/`_gpu_checkout()` in `worker/main.py`; wired into `handle_finetune_job()` (wraps `run_supervised_finetune` in try/finally) and `handle_reembed_job()` (full try/finally). Fail-open on DB error; stale entries evicted on every check-in; contention logged as warning. `WORKER_ID` and `GPU_JOB_TIMEOUT_SEC` config in `pipeline/config.py`.
+
+---
+
+### ✅ DONE — [P3][S] Post-deployment: measure automation ROI vs. manual restart
+**What:** The auto-trigger pipeline (5 scope items, ~400 lines) eliminates the need for `docker restart api` after fine-tuning. After the first real deployment, measure: how often does annotation actually happen, how often does the threshold get crossed, and whether the automation saved meaningful ops time.
+**Why:** The outside voice challenge: infrastructure cost may exceed benefit for infrequent annotation workflows.
+**Pros:** Evidence-based decision on whether to maintain the automation or simplify to a CLI-only flow.
+**Cons:** Requires 1-2 months of production data.
+**Context:** The moat argument (compounding improvement) is valid for high-frequency annotation workflows. For teams that annotate once a quarter, the manual restart is simpler. Measure before building v3 automation features.
+**Effort:** S (human: 1h analysis / CC: N/A)
+**Priority:** P3 — post-deployment retrospective
+**Implemented:** `GET /admin/automation-roi` in `app/routers/admin.py`. Derives all metrics from existing `jobs` + `frames` tables (no schema changes). Returns: `total_annotated_frames`, `annotation_campaigns` (distinct months), `finetune_jobs_triggered/accepted`, `finetune_acceptance_rate`, `model_reloads`, `reembed_sweeps_completed`, `estimated_ops_minutes_saved` (reloads × 3 min), `days_observed`, `annotation_frequency_per_week`, and a `verdict` (LOW_FREQUENCY / MODERATE_FREQUENCY / HIGH_FREQUENCY / INSUFFICIENT_DATA) with plain-English `verdict_detail`.

@@ -10,17 +10,24 @@ from app.deps import rate_limit, require_api_key
 from app.services.upload_utils import hash_upload_limited, write_upload_to_path
 from app.state import logger
 from pipeline.config import settings
+import asyncpg
+
 from pipeline.net_utils import safe_request, validate_url
 from pipeline.processed_db import get_by_hash, get_by_size, get_by_url
 from pipeline.utils import ensure_dir, file_sha256, resolve_allowed_path
-from pipeline.job_db import create_job
+from pipeline.job_db_pg import create_job
 
 router = APIRouter(tags=["index"], dependencies=[Depends(require_api_key), Depends(rate_limit)])
 
 
-def _enqueue_job(payload: dict) -> str:
+async def _enqueue_job(payload: dict) -> str:
     job_id = uuid.uuid4().hex
-    create_job(job_id, payload)
+    db_url = settings.DATABASE_URL
+    conn = await asyncpg.connect(db_url, timeout=5)
+    try:
+        await create_job(conn, job_id, payload, job_type="index")
+    finally:
+        await conn.close()
     return job_id
 
 
@@ -101,7 +108,7 @@ async def index_video(
             return error_response("path not allowed or not a file", status_code=403)
         video_path = resolved
 
-    job_id = _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
+    job_id = await _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
     logger.info("Enqueued video_id=%s job_id=%s", video_id, job_id)
     return {"video_id": video_id, "job_id": job_id}
 
@@ -116,7 +123,7 @@ async def index_url(
     except ValueError as exc:
         return error_response(str(exc))
     video_id = uuid.uuid4().hex
-    job_id = _enqueue_job({"video_id": video_id, "video_url": url, "enable_tiles": enable_tiles})
+    job_id = await _enqueue_job({"video_id": video_id, "video_url": url, "enable_tiles": enable_tiles})
     logger.info("Enqueued url video_id=%s job_id=%s", video_id, job_id)
     return {"video_id": video_id, "job_id": job_id}
 
@@ -141,7 +148,7 @@ async def index_dir(
             if stat_failed:
                 continue
             video_id = uuid.uuid4().hex
-            job_id = _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
+            job_id = await _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
             jobs.append({"video_id": video_id, "job_id": job_id})
     except _DirLimitExceeded as e:
         return error_response(e.msg)
@@ -227,7 +234,7 @@ async def index_rtsp(
 
     video_id = uuid.uuid4().hex
     effective_mission_id = mission_id or video_id
-    job_id = _enqueue_job({
+    job_id = await _enqueue_job({
         "video_id": video_id,
         "mission_id": effective_mission_id,
         "video_url": stream_url,
@@ -288,7 +295,7 @@ async def precheck_dir(
                 entry = {"filename": os.path.basename(video_path), "status": "new", "reason": "hash", "hash": file_hash}
                 if enqueue:
                     video_id = uuid.uuid4().hex
-                    job_id = _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
+                    job_id = await _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
                     entry["enqueued"] = True
                     entry["video_id"] = video_id
                     entry["job_id"] = job_id

@@ -136,6 +136,29 @@ async def register_mission(
     )
 
 
+async def update_mission_splat_path(
+    conn,
+    mission_id: str,
+    splat_path: str,
+) -> None:
+    """Set missions.splat_path after nerfstudio splatfacto produces a splat.ply.
+
+    Required for get_global_map_splats to return this mission's splat as an
+    ICP target for future missions at the same site.  The column is added by
+    scripts/migrate_postgres.py.
+    """
+    now = time.time()
+    await conn.execute(
+        "UPDATE missions SET splat_path = $1, updated_at = $2 WHERE id = $3",
+        splat_path,
+        now,
+        mission_id,
+    )
+    logger.info(
+        "missions: splat_path set mission_id=%s path=%s", mission_id, splat_path
+    )
+
+
 async def update_global_map_splat(
     conn,
     global_map_id: int,

@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 
 from PIL import Image
@@ -5,6 +6,8 @@ from qdrant_client.http import models as qmodels
 
 from app.state import dino_model, store
 from pipeline.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def payload_filter(search_type: str) -> Optional[qmodels.Filter]:
@@ -18,6 +21,35 @@ def payload_filter(search_type: str) -> Optional[qmodels.Filter]:
             )
         ]
     )
+
+
+def _reembed_is_active() -> bool:
+    """Return True if a reembed job is currently running.
+
+    Queries the jobs table directly (synchronous asyncpg.run) so it can be
+    called from synchronous search code.  Fails fast on any DB error (returns
+    False) so search is never blocked by a DB outage.
+    """
+    db_url = settings.DATABASE_URL
+    if not db_url:
+        return False
+    try:
+        import asyncio
+        import asyncpg
+
+        async def _check():
+            conn = await asyncpg.connect(db_url, timeout=3)
+            try:
+                row = await conn.fetchrow(
+                    "SELECT 1 FROM jobs WHERE type = 'reembed' AND status = 'running' LIMIT 1"
+                )
+                return row is not None
+            finally:
+                await conn.close()
+
+        return asyncio.run(_check())
+    except Exception:
+        return False
 
 
 def search_vectors(
@@ -35,13 +67,21 @@ def search_vectors(
     results = format_results(scored)
 
     if enable_rerank and image_query is not None and vector_space == "clip" and dino_model:
-        dino_vec = dino_model.encode_images([image_query], batch_size=1)[0]
-        dino_scored = store.search("dino", dino_vec, k_retrieve, filter_obj)
-        dino_map = {p.id: p.score for p in dino_scored}
-        for r in results:
-            if r["id"] in dino_map:
-                r["score"] = 0.7 * r["score"] + 0.3 * dino_map[r["id"]]
-        results.sort(key=lambda x: x["score"], reverse=True)
+        # Suppress dino reranking while a reembed sweep is active: Qdrant holds a
+        # mix of old-model and new-model dino vectors during the sweep, so cosine
+        # similarity between them is meaningless and would corrupt result ranking.
+        if _reembed_is_active():
+            logger.info(
+                "Dino reranking suppressed: reembed sweep is active (falling back to clip)"
+            )
+        else:
+            dino_vec = dino_model.encode_images([image_query], batch_size=1)[0]
+            dino_scored = store.search("dino", dino_vec, k_retrieve, filter_obj)
+            dino_map = {p.id: p.score for p in dino_scored}
+            for r in results:
+                if r["id"] in dino_map:
+                    r["score"] = 0.7 * r["score"] + 0.3 * dino_map[r["id"]]
+            results.sort(key=lambda x: x["score"], reverse=True)
 
     return results[:top_k]
 
