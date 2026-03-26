@@ -40,9 +40,10 @@ def _load_backbone(model_name: str, checkpoint: str | None, device: str):
     """Load DINOv3/DINOv2 backbone and optionally restore fine-tuned weights."""
     import torch
 
-    repo = "facebookresearch/dinov3" if "dinov3" in model_name else "facebookresearch/dinov2"
-    logger.info("Loading backbone: %s from %s", model_name, repo)
-    backbone = torch.hub.load(repo, model_name, pretrained=True)
+    from models.dino_model import hub_load_dino, DINO_HUB_REPO, _resolve_dino_hub
+    _, repo_or_dir, actual_name = _resolve_dino_hub(model_name)
+    logger.info("Loading backbone: %s (resolved: %s)", model_name, actual_name)
+    backbone = hub_load_dino(model_name, pretrained=True)
     backbone = backbone.to(device)
 
     if checkpoint:

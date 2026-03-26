@@ -263,8 +263,8 @@ class DINOFineTuner:
         self.model_name = model_name
 
         # Load backbone
-        repo = "facebookresearch/dinov3" if "dinov3" in model_name else "facebookresearch/dinov2"
-        self.backbone = torch.hub.load(repo, model_name, pretrained=True)
+        from models.dino_model import hub_load_dino
+        self.backbone = hub_load_dino(model_name, pretrained=True)
         self.backbone = self.backbone.to(device)
 
         # Freeze first N blocks

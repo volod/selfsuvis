@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import os
 
@@ -9,6 +9,156 @@ from torchvision import transforms
 
 from pipeline.config import settings
 from pipeline.logging_utils import get_logger
+
+# ---------------------------------------------------------------------------
+# Hub constants — shared by all DINO loaders in this codebase.
+# facebookresearch/dinov3 does NOT exist on GitHub.  All DINO models
+# (including those labelled "dinov3" in this project) are served from the
+# facebookresearch/dinov2 repository.
+# ---------------------------------------------------------------------------
+DINO_HUB_REPO = "facebookresearch/dinov2"
+
+# "dinov3" in this codebase means DINOv2 with register tokens (_reg variants).
+# Register tokens are the architectural improvement Facebook released after the
+# original DINOv2 paper — they reduce attention artifacts and produce better
+# features.  The _reg checkpoints are distinct files from the plain _vitb14 ones.
+_DINO_MODEL_ALIAS: dict = {
+    "dinov3_vits14": "dinov2_vits14_reg",
+    "dinov3_vitb14": "dinov2_vitb14_reg",
+    "dinov3_vitl14": "dinov2_vitl14_reg",
+    "dinov3_vitg14": "dinov2_vitg14_reg",
+}
+
+# dinov2 hub entry-point → Hugging Face repo id (facebook/dinov2-*)
+# Used as a fallback when GitHub / torch.hub is unreachable.
+# NOTE: Facebook has not published pure _reg backbone repos on HF — only the
+# non-reg backbones are available.  _reg variants must be fetched via torch.hub.
+_DINO_HF_REPO: dict = {
+    "dinov2_vits14": "facebook/dinov2-small",
+    "dinov2_vitb14": "facebook/dinov2-base",
+    "dinov2_vitl14": "facebook/dinov2-large",
+    "dinov2_vitg14": "facebook/dinov2-giant",
+}
+
+
+class _HFDINOWrapper(torch.nn.Module):
+    """Wrap a HF ``Dinov2Model`` to match the torch.hub forward interface.
+
+    The torch.hub model returns a ``(B, D)`` tensor directly from ``forward()``.
+    The HF model returns a ``BaseModelOutputWithPooling``; we extract the CLS
+    token (``last_hidden_state[:, 0]``) which is the same representation.
+    """
+
+    def __init__(self, hf_model: torch.nn.Module) -> None:
+        super().__init__()
+        self._hf = hf_model
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # (B,3,H,W) → (B,D)
+        out = self._hf(pixel_values=x)
+        return out.last_hidden_state[:, 0]
+
+
+def _load_dino_from_hf(model_name: str) -> torch.nn.Module:
+    """Load a DINOv2 backbone from Hugging Face as a fallback.
+
+    Returns a ``_HFDINOWrapper`` whose ``forward()`` is compatible with the
+    torch.hub model: accepts ``(B, 3, H, W)`` with ImageNet normalisation and
+    returns ``(B, D)`` CLS-token embeddings.
+
+    Raises ``ImportError`` if ``transformers`` is not installed.
+    Raises ``KeyError`` if no HF repo is known for *model_name*.
+    """
+    try:
+        from transformers import AutoModel  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise ImportError(
+            "transformers is required for the Hugging Face fallback. "
+            "Install it with: pip install transformers"
+        ) from exc
+
+    actual_name = _DINO_MODEL_ALIAS.get(model_name, model_name)
+    hf_repo = _DINO_HF_REPO.get(actual_name)
+    if hf_repo is None:
+        raise KeyError(
+            f"No Hugging Face repo mapping for DINO model '{actual_name}'. "
+            f"Known models: {list(_DINO_HF_REPO)}"
+        )
+
+    # Import gated-repo exception — location changed between huggingface_hub versions.
+    _GatedRepoError = None
+    try:
+        from huggingface_hub.errors import GatedRepoError as _GatedRepoError  # ≥0.24
+    except ImportError:
+        try:
+            from huggingface_hub.utils import GatedRepoError as _GatedRepoError  # <0.24
+        except ImportError:
+            pass
+
+    try:
+        hf_model = AutoModel.from_pretrained(hf_repo)
+    except Exception as exc:
+        if _GatedRepoError and isinstance(exc, _GatedRepoError):
+            raise RuntimeError(
+                f"\nModel '{hf_repo}' requires license acceptance on Hugging Face.\n"
+                f"  1. Open  https://huggingface.co/{hf_repo}\n"
+                f"  2. Click 'Agree and access repository'\n"
+                f"  3. Log in:  huggingface-cli login\n"
+                f"  4. Re-run:  python scripts/prepare_models.py --dino --source hf"
+            ) from exc
+        raise
+
+    return _HFDINOWrapper(hf_model)
+
+
+def _resolve_dino_hub(model_name: str) -> Tuple[str, str, str]:
+    """Return *(source, repo_or_dir, actual_model_name)* for ``torch.hub.load``.
+
+    Translates ``dinov3_*`` aliases to the real ``dinov2_*`` entry-point names
+    and returns ``source='local'`` + the cached directory path when the hub
+    archive has already been downloaded, avoiding any network access.
+    """
+    import torch.hub as _hub
+
+    actual_name = _DINO_MODEL_ALIAS.get(model_name, model_name)
+    local_path = os.path.join(_hub.get_dir(), "facebookresearch_dinov2_main")
+    if os.path.isdir(local_path):
+        return "local", local_path, actual_name
+    return "github", DINO_HUB_REPO, actual_name
+
+
+_logger = get_logger(__name__)
+
+
+def hub_load_dino(model_name: str, pretrained: bool = True) -> torch.nn.Module:
+    """Load a DINO backbone, with a Hugging Face fallback.
+
+    Resolution order:
+    1. Local torch.hub cache (``~/.cache/torch/hub/facebookresearch_dinov2_main``)
+    2. GitHub via ``torch.hub.load`` (``facebookresearch/dinov2``)
+    3. Hugging Face ``transformers`` (``facebook/dinov2-{variant}``)
+
+    Handles ``dinov3_*`` → ``dinov2_*`` aliasing transparently.
+    """
+    source, repo_or_dir, actual_name = _resolve_dino_hub(model_name)
+    try:
+        return torch.hub.load(repo_or_dir, actual_name,
+                              pretrained=pretrained, source=source)
+    except Exception as hub_exc:
+        _logger.warning(
+            "torch.hub load failed (%s: %s) — trying Hugging Face fallback …",
+            type(hub_exc).__name__, hub_exc,
+        )
+        try:
+            model = _load_dino_from_hf(model_name)
+            _logger.info("DINO loaded from Hugging Face: %s", _DINO_HF_REPO.get(actual_name))
+            return model
+        except Exception as hf_exc:
+            raise RuntimeError(
+                f"All DINO load attempts failed.\n"
+                f"  torch.hub: {hub_exc}\n"
+                f"  Hugging Face: {hf_exc}\n"
+                f"To pre-download offline: python scripts/prepare_models.py --dino"
+            ) from hf_exc
 
 
 class DINOEmbedder:
@@ -41,16 +191,47 @@ class DINOEmbedder:
         return "cuda" if torch.cuda.is_available() else "cpu"
 
     def _load_model(self, model_name: str):
+        import torch.hub as _hub
+
+        source, repo_or_dir, actual_name = _resolve_dino_hub(model_name)
+
+        if source == "local":
+            self.logger.info("DINO: loading from local hub cache: %s", repo_or_dir)
+        else:
+            self.logger.info("DINO: downloading from GitHub (first run) …")
+
+        # Patch torch.hub's downloader to show a tqdm progress bar on first
+        # download.  The patch is applied regardless of source so that weight
+        # downloads (separate from the repo archive) are also shown.
+        _orig_download = _hub.download_url_to_file
+
+        def _download_with_progress(url, dst, *args, **kwargs):
+            self.logger.info("  ↓ %s", url)
+            try:
+                from tqdm import tqdm as _tqdm
+                import urllib.request as _req
+                with _req.urlopen(url) as resp:
+                    total = int(resp.headers.get("Content-Length", 0))
+                bar = _tqdm(total=total, unit="B", unit_scale=True,
+                            desc=f"  {os.path.basename(dst)}", leave=False)
+
+                def _hook(count, block_size, total_size):
+                    if total_size > 0:
+                        bar.total = total_size
+                    bar.update(block_size)
+
+                _req.urlretrieve(url, dst, reporthook=_hook)
+                bar.close()
+                self.logger.info("  ✓ saved %s", dst)
+            except Exception:
+                _orig_download(url, dst, *args, **kwargs)
+
+        _hub.download_url_to_file = _download_with_progress
         try:
-            if "dinov3" in model_name:
-                repo = "facebookresearch/dinov3"
-            else:
-                repo = "facebookresearch/dinov2"
-            model = torch.hub.load(repo, model_name, pretrained=True)
-        except Exception as exc:
-            raise RuntimeError(
-                "Failed to load DINO model. Ensure weights are available offline or predownloaded."
-            ) from exc
+            # hub_load_dino already handles: local cache → GitHub → HF fallback.
+            model = hub_load_dino(model_name, pretrained=True)
+        finally:
+            _hub.download_url_to_file = _orig_download
         model = model.to(self.device)
         # Resolve checkpoint: DINO_CHECKPOINT env var takes priority,
         # then active_checkpoint.txt (written by POST /admin/reload-model).

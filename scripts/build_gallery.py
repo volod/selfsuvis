@@ -203,9 +203,9 @@ def main() -> None:
         from pipeline.ssl_finetune import DINOFineTuner
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        repo = "facebookresearch/dinov3" if "dinov3" in args.model_name else "facebookresearch/dinov2"
-        logger.info("Loading backbone %s from %s on %s ...", args.model_name, repo, device)
-        backbone = torch.hub.load(repo, args.model_name, pretrained=True)
+        from models.dino_model import hub_load_dino
+        logger.info("Loading backbone %s on %s ...", args.model_name, device)
+        backbone = hub_load_dino(args.model_name, pretrained=True)
         backbone = backbone.to(device)
 
         if args.checkpoint:

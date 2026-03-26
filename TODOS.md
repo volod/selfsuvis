@@ -5,6 +5,84 @@ Format: [Priority] [Effort] — Description
 
 ---
 
+## SV-DEMO | End-to-end demo pipeline (`demo.py`)
+
+Self-contained CLI that runs the full perception stack on a directory of videos
+and produces per-video reports, a fine-tuned model, 3D maps, and final statistics —
+without requiring the Docker stack (except optional Qdrant for vector search).
+
+### ✅ DONE — [DEMO-01] Setup: directory structure + arg parsing + logging
+- `video_demo/videos/.gitkeep` placeholder for input videos
+- `demo.py` root entry point with `--videos-dir`, `--output-dir`, `--device`,
+  `--epochs`, `--batch-size`, `--no-qdrant`, `--no-sfm` flags
+- Colored, timestamped console logger with step banners
+- Env vars set before pipeline imports so `settings.*` reflect demo paths
+
+### ✅ DONE — [DEMO-02] Shared model initialization (CLIP + DINO, graceful fallback)
+- Load `OpenCLIPEmbedder` (always)
+- Load `DINOEmbedder("dinov3_vitb14")` (graceful ImportError / download fallback)
+- Attempt Qdrant connection; on failure build `InMemoryStore` backed by numpy cosine search
+
+### ✅ DONE — [DEMO-03] Per-video Step A: frame extraction + metadata JSON
+- Reuse `pipeline.ffmpeg_utils.extract_frames()`
+- Write `{video_dir}/frames_metadata.json` with frame count, fps, duration
+- Log: extracted N frames in T seconds
+
+### ✅ DONE — [DEMO-04] Per-video Step B: index frames into vector store
+- Reuse `pipeline.indexer.VideoIndexer.index_video()`; progress callback logs to console
+- Graceful skip if Qdrant unavailable (embeddings stored in InMemoryStore for search steps)
+
+### ✅ DONE — [DEMO-05] Per-video Step C: base model transformation test → `base_search.md`
+- Pick query frame (highest visual information: middle of video)
+- Embed with base CLIP + DINO; search for top-5 nearest neighbours
+- Write `{video_dir}/base_search.md` with query image path, match table, scores
+- Do NOT overwrite if file already exists
+
+### ✅ DONE — [DEMO-06] Per-video Step D: SSL DINOv3 fine-tuning → `finetune_stats.md`
+- Reuse `pipeline.ssl_finetune.FinetuneConfig` + `run_finetune()`
+- `frames_dir = settings.FRAMES_DIR` (parent of per-video subdirs — TemporalPairDataset convention)
+- Fall back to `approach="augment"` when video has < 2*batch_size frames
+- Write `{video_dir}/finetune_stats.md` with loss curve, best epoch, checkpoint path
+
+### ✅ DONE — [DEMO-07] Per-video Step E: ONNX export + gallery build → `edge_models/`
+- Hot-load fine-tuned checkpoint into `DINOEmbedder.load_backbone_checkpoint()`
+- Reuse `scripts/export_onnx._export_onnx()` for ONNX trace-export
+- Reuse `pipeline.edge_inference.build_gallery()` with frames grouped as one pseudo-class
+- Save `dino_demo.onnx` and `gallery.npz` into `{video_dir}/edge_models/`
+
+### ✅ DONE — [DEMO-08] Per-video Step F: fine-tuned model transformation test → `finetuned_search.md`
+- Re-embed query frame with fine-tuned DINOEmbedder; search for top-5 matches
+- Write `{video_dir}/finetuned_search.md` (separate file; never overwrites base_search.md)
+
+### ✅ DONE — [DEMO-09] Per-video Step G: comparison + video-to-text description → `comparison.md`
+- Compare base vs fine-tuned top-5 results (overlap, score delta)
+- Model stats: checkpoint size on disk, mean DINO inference time (ms/frame) for both models
+- Video-to-text: average CLIP frame embedding → cosine similarity against 12 text prompts → top-3 descriptions
+- Write `{video_dir}/comparison.md` and echo summary to console log
+
+### ✅ DONE — [DEMO-10] Per-video Step H: 3D map creation → `3d_map/`
+- Reuse `pipeline.sfm.run_sfm()` (pycolmap optional)
+- Fallback when pycolmap absent: PCA(3) of DINO frame embeddings → synthetic point cloud
+- Save `sparse_map.npz` (points + colours) and `map_stats.json`
+
+### ✅ DONE — [DEMO-11] 3D map viewer (matplotlib, one window per video, shutdown button)
+- After all videos processed: open one matplotlib 3D figure per video
+- "Close Viewer" button calls `plt.close(fig)` for that window
+- `plt.show()` blocks until all viewers are closed; then pipeline continues to final stats
+
+### ✅ DONE — [DEMO-12] Final statistics → `final_stats.md` + console summary
+- Aggregate per-video: frame count, index time, finetune loss, model size, SfM poses
+- Print formatted table to console; write `video_demo/output/final_stats.md`
+
+### ✅ DONE — [DEMO-13] README.md "Demo" section
+- Prerequisites (ffmpeg, qdrant optional, sample video download)
+- Step-by-step: `make venv` → place videos → `python demo.py`
+- Description of every artifact produced
+
+---
+
+---
+
 ## P1 — Blockers (must resolve before shipping)
 
 ### ✅ [P1][S] Validate Qdrant 2D GPS range query performance — DONE

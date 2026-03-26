@@ -18,6 +18,90 @@ Then open the Streamlit UI (default: http://localhost:8501),
 upload a video or provide a URL (file or stream), start understanding, 
 and run text or image queries.
 
+## Demo
+
+Run the end-to-end demonstration pipeline — no Docker, no GPU required (CPU fallback available):
+
+### Prerequisites
+
+- Python 3.10+ with virtualenv set up (`make venv`)
+- `ffmpeg` on PATH (`brew install ffmpeg` / `sudo apt install ffmpeg`)
+- At least one `.mp4` or `.mov` video file in `data_test/videos/` (two test clips are already committed there)
+- *(Optional)* Qdrant running locally on `localhost:6333` for vector search; falls back to in-memory search automatically
+
+### Start Qdrant locally (optional)
+
+Use the project's existing Compose configuration — data is persisted in `data/qdrant/`:
+
+```bash
+# Start only the Qdrant service (no GPU, no API, no worker needed for the demo)
+env UID=$(id -u) GID=$(id -g) docker compose -f docker/docker-compose.yml up -d qdrant
+
+# Verify it is up:
+curl -s http://localhost:6333/healthz   # → {"title":"qdrant","version":"..."}
+
+# Stop:
+env UID=$(id -u) GID=$(id -g) docker compose -f docker/docker-compose.yml stop qdrant
+```
+
+If Qdrant is not running the demo falls back to an in-memory cosine-similarity store automatically — no action needed.
+
+### Sample videos
+
+Any outdoor footage works. Two test clips are already in `data_test/videos/`. Additional free 4K samples:
+
+- Mixkit: https://mixkit.co/free-stock-video/nature/ → download as `.mp4`, place in `data_test/videos/`
+- Pexels: https://www.pexels.com/search/videos/outdoor/ → download, place in `data_test/videos/`
+
+### Download required models (if network is not healsy)
+```bash
+  #Warmup script gains --source:                                                                                                         
+  # Default: auto (local → hub → HF)
+  python scripts/prepare_models.py --dino                                                                                               
+                                                                                                                                        
+  # Force HF only — useful when GitHub is blocked
+  python scripts/prepare_models.py --dino --source hf                                                                                   
+                                                            
+  # Force torch.hub only — no HF fallback                                                                                               
+  python scripts/prepare_models.py --dino --source hub 
+```
+
+### Run
+
+```bash
+# Basic — uses data_test/videos/, writes to data_test/output/
+python demo.py
+
+# Custom directories
+python demo.py --videos-dir /path/to/videos --output-dir /path/to/output
+
+# CPU only (no CUDA required)
+python demo.py --device cpu
+
+# Skip optional steps
+python demo.py --no-qdrant --no-sfm --no-onnx
+
+# Full options
+python demo.py --help
+```
+
+### Output artifacts
+
+For each video `<name>.mp4` the demo writes `<output-dir>/<name>/`:
+
+| File / Dir | Contents |
+|---|---|
+| `base_search.md` | Text-query results using the base DINOv3 model |
+| `finetune_stats.md` | SSL fine-tuning loss curve + config |
+| `finetuned_search.md` | Same queries re-run with the fine-tuned model |
+| `comparison.md` | Side-by-side comparison + video-to-text description |
+| `edge_models/` | ONNX models + frame gallery for edge deployment |
+| `checkpoints/` | Fine-tuned `.pt` checkpoints |
+| `3d_map/` | Point cloud `.npy` (SfM poses or PCA fallback) + manifest |
+| `final_stats.md` | Per-video and aggregate statistics |
+
+After all videos are processed, an interactive 3D scatter viewer opens for each video (close with the on-screen button or the window's close control).
+
 ## Docs
 - [Architecture decisions](docs/adr/README.md)
 - [Design doc](docs/design/outdoor-autonomy-perception-stack.md)

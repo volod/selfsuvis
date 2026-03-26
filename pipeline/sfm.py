@@ -60,8 +60,11 @@ def _extract_dense_frames(
     ensure_dir(out_dir)
     pattern = os.path.join(out_dir, "frame_%010d.jpg")
     cmd = [
-        "ffmpeg", "-y", "-i", video_path,
-        "-vf", f"fps={fps}",
+        "ffmpeg", "-y",
+        "-loglevel", "error",
+        "-i", video_path,
+        "-vf", f"fps={fps},format=yuv420p",
+        "-color_range", "2",
         "-q:v", "2",
         pattern,
     ]
