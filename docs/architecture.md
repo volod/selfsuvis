@@ -7,11 +7,16 @@ worker/       async-native background worker (polls PostgreSQL jobs, runs VideoI
 models/       embedding models (OpenCLIP, DINOv3, Florence-2)
 pipeline/     frame extraction, SfM, 3DGS mapper, GPS, captioning, active learning,
               change detection, report generator, Qdrant utils, job/processed DB
+  ├── vector_store.py   InMemoryStore — cosine NN fallback when Qdrant unavailable
+  ├── map_builder.py    build_sparse_map(), export_ply() — SfM/PCA point cloud + PLY export
+  ├── viewer.py         view_npz(), open_3d_viewers() — matplotlib 3D scatter viewer
+  └── sfm.py            pycolmap SfM wrapper (dense frame extraction + incremental mapping)
 ui/           Streamlit frontend (search, mission viewer, 3DGS viewer, change detection)
 ui/components/ splat_viewer.py — SuperSplat iframe component
 app/routers/  index.py, query.py, jobs.py, robot.py (POST /query/pose)
 docker/       Dockerfiles and compose files (+ docker-compose.override.yml for nerfstudio)
-scripts/      migrate_postgres.py, reset_qdrant.sh, index helpers, precheck, etc.
+scripts/      migrate_postgres.py, reset_qdrant.sh, prepare_models.py, index helpers
+demo.py       end-to-end demo pipeline (steps A–H, no Docker required)
 tests/        unit tests (tests/unit/) and integration (tests/test_api.py, test_robot_api.py)
 docs/         documentation and ADRs
 ```

@@ -6,12 +6,13 @@ Runs the full perception stack on every video file in a source directory:
   B. Index frames into Qdrant vector store (or in-memory fallback)
   C. Base-model transformation test   → {video_dir}/base_search.md
   D. SSL DINOv3 fine-tuning           → {video_dir}/finetune_stats.md
-  E. ONNX export + gallery build      → {video_dir}/edge_models/
-  F. Fine-tuned model search test     → {video_dir}/finetuned_search.md
-  G. Comparison + video description   → {video_dir}/comparison.md
-  H. 3D sparse map (SfM or PCA)       → {video_dir}/3d_map/
-  I. Interactive 3D viewers (one window per video)
-  J. Final statistics                 → output/final_stats.md
+  E. Knowledge distillation           → {video_dir}/distill_stats.md
+  F. ONNX export + gallery build      → {video_dir}/edge_models/
+  G. Fine-tuned model search test     → {video_dir}/finetuned_search.md
+  H. Comparison + video description   → {video_dir}/comparison.md
+  I. 3D sparse map (SfM or PCA)       → {video_dir}/3d_map/
+  J. Interactive 3D viewers (one window per video)
+  K. Final statistics                 → output/final_stats.md
 
 Usage:
     python demo.py                            # default: data_test/videos/
@@ -49,6 +50,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                    help="Skip Qdrant; use in-memory cosine search")
     p.add_argument("--no-sfm", action="store_true",
                    help="Skip pycolmap SfM; use PCA point-cloud fallback")
+    p.add_argument("--distill-epochs", type=int, default=5,
+                   help="Knowledge distillation epochs (student ViT-S/14, default 5)")
+    p.add_argument("--no-distill", action="store_true",
+                   help="Skip knowledge distillation; export teacher to ONNX instead")
     p.add_argument("--no-onnx", action="store_true",
                    help="Skip ONNX export (requires torch.onnx)")
     p.add_argument("--fps", type=float, default=2.0,
@@ -97,6 +102,7 @@ from PIL import Image
 from pipeline.config import settings
 from pipeline.ffmpeg_utils import extract_frames
 from pipeline.ssl_finetune import FinetuneConfig, run_finetune
+from pipeline.distill import DistillConfig, run_distillation
 from pipeline.edge_inference import build_gallery
 from pipeline.vector_store import InMemoryStore
 from pipeline.map_builder import build_sparse_map
@@ -134,6 +140,28 @@ def _banner(msg: str) -> None:
 
 def _step(n: int, total: int, name: str) -> None:
     log.info("─── Step %d/%d: %s", n, total, name)
+
+
+class _Timer:
+    """Context manager that stores elapsed seconds into a dict under a key.
+
+    Usage::
+        timings: Dict[str, float] = {}
+        with _Timer(timings, "extract"):
+            result = expensive_function()
+        # timings["extract"] == elapsed seconds
+    """
+    def __init__(self, store: Dict[str, float], key: str) -> None:
+        self._store = store
+        self._key   = key
+        self._t0    = 0.0
+
+    def __enter__(self) -> "_Timer":
+        self._t0 = time.time()
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        self._store[self._key] = time.time() - self._t0
 
 
 # ── Model & store initialisation ──────────────────────────────────────────────
@@ -373,6 +401,67 @@ def write_finetune_stats_md(
     log.info("  ✓ Written %s", output_path)
 
 
+def write_distill_stats_md(
+    output_path: Path,
+    video_name: str,
+    stats: Dict[str, Any],
+) -> None:
+    """Write knowledge distillation stats as Markdown."""
+    loss_history = stats.get("loss_history", [])
+    lines = [
+        f"# Knowledge Distillation — {video_name}",
+        f"",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"",
+        f"## Configuration",
+        f"",
+        f"| Parameter | Value |",
+        f"|-----------|-------|",
+        f"| Teacher | DINOv3 ViT-B/14 (fine-tuned SSL) — dim={stats.get('teacher_dim', 768)} |",
+        f"| Student | {stats.get('student_model', 'dinov2_vits14')} — dim={stats.get('student_dim', 384)} |",
+        f"| Loss | Cosine feature distillation: 1 − cos(proj(student), teacher) |",
+        f"| Epochs | {len(loss_history)} |",
+        f"| Elapsed | {stats.get('elapsed', 0):.1f}s |",
+        f"",
+        f"## Results",
+        f"",
+        f"| Metric | Value |",
+        f"|--------|-------|",
+        f"| Best distillation loss | {stats.get('best_loss', float('nan')):.4f} |",
+        f"| Student params | ~22M (vs teacher ~86M — {86/22:.1f}× compression) |",
+        f"| Student dim | {stats.get('student_dim', 384)} (vs teacher {stats.get('teacher_dim', 768)}) |",
+        f"| Best checkpoint | `{Path(stats.get('best_path', '')).name}` |",
+        f"",
+        f"## Loss Curve",
+        f"",
+        f"| Epoch | Loss |",
+        f"|-------|------|",
+    ]
+    for i, loss in enumerate(loss_history, 1):
+        lines.append(f"| {i} | {loss:.4f} |")
+    lines += [
+        f"",
+        f"## Architecture",
+        f"",
+        f"```",
+        f"Teacher (frozen):  DINOv3 ViT-B/14  →  768-dim embedding",
+        f"                         ↓ cosine distillation loss",
+        f"Proj head (temp):  Linear(384 → 768)  [discarded after training]",
+        f"                         ↑",
+        f"Student (trained): DINOv2 ViT-S/14  →  384-dim embedding",
+        f"```",
+        f"",
+        f"The student is 4× smaller and ~2× faster at inference.",
+        f"The projection head is used only during training to align embedding spaces.",
+        f"The saved checkpoint contains **only the student backbone weights**.",
+        f"",
+        f"---",
+        f"*Artifact produced by `demo.py`. Student exported to `edge_models/dino_demo.onnx`.*",
+    ]
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    log.info("  ✓ Written %s", output_path)
+
+
 def write_comparison_md(
     output_path: Path,
     video_name: str,
@@ -515,14 +604,17 @@ def write_final_stats_md(
         f"",
         f"## Per-Video Summary",
         f"",
-        f"| Video | Frames | Index (s) | Finetune loss | SfM poses | Ckpt (MB) |",
-        f"|-------|--------|-----------|---------------|-----------|-----------|",
+        f"| Video | Frames | Index (s) | Finetune loss | Distill loss | SfM poses | Ckpt (MB) |",
+        f"|-------|--------|-----------|---------------|--------------|-----------|-----------|",
     ]
     for v in per_video:
+        distill_loss = v.get("distill_loss", float("nan"))
+        distill_str = f"{distill_loss:.4f}" if not math.isnan(distill_loss) else "skipped"
         lines.append(
             f"| {v['name']} | {v.get('frames',0)} | "
             f"{v.get('index_sec',0):.1f} | "
             f"{v.get('best_loss', float('nan')):.4f} | "
+            f"{distill_str} | "
             f"{v.get('sfm_poses',0)} | "
             f"{v.get('ckpt_mb',0):.1f} |"
         )
@@ -539,8 +631,10 @@ def write_final_stats_md(
         f"| `finetune_stats.md` | SSL fine-tuning loss curve + config |",
         f"| `finetuned_search.md` | Nearest-neighbour results with fine-tuned DINOv3 |",
         f"| `comparison.md` | Base vs fine-tuned stats + video description |",
-        f"| `checkpoints/dino_ssl_best.pt` | Fine-tuned backbone weights (PyTorch) |",
-        f"| `edge_models/dino_demo.onnx` | ONNX export for on-device inference |",
+        f"| `checkpoints/dino_ssl_best.pt` | Fine-tuned teacher backbone (PyTorch) |",
+        f"| `checkpoints/student_best.pt` | Distilled student backbone (PyTorch, ~22M params) |",
+        f"| `distill_stats.md` | Distillation loss curve + architecture notes |",
+        f"| `edge_models/dino_demo.onnx` | ONNX export (student when distilled, teacher otherwise) |",
         f"| `edge_models/gallery.npz` | Embedding gallery for 1-NN classification |",
         f"| `3d_map/sparse_map.npz` | 3D point cloud (from SfM or PCA fallback) |",
         f"| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
@@ -550,6 +644,169 @@ def write_final_stats_md(
     ]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     log.info("✓ Final stats written to %s", output_path)
+
+
+# ── Run statistics printer ────────────────────────────────────────────────────
+
+_STEP_LABELS = [
+    ("A_extract",   "A  Frame extraction"),
+    ("B_index",     "B  Vector store indexing"),
+    ("C_base_search","C  Base search test"),
+    ("D_finetune",  "D  SSL fine-tuning"),
+    ("E_distill",   "E  Knowledge distillation"),
+    ("F_export",    "F  ONNX export + gallery"),
+    ("G_ft_search", "G  Fine-tuned search test"),
+    ("H_compare",   "H  Comparison + description"),
+    ("I_3dmap",     "I  3D map creation"),
+]
+
+
+def _fmt_sec(sec: float) -> str:
+    """Format seconds as '1h 23m 04s', '12m 34s', or '45.2s'."""
+    if math.isnan(sec) or sec < 0:
+        return "—"
+    if sec >= 3600:
+        h = int(sec // 3600)
+        m = int((sec % 3600) // 60)
+        s = int(sec % 60)
+        return f"{h}h {m:02d}m {s:02d}s"
+    if sec >= 60:
+        m = int(sec // 60)
+        s = sec % 60
+        return f"{m}m {s:04.1f}s"
+    return f"{sec:.1f}s"
+
+
+def print_run_stats(
+    per_video: List[Dict[str, Any]],
+    total_elapsed: float,
+    init_elapsed: float,
+    device: str,
+) -> None:
+    """Print a structured run-statistics table to the log."""
+    W = 72
+    SEP = "─" * W
+
+    def _row(label: str, *cols: str) -> str:
+        col_w = max(1, (W - 28) // max(len(cols), 1))
+        parts = [f"  {label:<26}"]
+        for c in cols:
+            parts.append(f"{c:>{col_w}}")
+        return "".join(parts)
+
+    _banner("RUN STATISTICS")
+
+    # ── Environment ────────────────────────────────────────────────────────────
+    log.info("  Device       : %s", device.upper())
+    log.info("  Videos       : %d", len(per_video))
+    total_frames = sum(v.get("frames", 0) for v in per_video)
+    total_duration = sum(v.get("duration_sec", 0.0) for v in per_video)
+    log.info("  Total frames : %d  (%.1f min of video)", total_frames, total_duration / 60)
+    log.info("  Total runtime: %s", _fmt_sec(total_elapsed))
+    log.info("")
+
+    # ── Time breakdown ─────────────────────────────────────────────────────────
+    names = [v.get("name", f"video{i}") for i, v in enumerate(per_video)]
+    header_cols = names + ["TOTAL"]
+
+    # Header
+    log.info("  TIME BREAKDOWN")
+    log.info("  " + SEP[:W-2])
+    log.info(_row("Step", *header_cols))
+    log.info("  " + SEP[:W-2])
+
+    step_totals: Dict[str, float] = {}
+    for key, label in _STEP_LABELS:
+        vals = [v.get("timings", {}).get(key, 0.0) for v in per_video]
+        total_step = sum(vals)
+        step_totals[key] = total_step
+        log.info(_row(label, *[_fmt_sec(s) for s in vals], _fmt_sec(total_step)))
+
+    log.info("  " + SEP[:W-2])
+    pipeline_per_video = [v.get("pipeline_sec", 0.0) for v in per_video]
+    log.info(_row("Pipeline (steps sum)",
+                  *[_fmt_sec(s) for s in pipeline_per_video],
+                  _fmt_sec(sum(pipeline_per_video))))
+    overhead = total_elapsed - sum(pipeline_per_video) - init_elapsed
+    log.info(_row("Model init", _fmt_sec(init_elapsed), *([""] * (len(per_video) - 1)), ""))
+    log.info(_row("Overhead (I/O, viewer, etc.)",
+                  *([""] * len(per_video)), _fmt_sec(max(0.0, overhead))))
+    log.info(_row("WALL CLOCK TOTAL",
+                  *([""] * len(per_video)), _fmt_sec(total_elapsed)))
+    log.info("")
+
+    # ── Throughput ─────────────────────────────────────────────────────────────
+    log.info("  THROUGHPUT")
+    log.info("  " + SEP[:W-2])
+    for v in per_video:
+        t_extract = v.get("timings", {}).get("A_extract", 0.0) or 1e-9
+        t_index   = v.get("timings", {}).get("B_index", 0.0) or 1e-9
+        frames    = v.get("frames", 0)
+        fps_ext   = frames / t_extract
+        fps_idx   = frames / t_index
+        log.info("  %-26s  extract: %5.1f fr/s   index: %5.1f fr/s",
+                 v.get("name", "?"), fps_ext, fps_idx)
+    log.info("")
+
+    # ── Model metrics ──────────────────────────────────────────────────────────
+    log.info("  MODEL METRICS")
+    log.info("  " + SEP[:W-2])
+    log.info(_row("Metric", *names))
+    log.info("  " + SEP[:W-2])
+    log.info(_row("SSL finetune loss",
+                  *[f"{v.get('best_loss', float('nan')):.4f}" for v in per_video]))
+    log.info(_row("Distill loss",
+                  *[f"{v.get('distill_loss', float('nan')):.4f}"
+                    if not math.isnan(v.get("distill_loss", float("nan")))
+                    else "skipped"
+                    for v in per_video]))
+    log.info(_row("Teacher ckpt (MB)",
+                  *[f"{v.get('ckpt_mb', 0.0):.1f}" for v in per_video]))
+    log.info(_row("Student ckpt (MB)",
+                  *[f"{v.get('student_ckpt_mb', 0.0):.1f}"
+                    if v.get("student_ckpt_mb") else "—"
+                    for v in per_video]))
+    log.info(_row("ONNX size (MB)",
+                  *[f"{v.get('onnx_mb', 0.0):.1f}"
+                    if v.get("onnx_exported") else "—"
+                    for v in per_video]))
+    log.info(_row("Student embed dim",
+                  *[str(v.get("student_dim", "—")) for v in per_video]))
+    log.info(_row("Compression ratio",
+                  *[f"{v['teacher_dim']/v['student_dim']:.1f}×"
+                    if v.get("student_dim") and v.get("teacher_dim") else "—"
+                    for v in per_video]))
+    log.info(_row("Base infer (ms/fr)",
+                  *[f"{v.get('base_infer_ms', 0.0):.1f}" for v in per_video]))
+    log.info(_row("Fine-tuned infer (ms/fr)",
+                  *[f"{v.get('ft_infer_ms', 0.0):.1f}" for v in per_video]))
+    log.info("")
+
+    # ── Search quality ─────────────────────────────────────────────────────────
+    log.info("  SEARCH QUALITY  (top-1 cosine score, same query frame)")
+    log.info("  " + SEP[:W-2])
+    log.info(_row("Base model (pretrained)",
+                  *[f"{v.get('base_top_score', 0.0):.4f}" for v in per_video]))
+    log.info(_row("Fine-tuned model",
+                  *[f"{v.get('ft_top_score', 0.0):.4f}" for v in per_video]))
+    log.info("")
+
+    # ── 3D map ─────────────────────────────────────────────────────────────────
+    log.info("  3D MAP")
+    log.info("  " + SEP[:W-2])
+    log.info(_row("Method",     *[v.get("map_method", "—") for v in per_video]))
+    log.info(_row("Points",     *[str(v.get("map_points", 0)) for v in per_video]))
+    log.info(_row("SfM poses",  *[str(v.get("sfm_poses", 0)) for v in per_video]))
+    log.info("")
+
+    # ── Video descriptions ─────────────────────────────────────────────────────
+    log.info("  TOP VIDEO DESCRIPTION  (CLIP text similarity)")
+    log.info("  " + SEP[:W-2])
+    for v in per_video:
+        desc = v.get("top_description", "—") or "—"
+        log.info("  %-20s  %s", v.get("name", "?"), desc)
+    log.info("")
+    log.info("  " + "═" * (W-2))
 
 
 # ── Step implementations ──────────────────────────────────────────────────────
@@ -848,14 +1105,92 @@ def step_ssl_finetune(
             "elapsed_sec": elapsed, "ckpt_mb": ckpt_mb, "cfg": cfg}
 
 
+def step_distill(
+    teacher_checkpoint: str,
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+    device: str,
+) -> Dict[str, Any]:
+    """Step E: distil fine-tuned teacher (ViT-B/14) → student (ViT-S/14).
+
+    Returns dict with keys: student_backbone, best_path, best_loss, student_dim,
+    teacher_dim, student_model, ckpt_mb, skipped.
+    """
+    out_md = video_dir / "distill_stats.md"
+    distill_dir = video_dir / "checkpoints"
+
+    result: Dict[str, Any] = {
+        "student_backbone": None, "best_path": "", "best_loss": float("nan"),
+        "student_dim": 384, "teacher_dim": 768,
+        "student_model": "dinov2_vits14", "ckpt_mb": 0.0, "skipped": False,
+    }
+
+    if not _HAS_DINO:
+        log.warning("  DINO not available — skipping distillation")
+        result["skipped"] = True
+        return result
+
+    # Load teacher backbone from checkpoint
+    try:
+        import torch
+        from models.dino_model import hub_load_dino
+        teacher_bb = hub_load_dino("dinov3_vitb14", pretrained=True).to(device)
+        state = torch.load(teacher_checkpoint, map_location=device)
+        teacher_bb.load_state_dict(state)
+        teacher_bb.eval()
+        log.info("  Teacher loaded from checkpoint: %s", teacher_checkpoint)
+    except Exception as exc:
+        log.warning("  Could not load teacher checkpoint (%s) — skipping distillation", exc)
+        result["skipped"] = True
+        return result
+
+    cfg = DistillConfig(
+        student_model="dinov2_vits14",
+        epochs=args.distill_epochs,
+        batch_size=args.batch_size,
+        device=device,
+    )
+    frame_paths = [fp for fp, _ in frame_list]
+    log.info("Starting distillation: teacher=ViT-B/14 → student=ViT-S/14  "
+             "epochs=%d  frames=%d", cfg.epochs, len(frame_paths))
+
+    try:
+        stats = run_distillation(teacher_bb, frame_paths, distill_dir, cfg)
+    except Exception as exc:
+        log.warning("  Distillation failed (%s) — skipping", exc)
+        result["skipped"] = True
+        return result
+
+    distiller = stats.pop("distiller")
+    result.update(stats)
+    result["student_backbone"] = distiller.student_backbone()
+    result["ckpt_mb"] = os.path.getsize(stats["best_path"]) / 1e6
+
+    log.info("  ✓ Distillation complete in %.1fs | best_loss=%.4f | student=%s (dim=%d)",
+             stats["elapsed"], stats["best_loss"], stats["student_model"], stats["student_dim"])
+    log.info("  Teacher: ViT-B/14 ~86M params  →  Student: ViT-S/14 ~22M params  "
+             "(%.1f× compression)", 86 / 22)
+
+    write_distill_stats_md(out_md, video_name, stats)
+    log.info("  Artifact: %s", out_md)
+    return result
+
+
 def step_export_model(
     checkpoint_path: str,
     frame_list: List[Tuple[str, float]],
     video_dir: Path,
     device: str,
     models: Dict[str, Any],
+    student_backbone: Optional[Any] = None,
+    student_dim: int = 768,
 ) -> Dict[str, Any]:
-    """Step E: export fine-tuned DINOv3 to ONNX + build gallery.npz."""
+    """Step F: export distilled student (or fine-tuned teacher) to ONNX + build gallery.npz.
+
+    When student_backbone is provided the student is exported; otherwise the
+    fine-tuned teacher weights are loaded from checkpoint_path and exported.
+    """
     edge_dir = video_dir / "edge_models"
     edge_dir.mkdir(parents=True, exist_ok=True)
     onnx_path = str(edge_dir / "dino_demo.onnx")
@@ -864,29 +1199,39 @@ def step_export_model(
     result: Dict[str, Any] = {"onnx_path": onnx_path, "gallery_path": gallery_path,
                                "onnx_mb": 0.0, "exported": False}
 
-    # Load fine-tuned weights into DINOEmbedder
-    dino: Optional[DINOEmbedder] = models.get("dino")
-    if dino is None:
+    if not _HAS_DINO:
         log.warning("  DINO not available — skipping ONNX export")
         return result
 
-    try:
-        log.info("Loading fine-tuned checkpoint: %s", checkpoint_path)
-        dino.load_backbone_checkpoint(checkpoint_path)
-        log.info("  ✓ Checkpoint loaded")
-    except Exception as exc:
-        log.warning("  Could not load checkpoint (%s) — skipping ONNX export", exc)
-        return result
+    # Resolve which backbone to export
+    if student_backbone is not None:
+        backbone_to_export = student_backbone
+        model_label = f"distilled student (ViT-S/14, dim={student_dim})"
+    else:
+        # Fall back to loading the fine-tuned teacher
+        dino = models.get("dino")
+        if dino is None:
+            log.warning("  DINO not available — skipping ONNX export")
+            return result
+        try:
+            log.info("Loading fine-tuned checkpoint: %s", checkpoint_path)
+            dino.load_backbone_checkpoint(checkpoint_path)
+            log.info("  ✓ Checkpoint loaded")
+        except Exception as exc:
+            log.warning("  Could not load checkpoint (%s) — skipping ONNX export", exc)
+            return result
+        backbone_to_export = dino.model.eval()
+        model_label = "fine-tuned teacher (ViT-B/14)"
 
     # ONNX export
     if not args.no_onnx:
         try:
             import torch
-            backbone = dino._model.eval()  # raw backbone
-            log.info("Exporting ONNX to %s …", onnx_path)
+            backbone_to_export = backbone_to_export.eval()
+            log.info("Exporting ONNX (%s) to %s …", model_label, onnx_path)
             dummy = torch.zeros(1, 3, 224, 224).to(device)
             torch.onnx.export(
-                backbone, dummy, onnx_path,
+                backbone_to_export, dummy, onnx_path,
                 opset_version=14,
                 input_names=["pixel_values"],
                 output_names=["embedding"],
@@ -903,17 +1248,16 @@ def step_export_model(
     else:
         log.info("  ONNX export skipped (--no-onnx)")
 
-    # Gallery build: group all frames under one pseudo-label "scene"
+    # Gallery build using the same backbone that was exported
     log.info("Building embedding gallery from %d frames …", len(frame_list))
     try:
-        # Sample up to 200 frames evenly for gallery
         step = max(1, len(frame_list) // 200)
         sampled = [fp for fp, _ in frame_list[::step]]
         labels_map = {"scene": sampled}
         build_gallery(
             labels_map=labels_map,
             output_path=gallery_path,
-            backbone=dino._model if hasattr(dino, "_model") else None,
+            backbone=backbone_to_export,
         )
         gallery_mb = os.path.getsize(gallery_path) / 1e6
         log.info("  ✓ Gallery built: %d embeddings → %s (%.1f MB)",
@@ -1023,8 +1367,12 @@ def step_compare_and_describe(
     log.info("  Checkpoint size: %.1f MB (PyTorch)  %.1f MB (ONNX)", ckpt_mb, onnx_mb)
     log.info("  Top video description: \"%s\"", text_descriptions[0][0] if text_descriptions else "—")
 
-    return {"text_descriptions": text_descriptions,
-            "base_infer_ms": base_infer_ms, "ft_infer_ms": ft_infer_ms}
+    return {
+        "text_descriptions": text_descriptions,
+        "base_infer_ms":     base_infer_ms,
+        "ft_infer_ms":       ft_infer_ms,
+        "top_description":   text_descriptions[0][0] if text_descriptions else "",
+    }
 
 
 def step_create_3d_map(
@@ -1048,7 +1396,7 @@ def step_create_3d_map(
 
 # ── Per-video orchestrator ─────────────────────────────────────────────────────
 
-_TOTAL_STEPS = 8
+_TOTAL_STEPS = 9
 
 
 def run_video_pipeline(
@@ -1071,14 +1419,18 @@ def run_video_pipeline(
     stats: Dict[str, Any] = {
         "name": video_name,
         "video_path": str(video_path),
+        "timings": {},
     }
+    T = stats["timings"]   # shorthand
 
     # ── A: Extract frames ──────────────────────────────────────────────────────
     _step(1, _TOTAL_STEPS, "Frame extraction")
-    a = step_extract_frames(video_path, video_id, video_dir)
+    with _Timer(T, "A_extract"):
+        a = step_extract_frames(video_path, video_id, video_dir)
     frame_list: List[Tuple[str, float]] = a["frame_list"]
-    stats["frames"] = a["meta"]["frame_count"]
+    stats["frames"]       = a["meta"]["frame_count"]
     stats["duration_sec"] = a["meta"]["duration_sec"]
+    stats["video_fps"]    = a["meta"].get("fps", 0.0)
 
     if not frame_list:
         log.error("No frames extracted — skipping video %s", video_path.name)
@@ -1086,66 +1438,98 @@ def run_video_pipeline(
 
     # ── B: Index into store ────────────────────────────────────────────────────
     _step(2, _TOTAL_STEPS, "Vector store indexing")
-    b = step_index_to_store(video_path, video_id, store, is_qdrant, models, frame_list)
-    stats["index_sec"] = b["elapsed_sec"]
+    with _Timer(T, "B_index"):
+        b = step_index_to_store(video_path, video_id, store, is_qdrant, models, frame_list)
+    stats["index_sec"]       = b["elapsed_sec"]
+    stats["indexed_frames"]  = b.get("indexed", 0)
 
     # ── C: Base model search test ──────────────────────────────────────────────
     _step(3, _TOTAL_STEPS, "Base model transformation test → base_search.md")
-    c = step_base_model_search_test(
-        frame_list, store, is_qdrant, models, video_id, video_name, video_dir,
-    )
+    with _Timer(T, "C_base_search"):
+        c = step_base_model_search_test(
+            frame_list, store, is_qdrant, models, video_id, video_name, video_dir,
+        )
     base_results = c["results"]
     query_frame  = c["query_frame"]
     query_t_sec  = c["query_t_sec"]
+    stats["base_top_score"] = base_results[0]["score"] if base_results else 0.0
 
     # ── D: SSL fine-tuning ─────────────────────────────────────────────────────
     _step(4, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
-    d = step_ssl_finetune(video_id, video_name, video_dir, frame_list, device)
-    stats["best_loss"] = d["best_loss"]
-    stats["ckpt_mb"]   = d["ckpt_mb"]
-    checkpoint_path    = d["checkpoint"]
+    with _Timer(T, "D_finetune"):
+        d = step_ssl_finetune(video_id, video_name, video_dir, frame_list, device)
+    stats["best_loss"]    = d["best_loss"]
+    stats["ckpt_mb"]      = d["ckpt_mb"]
+    stats["ft_epochs"]    = d["cfg"].epochs
+    stats["ft_loss_history"] = getattr(d.get("cfg"), "loss_history", [])
+    checkpoint_path       = d["checkpoint"]
 
-    # ── E: Export model ────────────────────────────────────────────────────────
-    _step(5, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
-    e = step_export_model(checkpoint_path, frame_list, video_dir, device, models)
+    # ── E: Knowledge distillation ─────────────────────────────────────────────
+    student_backbone = None
+    student_dim = 768
+    if not args.no_distill:
+        _step(5, _TOTAL_STEPS, "Knowledge distillation: ViT-B/14 teacher → ViT-S/14 student")
+        with _Timer(T, "E_distill"):
+            e_distill = step_distill(checkpoint_path, frame_list, video_name, video_dir, device)
+        if not e_distill["skipped"]:
+            student_backbone         = e_distill["student_backbone"]
+            student_dim              = e_distill["student_dim"]
+            stats["distill_loss"]    = e_distill["best_loss"]
+            stats["student_ckpt_mb"] = e_distill["ckpt_mb"]
+            stats["student_dim"]     = student_dim
+            stats["teacher_dim"]     = e_distill["teacher_dim"]
+    else:
+        T["E_distill"] = 0.0
+        _step(5, _TOTAL_STEPS, "Knowledge distillation (skipped — --no-distill)")
+        log.info("  Distillation skipped; exporting teacher to ONNX instead")
+
+    # ── F: ONNX export + gallery ──────────────────────────────────────────────
+    _step(6, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
+    with _Timer(T, "F_export"):
+        e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
+                              student_backbone=student_backbone, student_dim=student_dim)
     onnx_mb = e.get("onnx_mb", 0.0)
+    stats["onnx_mb"]       = onnx_mb
+    stats["onnx_exported"] = e.get("exported", False)
 
-    # ── F: Fine-tuned model search test ───────────────────────────────────────
-    _step(6, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
-    f = step_finetuned_model_search_test(
-        frame_list, store, is_qdrant, models,
-        query_frame, query_t_sec, video_id, video_name, video_dir,
-    )
+    # ── G: Fine-tuned model search test ───────────────────────────────────────
+    _step(7, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
+    with _Timer(T, "G_ft_search"):
+        f = step_finetuned_model_search_test(
+            frame_list, store, is_qdrant, models,
+            query_frame, query_t_sec, video_id, video_name, video_dir,
+        )
     ft_results = f["results"]
+    stats["ft_top_score"] = ft_results[0]["score"] if ft_results else 0.0
 
-    # ── G: Comparison + video description ────────────────────────────────────
-    _step(7, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
-    step_compare_and_describe(
-        frame_list, store, is_qdrant, base_results, ft_results,
-        models, video_id, video_name, video_dir,
-        stats["ckpt_mb"], onnx_mb,
-    )
+    # ── H: Comparison + video description ────────────────────────────────────
+    _step(8, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
+    with _Timer(T, "H_compare"):
+        g = step_compare_and_describe(
+            frame_list, store, is_qdrant, base_results, ft_results,
+            models, video_id, video_name, video_dir,
+            stats["ckpt_mb"], onnx_mb,
+        )
+    if g:
+        stats["base_infer_ms"] = g.get("base_infer_ms", 0.0)
+        stats["ft_infer_ms"]   = g.get("ft_infer_ms", 0.0)
+        stats["top_description"] = g.get("top_description", "")
 
-    # ── H: 3D map ─────────────────────────────────────────────────────────────
-    _step(8, _TOTAL_STEPS, "3D map creation → 3d_map/sparse_map.npz + sparse_map.ply")
-    h = step_create_3d_map(
-        video_path, video_id, video_dir, frame_list, models,
-        run_sfm_flag=not args.no_sfm,
-    )
-    stats["sfm_poses"]  = h["sfm_poses"]
-    stats["map_method"] = h["method"]
+    # ── I: 3D map ─────────────────────────────────────────────────────────────
+    _step(9, _TOTAL_STEPS, "3D map creation → 3d_map/sparse_map.npz + sparse_map.ply")
+    with _Timer(T, "I_3dmap"):
+        h = step_create_3d_map(
+            video_path, video_id, video_dir, frame_list, models,
+            run_sfm_flag=not args.no_sfm,
+        )
+    stats["sfm_poses"]   = h["sfm_poses"]
+    stats["map_method"]  = h["method"]
+    stats["map_points"]  = int(h["points"].shape[0]) if h.get("points") is not None else 0
+
+    stats["pipeline_sec"] = sum(T.values())
 
     _banner(f"✓ Video complete: {video_path.name}")
-    log.info("  All artifacts written to: %s", video_dir)
-    log.info("  Summary:")
-    log.info("    Frames extracted    : %d", stats["frames"])
-    log.info("    Indexed (store)     : %d", b.get("indexed", 0))
-    log.info("    Best finetune loss  : %.4f", stats["best_loss"])
-    log.info("    Checkpoint          : %s", checkpoint_path)
-    log.info("    ONNX export         : %s", e.get("onnx_path", "skipped"))
-    log.info("    3D map method       : %s  (%d pts)", stats["map_method"], h["points"].shape[0] if h["points"] is not None else 0)
-    log.info("    3D map PLY          : %s", h.get("ply_path", "n/a"))
-    log.info("    Output dir          : %s", video_dir)
+    log.info("  Output dir: %s", video_dir)
 
     return stats
 
@@ -1200,8 +1584,10 @@ def main() -> None:
     device = _resolve_device()
     log.info("Using device: %s", device)
 
+    t_init = time.time()
     models = init_models(device)
     store, is_qdrant = init_store(models, use_qdrant=not args.no_qdrant)
+    init_elapsed = time.time() - t_init
 
     # Per-video pipeline
     per_video_stats: List[Dict[str, Any]] = []
@@ -1229,6 +1615,7 @@ def main() -> None:
             total_elapsed = time.time() - t_start
             stats_path = _OUTPUT_DIR / "final_stats.md"
             write_final_stats_md(stats_path, per_video_stats, total_elapsed)
+            print_run_stats(per_video_stats, total_elapsed, init_elapsed, device)
             log.warning("  Partial results written to: %s", stats_path)
         log.warning("  Re-run to process remaining videos.")
         sys.exit(130)  # standard exit code for Ctrl-C
@@ -1239,27 +1626,24 @@ def main() -> None:
 
     # Final statistics
     total_elapsed = time.time() - t_start
-    _banner("Final Statistics")
     stats_path = _OUTPUT_DIR / "final_stats.md"
     write_final_stats_md(stats_path, per_video_stats, total_elapsed)
 
-    log.info("")
-    log.info("Pipeline complete in %.1fs", total_elapsed)
-    log.info("")
-    log.info("Artifacts summary:")
+    # Rich stats table
+    print_run_stats(per_video_stats, total_elapsed, init_elapsed, device)
+
+    log.info("  Artifacts:")
     for v in per_video_stats:
         name = v.get("name", "?")
-        log.info("  %s/  →  base_search.md  finetune_stats.md  finetuned_search.md  comparison.md  description.md  3d_map/", name)
+        log.info("    %s/  →  base_search.md  finetune_stats.md  distill_stats.md"
+                 "  finetuned_search.md  comparison.md  3d_map/", name)
     log.info("")
-    log.info("Final statistics: %s", stats_path)
+    log.info("  Final statistics: %s", stats_path)
     log.info("")
-    log.info("Next steps:")
-    log.info("  • Load ONNX model for edge inference:")
-    log.info("      from pipeline.edge_inference import EdgeClassifier")
-    log.info("      clf = EdgeClassifier('data_test/output/<name>/edge_models/dino_demo.onnx',")
-    log.info("                           'data_test/output/<name>/edge_models/gallery.npz')")
-    log.info("  • Start the full API stack:  make up")
-    log.info("  • Re-run with fine-tuned model:  DINO_CHECKPOINT=... python demo.py")
+    log.info("  Next steps:")
+    log.info("    • Edge inference:  EdgeClassifier('edge_models/dino_demo.onnx', 'edge_models/gallery.npz')")
+    log.info("    • Full stack:      make up")
+    log.info("    • Fine-tune rerun: DINO_CHECKPOINT=<path> python demo.py")
     log.info("")
     _banner("Done — thank you for using selfsuvis!")
 

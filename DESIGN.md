@@ -143,9 +143,26 @@ Sort: most recent first (default). User can resort by clicking column headers.
   (requires Streamlit ≥ 1.37 — upgrade Dockerfile.ui from 1.31.1). Isolates poll to
   the 3DGS section only; prevents full-page rerun flicker while frame grid is loaded.
 - map_status=failed: red banner with reason + download link for sparse point cloud
+  (`maps/{mission_id}/sparse_map.ply` — viewable in MeshLab, CloudCompare, Blender)
 - map_status=skipped (SfM failed): grey info box "3D viewer unavailable (SfM failed)"
 - map_status=success: `st.components.v1.iframe(...)` — full width, height as above
 - Offer "Open in new tab" link for users wanting full-screen SuperSplat
+
+## Sparse point cloud viewer (demo pipeline)
+
+The demo pipeline (`demo.py`) produces a lightweight PLY point cloud at
+`{video_dir}/3d_map/sparse_map.ply` independent of nerfstudio. It is a coloured
+vertex-only PLY file (XYZ + RGB) viewable in any standard 3D tool:
+
+| Tool | How to open |
+|---|---|
+| MeshLab | File → Import Mesh → sparse_map.ply |
+| CloudCompare | Drag and drop |
+| Blender | File → Import → Stanford PLY |
+| Open3D (Python) | `o3d.io.read_point_cloud("sparse_map.ply")` |
+
+Colour encodes timestamp: blue (early) → red (late). SfM mode colours camera
+centres; PCA fallback colours embedding-projected frame positions.
 
 ## Change detection viewer
 

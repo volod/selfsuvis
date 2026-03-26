@@ -61,6 +61,19 @@ INDEX_DIR_PATH=/your/path make test  # Override the directory used in dir-indexi
 make lint          # ruff check + ruff format --check
 ```
 
+### Cursor IDE (Linux): agent terminal sandbox
+
+If the Agent shows **Terminal sandbox could not start** (often mentioning AppArmor on kernel 6.2+), install Cursor's AppArmor package and **fully quit and restart Cursor**:
+
+```bash
+curl -fsSL https://downloads.cursor.com/lab/enterprise/cursor-sandbox-apparmor_0.6.0_all.deb -o /tmp/cursor-sandbox-apparmor.deb
+sudo dpkg -i /tmp/cursor-sandbox-apparmor.deb
+```
+
+Check that profiles loaded: `sudo aa-status | grep cursor_sandbox`. The Linux sandbox expects Landlock (`CONFIG_SECURITY_LANDLOCK=y`) and unprivileged user namespaces (`kernel.unprivileged_userns_clone=1`, usual default).
+
+**If it still fails:** open **Settings > Cursor Settings > Agents > Auto-Run** and choose **Ask Every Time** (or approve runs when prompted) so commands are not blocked waiting for the sandbox. See [Cursor Terminal / Sandbox](https://www.cursor.com/docs/agent/terminal).
+
 ## Architecture
 
 ### Services (each is a separate container / process)

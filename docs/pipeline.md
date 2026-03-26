@@ -548,6 +548,80 @@ Results stored in `change_detections` table. Accessible via `GET /missions/{id}/
 
 ---
 
+## Demo pipeline (`demo.py`)
+
+A self-contained end-to-end demo that runs the full perception stack on local video files without Docker. Steps A–H run sequentially per video.
+
+```
+A  Frame extraction        ffmpeg → JPEG frames at --fps (default 2)
+B  Vector store indexing   PIL-based CLIP + DINOv3 embed → Qdrant (named vectors: clip/dino)
+                           or InMemoryStore fallback (no Qdrant required)
+C  Base model search test  middle-frame query → top-K results → base_search.md
+D  SSL DINOv3 fine-tuning  TemporalPairDataset + contrastive loss → checkpoint
+E  ONNX export             fine-tuned checkpoint → dino_demo.onnx + gallery.npz
+F  Fine-tuned search test  same query with fine-tuned model → finetuned_search.md
+G  Comparison + captions   CLIP text similarity vs 45 prompts → comparison.md + description.md
+H  3D map                  pycolmap SfM (or PCA fallback) → sparse_map.npz + sparse_map.ply
+I  3D viewer               matplotlib scatter (auto at end; skip with --no-view)
+```
+
+### Step B — Qdrant indexing (PIL-based, no cv2)
+
+The demo indexes frames directly via PIL + model embedding, bypassing `VideoIndexer` (which requires cv2). Each frame produces named Qdrant vectors:
+
+```python
+{"clip": clip_embed.tolist(), "dino": dino_embed.tolist()}   # both 512/768-dim
+```
+
+Search uses the matching named vector: `"dino"` when DINOv3 is loaded, `"clip"` otherwise.
+
+### Step G — CLIP text prompts
+
+45 prompts covering:
+- General scene types (aerial roads, urban, rural, forest, coastal, etc.)
+- Radar & sensor infrastructure (rotating dishes, radomes, phased arrays, weather towers)
+- Vehicles in panoramic/top-down view (convoys, armoured vehicles, emergency services)
+- Radar + vehicle combined (mobile radar trucks, EW vehicles, surveillance vehicles)
+- Serpentine / slalom patterns (small vehicles weaving in zigzag formation from altitude)
+- Simple and portable radars (tripod-mounted, handheld, roadside, trailer-based)
+
+Results ranked by cosine similarity and written to `description.md` with sample frames.
+
+### Step H — Sparse 3D map (`pipeline/map_builder.py`)
+
+Builds a coloured point cloud and saves two files:
+
+| File | Format | Use |
+|---|---|---|
+| `3d_map/sparse_map.npz` | NumPy compressed | Python analysis, `--view-npz` viewer |
+| `3d_map/sparse_map.ply` | Binary PLY (XYZ+RGB) | MeshLab, CloudCompare, Blender, Open3D |
+| `3d_map/map_stats.json` | JSON | method, point_count, sfm_poses, scene_count |
+
+PLY colour: blue (early frames) → red (late frames).
+
+### CLI flags
+
+```bash
+python demo.py                          # full pipeline, auto-opens 3D viewer at end
+python demo.py --no-view                # skip interactive 3D viewer
+python demo.py --no-sfm                 # skip pycolmap, use PCA point cloud
+python demo.py --view-npz               # view all sparse_map.npz in output dir (no pipeline)
+python demo.py --view-npz path/         # view specific video output directory
+python demo.py --view-npz file.npz      # view a specific .npz file
+python demo.py --no-qdrant              # force in-memory store
+python demo.py --device cuda --epochs 5
+```
+
+### New pipeline modules (added during demo refactor)
+
+| Module | Purpose |
+|---|---|
+| `pipeline/vector_store.py` | `InMemoryStore` — cosine NN fallback for Qdrant |
+| `pipeline/map_builder.py` | `build_sparse_map()`, `export_ply()` — 3D point cloud from SfM or PCA |
+| `pipeline/viewer.py` | `view_npz()`, `open_3d_viewers()` — matplotlib 3D scatter viewer |
+
+---
+
 ## Key configuration reference
 
 All settings live in `pipeline/config.py` and are read from environment variables, with defaults from `env/dev.env`.
