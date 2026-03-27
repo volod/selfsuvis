@@ -1,0 +1,10 @@
+name = "assurance_v_v-txt"
+version = "0.1.0"
+defaultTargets = ["assurance_v_v-txt"]
+
+[[lean_lib]]
+name = "AssuranceVV.Txt"
+
+[[lean_exe]]
+name = "assurance_v_v-txt"
+root = "Main"
