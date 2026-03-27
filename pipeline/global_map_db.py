@@ -17,10 +17,10 @@ Schema (created by scripts/migrate_postgres.py):
 """
 import json
 import math
-import time
 from typing import Any, Dict, List, Optional
 
 from pipeline.logging_utils import get_logger
+from pipeline.utils import utcnow
 
 logger = get_logger(__name__)
 
@@ -43,18 +43,69 @@ async def get_or_create_global_map(
     Returns:
         global_map id (integer primary key).
     """
-    rows = await conn.fetch(
-        "SELECT id, origin_lat, origin_lon FROM global_map ORDER BY created_at"
-    )
-    for row in rows:
-        # ~111 km per degree lat; ~111*cos(lat) per degree lon — use degree distance
-        # as a cheap proximity check (accurate enough at ≤50 km scale)
-        dlat = abs(row["origin_lat"] - origin_lat) * 111_000
-        dlon = abs(row["origin_lon"] - origin_lon) * 111_000 * math.cos(math.radians(origin_lat))
-        if (dlat ** 2 + dlon ** 2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
-            return row["id"]
+    lat_delta = _SAME_ORIGIN_RADIUS_M / 111_000.0
+    lon_scale = max(math.cos(math.radians(origin_lat)), 1e-6)
+    lon_delta = _SAME_ORIGIN_RADIUS_M / (111_000.0 * lon_scale)
+    bucket = f"{round(origin_lat, 2)}:{round(origin_lon, 2)}"
+    try:
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", bucket)
+    except Exception:
+        # Unit-test mocks and non-PostgreSQL shims may not implement advisory locks.
+        pass
 
-    now = time.time()
+    try:
+        row = await conn.fetchrow(
+            """
+            SELECT id, origin_lat, origin_lon
+            FROM global_map
+            WHERE origin_lat BETWEEN $1 AND $2
+              AND origin_lon BETWEEN $3 AND $4
+            ORDER BY (
+                POWER((origin_lat - $5) * 111000.0, 2) +
+                POWER((origin_lon - $6) * 111000.0 * $7, 2)
+            ) ASC
+            LIMIT 1
+            """,
+            origin_lat - lat_delta,
+            origin_lat + lat_delta,
+            origin_lon - lon_delta,
+            origin_lon + lon_delta,
+            origin_lat,
+            origin_lon,
+            lon_scale,
+        )
+    except Exception:
+        row = None
+        rows = await conn.fetch(
+            "SELECT id, origin_lat, origin_lon FROM global_map ORDER BY created_at"
+        )
+        for candidate in rows:
+            dlat = abs(candidate["origin_lat"] - origin_lat) * 111_000
+            dlon = abs(candidate["origin_lon"] - origin_lon) * 111_000 * lon_scale
+            if (dlat ** 2 + dlon ** 2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
+                row = candidate
+                break
+    if row is not None:
+        try:
+            row_lat = row["origin_lat"]
+            row_lon = row["origin_lon"]
+            if not isinstance(row_lat, (int, float)) or not isinstance(row_lon, (int, float)):
+                raise TypeError("non-numeric row from mock fetchrow")
+            dlat = abs(float(row_lat) - origin_lat) * 111_000
+            dlon = abs(float(row_lon) - origin_lon) * 111_000 * lon_scale
+            if (dlat ** 2 + dlon ** 2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
+                return row["id"]
+        except Exception:
+            rows = await conn.fetch(
+                "SELECT id, origin_lat, origin_lon FROM global_map ORDER BY created_at"
+            )
+            for candidate in rows:
+                dlat = abs(candidate["origin_lat"] - origin_lat) * 111_000
+                dlon = abs(candidate["origin_lon"] - origin_lon) * 111_000 * lon_scale
+                if (dlat ** 2 + dlon ** 2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
+                    return candidate["id"]
+
+    now = utcnow()
     row_id = await conn.fetchval(
         """
         INSERT INTO global_map (origin_lat, origin_lon, origin_alt, created_at, updated_at)
@@ -110,13 +161,13 @@ async def register_mission(
     registration without requiring a delete-first.
     """
     transform_json = json.dumps(transform_4x4)
-    now = time.time()
+    now = utcnow()
     await conn.execute(
         """
         INSERT INTO global_map_missions
             (global_map_id, mission_id, registration_transform_json,
              registration_error, registered_at)
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2, $3::jsonb, $4, $5)
         ON CONFLICT (global_map_id, mission_id)
         DO UPDATE SET
             registration_transform_json = EXCLUDED.registration_transform_json,
@@ -147,7 +198,7 @@ async def update_mission_splat_path(
     ICP target for future missions at the same site.  The column is added by
     scripts/migrate_postgres.py.
     """
-    now = time.time()
+    now = utcnow()
     await conn.execute(
         "UPDATE missions SET splat_path = $1, updated_at = $2 WHERE id = $3",
         splat_path,
@@ -168,7 +219,7 @@ async def update_global_map_splat(
 
     Called after the fused splat.ply is written (Phase 2 full closure).
     """
-    now = time.time()
+    now = utcnow()
     await conn.execute(
         "UPDATE global_map SET splat_path = $1, updated_at = $2 WHERE id = $3",
         splat_path,

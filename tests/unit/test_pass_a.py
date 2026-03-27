@@ -61,8 +61,10 @@ _ensure_stub("pipeline.downloader", download_url=MagicMock())
 # Stubs for optional pipeline deps (not installed in unit-test venv)
 # ---------------------------------------------------------------------------
 
-# asyncpg stub
-_asyncpg_stub = _make_stub("asyncpg", connect=AsyncMock())
+# asyncpg stub — use _ensure_stub so all test files share the same module
+# object. _make_stub would create a new object, breaking patches in files
+# (e.g. test_gpu_isolation.py) that captured sys.modules["asyncpg"] earlier.
+_asyncpg_stub = _ensure_stub("asyncpg", connect=AsyncMock())
 
 # pipeline.sfm stub
 _sfm_stub = _make_stub("pipeline.sfm", run_sfm=MagicMock())

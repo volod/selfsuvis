@@ -8,7 +8,7 @@ Defaults are in `env/dev.env`, `env/test.env`, and `env/prod.env`. Set `APP_ENV`
 |---|---|---|
 | `DATABASE_URL` | `postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis` | PostgreSQL connection string. SQLite is no longer used. |
 
-Run `python scripts/migrate_postgres.py` once after first `docker compose up postgres` to create all tables.
+Run `python scripts/migrate_postgres.py` after first `docker compose up postgres` to create the current schema.
 
 ## Models and embeddings
 
@@ -114,7 +114,7 @@ The Streamlit UI reads `API_KEY` from the environment and forwards it as `X-API-
 - Qdrant point IDs use SHA-256 (`stable_point_id`). **Upgrading from SHA-1 requires wiping Qdrant and re-indexing** — run `scripts/reset_qdrant.sh`.
 - nerfstudio 3DGS runs in a separate GPU container (`docker-compose.override.yml`). The main worker container does not need nerfstudio dependencies.
 
-### PostgreSQL migration procedure
+### PostgreSQL bootstrap procedure
 
 First-time setup or after wiping the database:
 

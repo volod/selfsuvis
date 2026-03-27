@@ -1,79 +1,161 @@
+import asyncio
 import json
-import os
-import sqlite3
-import threading
-import time
 from typing import Any, Dict, Optional
 
+import asyncpg
+
 from pipeline.config import settings
-from pipeline.utils import ensure_dir
+from pipeline.utils import datetime_to_ts, utcnow
 
-DB_PATH = os.path.join(settings.DATA_DIR, "processed.db")
+_CREATE_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS processed_files (
+        file_hash   TEXT PRIMARY KEY,
+        video_id    TEXT NOT NULL,
+        path        TEXT,
+        size_bytes  BIGINT,
+        mtime       DOUBLE PRECISION,
+        status      TEXT NOT NULL DEFAULT 'done',
+        meta_json   JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+"""
 
-_conn_local = threading.local()
+
+async def init_db_conn(conn) -> None:
+    await conn.execute(_CREATE_TABLE_SQL)
 
 
-def _get_conn() -> sqlite3.Connection:
-    """Get thread-local connection. Creates one if not present."""
-    if not hasattr(_conn_local, "conn") or _conn_local.conn is None:
-        ensure_dir(os.path.dirname(DB_PATH))
-        _conn_local.conn = sqlite3.connect(
-            DB_PATH,
-            check_same_thread=False,
-            timeout=settings.SQLITE_TIMEOUT,
+async def aget_by_hash(file_hash: str, conn=None) -> Optional[Dict[str, Any]]:
+    if conn is None and not settings.DATABASE_URL:
+        return None
+    close_conn = False
+    if conn is None:
+        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
+        close_conn = True
+    try:
+        row = await conn.fetchrow(
+            "SELECT * FROM processed_files WHERE file_hash = $1",
+            file_hash,
         )
-        _conn_local.conn.row_factory = sqlite3.Row
-    return _conn_local.conn
+        return _row_to_dict(row) if row else None
+    finally:
+        if close_conn:
+            await conn.close()
+
+
+async def aget_by_url(url: str, conn=None) -> Optional[Dict[str, Any]]:
+    if conn is None and not settings.DATABASE_URL:
+        return None
+    close_conn = False
+    if conn is None:
+        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
+        close_conn = True
+    try:
+        row = await conn.fetchrow(
+            "SELECT * FROM processed_files WHERE meta_json ->> 'url' = $1",
+            url,
+        )
+        return _row_to_dict(row) if row else None
+    finally:
+        if close_conn:
+            await conn.close()
+
+
+async def aget_by_size(size_bytes: int, conn=None) -> Optional[Dict[str, Any]]:
+    if conn is None and not settings.DATABASE_URL:
+        return None
+    close_conn = False
+    if conn is None:
+        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
+        close_conn = True
+    try:
+        row = await conn.fetchrow(
+            """
+            SELECT *
+            FROM processed_files
+            WHERE size_bytes = $1
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            size_bytes,
+        )
+        return _row_to_dict(row) if row else None
+    finally:
+        if close_conn:
+            await conn.close()
+
+
+async def aupsert(
+    file_hash: str,
+    video_id: str,
+    path: str,
+    size_bytes: int,
+    mtime: float,
+    status: str,
+    meta: Dict[str, Any],
+    conn=None,
+) -> None:
+    if conn is None and not settings.DATABASE_URL:
+        return
+    close_conn = False
+    if conn is None:
+        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
+        close_conn = True
+    now = utcnow()
+    try:
+        await conn.execute(
+            """
+            INSERT INTO processed_files
+                (file_hash, video_id, path, size_bytes, mtime, status, meta_json, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+            ON CONFLICT (file_hash) DO UPDATE SET
+                video_id = EXCLUDED.video_id,
+                path = EXCLUDED.path,
+                size_bytes = EXCLUDED.size_bytes,
+                mtime = EXCLUDED.mtime,
+                status = EXCLUDED.status,
+                meta_json = EXCLUDED.meta_json,
+                updated_at = EXCLUDED.updated_at
+            """,
+            file_hash,
+            video_id,
+            path,
+            size_bytes,
+            mtime,
+            status,
+            json.dumps(meta),
+            now,
+            now,
+        )
+    finally:
+        if close_conn:
+            await conn.close()
 
 
 def init_db() -> None:
-    conn = _get_conn()
-    with conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS processed (
-                file_hash TEXT PRIMARY KEY,
-                video_id TEXT,
-                path TEXT,
-                size_bytes INTEGER,
-                mtime REAL,
-                status TEXT,
-                meta_json TEXT,
-                created_at REAL,
-                updated_at REAL
-            )
-            """
-        )
+    if not settings.DATABASE_URL:
+        return
+    async def _init() -> None:
+        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
+        try:
+            await init_db_conn(conn)
+        finally:
+            await conn.close()
+
+    asyncio.run(_init())
 
 
 def get_by_hash(file_hash: str) -> Optional[Dict[str, Any]]:
-    conn = _get_conn()
-    row = conn.execute("SELECT * FROM processed WHERE file_hash = ?", (file_hash,)).fetchone()
-    if not row:
-        return None
-    return _row_to_dict(row)
+    return asyncio.run(aget_by_hash(file_hash))
 
 
 def get_by_url(url: str) -> Optional[Dict[str, Any]]:
-    conn = _get_conn()
-    row = conn.execute(
-        "SELECT * FROM processed WHERE json_extract(meta_json, '$.url') = ?",
-        (url,),
-    ).fetchone()
-    if not row:
-        return None
-    return _row_to_dict(row)
+    return asyncio.run(aget_by_url(url))
 
 
 def get_by_size(size_bytes: int) -> Optional[Dict[str, Any]]:
-    conn = _get_conn()
-    row = conn.execute(
-        "SELECT * FROM processed WHERE size_bytes = ? ORDER BY updated_at DESC LIMIT 1",
-        (size_bytes,),
-    ).fetchone()
-    if not row:
-        return None
-    return _row_to_dict(row)
+    return asyncio.run(aget_by_size(size_bytes))
 
 
 def upsert(
@@ -85,37 +167,13 @@ def upsert(
     status: str,
     meta: Dict[str, Any],
 ) -> None:
-    conn = _get_conn()
-    now = time.time()
-    with conn:
-        conn.execute(
-            """
-            INSERT INTO processed (file_hash, video_id, path, size_bytes, mtime, status, meta_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(file_hash) DO UPDATE SET
-                video_id=excluded.video_id,
-                path=excluded.path,
-                size_bytes=excluded.size_bytes,
-                mtime=excluded.mtime,
-                status=excluded.status,
-                meta_json=excluded.meta_json,
-                updated_at=excluded.updated_at
-            """,
-            (
-                file_hash,
-                video_id,
-                path,
-                size_bytes,
-                mtime,
-                status,
-                json.dumps(meta),
-                now,
-                now,
-            ),
-        )
+    asyncio.run(aupsert(file_hash, video_id, path, size_bytes, mtime, status, meta))
 
 
-def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+def _row_to_dict(row) -> Dict[str, Any]:
+    meta = row["meta_json"] or {}
+    if isinstance(meta, str):
+        meta = json.loads(meta)
     return {
         "file_hash": row["file_hash"],
         "video_id": row["video_id"],
@@ -123,7 +181,7 @@ def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
         "size_bytes": row["size_bytes"],
         "mtime": row["mtime"],
         "status": row["status"],
-        "meta": json.loads(row["meta_json"] or "{}"),
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "meta": dict(meta),
+        "created_at": datetime_to_ts(row["created_at"]),
+        "updated_at": datetime_to_ts(row["updated_at"]),
     }

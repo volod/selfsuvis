@@ -249,12 +249,13 @@ class TestUpdateMissionSplatPath:
         assert args[2] == "m1"
 
     def test_updated_at_is_recent(self):
+        from datetime import datetime, timezone
         from pipeline.global_map_db import update_mission_splat_path
         conn = MockConn()
         conn._missions = [{"id": "m1", "splat_path": None, "updated_at": 0.0}]
-        before = time.time()
+        before = datetime.now(timezone.utc)
         _run(update_mission_splat_path(conn, "m1", "/maps/m1/splat.ply"))
-        after = time.time()
+        after = datetime.now(timezone.utc)
         _, args = conn.execute_calls[0]
         assert before <= args[1] <= after
 

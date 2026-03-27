@@ -70,9 +70,9 @@ class TestGpuCheckin:
         settings_mock = MagicMock()
         settings_mock.GPU_JOB_TIMEOUT_SEC = timeout_sec
         settings_mock.WORKER_ID = worker_id
-        _asyncpg_mod.connect = AsyncMock(return_value=conn)
-        with patch.object(wm, "settings", settings_mock):
-            return wm._gpu_checkin(job_id, job_type, conn_url, logger)
+        with patch.object(_asyncpg_mod, "connect", new=AsyncMock(return_value=conn)):
+            with patch.object(wm, "settings", settings_mock):
+                return wm._gpu_checkin(job_id, job_type, conn_url, logger)
 
     def test_returns_true_when_no_contention(self, logger, conn_url):
         conn = _make_conn(active_count=0)
@@ -114,12 +114,12 @@ class TestGpuCheckin:
 
     def test_fail_open_on_connect_error(self, logger, conn_url):
         """DB connection failure → returns True (never blocks GPU work)."""
-        _asyncpg_mod.connect = AsyncMock(side_effect=OSError("refused"))
         settings_mock = MagicMock()
         settings_mock.GPU_JOB_TIMEOUT_SEC = 3600
         settings_mock.WORKER_ID = "w"
-        with patch.object(wm, "settings", settings_mock):
-            result = wm._gpu_checkin("job-1", "finetune", conn_url, logger)
+        with patch.object(_asyncpg_mod, "connect", new=AsyncMock(side_effect=OSError("refused"))):
+            with patch.object(wm, "settings", settings_mock):
+                result = wm._gpu_checkin("job-1", "finetune", conn_url, logger)
         assert result is True
         logger.warning.assert_called_once()
         assert "non-fatal" in logger.warning.call_args[0][0].lower()
@@ -139,6 +139,8 @@ class TestGpuCheckin:
 
         delete_call = conn.execute.call_args_list[0]
         cutoff = delete_call[0][1]  # first positional arg after query
+        if hasattr(cutoff, "timestamp"):
+            cutoff = cutoff.timestamp()
         assert before - timeout_sec - 2 <= cutoff <= after - timeout_sec + 2
 
     def test_worker_id_stored_in_insert(self, logger, conn_url):
@@ -153,8 +155,8 @@ class TestGpuCheckin:
 class TestGpuCheckout:
 
     def _checkout(self, conn, logger, conn_url, job_id="job-1"):
-        _asyncpg_mod.connect = AsyncMock(return_value=conn)
-        wm._gpu_checkout(job_id, conn_url, logger)
+        with patch.object(_asyncpg_mod, "connect", new=AsyncMock(return_value=conn)):
+            wm._gpu_checkout(job_id, conn_url, logger)
 
     def test_deletes_correct_job_row(self, logger, conn_url):
         conn = _make_conn()
@@ -171,8 +173,8 @@ class TestGpuCheckout:
 
     def test_fail_open_on_connect_error(self, logger, conn_url):
         """DB failure on checkout is non-fatal — no exception raised."""
-        _asyncpg_mod.connect = AsyncMock(side_effect=OSError("refused"))
-        wm._gpu_checkout("job-1", conn_url, logger)  # must not raise
+        with patch.object(_asyncpg_mod, "connect", new=AsyncMock(side_effect=OSError("refused"))):
+            wm._gpu_checkout("job-1", conn_url, logger)  # must not raise
         logger.warning.assert_called_once()
         assert "non-fatal" in logger.warning.call_args[0][0].lower()
 
@@ -180,8 +182,8 @@ class TestGpuCheckout:
         conn = AsyncMock()
         conn.close = AsyncMock()
         conn.execute = AsyncMock(side_effect=RuntimeError("tx aborted"))
-        _asyncpg_mod.connect = AsyncMock(return_value=conn)
-        wm._gpu_checkout("job-1", conn_url, logger)  # must not raise
+        with patch.object(_asyncpg_mod, "connect", new=AsyncMock(return_value=conn)):
+            wm._gpu_checkout("job-1", conn_url, logger)  # must not raise
         logger.warning.assert_called_once()
 
 
@@ -197,12 +199,12 @@ class TestCheckinCheckoutRoundTrip:
         settings_mock.GPU_JOB_TIMEOUT_SEC = 3600
         settings_mock.WORKER_ID = "worker-1"
 
-        _asyncpg_mod.connect = AsyncMock(return_value=checkin_conn)
-        with patch.object(wm, "settings", settings_mock):
-            wm._gpu_checkin("round-trip-job", "finetune", conn_url, logger)
+        with patch.object(_asyncpg_mod, "connect", new=AsyncMock(return_value=checkin_conn)):
+            with patch.object(wm, "settings", settings_mock):
+                wm._gpu_checkin("round-trip-job", "finetune", conn_url, logger)
 
-        _asyncpg_mod.connect = AsyncMock(return_value=checkout_conn)
-        wm._gpu_checkout("round-trip-job", conn_url, logger)
+        with patch.object(_asyncpg_mod, "connect", new=AsyncMock(return_value=checkout_conn)):
+            wm._gpu_checkout("round-trip-job", conn_url, logger)
 
         inserts = [c for c in checkin_conn.execute.call_args_list
                    if "INSERT INTO gpu_jobs" in str(c)]

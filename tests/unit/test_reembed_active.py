@@ -4,6 +4,7 @@ GET /admin/reembed-status.
 All DB calls are mocked — no live PostgreSQL required.
 asyncpg is not installed in the test environment; it is stubbed in sys.modules.
 """
+import asyncio
 import sys
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -88,15 +89,13 @@ class TestReembedIsActive:
         mock_conn.close.assert_called_once()
 
 
-# ── GET /admin/reembed-status ──────────────────────────────────────────────────
+class _Resp:
+    def __init__(self, body, status_code=200):
+        self._body = body
+        self.status_code = status_code
 
-def _make_admin_client():
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from app.routers.admin import router as admin_router
-    app = FastAPI()
-    app.include_router(admin_router, dependencies=[])
-    return TestClient(app, raise_server_exceptions=True)
+    def json(self):
+        return self._body
 
 
 class TestReembedStatusEndpoint:
@@ -106,8 +105,7 @@ class TestReembedStatusEndpoint:
         with patch.object(sys.modules["asyncpg"], "connect",
                           AsyncMock(return_value=mock_conn)), \
              patch.object(admin_mod.settings, "DATABASE_URL", db_url):
-            client = _make_admin_client()
-            return client.get("/admin/reembed-status")
+            return _Resp(asyncio.run(admin_mod.reembed_status()))
 
     def test_returns_active_true_when_job_running(self):
         import json
@@ -151,8 +149,7 @@ class TestReembedStatusEndpoint:
         with patch.object(sys.modules["asyncpg"], "connect",
                           AsyncMock(side_effect=OSError("refused"))), \
              patch.object(admin_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
-            client = _make_admin_client()
-            resp = client.get("/admin/reembed-status")
+            resp = _Resp(asyncio.run(admin_mod.reembed_status()))
 
         assert resp.status_code == 200
         assert resp.json()["active"] is False

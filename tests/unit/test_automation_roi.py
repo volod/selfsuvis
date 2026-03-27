@@ -3,6 +3,7 @@
 All DB calls are mocked — no live PostgreSQL required.
 asyncpg is not installed in the test environment; it is stubbed in sys.modules.
 """
+import asyncio
 import json
 import sys
 import time
@@ -23,13 +24,13 @@ if "app.state" not in sys.modules:
     sys.modules["app.state"] = _state_stub
 
 
-def _make_admin_client():
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from app.routers.admin import router as admin_router
-    app = FastAPI()
-    app.include_router(admin_router, dependencies=[])
-    return TestClient(app, raise_server_exceptions=True)
+class _Resp:
+    def __init__(self, body, status_code=200):
+        self._body = body
+        self.status_code = status_code
+
+    def json(self):
+        return self._body
 
 
 def _mock_conn(
@@ -90,8 +91,7 @@ class TestAutomationROI:
         with patch.object(sys.modules["asyncpg"], "connect",
                           AsyncMock(return_value=conn)), \
              patch.object(admin_mod.settings, "DATABASE_URL", db_url):
-            client = _make_admin_client()
-            return client.get("/admin/automation-roi")
+            return _Resp(asyncio.run(admin_mod.automation_roi()))
 
     # ── no-data cases ─────────────────────────────────────────────────────────
 
@@ -235,8 +235,7 @@ class TestAutomationROI:
         with patch.object(sys.modules["asyncpg"], "connect",
                           AsyncMock(side_effect=OSError("refused"))), \
              patch.object(admin_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
-            client = _make_admin_client()
-            resp = client.get("/admin/automation-roi")
+            resp = _Resp(asyncio.run(admin_mod.automation_roi()))
         assert resp.status_code == 200
         assert "error" in resp.json()
 

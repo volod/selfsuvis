@@ -1,6 +1,7 @@
 import hashlib
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pipeline.config import settings
@@ -22,6 +23,29 @@ def stable_point_id(*parts: Any) -> int:
 
 def now_ts() -> float:
     return time.time()
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def to_utc_datetime(value: Any) -> Optional[datetime]:
+    """Normalise epoch/datetime values to timezone-aware UTC datetimes."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+    raise TypeError(f"Unsupported datetime value: {type(value)!r}")
+
+
+def datetime_to_ts(value: Any) -> Optional[float]:
+    """Return Unix timestamp seconds for datetime-like values."""
+    dt = to_utc_datetime(value)
+    return dt.timestamp() if dt is not None else None
 
 
 def now_iso() -> str:

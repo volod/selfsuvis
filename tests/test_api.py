@@ -7,6 +7,10 @@ import pytest
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 ASSETS_DIR = os.getenv("ASSETS_DIR", os.path.join(os.path.dirname(__file__), "assets"))
 INDEX_DIR_PATH = os.getenv("INDEX_DIR_PATH")
+RUN_API_TESTS = os.getenv("RUN_API_TESTS", "").lower() in {"1", "true", "yes"}
+
+if not RUN_API_TESTS:
+    pytest.skip("API integration tests disabled; set RUN_API_TESTS=1 to run them", allow_module_level=True)
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)

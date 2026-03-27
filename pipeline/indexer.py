@@ -174,7 +174,7 @@ class VideoIndexer:
         enu: Optional[Dict[str, float]] = None,
         robot_id: Optional[str] = None,
         global_map_id: Optional[int] = None,
-    ) -> Tuple[Optional[Tuple[Dict[str, Any], List[qmodels.PointStruct], int]], "_IndexFrameState"]:
+    ) -> Tuple[Optional[Tuple[Dict[str, Any], Dict[str, Any], List[qmodels.PointStruct], int]], "_IndexFrameState"]:
         """Process one frame. Returns (result, new_state); result is None if frame is skipped."""
         small = downsample_gray(frame, settings.STAB_SIZE)
         prev_small = state.prev_small if state.prev_small is not None else small
@@ -204,10 +204,27 @@ class VideoIndexer:
             "rep_frame_t": t_sec,
             "rep_frame_path": frame_path,
         }
+        qdrant_id = stable_point_id(video_id, segment_id, int(t_sec * 1000), "frame")
         frame_point = self._build_frame_point(
             video_id, segment_id, t_sec, frame_path, frame_pil, embed,
             mission_id=mission_id, gps=gps, enu=enu, robot_id=robot_id, global_map_id=global_map_id,
         )
+        frame_record = {
+            "id": f"{mission_id}:{segment_id}:{int(t_sec * 1000)}",
+            "frame_path": frame_path,
+            "t_sec": t_sec,
+            "segment_id": segment_id,
+            "caption": None,
+            "caption_confidence": None,
+            "al_score": None,
+            "al_tag": "none",
+            "cvat_label": None,
+            "pose_status": "pending",
+            "pose_json": None,
+            "gps_json": gps,
+            "global_pose_json": enu,
+            "qdrant_id": qdrant_id,
+        }
 
         tile_points: List[qmodels.PointStruct] = []
         tile_count = 0
@@ -225,7 +242,7 @@ class VideoIndexer:
             last_kept_small=downsample_gray(frame, settings.STAB_SIZE),
             segment_count=segment_id + 1,
         )
-        return (segment_dict, [frame_point] + tile_points, 1 + tile_count), new_state
+        return (segment_dict, frame_record, [frame_point] + tile_points, 1 + tile_count), new_state
 
     def index_video(
         self,
@@ -281,6 +298,7 @@ class VideoIndexer:
             skip_step=max(1, int(round(settings.SAMPLE_FPS_MAX / eff_fps))),
         )
         segments: List[Dict[str, Any]] = []
+        frame_records: List[Dict[str, Any]] = []
         points: List[qmodels.PointStruct] = []
         cell_state: Dict[Tuple[int, int], Tuple[float, float]] = {}
         tiles_indexed = 0
@@ -311,8 +329,9 @@ class VideoIndexer:
             if result is None:
                 continue
 
-            segment_dict, frame_and_tile_points, count = result
+            segment_dict, frame_record, frame_and_tile_points, count = result
             segments.append(segment_dict)
+            frame_records.append(frame_record)
             points.extend(frame_and_tile_points)
             frames_indexed += 1
             tiles_indexed += count - 1
@@ -338,7 +357,16 @@ class VideoIndexer:
             "Indexing complete video_id=%s segments=%s frames=%s tiles=%s",
             video_id, len(segments), frames_indexed, tiles_indexed,
         )
-        return {"segments": len(segments), "tiles": tiles_indexed, "frames": frames_indexed}
+        duration_sec = max((record["t_sec"] for record in frame_records), default=0.0)
+        gps_origin = next((record["gps_json"] for record in frame_records if record.get("gps_json")), None)
+        return {
+            "segments": len(segments),
+            "tiles": tiles_indexed,
+            "frames": frames_indexed,
+            "duration_sec": duration_sec,
+            "gps_origin": gps_origin,
+            "frame_records": frame_records,
+        }
 
     def _index_tiles(
         self,

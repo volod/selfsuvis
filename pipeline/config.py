@@ -112,9 +112,7 @@ class Settings:
     QDRANT_PORT = int(_env("QDRANT_PORT", "6333"))
     QDRANT_COLLECTION = _env("QDRANT_COLLECTION", "video_semantic")
 
-    JOB_DB_PATH = _env("JOB_DB_PATH", os.path.join(DATA_DIR, "jobs.db"))
-
-    # PostgreSQL (replaces SQLite in production)
+    # PostgreSQL
     DATABASE_URL = _env("DATABASE_URL", "")
 
     # Reports and maps output directories
@@ -168,7 +166,6 @@ class Settings:
     MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_BYTES", 2 * 1024 * 1024 * 1024)  # 2 GB default
     MAX_DOWNLOAD_BYTES = _env_int("MAX_DOWNLOAD_BYTES", 2 * 1024 * 1024 * 1024)  # 2 GB default
     PRECHECK_URL_TIMEOUT = _env_int("PRECHECK_URL_TIMEOUT", 20)
-    SQLITE_TIMEOUT = _env_float("SQLITE_TIMEOUT", 30.0)
     MAX_REDIRECTS = _env_int("MAX_REDIRECTS", 5)
     ALLOW_PRIVATE_URLS = _env("ALLOW_PRIVATE_URLS", "false").lower() == "true"
 

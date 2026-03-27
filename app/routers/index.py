@@ -13,7 +13,7 @@ from pipeline.config import settings
 import asyncpg
 
 from pipeline.net_utils import safe_request, validate_url
-from pipeline.processed_db import get_by_hash, get_by_size, get_by_url
+from pipeline.processed_db import aget_by_hash, aget_by_size, aget_by_url
 from pipeline.utils import ensure_dir, file_sha256, resolve_allowed_path
 from pipeline.job_db_pg import create_job
 
@@ -162,13 +162,13 @@ async def _precheck_file(file: UploadFile):
         file_hash, _ = await hash_upload_limited(file, settings.MAX_UPLOAD_BYTES)
     except ValueError as exc:
         return error_response(str(exc), status_code=413)
-    existing = get_by_hash(file_hash)
+    existing = await aget_by_hash(file_hash)
     if existing:
         return {"status": "duplicate", "reason": "hash", "existing": existing}
     return {"status": "new", "reason": "hash", "hash": file_hash}
 
 
-def _precheck_path(path: str):
+async def _precheck_path(path: str):
     """Precheck by allowed path and file hash."""
     resolved = resolve_allowed_path(path, must_be_file=True)
     if resolved is None:
@@ -176,19 +176,19 @@ def _precheck_path(path: str):
     if not os.path.exists(resolved) or not os.path.isfile(resolved):
         return error_response("path not found")
     file_hash = file_sha256(resolved)
-    existing = get_by_hash(file_hash)
+    existing = await aget_by_hash(file_hash)
     if existing:
         return {"status": "duplicate", "reason": "hash", "existing": existing}
     return {"status": "new", "reason": "hash", "hash": file_hash}
 
 
-def _precheck_url(url: str):
+async def _precheck_url(url: str):
     """Precheck by URL (existing by URL or size match)."""
     try:
         validate_url(url)
     except ValueError as exc:
         return error_response(str(exc))
-    existing = get_by_url(url)
+    existing = await aget_by_url(url)
     if existing:
         return {"status": "duplicate", "reason": "url", "existing": existing}
     size = None
@@ -199,7 +199,7 @@ def _precheck_url(url: str):
     except Exception:
         size = None
     if size is not None:
-        by_size = get_by_size(size)
+        by_size = await aget_by_size(size)
         if by_size:
             return {"status": "maybe", "reason": "size_match", "existing": by_size, "size_bytes": size}
     return {"status": "unknown", "reason": "url_unmatched", "size_bytes": size}
@@ -260,8 +260,8 @@ async def precheck(
     if file is not None:
         return await _precheck_file(file)
     if path is not None:
-        return _precheck_path(path)
-    return _precheck_url(url)
+        return await _precheck_path(path)
+    return await _precheck_url(url)
 
 
 @router.post("/index/precheck_dir")

@@ -8,10 +8,10 @@ All functions accept an asyncpg Connection (or pool) as their first argument
 so callers control connection lifecycle and transaction boundaries.
 """
 import json
-import time
 from typing import Any, Dict, Optional
 
 from pipeline.logging_utils import get_logger
+from pipeline.utils import datetime_to_ts, to_utc_datetime, utcnow
 
 logger = get_logger(__name__)
 
@@ -25,11 +25,11 @@ _CREATE_TABLE_SQL = """
         id            TEXT PRIMARY KEY,
         status        TEXT NOT NULL DEFAULT 'pending',
         type          TEXT,
-        progress_json TEXT NOT NULL DEFAULT '{}',
-        payload_json  TEXT NOT NULL DEFAULT '{}',
-        created_at    DOUBLE PRECISION,
-        started_at    DOUBLE PRECISION,
-        finished_at   DOUBLE PRECISION,
+        progress_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload_json  JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        started_at    TIMESTAMPTZ,
+        finished_at   TIMESTAMPTZ,
         error         TEXT
     )
 """
@@ -42,10 +42,10 @@ async def init_db(conn) -> None:
 
 async def create_job(conn, job_id: str, payload: Dict[str, Any], job_type: Optional[str] = None) -> None:
     """Insert a new job in 'pending' state."""
-    now = time.time()
+    now = utcnow()
     await conn.execute(
         "INSERT INTO jobs (id, status, type, progress_json, payload_json, created_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6)",
+        " VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6)",
         job_id,
         "pending",
         job_type,
@@ -69,8 +69,14 @@ async def update_job(conn, job_id: str, **kwargs: Any) -> None:
     placeholder = 1
     for k, v in allowed.items():
         if k in {"progress", "payload"}:
-            v = json.dumps(v)
             col = f"{k}_json"
+            parts.append(f"{col} = ${placeholder}::jsonb")
+            values.append(json.dumps(v))
+            placeholder += 1
+            continue
+        elif k in {"started_at", "finished_at"}:
+            col = k
+            v = to_utc_datetime(v)
         else:
             col = k
         parts.append(f"{col} = ${placeholder}")
@@ -109,7 +115,7 @@ async def fetch_and_claim_next_pending(conn) -> Optional[Dict[str, Any]]:
     if not row:
         return None
 
-    now = time.time()
+    now = utcnow()
     await conn.execute(
         "UPDATE jobs SET status = 'running', started_at = $1 WHERE id = $2",
         now,
@@ -127,14 +133,20 @@ async def fetch_queue_depth(conn) -> int:
 
 
 def _row_to_dict(row) -> Dict[str, Any]:
+    progress = row["progress_json"] or {}
+    payload = row["payload_json"] or {}
+    if isinstance(progress, str):
+        progress = json.loads(progress)
+    if isinstance(payload, str):
+        payload = json.loads(payload)
     return {
         "id": row["id"],
         "status": row["status"],
         "type": row["type"],
-        "progress": json.loads(row["progress_json"] or "{}"),
-        "payload": json.loads(row["payload_json"] or "{}"),
-        "created_at": row["created_at"],
-        "started_at": row["started_at"],
-        "finished_at": row["finished_at"],
+        "progress": progress,
+        "payload": payload,
+        "created_at": datetime_to_ts(row["created_at"]),
+        "started_at": datetime_to_ts(row["started_at"]),
+        "finished_at": datetime_to_ts(row["finished_at"]),
         "error": row["error"],
     }

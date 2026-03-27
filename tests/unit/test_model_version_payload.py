@@ -7,6 +7,7 @@ pipeline.config.settings.MODEL_VERSION_ID.
 cv2 and skimage are stubbed because they fail to import under NumPy 2.x
 in this environment.  All other deps (qdrant_client, torch, PIL) are real.
 """
+import importlib
 import sys
 import types
 from unittest.mock import MagicMock, patch
@@ -23,7 +24,12 @@ if "pipeline.indexer" not in sys.modules:
         sys.modules[_name] = _m
 
 # ── Now import the module under test ─────────────────────────────────────────
-from pipeline.indexer import VideoIndexer  # noqa: E402
+_indexer_mod = sys.modules.get("pipeline.indexer")
+if _indexer_mod is not None and not hasattr(_indexer_mod, "settings"):
+    del sys.modules["pipeline.indexer"]
+
+indexer_mod = importlib.import_module("pipeline.indexer")
+VideoIndexer = indexer_mod.VideoIndexer  # noqa: E402
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,7 +61,7 @@ def _build_point(indexer, settings_mock, **kwargs):
         clip_embed=fake_clip,
     )
     defaults.update(kwargs)
-    with patch("pipeline.indexer.settings", settings_mock):
+    with patch.object(indexer_mod, "settings", settings_mock):
         return VideoIndexer._build_frame_point(indexer, **defaults)
 
 

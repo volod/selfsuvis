@@ -37,9 +37,10 @@ def _ensure_stub(name: str, **attrs) -> types.ModuleType:
     return sys.modules[name]  # type: ignore[return-value]
 
 
-# asyncpg stub (not installed in unit-test venv) — must come first so that
-# pipeline.global_map_db can be imported without asyncpg installed.
-_asyncpg_stub = _make_stub("asyncpg", connect=AsyncMock())
+# asyncpg stub — use _ensure_stub so all test files share the same module
+# object. _make_stub would create a new object, breaking patches in files
+# (e.g. test_gpu_isolation.py) that captured sys.modules["asyncpg"] earlier.
+_asyncpg_stub = _ensure_stub("asyncpg", connect=AsyncMock())
 
 # Import the REAL pipeline.global_map_db now (while asyncpg stub is in place)
 # so Groups A/B/C test the real code, not a stub.

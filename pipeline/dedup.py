@@ -47,9 +47,19 @@ def dhash(img_gray: np.ndarray, hash_size: int = 8) -> int:
 
 
 def _resize(img: np.ndarray, w: int, h: int) -> np.ndarray:
-    import cv2
+    try:
+        import cv2
 
-    return cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+        if hasattr(cv2, "resize") and hasattr(cv2, "INTER_AREA"):
+            return cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+    except Exception:
+        pass
+
+    from PIL import Image
+
+    return np.asarray(
+        Image.fromarray(img).resize((w, h), resample=Image.Resampling.BOX)
+    )
 
 
 def _hamming(a: int, b: int) -> int:

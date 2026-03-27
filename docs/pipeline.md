@@ -242,7 +242,7 @@ curl -s \
 
 ```bash
 # Show the last 200 indexed files from the dedup registry
-PROCESSED_DB=./data/processed.db .venv/bin/python scripts/list_processed.py
+DATABASE_URL=postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis .venv/bin/python scripts/list_processed.py
 ```
 
 ---

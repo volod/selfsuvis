@@ -2,6 +2,7 @@ import asyncio
 import os
 import time
 import uuid
+from datetime import timedelta
 from typing import Optional
 
 import asyncpg
@@ -10,9 +11,17 @@ from pipeline.config import settings, validate_settings
 from pipeline.indexer import VideoIndexer
 from pipeline.job_db_pg import create_job, fetch_and_claim_next_pending, update_job
 from pipeline.logging_utils import get_logger
-from pipeline.processed_db import init_db as init_processed_db, get_by_hash, upsert
+import pipeline.processed_db as processed_db_mod
+from pipeline.processed_db import init_db as init_processed_db, get_by_hash
 from pipeline.downloader import download_url
-from pipeline.utils import file_sha256
+from pipeline.mission_db import (
+    apply_gps_registration,
+    list_frames_after,
+    mark_mission_finished,
+    replace_frames,
+    upsert_mission,
+)
+from pipeline.utils import datetime_to_ts, file_sha256, utcnow
 
 
 def _resolve_site_origin(video_path: str, logger) -> tuple:
@@ -94,11 +103,25 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
 
     try:
         from pipeline.gps_registration import register_mission_gps
-        enu_origin, global_poses = register_mission_gps(sfm_results)
+        keyed_frames = sfm_results
+        if index_result.get("frame_records"):
+            keyed_frames = []
+            indexed_by_t = {
+                round(frame["t_sec"], 3): frame
+                for frame in index_result.get("frame_records", [])
+            }
+            for row in sfm_results:
+                keyed = dict(row)
+                matched = indexed_by_t.get(round(row.get("t_sec", 0.0), 3))
+                keyed["gps_json"] = matched.get("gps_json") if matched else None
+                keyed["id"] = matched.get("id") if matched else None
+                keyed_frames.append(keyed)
+        enu_origin, global_poses = register_mission_gps(keyed_frames)
         logger.info("Pass A: GPS registration done mission=%s enu_origin=%s", mission_id, enu_origin)
     except Exception as exc:
         logger.warning("Pass A: GPS registration failed mission=%s: %s", mission_id, exc)
         enu_origin = None
+        global_poses = {}
 
     # 3DGS mapper (requires nerfstudio container — soft skip on ConnectionError)
     try:
@@ -118,10 +141,23 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
         nonlocal global_map_id
         conn = await asyncpg.connect(settings.DATABASE_URL)
         try:
+            await mark_mission_finished(
+                conn,
+                mission_id,
+                status="indexing",
+                pose_status="running",
+                map_status="running",
+            )
+            if index_result.get("frame_records"):
+                await apply_gps_registration(conn, mission_id, enu_origin, global_poses)
+
             # Determine target splats from global map
             target_splat_paths = []
             if global_map_id is None and enu_origin is not None:
-                lat, lon, alt = enu_origin
+                if isinstance(enu_origin, dict):
+                    lat, lon, alt = enu_origin["lat"], enu_origin["lon"], enu_origin.get("alt", 0.0)
+                else:
+                    lat, lon, alt = enu_origin
                 global_map_id = await get_or_create_global_map(conn, lat, lon, alt)
             if global_map_id is not None:
                 target_splat_paths = await get_global_map_splats(conn, global_map_id)
@@ -171,6 +207,14 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
                 if not icp_registered and primary_splat is not None:
                     _identity = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
                     await register_mission(conn, global_map_id, mission_id, _identity, None)
+
+            await mark_mission_finished(
+                conn,
+                mission_id,
+                status="indexing",
+                pose_status="success" if sfm_results else "skipped",
+                map_status=mapper_result["map_status"],
+            )
         finally:
             await conn.close()
 
@@ -196,8 +240,8 @@ def _gpu_checkin(job_id: str, job_type: str, conn_url: str, logger) -> bool:
     async def _checkin():
         conn = await asyncpg.connect(conn_url)
         try:
-            now = time.time()
-            stale_cutoff = now - settings.GPU_JOB_TIMEOUT_SEC
+            now = utcnow()
+            stale_cutoff = now - timedelta(seconds=settings.GPU_JOB_TIMEOUT_SEC)
             # Evict stale entries first
             evicted = await conn.execute(
                 "DELETE FROM gpu_jobs WHERE started_at < $1", stale_cutoff
@@ -324,7 +368,7 @@ def handle_finetune_job(job_id: str, payload: dict, conn_url: str, logger) -> No
         async def _update_watermark_and_finish():
             conn = await asyncpg.connect(conn_url)
             try:
-                now = time.time()
+                now = utcnow()
                 total_annotated = await conn.fetchval(
                     "SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'"
                 )
@@ -411,16 +455,22 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
         try:
             row = await conn.fetchrow("SELECT progress_json FROM jobs WHERE id = $1", job_id)
             if row:
-                import json
-                return json.loads(row["progress_json"] or "{}")
+                progress = row["progress_json"] or {}
+                if isinstance(progress, str):
+                    import json
+                    progress = json.loads(progress)
+                return progress
             return {}
         finally:
             await conn.close()
 
     progress = asyncio.run(_get_progress())
-    last_offset = progress.get("last_offset", 0)
+    last_cursor_raw = progress.get("last_cursor")
+    last_cursor = None
+    if isinstance(last_cursor_raw, list) and len(last_cursor_raw) == 2:
+        last_cursor = (last_cursor_raw[0], last_cursor_raw[1])
 
-    logger.info("Reembed job started id=%s resuming_from_offset=%d", job_id, last_offset)
+    logger.info("Reembed job started id=%s resuming_from_cursor=%s", job_id, last_cursor)
 
     _gpu_checkin(job_id, "reembed", conn_url, logger)
     try:
@@ -436,32 +486,30 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
             dino_dim=dino.image_dim(),
         )
 
-        async def _fetch_batch(offset: int):
+        async def _fetch_batch(cursor):
             conn = await asyncpg.connect(conn_url)
             try:
-                rows = await conn.fetch(
-                    "SELECT id, frame_path, mission_id FROM frames "
-                    "ORDER BY created_at ASC OFFSET $1 LIMIT $2",
-                    offset, batch_size,
-                )
-                return [dict(r) for r in rows]
+                return await list_frames_after(conn, cursor, batch_size)
             finally:
                 await conn.close()
 
-        async def _checkpoint_offset(offset: int, frames_done: int):
+        async def _checkpoint_cursor(cursor, frames_done: int):
             conn = await asyncpg.connect(conn_url)
             try:
+                cursor_payload = None
+                if cursor:
+                    cursor_payload = [datetime_to_ts(cursor[0]), cursor[1]]
                 await update_job(conn, job_id,
-                                 progress={"last_offset": offset,
+                                 progress={"last_cursor": cursor_payload,
                                            "frames_reembedded": frames_done})
             finally:
                 await conn.close()
 
-        offset = last_offset
+        cursor = tuple(last_cursor) if last_cursor else None
         frames_reembedded = progress.get("frames_reembedded", 0)
 
         while True:
-            batch = asyncio.run(_fetch_batch(offset))
+            batch = asyncio.run(_fetch_batch(cursor))
             if not batch:
                 break
 
@@ -481,11 +529,10 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
                 clip_vecs = clip.encode_images(images)
 
                 # Upsert entire batch in one Qdrant call
-                from pipeline.utils import stable_point_id
                 from qdrant_client.http import models as qmodels
                 points = [
                     qmodels.PointStruct(
-                        id=stable_point_id(row["id"]),
+                        id=row["qdrant_id"],
                         vector={
                             "clip": clip_vecs[i].tolist(),
                             "dino": dino_vecs[i].tolist(),
@@ -498,7 +545,7 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
                 try:
                     qdrant.upsert_points(points)
                 except Exception as exc:
-                    logger.error("Reembed: Qdrant upsert failed offset=%d err=%s", offset, exc)
+                    logger.error("Reembed: Qdrant upsert failed cursor=%s err=%s", cursor, exc)
                     # Checkpoint last safe offset and mark error
                     async def _err():
                         conn = await asyncpg.connect(conn_url)
@@ -506,7 +553,7 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
                             await update_job(conn, job_id,
                                              status="error",
                                              error=str(exc),
-                                             progress={"last_offset": offset,
+                                             progress={"last_cursor": [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None,
                                                        "frames_reembedded": frames_reembedded},
                                              finished_at=time.time())
                         finally:
@@ -516,9 +563,10 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
 
                 frames_reembedded += len(valid_rows)
 
-            offset += len(batch)
-            asyncio.run(_checkpoint_offset(offset, frames_reembedded))
-            logger.debug("Reembed: offset=%d frames_reembedded=%d", offset, frames_reembedded)
+            last_row = batch[-1]
+            cursor = (last_row["created_at"], last_row["id"])
+            asyncio.run(_checkpoint_cursor(cursor, frames_reembedded))
+            logger.debug("Reembed: cursor=%s frames_reembedded=%d", cursor, frames_reembedded)
 
         # Done
         async def _finish():
@@ -526,7 +574,7 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
             try:
                 await update_job(conn, job_id,
                                  status="finished",
-                                 progress={"last_offset": offset,
+                                 progress={"last_cursor": [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None,
                                            "frames_reembedded": frames_reembedded},
                                  finished_at=time.time())
             finally:
@@ -677,18 +725,65 @@ def main() -> None:
                 global_map_id=global_map_id,
                 progress_cb=progress_cb,
             )
+            result_summary = {k: v for k, v in result.items() if k != "frame_records"}
+
+            async def _persist_index_result():
+                conn = await asyncpg.connect(conn_url)
+                try:
+                    async with conn.transaction():
+                        await upsert_mission(
+                            conn,
+                            mission_id=mission_id,
+                            video_id=video_id,
+                            video_path=video_path,
+                            job_id=job_id,
+                            robot_id=settings.ROBOT_ID,
+                            status="indexing",
+                            frame_count=result_summary.get("frames", 0),
+                            duration_sec=result_summary.get("duration_sec"),
+                            gps_origin=result_summary.get("gps_origin"),
+                        )
+                        await replace_frames(conn, mission_id, result.get("frame_records", []))
+                finally:
+                    await conn.close()
+
+            asyncio.run(_persist_index_result())
 
             # Pass A: SfM → GPS registration → 3DGS mapper (GPU optional)
             _run_pass_a(video_path, video_id, mission_id, result, logger, global_map_id=global_map_id)
 
-            upsert(file_hash, video_id, video_path, size_bytes, mtime, "processed", {"url": url})
+            async def _finalize_success():
+                conn = await asyncpg.connect(conn_url)
+                try:
+                    async with conn.transaction():
+                        await processed_db_mod.aupsert(
+                            file_hash,
+                            video_id,
+                            video_path,
+                            size_bytes,
+                            mtime,
+                            "processed",
+                            {"url": url},
+                            conn=conn,
+                        )
+                        await mark_mission_finished(
+                            conn,
+                            mission_id,
+                            status="done",
+                            error=None,
+                        )
+                        await update_job(
+                            conn,
+                            job_id,
+                            status="finished",
+                            progress={**(job.get("progress") or {}), **result_summary},
+                            finished_at=time.time(),
+                        )
+                finally:
+                    await conn.close()
+
+            asyncio.run(_finalize_success())
             logger.info("Index job finished id=%s video_id=%s", job_id, video_id)
-            _update_job_sync(
-                conn_url, job_id,
-                status="finished",
-                progress={**(job.get("progress") or {}), **result},
-                finished_at=time.time(),
-            )
         except Exception as exc:
             logger.exception("Index job failed id=%s error=%s", job_id, exc)
             if video_path and os.path.exists(video_path):
@@ -696,7 +791,31 @@ def main() -> None:
                     size_bytes = os.path.getsize(video_path)
                     mtime = os.path.getmtime(video_path)
                     file_hash = file_sha256(video_path)
-                    upsert(file_hash, payload.get("video_id", uuid.uuid4().hex), video_path, size_bytes, mtime, "error", {"error": str(exc)})
+                    async def _finalize_error():
+                        conn = await asyncpg.connect(conn_url)
+                        try:
+                            async with conn.transaction():
+                                await processed_db_mod.aupsert(
+                                    file_hash,
+                                    payload.get("video_id", uuid.uuid4().hex),
+                                    video_path,
+                                    size_bytes,
+                                    mtime,
+                                    "error",
+                                    {"error": str(exc)},
+                                    conn=conn,
+                                )
+                                if payload.get("video_id"):
+                                    await mark_mission_finished(
+                                        conn,
+                                        payload.get("mission_id") or payload["video_id"],
+                                        status="error",
+                                        error=str(exc),
+                                    )
+                        finally:
+                            await conn.close()
+
+                    asyncio.run(_finalize_error())
                 except OSError as e:
                     logger.warning("Could not read video for error record path=%s err=%s", video_path, e)
                 except Exception as e:

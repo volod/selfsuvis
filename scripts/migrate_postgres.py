@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
-"""PostgreSQL schema migration for selfsuvis.
+"""Bootstrap the PostgreSQL schema for selfsuvis.
 
-Creates all tables on a fresh database or safely upgrades an existing one.
-Run once after `make up postgres` starts the PostgreSQL container:
+Creates the full current schema on a fresh database. The project is still in
+development, so this script intentionally defines only the latest schema and
+does not carry forward legacy ALTER-based migrations or SQLite import logic.
+
+Run after PostgreSQL is available:
 
     python scripts/migrate_postgres.py
-
-Reads DATABASE_URL from environment or env/prod.env.
 """
 import asyncio
 import os
 import sys
 from pathlib import Path
 
-# Allow running from repo root without installing the package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncpg
 from dotenv import load_dotenv
 
-# Load env file so DATABASE_URL is available when run locally
 _env_name = os.getenv("APP_ENV", "prod")
 _env_file = Path(__file__).parent.parent / "env" / f"{_env_name}.env"
 if _env_file.exists():
@@ -27,37 +26,29 @@ if _env_file.exists():
 else:
     load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis",
+)
 
-# ---------------------------------------------------------------------------
-# Schema DDL
-# ---------------------------------------------------------------------------
-
-_MIGRATIONS = [
-    # ── jobs ─────────────────────────────────────────────────────────────────
-    # asyncpg-backed job queue (replaces SQLite job_db.py).
-    # Worker claims rows with SELECT FOR UPDATE SKIP LOCKED.
-    # type: 'index' (default), 'supervised_finetune', 'reembed', or NULL for legacy rows.
+_SCHEMA = [
     """
     CREATE TABLE IF NOT EXISTS jobs (
         id            TEXT PRIMARY KEY,
         status        TEXT NOT NULL DEFAULT 'pending'
                           CHECK (status IN ('pending','running','finished','error')),
         type          TEXT,
-        progress_json TEXT NOT NULL DEFAULT '{}',
-        payload_json  TEXT NOT NULL DEFAULT '{}',
-        created_at    DOUBLE PRECISION NOT NULL,
-        started_at    DOUBLE PRECISION,
-        finished_at   DOUBLE PRECISION,
+        progress_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload_json  JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        started_at    TIMESTAMPTZ,
+        finished_at   TIMESTAMPTZ,
         error         TEXT
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs (status, created_at)",
-    "CREATE INDEX IF NOT EXISTS idx_jobs_type_status    ON jobs (type, status)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_type_status ON jobs (type, status)",
 
-    # ── processed_files ──────────────────────────────────────────────────────
-    # Dedup registry: tracks SHA-256 of every processed video to prevent
-    # re-indexing the same file.
     """
     CREATE TABLE IF NOT EXISTS processed_files (
         file_hash   TEXT PRIMARY KEY,
@@ -66,20 +57,21 @@ _MIGRATIONS = [
         size_bytes  BIGINT,
         mtime       DOUBLE PRECISION,
         status      TEXT NOT NULL DEFAULT 'done',
-        meta_json   TEXT NOT NULL DEFAULT '{}',
-        created_at  DOUBLE PRECISION NOT NULL,
-        updated_at  DOUBLE PRECISION NOT NULL
+        meta_json   JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
+    "CREATE INDEX IF NOT EXISTS idx_processed_files_size_updated ON processed_files (size_bytes, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_processed_files_url ON processed_files ((meta_json ->> 'url'))",
 
-    # ── missions ─────────────────────────────────────────────────────────────
-    # One row per indexed video / mission.
     """
     CREATE TABLE IF NOT EXISTS missions (
         id              TEXT PRIMARY KEY,
         video_id        TEXT NOT NULL,
         video_path      TEXT,
         job_id          TEXT REFERENCES jobs(id),
+        robot_id        TEXT NOT NULL DEFAULT 'robot_0',
         status          TEXT NOT NULL DEFAULT 'pending'
                             CHECK (status IN ('pending','indexing','done','error')),
         pose_status     TEXT NOT NULL DEFAULT 'pending'
@@ -88,21 +80,18 @@ _MIGRATIONS = [
                             CHECK (map_status IN ('pending','running','success','failed','skipped')),
         frame_count     INTEGER NOT NULL DEFAULT 0,
         duration_sec    DOUBLE PRECISION,
-        gps_origin_json TEXT,   -- {lat, lon, alt} of first GPS-valid frame (ENU origin)
-        created_at      DOUBLE PRECISION NOT NULL,
-        updated_at      DOUBLE PRECISION NOT NULL,
+        gps_origin_json JSONB,
+        splat_path      TEXT,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         error           TEXT
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_missions_status ON missions (status)",
     "CREATE INDEX IF NOT EXISTS idx_missions_video_id ON missions (video_id)",
+    "CREATE INDEX IF NOT EXISTS idx_missions_robot_id ON missions (robot_id)",
+    "CREATE INDEX IF NOT EXISTS idx_missions_created_at ON missions (created_at DESC)",
 
-    # ── frames ───────────────────────────────────────────────────────────────
-    # One row per keyframe extracted from a mission video.
-    # pose_json:  pycolmap output  {R: [[...]], t: [...], camera_id: ...}
-    # gps_json:   {lat, lon, alt, timestamp_ms}
-    # global_pose_json: ENU pose after GPS-to-ENU registration (Phase 1)
-    #             or ICP-registered pose (Phase 2, when populated)
     """
     CREATE TABLE IF NOT EXISTS frames (
         id                  TEXT PRIMARY KEY,
@@ -115,163 +104,121 @@ _MIGRATIONS = [
         al_score            DOUBLE PRECISION,
         al_tag              TEXT NOT NULL DEFAULT 'none'
                                 CHECK (al_tag IN ('none','needs_annotation','novel','annotated')),
+        cvat_label          TEXT,
         pose_status         TEXT NOT NULL DEFAULT 'pending'
-                                CHECK (pose_status IN ('pending','success','failed')),
-        pose_json           TEXT,
-        gps_json            TEXT,
-        global_pose_json    TEXT,
+                                CHECK (pose_status IN ('pending','success','failed','skipped')),
+        pose_json           JSONB,
+        gps_json            JSONB,
+        global_pose_json    JSONB,
         qdrant_id           BIGINT,
-        created_at          DOUBLE PRECISION NOT NULL
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
-    "CREATE INDEX IF NOT EXISTS idx_frames_mission_id   ON frames (mission_id)",
-    "CREATE INDEX IF NOT EXISTS idx_frames_al_tag       ON frames (al_tag)",
-    "CREATE INDEX IF NOT EXISTS idx_frames_pose_status  ON frames (pose_status)",
-    # Payload indexes for GPS bounding-box queries (required for change detection
-    # and robot API; Qdrant needs corresponding payload indexes on gps.lat/lon)
-    "CREATE INDEX IF NOT EXISTS idx_frames_t_sec        ON frames (t_sec)",
+    "CREATE INDEX IF NOT EXISTS idx_frames_mission_id ON frames (mission_id)",
+    "CREATE INDEX IF NOT EXISTS idx_frames_al_tag ON frames (al_tag)",
+    "CREATE INDEX IF NOT EXISTS idx_frames_pose_status ON frames (pose_status)",
+    "CREATE INDEX IF NOT EXISTS idx_frames_t_sec ON frames (t_sec)",
+    "CREATE INDEX IF NOT EXISTS idx_frames_al_tag_score ON frames (al_tag, al_score DESC NULLS LAST)",
+    "CREATE INDEX IF NOT EXISTS idx_frames_created_id ON frames (created_at, id)",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_frames_annotated_label "
+        "ON frames (mission_id, cvat_label) "
+        "WHERE al_tag = 'annotated' AND cvat_label IS NOT NULL"
+    ),
 
-    # ── embedding_clusters ───────────────────────────────────────────────────
-    # k-means cluster assignments for DINOv3 embeddings (k=20 default).
-    # Used by active learning to compute dino_dist (distance to nearest cluster centroid).
     """
     CREATE TABLE IF NOT EXISTS embedding_clusters (
-        id              SERIAL PRIMARY KEY,
-        mission_id      TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
-        cluster_id      INTEGER NOT NULL,
-        centroid_json   TEXT NOT NULL,  -- float[] JSON array
-        frame_count     INTEGER NOT NULL DEFAULT 0,
-        created_at      DOUBLE PRECISION NOT NULL,
-        updated_at      DOUBLE PRECISION NOT NULL,
+        id            SERIAL PRIMARY KEY,
+        mission_id    TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        cluster_id    INTEGER NOT NULL,
+        centroid_json JSONB NOT NULL,
+        frame_count   INTEGER NOT NULL DEFAULT 0,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE (mission_id, cluster_id)
     )
     """,
 
-    # ── change_detections ────────────────────────────────────────────────────
-    # Records visual changes between GPS-overlapping frames across missions.
     """
     CREATE TABLE IF NOT EXISTS change_detections (
-        id              SERIAL PRIMARY KEY,
-        frame_id        TEXT NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
-        mission_id      TEXT NOT NULL,
-        ref_frame_id    TEXT NOT NULL,
-        ref_mission_id  TEXT NOT NULL,
-        change_score    DOUBLE PRECISION NOT NULL,
-        threshold       DOUBLE PRECISION NOT NULL,
-        detected_at     DOUBLE PRECISION NOT NULL
+        id             SERIAL PRIMARY KEY,
+        frame_id       TEXT NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
+        mission_id     TEXT NOT NULL,
+        ref_frame_id   TEXT NOT NULL,
+        ref_mission_id TEXT NOT NULL,
+        change_score   DOUBLE PRECISION NOT NULL,
+        threshold      DOUBLE PRECISION NOT NULL,
+        detected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_change_detections_mission_id ON change_detections (mission_id)",
-    "CREATE INDEX IF NOT EXISTS idx_change_detections_score      ON change_detections (change_score)",
+    "CREATE INDEX IF NOT EXISTS idx_change_detections_score ON change_detections (change_score)",
 
-    # ── global_map ───────────────────────────────────────────────────────────
-    # One row per geographic site / ENU coordinate origin.
-    # Phase 1: GPS-to-ENU registration (registration_error = NULL).
-    # Phase 2: ICP fusion (registration_error populated from ICP residual).
     """
     CREATE TABLE IF NOT EXISTS global_map (
-        id              SERIAL PRIMARY KEY,
-        origin_lat      DOUBLE PRECISION NOT NULL,
-        origin_lon      DOUBLE PRECISION NOT NULL,
-        origin_alt      DOUBLE PRECISION NOT NULL DEFAULT 0.0,
-        splat_path      TEXT,   -- path to fused splat.ply (Phase 2)
-        created_at      DOUBLE PRECISION NOT NULL,
-        updated_at      DOUBLE PRECISION NOT NULL
+        id          SERIAL PRIMARY KEY,
+        origin_lat  DOUBLE PRECISION NOT NULL,
+        origin_lon  DOUBLE PRECISION NOT NULL,
+        origin_alt  DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+        splat_path  TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
+    "CREATE INDEX IF NOT EXISTS idx_global_map_origin ON global_map (origin_lat, origin_lon)",
 
-    # ── global_map_missions ──────────────────────────────────────────────────
-    # Junction: which missions are registered into which global map.
-    # transform_json: 4×4 SE(3) matrix as nested float[][] JSON array.
-    # registration_error: NULL for Phase 1 GPS; ICP residual for Phase 2.
     """
     CREATE TABLE IF NOT EXISTS global_map_missions (
-        id                      SERIAL PRIMARY KEY,
-        global_map_id           INTEGER NOT NULL REFERENCES global_map(id) ON DELETE CASCADE,
-        mission_id              TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
-        registration_transform_json TEXT NOT NULL,
-        registration_error      DOUBLE PRECISION,
-        registered_at           DOUBLE PRECISION NOT NULL,
+        id                            SERIAL PRIMARY KEY,
+        global_map_id                 INTEGER NOT NULL REFERENCES global_map(id) ON DELETE CASCADE,
+        mission_id                    TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        registration_transform_json   JSONB NOT NULL,
+        registration_error            DOUBLE PRECISION,
+        registered_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE (global_map_id, mission_id)
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_gmm_global_map_id ON global_map_missions (global_map_id)",
-    "CREATE INDEX IF NOT EXISTS idx_gmm_mission_id    ON global_map_missions (mission_id)",
+    "CREATE INDEX IF NOT EXISTS idx_gmm_mission_id ON global_map_missions (mission_id)",
 
-    # ── cvat_tasks ───────────────────────────────────────────────────────────
-    # Maps CVAT task IDs to selfsuvis frame IDs.
-    # Populated by POST /admin/cvat/task when a user creates a CVAT annotation task.
-    # Read by POST /webhook/cvat to mark frames annotated when a job completes.
     """
     CREATE TABLE IF NOT EXISTS cvat_tasks (
-        cvat_task_id  INTEGER      NOT NULL,
-        frame_id      TEXT         NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
-        created_at    DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+        cvat_task_id  INTEGER NOT NULL,
+        frame_id      TEXT NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (cvat_task_id, frame_id)
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_cvat_tasks_task_id ON cvat_tasks (cvat_task_id)",
 
-    # ── multi-robot: add robot_id to missions ────────────────────────────────
-    # Added in P3: multi-robot shared world model.
-    # Idempotent via IF NOT EXISTS — safe to re-run on existing databases.
-    "ALTER TABLE missions ADD COLUMN IF NOT EXISTS robot_id TEXT NOT NULL DEFAULT 'robot_0'",
-    "CREATE INDEX IF NOT EXISTS idx_missions_robot_id ON missions (robot_id)",
-
-    # ── global map: add splat_path to missions ───────────────────────────────
-    # Required for global_map_db.get_global_map_splats — the query JOINs missions
-    # on splat_path IS NOT NULL to return existing scene splats as ICP targets.
-    # Populated by the worker after nerfstudio splatfacto completes.
-    "ALTER TABLE missions ADD COLUMN IF NOT EXISTS splat_path TEXT",
-
-    # ── active learning loop closure ─────────────────────────────────────────
-    # cvat_label: CVAT annotation label written back to frames after annotation.
-    # Populated by _mark_frames_annotated when CVAT fires a webhook for a completed job.
-    "ALTER TABLE frames ADD COLUMN IF NOT EXISTS cvat_label TEXT",
-
-    # jobs.type: routes worker dispatch to index / supervised_finetune / reembed handlers.
-    # NULL for legacy index jobs created before this migration.
-    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS type TEXT",
-
-    # system_state: key/value store for durable runtime state.
-    # Keys used:
-    #   last_retrain_watermark   — annotated frame count at last successful supervised finetune
-    #   active_dino_checkpoint   — path to the currently active DINOv3 checkpoint (authoritative source)
     """
     CREATE TABLE IF NOT EXISTS system_state (
         key        TEXT PRIMARY KEY,
         value      TEXT NOT NULL,
-        updated_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
 
-    # model_checkpoints: provenance registry for trained DINOv3 checkpoints.
-    # Tracks which annotation batch trained which checkpoint, annotation count,
-    # eval accuracy, and when the checkpoint was created.
-    # model_version_id is stored in every Qdrant frame payload at re-embed time
-    # so results can be traced back to the model that produced them.
     """
     CREATE TABLE IF NOT EXISTS model_checkpoints (
-        id               SERIAL PRIMARY KEY,
-        checkpoint_path  TEXT NOT NULL UNIQUE,
-        model_version_id TEXT NOT NULL,
-        annotation_count INTEGER NOT NULL DEFAULT 0,
-        best_accuracy    DOUBLE PRECISION,
+        id                 SERIAL PRIMARY KEY,
+        checkpoint_path    TEXT NOT NULL UNIQUE,
+        model_version_id   TEXT NOT NULL,
+        annotation_count   INTEGER NOT NULL DEFAULT 0,
+        best_accuracy      DOUBLE PRECISION,
         distribution_shift DOUBLE PRECISION,
-        created_at       DOUBLE PRECISION NOT NULL,
-        notes            TEXT
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        notes              TEXT
     )
     """,
 
-    # gpu_jobs: semaphore table for GPU resource isolation.
-    # Workers check-in before allocating GPU memory and check-out on completion.
-    # Stale entries (started_at older than GPU_JOB_TIMEOUT_SEC) are evicted on check-in.
     """
     CREATE TABLE IF NOT EXISTS gpu_jobs (
         job_id     TEXT PRIMARY KEY,
         job_type   TEXT NOT NULL,
         worker_id  TEXT NOT NULL,
-        started_at DOUBLE PRECISION NOT NULL
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
 ]
@@ -281,12 +228,12 @@ async def migrate(url: str) -> None:
     print(f"Connecting to: {url.split('@')[-1]}")
     conn = await asyncpg.connect(url)
     try:
-        for i, sql in enumerate(_MIGRATIONS, 1):
+        for i, sql in enumerate(_SCHEMA, 1):
             stmt = sql.strip()
             label = stmt.split("\n")[0][:80].strip()
             await conn.execute(stmt)
-            print(f"  [{i:02d}/{len(_MIGRATIONS)}] {label}")
-        print(f"\nMigration complete — {len(_MIGRATIONS)} statements applied.")
+            print(f"  [{i:02d}/{len(_SCHEMA)}] {label}")
+        print(f"\nSchema bootstrap complete — {len(_SCHEMA)} statements applied.")
     finally:
         await conn.close()
 

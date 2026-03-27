@@ -342,7 +342,7 @@ async def automation_roi() -> Dict[str, Any]:
             # Number of distinct calendar months with at least one annotation
             # (proxy for "annotation campaigns")
             campaigns = await conn.fetchval(
-                "SELECT COUNT(DISTINCT TO_CHAR(TO_TIMESTAMP(created_at), 'YYYY-MM')) "
+                "SELECT COUNT(DISTINCT TO_CHAR(created_at, 'YYYY-MM')) "
                 "FROM frames WHERE al_tag = 'annotated'"
             ) or 0
 
@@ -354,7 +354,11 @@ async def automation_roi() -> Dict[str, Any]:
             ft_triggered = len(ft_rows)
             ft_accepted = sum(
                 1 for r in ft_rows
-                if _json.loads(r["progress_json"] or "{}").get("accepted") is True
+                if (
+                    (r["progress_json"] if isinstance(r["progress_json"], dict)
+                     else _json.loads(r["progress_json"] or "{}"))
+                    .get("accepted") is True
+                )
             )
 
             # Reembed sweeps completed
@@ -555,7 +559,9 @@ async def reembed_status() -> Dict[str, Any]:
         return {"active": False, "job_id": None, "frames_reembedded": None}
 
     import json as _json
-    progress = _json.loads(row["progress_json"] or "{}")
+    progress = row["progress_json"] or {}
+    if isinstance(progress, str):
+        progress = _json.loads(progress)
     return {
         "active": True,
         "job_id": row["id"],
