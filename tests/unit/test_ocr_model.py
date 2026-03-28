@@ -113,14 +113,14 @@ def test_backend_is_trocr_for_trocr_model(monkeypatch):
     assert model._get_backend() == "trocr"
 
 
-def test_backend_is_trocr_for_deepseek_ocr(monkeypatch):
-    """DeepSeek-OCR-2 uses the trocr backend (transformers AutoModel)."""
+def test_backend_is_vlm_for_deepseek_ocr(monkeypatch):
+    """DeepSeek-OCR-2 uses the vlm backend (AutoProcessor + AutoModelForCausalLM)."""
     from pipeline.ocr_model import OCRModel
     from pipeline import ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()
     model._model_id = "deepseek-ai/DeepSeek-OCR-2"
-    assert model._get_backend() == "trocr"
+    assert model._get_backend() == "vlm"
 
 
 def test_backend_cached_on_second_call(monkeypatch):

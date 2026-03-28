@@ -55,6 +55,7 @@ class DepthModel:
     def __init__(self) -> None:
         self._pipe = None
         self._model_id: Optional[str] = None
+        self._load_failed: bool = False
 
     def is_enabled(self) -> bool:
         return settings.DEPTH_ENABLED
@@ -112,6 +113,8 @@ class DepthModel:
     def _get_pipe(self):
         if self._pipe is not None:
             return self._pipe
+        if self._load_failed:
+            return None
         logger.info("Loading depth model: %s", self.model_id)
         try:
             import torch
@@ -126,8 +129,12 @@ class DepthModel:
             )
             logger.info("Depth model loaded: %s on %s", self.model_id, device)
         except Exception:
-            logger.warning("Failed to load depth model %s", self.model_id, exc_info=True)
+            logger.warning(
+                "Failed to load depth model %s — run: python scripts/prepare_models.py --depth",
+                self.model_id, exc_info=True,
+            )
             self._pipe = None
+            self._load_failed = True
         return self._pipe
 
 

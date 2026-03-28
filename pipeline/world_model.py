@@ -87,6 +87,7 @@ class WorldModel:
         self._model_id: Optional[str] = None
         self._frame_buffer: List[Image.Image] = []
         self._clip_frames = settings.WORLD_MODEL_CLIP_FRAMES
+        self._load_failed: bool = False
 
     def is_enabled(self) -> bool:
         return settings.WORLD_MODEL_ENABLED
@@ -149,6 +150,8 @@ class WorldModel:
     def _load_model(self):
         if self._model is not None:
             return self._model, self._feature_extractor
+        if self._load_failed:
+            return None, None
 
         logger.info("Loading world model: %s", self.model_id)
         try:
@@ -163,9 +166,13 @@ class WorldModel:
             ).to(device).eval()
             logger.info("World model loaded: %s on %s", self.model_id, device)
         except Exception:
-            logger.warning("Failed to load world model %s", self.model_id, exc_info=True)
+            logger.warning(
+                "Failed to load world model %s — run: python scripts/prepare_models.py --world-model",
+                self.model_id, exc_info=True,
+            )
             self._model = None
             self._feature_extractor = None
+            self._load_failed = True
 
         return self._model, self._feature_extractor
 

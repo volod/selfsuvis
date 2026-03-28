@@ -23,6 +23,8 @@ Runs the full perception stack on every video file in a source directory:
     O. Depth estimation per frame       → merged into multimodal_features.md
     P. Object detection per frame       → merged into multimodal_features.md
     Q. World model video embeddings     → merged into multimodal_features.md
+    R. Qwen VLM detailed captioning     → {video_dir}/detailed_captions.md
+       (uses ASR subtitles + OCR text as context; requires QWEN_API_URL / --qwen-api-url)
 
   Edge model outputs (step F):
     edge_models/dino_demo.onnx          Student or teacher backbone (ONNX)
@@ -41,6 +43,8 @@ Usage:
     python demo.py --detection                  # Object detection
     python demo.py --world-model                # World model video embeddings
     python demo.py --asr --ocr --depth --detection  # all optional steps
+    python demo.py --qwen --qwen-api-url http://localhost:8010/v1  # Qwen detailed captioning
+    python demo.py --asr --qwen --qwen-api-url http://localhost:8010/v1  # Qwen + ASR context
 
   Model selection (auto = GPU-aware, see pipeline/model_registry.py):
     python demo.py --asr --asr-model openai/whisper-large-v3
@@ -122,6 +126,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                    help="Enable world model video embeddings")
     p.add_argument("--world-model-id", default="auto",
                    help="World model ID or 'auto'")
+    p.add_argument("--qwen", action="store_true",
+                   help="Enable Qwen VLM detailed scene captioning (step R); requires --qwen-api-url or QWEN_API_URL env var")
+    p.add_argument("--qwen-api-url", default="",
+                   help="Qwen vLLM/ollama sidecar URL (e.g. http://localhost:8010/v1). Sets QWEN_API_URL env var.")
+    p.add_argument("--qwen-model", default="",
+                   help="Qwen model ID to use; empty = use QWEN_MODEL env var default (Qwen/Qwen2.5-VL-7B-Instruct)")
+    p.add_argument("--qwen-backend", default="",
+                   choices=["", "vllm", "ollama"],
+                   help="Qwen sidecar backend type. Empty = auto-detect (ollama inferred from port 11434).")
     return p
 
 
@@ -154,6 +167,13 @@ os.environ.setdefault("DETECTION_MODEL",  args.detection_model)
 os.environ.setdefault("DETECTION_LABELS", args.detection_labels)
 os.environ.setdefault("WORLD_MODEL_ENABLED","true" if args.world_model else "false")
 os.environ.setdefault("WORLD_MODEL",  args.world_model_id)
+if args.qwen_api_url:
+    os.environ["QWEN_API_URL"] = args.qwen_api_url
+os.environ.setdefault("QWEN_API_URL", "")
+if args.qwen_model:
+    os.environ["QWEN_MODEL"] = args.qwen_model
+if args.qwen_backend:
+    os.environ["QWEN_BACKEND"] = args.qwen_backend
 
 # ── Standard imports ──────────────────────────────────────────────────────────
 import json
@@ -744,6 +764,7 @@ def write_final_stats_md(
         f"| `edge_models/gallery.npz` | Embedding gallery for 1-NN classification |",
         f"| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step M) |",
         f"| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps N–Q) |",
+        f"| `detailed_captions.md` | Qwen VLM detailed per-frame scene captions with ASR context (step R) |",
         f"| `3d_map/sparse_map.npz` | 3D point cloud (from SfM or PCA fallback) |",
         f"| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
         f"",
@@ -765,6 +786,7 @@ _STEP_LABELS = [
     ("O_depth",      "O  Depth estimation"),
     ("P_detection",  "P  Object detection"),
     ("Q_world",      "Q  World model"),
+    ("R_qwen",       "R  Qwen detailed captioning"),
     ("C_base_search","C  Base search test"),
     ("D_finetune",   "D  SSL fine-tuning"),
     ("E_distill",    "E  Knowledge distillation"),
@@ -1832,6 +1854,7 @@ def write_multimodal_md(
     depth_result: Dict[str, Any],
     det_result: Dict[str, Any],
     world_result: Dict[str, Any],
+    qwen_result: Dict[str, Any],
 ) -> None:
     """Write combined multimodal features report (OCR, depth, detection, world model)."""
     lines = [
@@ -1853,6 +1876,8 @@ def write_multimodal_md(
         f"{det_result.get('total_objects', 0)} objects detected |",
         f"| World Model | {'✓' if not world_result.get('skipped') else '—'} | "
         f"{world_result.get('ok_count', 0)} clips processed |",
+        f"| Qwen VLM captioning | {'✓' if not qwen_result.get('skipped') else '—'} | "
+        f"{qwen_result.get('ok_count', 0)} frames captioned |",
         f"",
     ]
 
@@ -1896,9 +1921,149 @@ def write_multimodal_md(
                               f"{p[0]:.3f} | {p[1]:.3f} | {p[2]:.3f} | {p[3]:.3f} | {p[4]:.3f} |")
         lines.append("")
 
-    lines += ["---", "*Produced by `demo.py` · multimodal steps M–Q*"]
+    lines += ["---", "*Produced by `demo.py` · multimodal steps M–R*"]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     log.info("  ✓ Written %s", output_path)
+
+
+def write_detailed_captions_md(
+    output_path: Path,
+    video_name: str,
+    results: List[Dict[str, Any]],
+    elapsed_sec: float,
+    model_id: str,
+) -> None:
+    """Write per-frame Qwen VLM detailed captions as Markdown."""
+    ok = sum(1 for r in results if not r.get("service_unavailable") and not r.get("skipped"))
+    lines = [
+        f"# Detailed Scene Captions — {video_name}",
+        f"",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Model: {model_id}  |  Frames processed: {ok}/{len(results)}",
+        f"Elapsed: {elapsed_sec:.1f}s",
+        f"",
+        f"## Per-Frame Analysis",
+        f"",
+        f"| Frame | t (s) | Caption / Scene Facts | Audio Context |",
+        f"|-------|-------|----------------------|---------------|",
+    ]
+    for r in results:
+        fp = r.get("frame_path", "")
+        name = Path(fp).name if fp else "—"
+        t = r.get("t_sec", 0.0)
+        subtitle = (r.get("subtitle_text") or "").replace("|", "\\|")[:60]
+        if r.get("service_unavailable"):
+            caption = "*sidecar unavailable*"
+        elif r.get("skipped"):
+            caption = "*skipped*"
+        else:
+            # QwenModel returns a structured dict; join key facts as text
+            facts = r.get("caption") or r.get("scene_description") or ""
+            if not facts and isinstance(r, dict):
+                # Flatten any nested fields returned by extract_frame_facts
+                parts = []
+                for k, v in r.items():
+                    if k not in ("frame_path", "t_sec", "subtitle_text", "ocr_text") and v:
+                        parts.append(f"{k}: {v}")
+                facts = "; ".join(parts[:4])
+            caption = str(facts).replace("|", "\\|")[:200]
+        lines.append(f"| `{name}` | {t:.1f} | {caption} | {subtitle} |")
+    lines += [
+        f"",
+        f"---",
+        f"*Produced by `demo.py` · Qwen VLM step R · ASR subtitle context injected where available*",
+    ]
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    log.info("  ✓ Written %s", output_path)
+
+
+def step_qwen_captioning(
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+    subtitle_map: Dict[float, str],
+    ocr_results: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Step R: Qwen VLM detailed scene captioning with ASR subtitle + OCR context.
+
+    For each frame, looks up the nearest ASR subtitle from subtitle_map and any
+    OCR text from the corresponding frame, then calls QwenModel.extract_batch
+    with both as context.  Writes detailed_captions.md.
+
+    Requires QWEN_API_URL to be set (either via --qwen-api-url flag or env var).
+    """
+    out_md = video_dir / "detailed_captions.md"
+    result: Dict[str, Any] = {"skipped": True, "results": []}
+
+    try:
+        from pipeline.qwen_model import QwenModel
+    except ImportError as exc:
+        log.warning("  Qwen model unavailable (%s) — skipping", exc)
+        return result
+
+    qwen = QwenModel()
+    if not qwen.is_enabled():
+        log.info("  Qwen disabled (QWEN_API_URL not set) — skipping detailed captioning")
+        log.info("  To enable: --qwen-api-url http://localhost:8010/v1  (or set QWEN_API_URL)")
+        return result
+
+    # Build OCR lookup: t_sec → ocr_text
+    ocr_map: Dict[float, str] = {}
+    for r in ocr_results:
+        t = r.get("t_sec")
+        txt = r.get("ocr_text") or ""
+        if t is not None and txt:
+            ocr_map[t] = txt
+
+    log.info("Running Qwen detailed captioning on %d frames (model=%s) …",
+             len(frame_list), settings.QWEN_MODEL)
+    t0 = time.time()
+
+    batch_size = 4  # Qwen sidecar is typically single-GPU; keep batches small
+    caption_results: List[Dict[str, Any]] = []
+
+    for batch_start in range(0, len(frame_list), batch_size):
+        batch = frame_list[batch_start : batch_start + batch_size]
+        imgs: List[Image.Image] = []
+        subtitles: List[Optional[str]] = []
+        ocr_texts: List[Optional[str]] = []
+
+        for fp, t_sec in batch:
+            try:
+                imgs.append(Image.open(fp).convert("RGB"))
+            except Exception:
+                imgs.append(Image.new("RGB", (224, 224)))
+            subtitles.append(subtitle_map.get(t_sec) or None)
+            ocr_texts.append(ocr_map.get(t_sec) or None)
+
+        try:
+            batch_out = qwen.extract_batch(imgs, subtitle_texts=subtitles, ocr_texts=ocr_texts)
+        except Exception as exc:
+            log.warning("  Qwen batch %d failed: %s", batch_start, exc)
+            batch_out = [{"service_unavailable": True}] * len(batch)
+
+        for (fp, t_sec), r in zip(batch, batch_out):
+            caption_results.append({
+                "frame_path": fp,
+                "t_sec": t_sec,
+                "subtitle_text": subtitle_map.get(t_sec) or "",
+                **r,
+            })
+
+    elapsed = time.time() - t0
+    ok = sum(1 for r in caption_results
+             if not r.get("service_unavailable") and not r.get("skipped"))
+    subtitle_used = sum(1 for r in caption_results if r.get("subtitle_text"))
+    log.info("  ✓ Qwen: %d/%d frames captioned in %.1fs (%d with ASR context)",
+             ok, len(frame_list), elapsed, subtitle_used)
+
+    write_detailed_captions_md(out_md, video_name, caption_results, elapsed, settings.QWEN_MODEL)
+    log.info("  Artifact: %s", out_md)
+
+    result.update({"skipped": False, "results": caption_results,
+                   "ok_count": ok, "subtitle_used": subtitle_used,
+                   "elapsed_sec": elapsed})
+    return result
 
 
 def step_compare_and_describe(
@@ -2001,7 +2166,7 @@ def step_create_3d_map(
 
 # ── Per-video orchestrator ─────────────────────────────────────────────────────
 
-_TOTAL_STEPS = 15
+_TOTAL_STEPS = 16
 
 
 def run_video_pipeline(
@@ -2119,16 +2284,32 @@ def run_video_pipeline(
     else:
         T["Q_world"] = 0.0
 
+    # ── R: Qwen detailed captioning ───────────────────────────────────────────
+    qwen_result: Dict[str, Any] = {"skipped": True, "results": []}
+    if args.qwen:
+        _step(9, _TOTAL_STEPS, "Qwen VLM detailed captioning → detailed_captions.md")
+        with _Timer(T, "R_qwen"):
+            qwen_result = step_qwen_captioning(
+                frame_list, video_name, video_dir,
+                subtitle_map=asr_result.get("subtitle_map", {}),
+                ocr_results=ocr_result.get("ocr_results", []),
+            )
+        if not qwen_result.get("skipped"):
+            stats["qwen_captioned"] = qwen_result.get("ok_count", 0)
+            stats["qwen_subtitle_used"] = qwen_result.get("subtitle_used", 0)
+    else:
+        T["R_qwen"] = 0.0
+
     # Write combined multimodal report if any optional step ran
-    _any_multimodal = (args.asr or args.ocr or args.depth or args.detection or args.world_model)
+    _any_multimodal = (args.asr or args.ocr or args.depth or args.detection or args.world_model or args.qwen)
     if _any_multimodal:
         _mm_md = video_dir / "multimodal_features.md"
         write_multimodal_md(_mm_md, video_name, asr_result, ocr_result,
-                            depth_result, det_result, world_result)
+                            depth_result, det_result, world_result, qwen_result)
         log.info("  Artifact: %s", _mm_md)
 
     # ── C: Base model search test ──────────────────────────────────────────────
-    _step(9, _TOTAL_STEPS, "Base model transformation test → base_search.md")
+    _step(10, _TOTAL_STEPS, "Base model transformation test → base_search.md")
     with _Timer(T, "C_base_search"):
         c = step_base_model_search_test(
             frame_list, store, is_qdrant, models, video_id, video_name, video_dir,
@@ -2139,7 +2320,7 @@ def run_video_pipeline(
     stats["base_top_score"] = base_results[0]["score"] if base_results else 0.0
 
     # ── D: SSL fine-tuning ─────────────────────────────────────────────────────
-    _step(10, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
+    _step(11, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
     with _Timer(T, "D_finetune"):
         d = step_ssl_finetune(video_id, video_name, video_dir, frame_list, device)
     stats["best_loss"]    = d["best_loss"]
@@ -2152,7 +2333,7 @@ def run_video_pipeline(
     student_backbone = None
     student_dim = 768
     if not args.no_distill:
-        _step(11, _TOTAL_STEPS, "Knowledge distillation: ViT-B/14 teacher → ViT-S/14 student")
+        _step(12, _TOTAL_STEPS, "Knowledge distillation: ViT-B/14 teacher → ViT-S/14 student")
         with _Timer(T, "E_distill"):
             e_distill = step_distill(checkpoint_path, frame_list, video_name, video_dir, device)
         if not e_distill["skipped"]:
@@ -2164,11 +2345,11 @@ def run_video_pipeline(
             stats["teacher_dim"]     = e_distill["teacher_dim"]
     else:
         T["E_distill"] = 0.0
-        _step(11, _TOTAL_STEPS, "Knowledge distillation (skipped — --no-distill)")
+        _step(12, _TOTAL_STEPS, "Knowledge distillation (skipped — --no-distill)")
         log.info("  Distillation skipped; exporting teacher to ONNX instead")
 
     # ── F: ONNX export + gallery ──────────────────────────────────────────────
-    _step(12, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
+    _step(13, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
     with _Timer(T, "F_export"):
         e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
                               student_backbone=student_backbone, student_dim=student_dim)
@@ -2177,7 +2358,7 @@ def run_video_pipeline(
     stats["onnx_exported"] = e.get("exported", False)
 
     # ── G: Fine-tuned model search test ───────────────────────────────────────
-    _step(13, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
+    _step(14, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
     with _Timer(T, "G_ft_search"):
         f = step_finetuned_model_search_test(
             frame_list, store, is_qdrant, models,
@@ -2187,7 +2368,7 @@ def run_video_pipeline(
     stats["ft_top_score"] = ft_results[0]["score"] if ft_results else 0.0
 
     # ── H: Comparison + video description ────────────────────────────────────
-    _step(14, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
+    _step(15, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
     with _Timer(T, "H_compare"):
         g = step_compare_and_describe(
             frame_list, store, is_qdrant, base_results, ft_results,
@@ -2200,7 +2381,7 @@ def run_video_pipeline(
         stats["top_description"] = g.get("top_description", "")
 
     # ── I: 3D map ─────────────────────────────────────────────────────────────
-    _step(15, _TOTAL_STEPS, "3D map creation → 3d_map/sparse_map.npz + sparse_map.ply")
+    _step(16, _TOTAL_STEPS, "3D map creation → 3d_map/sparse_map.npz + sparse_map.ply")
     with _Timer(T, "I_3dmap"):
         h = step_create_3d_map(
             video_path, video_id, video_dir, frame_list, models,
@@ -2247,12 +2428,13 @@ def main() -> None:
     log.info("Epochs           : %d", args.epochs)
     log.info("Qdrant           : %s", "disabled" if args.no_qdrant else "auto-detect")
     log.info("SfM              : %s", "disabled" if args.no_sfm else "auto-detect (pycolmap)")
-    if any([args.asr, args.ocr, args.depth, args.detection, args.world_model]):
+    if any([args.asr, args.ocr, args.depth, args.detection, args.world_model, args.qwen]):
         log.info("Multimodal steps   : %s",
                  " ".join(s for s, e in [("ASR", args.asr), ("OCR", args.ocr),
                                           ("Depth", args.depth),
                                           ("Detection", args.detection),
-                                          ("WorldModel", args.world_model)] if e))
+                                          ("WorldModel", args.world_model),
+                                          ("Qwen", args.qwen)] if e))
 
     videos_dir = Path(args.videos_dir)
     if not videos_dir.is_dir():

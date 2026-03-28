@@ -134,7 +134,7 @@ def test_caption_batch_confidence_is_float_in_range():
     from pipeline.florence_model import FlorenceModel
 
     model = FlorenceModel()
-    images = [Image.new("RGB", (1, 1))]
+    images = [Image.new("RGB", (32, 32))]
     results = model.caption_batch(images)
 
     assert len(results) == 1

@@ -9,6 +9,8 @@ Mode selection (``OCR_MODEL`` env var, ``"auto"`` = GPU-aware):
     - TrOCR family (tiny, base, large) — fast, low VRAM, printed-document OCR
     - GOT-OCR2_0 — scene text, formulas, tables
     - DeepSeek-OCR-2 — best quality; 3B params (~7 GB VRAM)
+    - VLM family (Phi-3.5-vision, Qwen2.5-VL, LLaVA) — chat-based OCR via
+      AutoProcessor + AutoModelForCausalLM with trust_remote_code
 
   vLLM/ollama sidecar (when ``OCR_API_URL`` is non-empty):
     - Any vision-capable model served at the URL (typically DeepSeek-OCR-2 or
@@ -43,6 +45,7 @@ from typing import Any, Dict, List, Optional
 from PIL import Image
 
 from pipeline.config import settings
+from pipeline.florence_model import _best_attn_impl
 from pipeline.logging_utils import get_logger
 from pipeline.model_registry import auto_select, detect_resources
 
@@ -57,6 +60,13 @@ _OCR_PROMPT = (
 _TROCR_PREFIXES = ("microsoft/trocr-",)
 _GOT_PREFIXES = ("ucaslcl/GOT-",)
 _DEEPSEEK_PREFIXES = ("deepseek-ai/DeepSeek-OCR",)
+# VLM models that load via AutoProcessor + AutoModelForCausalLM (chat-style inference)
+_VLM_PREFIXES = (
+    "Qwen/Qwen2.5-VL-",
+    "deepseek-ai/DeepSeek-OCR",
+    "microsoft/Phi-3.5-vision",
+    "llava-hf/",
+)
 
 
 def _resolve_model_id() -> str:
@@ -70,10 +80,12 @@ def _resolve_model_id() -> str:
 class OCRModel:
     """Extracts visible text from frame images.
 
-    Supports three backends depending on configuration:
+    Supports four backends depending on configuration:
     - ``vllm``: HTTP call to ``OCR_API_URL`` (OpenAI-compatible vision endpoint)
     - ``got``: Local GOT-OCR2_0 via transformers
+    - ``florence``: Local Florence-2 via transformers
     - ``trocr``: Local TrOCR via transformers (fastest, printed text only)
+    - ``vlm``: Local VLM (Phi-3.5-vision, Qwen2.5-VL, etc.) via AutoModelForCausalLM
     """
 
     def __init__(self) -> None:
@@ -82,6 +94,8 @@ class OCRModel:
         self._processor = None
         self._model = None
         self._got_tokenizer = None
+        # Permanent load-failure flag — prevents retrying a failed load on every frame
+        self._load_failed: bool = False
 
     # ── Public interface ──────────────────────────────────────────────────────
 
@@ -124,6 +138,8 @@ class OCRModel:
                 text = self._extract_got(image)
             elif backend == "florence":
                 text = self._extract_florence(image)
+            elif backend == "vlm":
+                text = self._extract_vlm_local(image)
             else:
                 text = self._extract_trocr(image)
             return {"ocr_text": text.strip() if text else "", "ocr_model": self.model_id}
@@ -141,8 +157,10 @@ class OCRModel:
             self._backend = "got"
         elif self.model_id.startswith("microsoft/Florence"):
             self._backend = "florence"
+        elif any(self.model_id.startswith(p) for p in _VLM_PREFIXES):
+            self._backend = "vlm"
         else:
-            # TrOCR + DeepSeek-OCR-2 + Qwen (via transformers)
+            # TrOCR family (microsoft/trocr-*)
             self._backend = "trocr"
         logger.info("OCR backend: %s (model=%s)", self._backend, self.model_id)
         return self._backend
@@ -176,7 +194,7 @@ class OCRModel:
     # ── GOT-OCR2_0 ───────────────────────────────────────────────────────────
 
     def _extract_got(self, image: Image.Image) -> str:
-        if self._model is None:
+        if self._model is None and not self._load_failed:
             self._load_got()
         if self._model is None:
             return ""
@@ -217,13 +235,17 @@ class OCRModel:
                 self._model = self._model.to(device)
             logger.info("GOT-OCR2 loaded: %s on %s", self.model_id, device)
         except Exception:
-            logger.warning("Failed to load GOT-OCR2 model %s", self.model_id, exc_info=True)
+            logger.warning(
+                "Failed to load GOT-OCR2 model %s — run: python scripts/prepare_models.py --ocr",
+                self.model_id, exc_info=True,
+            )
             self._model = None
+            self._load_failed = True
 
-    # ── TrOCR / DeepSeek-OCR-2 via AutoModel ─────────────────────────────────
+    # ── TrOCR ────────────────────────────────────────────────────────────────
 
     def _extract_trocr(self, image: Image.Image) -> str:
-        if self._model is None:
+        if self._model is None and not self._load_failed:
             self._load_trocr()
         if self._model is None:
             return ""
@@ -255,8 +277,91 @@ class OCRModel:
             self._model = self._model.to(device)
             logger.info("TrOCR loaded: %s on %s", self.model_id, device)
         except Exception:
-            logger.warning("Failed to load TrOCR model %s", self.model_id, exc_info=True)
+            logger.warning(
+                "Failed to load TrOCR model %s — run: python scripts/prepare_models.py --ocr",
+                self.model_id, exc_info=True,
+            )
             self._model = None
+            self._load_failed = True
+
+    # ── VLM local (Phi-3.5-vision, Qwen2.5-VL, DeepSeek-OCR-2, LLaVA) ───────
+
+    def _extract_vlm_local(self, image: Image.Image) -> str:
+        if self._load_failed:
+            return ""
+        if self._model is None:
+            self._load_vlm_local()
+        if self._model is None:
+            return ""
+        try:
+            import torch
+            device = _get_device()
+
+            # Strategy 1: apply_chat_template with image+text message (modern VLMs)
+            try:
+                messages = [{"role": "user", "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": _OCR_PROMPT},
+                ]}]
+                text = self._processor.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
+                inputs = self._processor(
+                    text=text, images=[image], return_tensors="pt"
+                ).to(device)
+            except Exception:
+                # Strategy 2: direct processor call (fallback for simpler processors)
+                inputs = self._processor(
+                    text=_OCR_PROMPT, images=image, return_tensors="pt"
+                ).to(device)
+
+            with torch.no_grad():
+                out = self._model.generate(**inputs, max_new_tokens=512, do_sample=False)
+
+            # Strip echoed input tokens — only decode the newly generated portion
+            input_len = inputs["input_ids"].shape[1]
+            return self._processor.decode(out[0, input_len:], skip_special_tokens=True)
+        except Exception:
+            logger.warning("VLM OCR inference failed for %s", self.model_id, exc_info=True)
+            return ""
+
+    def _load_vlm_local(self) -> None:
+        try:
+            import torch
+            from transformers import AutoProcessor, AutoModelForCausalLM
+
+            device = _get_device()
+            self._processor = AutoProcessor.from_pretrained(
+                self.model_id, trust_remote_code=True
+            )
+            dtype = torch.float16 if (settings.USE_FP16 and device != "cpu") else torch.float32
+            load_kwargs: dict = {
+                "trust_remote_code": True,
+                "torch_dtype": dtype,
+                "low_cpu_mem_usage": True,
+                "attn_implementation": _best_attn_impl(),
+            }
+            # device_map requires accelerate; fall back to .to(device) when absent
+            try:
+                import accelerate  # noqa: F401
+                if device == "cuda":
+                    load_kwargs["device_map"] = "auto"
+            except ImportError:
+                pass
+
+            self._model = AutoModelForCausalLM.from_pretrained(
+                self.model_id, **load_kwargs
+            ).eval()
+            if "device_map" not in load_kwargs:
+                self._model = self._model.to(device)
+            logger.info("VLM OCR loaded: %s on %s", self.model_id, device)
+        except Exception:
+            logger.warning(
+                "Failed to load VLM OCR model %s — run: python scripts/prepare_models.py --ocr",
+                self.model_id, exc_info=True,
+            )
+            self._model = None
+            self._load_failed = True
 
     # ── Florence-2 OCR (reuse existing model instance externally) ────────────
 
@@ -264,7 +369,7 @@ class OCRModel:
         # Use Florence-2 in <OCR> task mode. We call it directly rather than
         # loading a second Florence instance — the caller should pass the shared
         # instance via florence_ocr() helper instead.
-        if self._model is None:
+        if self._model is None and not self._load_failed:
             self._load_florence_ocr()
         if self._model is None:
             return ""
@@ -294,11 +399,16 @@ class OCRModel:
                 self.model_id,
                 torch_dtype=torch.float16 if settings.USE_FP16 else torch.float32,
                 trust_remote_code=True,
+                attn_implementation=_best_attn_impl(),
             ).to(device).eval()
             logger.info("Florence OCR loaded: %s", self.model_id)
         except Exception:
-            logger.warning("Failed to load Florence OCR model %s", self.model_id, exc_info=True)
+            logger.warning(
+                "Failed to load Florence OCR model %s — run: python scripts/prepare_models.py --ocr",
+                self.model_id, exc_info=True,
+            )
             self._model = None
+            self._load_failed = True
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────

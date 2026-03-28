@@ -53,18 +53,74 @@ Any outdoor footage works. Two test clips are already in `data_test/videos/`. Ad
 - Mixkit: https://mixkit.co/free-stock-video/nature/ → download as `.mp4`, place in `data_test/videos/`
 - Pexels: https://www.pexels.com/search/videos/outdoor/ → download, place in `data_test/videos/`
 
-### Download required models (if network is not healsy)
+### Download required models (optional — cached on first run)
+
 ```bash
-  #Warmup script gains --source:                                                                                                         
-  # Default: auto (local → hub → HF)
-  python scripts/prepare_models.py --dino                                                                                               
-                                                                                                                                        
-  # Force HF only — useful when GitHub is blocked
-  python scripts/prepare_models.py --dino --source hf                                                                                   
-                                                            
-  # Force torch.hub only — no HF fallback                                                                                               
-  python scripts/prepare_models.py --dino --source hub 
+# Default: OpenCLIP + DINOv2/v3
+python scripts/prepare_models.py
+
+# DINO weights only (auto → hub → HF fallback)
+python scripts/prepare_models.py --dino
+
+# Force HF only — useful when GitHub is blocked
+python scripts/prepare_models.py --dino --source hf
+
+# Force torch.hub only — no HF fallback
+python scripts/prepare_models.py --dino --source hub
+
+# Pre-cache Whisper ASR + Florence-2 captioning models
+python scripts/prepare_models.py --whisper --florence
+
+# Everything at once
+python scripts/prepare_models.py --all
 ```
+
+### Qwen VLM sidecar (optional — for detailed scene captioning, step R)
+
+Step R (`--qwen`) calls an OpenAI-compatible vision endpoint for structured per-frame analysis.
+It uses ASR subtitles (from step M) and OCR text (from step N) as context in the prompt.
+
+**Option 1 — vLLM (recommended, GPU required):**
+
+```bash
+# Install vLLM (once):
+pip install vllm
+
+# Serve Qwen2.5-VL-7B-Instruct on port 8010:
+vllm serve Qwen/Qwen2.5-VL-7B-Instruct \
+  --port 8010 \
+  --max-model-len 8192 \
+  --limit-mm-per-prompt image=1
+
+# Then run the demo with Qwen enabled:
+python demo.py --asr --qwen --qwen-api-url http://localhost:8010/v1
+```
+
+**Option 2 — Ollama (CPU-friendly):**
+
+```bash
+# Install ollama (https://ollama.com), then pull the model:
+ollama pull qwen2.5vl:7b
+
+# Ollama exposes an OpenAI-compatible API on port 11434:
+python demo.py --asr --qwen --qwen-api-url http://localhost:11434/v1
+
+# Or set the env var permanently:
+export QWEN_API_URL=http://localhost:11434/v1
+export QWEN_BACKEND=ollama
+python demo.py --asr --qwen
+```
+
+**Option 3 — Remote / Docker Compose:**
+
+```bash
+# In docker-compose.yml, add a qwen service that exposes port 8010,
+# then point the worker/demo at it:
+QWEN_API_URL=http://qwen:8010/v1 python demo.py --asr --qwen
+```
+
+> **Note:** If `QWEN_API_URL` is empty (the default), step R is skipped automatically.
+> The demo still runs to completion without it.
 
 ### Run
 
@@ -81,6 +137,23 @@ python demo.py --device cpu
 # Skip optional steps
 python demo.py --no-qdrant --no-sfm --no-onnx
 
+# Enable multimodal steps (each loads its model lazily on first frame):
+python demo.py --asr                          # Whisper speech-to-text
+python demo.py --ocr                          # OCR text extraction per frame
+python demo.py --depth                        # Depth estimation per frame
+python demo.py --detection                    # Object detection per frame
+python demo.py --world-model                  # World model video embeddings
+python demo.py --qwen --qwen-api-url http://localhost:8010/v1  # Qwen VLM detailed captioning
+
+# Full multimodal run (ASR subtitles fed into Qwen as context):
+python demo.py --asr --ocr --qwen --qwen-api-url http://localhost:8010/v1
+
+python demo.py --asr --ocr --qwen --qwen-api-url http://localhost:11434/v1
+
+# Select specific models (default: GPU-aware auto-selection):
+python demo.py --asr --asr-model openai/whisper-large-v3
+python demo.py --qwen --qwen-model Qwen/Qwen2.5-VL-72B-Instruct --qwen-api-url http://host:8010/v1
+
 # Full options
 python demo.py --help
 ```
@@ -91,11 +164,15 @@ For each video `<name>.mp4` the demo writes `<output-dir>/<name>/`:
 
 | File / Dir | Contents |
 |---|---|
-| `base_search.md` | Text-query results using the base DINOv3 model |
+| `base_search.md` | Nearest-neighbour results with the base DINOv3 model |
+| `scene_captions.md` | Per-frame Florence-2 captions (step L) |
+| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step M, `--asr`) |
+| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps N–Q) |
+| `detailed_captions.md` | Qwen VLM structured per-frame scene analysis with ASR context (step R, `--qwen`) |
 | `finetune_stats.md` | SSL fine-tuning loss curve + config |
 | `finetuned_search.md` | Same queries re-run with the fine-tuned model |
 | `comparison.md` | Side-by-side comparison + video-to-text description |
-| `edge_models/` | ONNX models + frame gallery for edge deployment |
+| `edge_models/` | ONNX model + frame gallery for edge deployment |
 | `checkpoints/` | Fine-tuned `.pt` checkpoints |
 | `3d_map/` | Point cloud `.npy` (SfM poses or PCA fallback) + manifest |
 | `final_stats.md` | Per-video and aggregate statistics |

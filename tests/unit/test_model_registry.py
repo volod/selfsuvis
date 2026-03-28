@@ -19,9 +19,16 @@ def test_all_tasks_present():
     assert EXPECTED_TASKS.issubset(CATALOGS.keys())
 
 
-def test_each_catalog_has_ten_entries():
+def test_each_catalog_has_minimum_entries():
+    # depth has 9 entries (Intel/zoedepth-nk was removed — invalid HF model ID).
+    # world_model has 10 entries (nvidia/Cosmos-1.0-Autoregressive-4B re-added;
+    # auth handled interactively by prepare_models.py).
+    min_per_task = {"depth": 9}
     for task, entries in CATALOGS.items():
-        assert len(entries) == 10, f"Task {task!r} has {len(entries)} entries, expected 10"
+        expected = min_per_task.get(task, 10)
+        assert len(entries) >= expected, (
+            f"Task {task!r} has {len(entries)} entries, expected at least {expected}"
+        )
 
 
 def test_entries_are_model_entry_instances():

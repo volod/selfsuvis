@@ -29,6 +29,15 @@ _MODEL_BASE_NAME = "florence-2-large"
 logger = get_logger(__name__)
 
 
+def _best_attn_impl() -> str:
+    """Return the best available attention backend: flash_attention_2 > sdpa."""
+    try:
+        import flash_attn  # noqa: F401
+        return "flash_attention_2"
+    except ImportError:
+        return "sdpa"
+
+
 class FlorenceModel:
     """Florence-2-large captioner. Load once; call caption_batch() many times."""
 
@@ -39,8 +48,8 @@ class FlorenceModel:
             from transformers import AutoModelForCausalLM, AutoProcessor
         except ImportError as exc:
             raise ImportError(
-                "transformers>=4.41 is required for Florence-2 captioning. "
-                "Install it with: pip install transformers>=4.41"
+                "transformers>=4.47 is required for Florence-2 captioning. "
+                "Install it with: pip install 'transformers>=4.47'"
             ) from exc
 
         self.device = self._resolve_device()
@@ -60,6 +69,7 @@ class FlorenceModel:
             _MODEL_ID,
             torch_dtype=torch_dtype,
             trust_remote_code=True,
+            attn_implementation=_best_attn_impl(),
         ).to(self.device)
         self._model.eval()
 
@@ -146,6 +156,12 @@ class FlorenceModel:
             return_tensors="pt",
             padding=True,
         ).to(self.device)
+        # Cast float tensors to model dtype (FP16 on CUDA) to avoid dtype mismatch in conv layers.
+        model_dtype = next(self._model.parameters()).dtype
+        inputs = {
+            k: v.to(model_dtype) if v.is_floating_point() else v
+            for k, v in inputs.items()
+        }
 
         with torch.no_grad():
             generated = self._model.generate(

@@ -14,17 +14,24 @@ uv pip install --python "$VENV_PATH" pip
 
 detect_cuda_version() {
   local cuda_version=""
+
+  # Parse regular nvidia-smi text output (--query-gpu=cuda_version is not a valid field)
   if command -v nvidia-smi >/dev/null 2>&1; then
-    cuda_version=$(nvidia-smi --query-gpu=cuda_version --format=csv,noheader 2>/dev/null | head -n1 | tr -d ' ')
+    cuda_version=$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA Version: *\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n1)
   fi
 
+  # Fallback: nvcc reports the installed toolkit version
   if [[ -z "$cuda_version" ]] && command -v nvcc >/dev/null 2>&1; then
-    cuda_version=$(nvcc --version 2>/dev/null | sed -n 's/.*release \\([0-9]\\+\\.[0-9]\\+\\).*/\\1/p' | head -n1)
+    cuda_version=$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n1)
   fi
 
+  # Fallback: /usr/local/cuda version files
   if [[ -z "$cuda_version" ]] && [[ -d /usr/local/cuda ]]; then
-    if [[ -f /usr/local/cuda/version.txt ]]; then
-      cuda_version=$(sed -n 's/.*CUDA Version \\([0-9]\\+\\.[0-9]\\+\\).*/\\1/p' /usr/local/cuda/version.txt | head -n1)
+    if [[ -f /usr/local/cuda/version.json ]]; then
+      cuda_version=$(python3 -c "import json,sys; d=json.load(open('/usr/local/cuda/version.json')); print(d.get('cuda',{}).get('version','').rsplit('.',1)[0])" 2>/dev/null)
+    fi
+    if [[ -z "$cuda_version" ]] && [[ -f /usr/local/cuda/version.txt ]]; then
+      cuda_version=$(sed -n 's/.*CUDA Version \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' /usr/local/cuda/version.txt | head -n1)
     fi
   fi
 
@@ -77,4 +84,21 @@ if [[ -n "$TORCH_CUDA_INDEX" ]]; then
 else
   echo "No CUDA detected → installing CPU-only torch"
   uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.10.0 torchvision==0.25.0
+fi
+
+# flash-attn must be installed AFTER torch (its setup.py imports torch at build time).
+# --no-build-isolation lets it find the torch headers already in the active environment.
+# Skipped on CPU-only machines; non-fatal on failure (models fall back to sdpa attention).
+PYTHON_BIN="$VENV_PATH/bin/python"
+if "$PYTHON_BIN" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+  echo "Installing flash-attn (CUDA available — uses prebuilt wheel or compiles from source) …"
+  if "$PYTHON_BIN" -m pip install flash-attn --no-build-isolation -q; then
+    echo "flash-attn installed."
+  else
+    echo "WARNING: flash-attn build failed. Run later with:"
+    echo "  python scripts/prepare_models.py --flash-attn"
+    echo "Models will use sdpa (PyTorch built-in SDPA) until then."
+  fi
+else
+  echo "No CUDA GPU detected — skipping flash-attn (CPU-only mode)."
 fi

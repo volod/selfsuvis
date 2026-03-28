@@ -335,11 +335,21 @@ class QwenModel:
         """Check sidecar health and cache the result in self._healthy."""
         backend = settings.QWEN_BACKEND.lower()
         timeout = min(settings.QWEN_TIMEOUT_SEC, 10)  # quick health check
+        # Auto-detect ollama from the default port (11434) when backend is not
+        # explicitly set to "ollama" — the vllm health endpoint (/health) returns
+        # 404 on ollama servers, which only expose /api/tags.
+        if backend != "ollama" and ":11434" in settings.QWEN_API_URL:
+            backend = "ollama"
         if backend == "ollama":
             self._healthy = _health_check_ollama(settings.QWEN_API_URL, timeout)
         else:
             # default: vllm
             self._healthy = _health_check_vllm(settings.QWEN_API_URL, timeout)
+            # Fallback: if vllm check fails, try ollama (covers non-standard ports)
+            if not self._healthy:
+                self._healthy = _health_check_ollama(settings.QWEN_API_URL, timeout)
+                if self._healthy:
+                    backend = "ollama"
 
         if self._healthy:
             logger.info("Qwen sidecar healthy (backend=%s url=%s)", backend, settings.QWEN_API_URL)

@@ -160,14 +160,12 @@ CATALOGS: Dict[str, List[ModelEntry]] = {
                    "DepthAnything V1-Large — predecessor, still strong"),
         ModelEntry("prs-eth/marigold-lcm-v1-0",                  0.859, 1.7,
                    "Marigold-LCM — diffusion-based, photorealistic depth"),
-        ModelEntry("apple/DepthPro-hf",                          1.1,   2.2,
-                   "Apple DepthPro — metric depth + focal estimation, sharp edges"),
-        ModelEntry("tencent/DepthCrafter",                          2.0,  8.0,
+        ModelEntry("tencent/DepthCrafter",                       2.0,   8.0,
                    "DepthCrafter — temporally-consistent depth for open-world video; "
                    "CVPR 2025 Highlight; only video-native depth model",
                    supports_video=True),
-        ModelEntry("Intel/zoedepth-nk",                          0.345, 0.7,
-                   "ZoeDepth-NK — metric depth, works indoor+outdoor jointly"),
+        ModelEntry("apple/DepthPro-hf",                          1.1,   2.2,
+                   "Apple DepthPro — metric depth + focal estimation, sharp edges"),
     ],
 
     # ── Object Detection ─────────────────────────────────────────────────────
@@ -307,8 +305,9 @@ CATALOGS: Dict[str, List[ModelEntry]] = {
         ModelEntry("OpenGVLab/InternVideo2-Stage2_1B-224p-f4",   1.0,   2.0,
                    "InternVideo2-1B — video-language model, 224px/4fps",
                    supports_video=True),
-        ModelEntry("nvidia/Cosmos-1.0-Autoregressive-4B",        4.0,   8.0,
-                   "NVIDIA Cosmos-1.0-AR-4B — physical world model for robotics",
+        ModelEntry("nvidia/Cosmos-1.0-Autoregressive-4B",         4.0,   8.0,
+                   "Cosmos-1.0-4B — NVIDIA physical world model, autoregressive; "
+                   "gated repo — accept license at huggingface.co/nvidia/Cosmos-1.0-Autoregressive-4B",
                    supports_video=True),
     ],
 }
