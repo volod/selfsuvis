@@ -13,6 +13,14 @@ from qdrant_client.http import models as qmodels
 from models.openclip_model import OpenCLIPEmbedder
 from models.dino_model import DINOEmbedder
 from pipeline.config import settings
+from pipeline.florence_model import FlorenceModel
+from pipeline.qwen_model import QwenModel
+from pipeline.asr_model import ASRModel
+from pipeline.ocr_model import OCRModel
+from pipeline.depth_model import DepthModel
+from pipeline.detection_model import DetectionModel
+from pipeline.world_model import WorldModel
+from pipeline.audio_extractor import extract_audio, map_subtitles_to_frames
 from pipeline.ffmpeg_utils import extract_frames
 from pipeline.heuristics import (
     downsample_gray,
@@ -54,7 +62,16 @@ class VideoIndexer:
         if settings.MODEL_NAME in {"dinov2", "dinov3"}:
             name = "dinov2_vitb14" if settings.MODEL_NAME == "dinov2" else "dinov3_vitb14"
             self.dino_model = DINOEmbedder(model_name=name)
+        # Load Florence at construction time — fail fast if weights are missing.
+        self.florence_model = FlorenceModel()
         self.store = QdrantStore(clip_dim=self.clip_model.image_dim(), dino_dim=self._dino_dim())
+        self.qwen_model = QwenModel(clip_prescreen_fn=self._make_vehicle_prescreen()) if settings.QWEN_API_URL else None
+        # Optional enrichment models — lazily loaded on first use (enabled via env vars).
+        self.asr_model = ASRModel() if settings.ASR_ENABLED else None
+        self.ocr_model = OCRModel() if settings.OCR_ENABLED else None
+        self.depth_model = DepthModel() if settings.DEPTH_ENABLED else None
+        self.detection_model = DetectionModel() if settings.DETECTION_ENABLED else None
+        self.world_model = WorldModel() if settings.WORLD_MODEL_ENABLED else None
         self.phash_lru = PhashLRU(settings.PHASH_LRU_SIZE, settings.PHASH_HAMMING_MAX)
         self.recent_index = RecentEmbeddingIndex(
             dim=self.clip_model.image_dim(),
@@ -216,6 +233,9 @@ class VideoIndexer:
             "segment_id": segment_id,
             "caption": None,
             "caption_confidence": None,
+            "caption_model": None,
+            "subtitle_text": None,   # filled by ASR pass
+            "ocr_text": None,        # filled by OCR pass
             "al_score": None,
             "al_tag": "none",
             "cvat_label": None,
@@ -353,6 +373,36 @@ class VideoIndexer:
         if points:
             self.store.upsert_points(points)
 
+        # ── ASR pass — audio transcription (before captioning so Qwen can use it) ──
+        if frame_records and self.asr_model and self.asr_model.is_enabled():
+            self._run_asr_pass(dst_path, frame_records)
+
+        # ── Florence captioning pass (post-loop) ──────────────────────────────
+        # Runs after all Qdrant upserts are complete. Re-loads frames from disk
+        # to avoid keeping ~250MB of PIL images in RAM during the main loop.
+        if frame_records:
+            self._run_florence_pass(frame_records)
+
+        # ── OCR pass — visible text extraction ───────────────────────────────
+        if frame_records and self.ocr_model and self.ocr_model.is_enabled():
+            self._run_ocr_pass(frame_records)
+
+        # ── Qwen2.5-VL Phase 2 structured extraction pass ─────────────────────
+        if frame_records and self.qwen_model:
+            self._run_qwen_pass(frame_records)
+
+        # ── Depth estimation pass ─────────────────────────────────────────────
+        if frame_records and self.depth_model and self.depth_model.is_enabled():
+            self._run_depth_pass(frame_records)
+
+        # ── Object detection pass ─────────────────────────────────────────────
+        if frame_records and self.detection_model and self.detection_model.is_enabled():
+            self._run_detection_pass(frame_records)
+
+        # ── World model pass (video clip embeddings) ──────────────────────────
+        if frame_records and self.world_model and self.world_model.is_enabled():
+            self._run_world_model_pass(frame_records)
+
         self.logger.info(
             "Indexing complete video_id=%s segments=%s frames=%s tiles=%s",
             video_id, len(segments), frames_indexed, tiles_indexed,
@@ -367,6 +417,238 @@ class VideoIndexer:
             "gps_origin": gps_origin,
             "frame_records": frame_records,
         }
+
+    def _make_vehicle_prescreen(self):
+        """Build a vehicle pre-screen function reusing self.clip_model (avoids second CLIP load)."""
+        import numpy as np
+        from pipeline.qwen_model import _VEHICLE_LABELS
+        threshold = settings.QWEN_CLIP_THRESHOLD
+        labels = list(_VEHICLE_LABELS)
+        prompts = [f"a photo of {l}" for l in labels]
+        text_embeds = self.clip_model.encode_texts(prompts)  # (N, dim)
+
+        def prescreen(image: Image.Image) -> bool:
+            img_emb = self.clip_model.encode_images([image], batch_size=1)[0]
+            sims = float(np.dot(text_embeds, img_emb).max())
+            return sims >= threshold
+
+        return prescreen
+
+    def _run_asr_pass(
+        self, video_path: str, frame_records: List[Dict[str, Any]]
+    ) -> None:
+        """Transcribe video audio and map subtitle segments to frame timestamps."""
+        import os, tempfile
+        self.logger.info("ASR pass: transcribing audio from %s", video_path)
+        audio_dir = settings.ASR_AUDIO_DIR
+        from pipeline.utils import ensure_dir
+        ensure_dir(audio_dir)
+        wav_path = extract_audio(video_path, audio_dir)
+        if not wav_path:
+            self.logger.info("ASR pass: no audio track — skipping")
+            return
+        segments = self.asr_model.transcribe(wav_path)
+        if not segments:
+            self.logger.info("ASR pass: no transcript segments produced")
+            return
+        timestamps = [rec["t_sec"] for rec in frame_records]
+        subtitle_map = map_subtitles_to_frames(
+            segments, timestamps, window_sec=settings.ASR_SUBTITLE_WINDOW_SEC
+        )
+        for rec in frame_records:
+            text = subtitle_map.get(rec["t_sec"])
+            if text:
+                rec["subtitle_text"] = text
+        subtitled = sum(1 for r in frame_records if r.get("subtitle_text"))
+        self.logger.info("ASR pass complete: %d/%d frames have subtitle text", subtitled, len(frame_records))
+
+    def _run_ocr_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Run OCR on kept frames and store text in frame_facts_json + ocr_text."""
+        self.logger.info("OCR pass: %d frames", len(frame_records))
+        for batch_start in range(0, len(frame_records), settings.OCR_BATCH_SIZE):
+            batch = frame_records[batch_start: batch_start + settings.OCR_BATCH_SIZE]
+            images = []
+            for rec in batch:
+                try:
+                    images.append(Image.open(rec["frame_path"]).convert("RGB"))
+                except Exception:
+                    images.append(Image.new("RGB", (224, 224)))
+            results = self.ocr_model.extract_text_batch(images)
+            for rec, res in zip(batch, results):
+                text = res.get("ocr_text", "") or ""
+                rec["ocr_text"] = text if text else None
+                # Also merge into frame_facts_json for Qwen context
+                if text:
+                    fj = rec.get("frame_facts_json") or {}
+                    if isinstance(fj, dict):
+                        fj["ocr_text"] = text
+                        rec["frame_facts_json"] = fj
+        ocr_found = sum(1 for r in frame_records if r.get("ocr_text"))
+        self.logger.info("OCR pass complete: %d/%d frames contain text", ocr_found, len(frame_records))
+
+    def _run_qwen_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Run Qwen2.5-VL structured extraction, enriched with subtitle+OCR context."""
+        if not self.qwen_model or not self.qwen_model.is_enabled():
+            return
+        self.logger.info("Qwen2.5-VL Phase 2 pass: %d frames", len(frame_records))
+        for rec in frame_records:
+            try:
+                img = Image.open(rec["frame_path"]).convert("RGB")
+            except Exception:
+                rec["frame_facts_json"] = {"file_error": True}
+                continue
+            subtitle = rec.get("subtitle_text")
+            ocr = rec.get("ocr_text")
+            qwen_result = self.qwen_model.extract_frame_facts(img, subtitle_text=subtitle, ocr_text=ocr)
+            # Merge Qwen result with any existing keys (e.g. ocr_text from OCR pass)
+            existing = rec.get("frame_facts_json")
+            if isinstance(existing, dict) and isinstance(qwen_result, dict):
+                merged = {**existing, **qwen_result}
+                rec["frame_facts_json"] = merged
+            else:
+                rec["frame_facts_json"] = qwen_result
+        self.logger.info("Qwen2.5-VL pass complete")
+
+    def _run_depth_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Estimate monocular depth and store percentiles in frame_facts_json."""
+        self.logger.info("Depth estimation pass: %d frames", len(frame_records))
+        for rec in frame_records:
+            try:
+                img = Image.open(rec["frame_path"]).convert("RGB")
+            except Exception:
+                continue
+            depth_result = self.depth_model.estimate(img)
+            fj = rec.get("frame_facts_json") or {}
+            if isinstance(fj, dict):
+                fj.update(depth_result)
+                rec["frame_facts_json"] = fj
+        self.logger.info("Depth pass complete")
+
+    def _run_detection_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Run object detection and store bounding boxes in frame_facts_json."""
+        self.logger.info("Detection pass: %d frames", len(frame_records))
+        for batch_start in range(0, len(frame_records), 8):
+            batch = frame_records[batch_start: batch_start + 8]
+            images = []
+            for rec in batch:
+                try:
+                    images.append(Image.open(rec["frame_path"]).convert("RGB"))
+                except Exception:
+                    images.append(Image.new("RGB", (224, 224)))
+            results = self.detection_model.detect_batch(images)
+            for rec, res in zip(batch, results):
+                fj = rec.get("frame_facts_json") or {}
+                if isinstance(fj, dict):
+                    fj.update(res)
+                    rec["frame_facts_json"] = fj
+        self.logger.info("Detection pass complete")
+
+    def _run_world_model_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Run world model on sliding windows of consecutive kept frames."""
+        clip_size = settings.WORLD_MODEL_CLIP_FRAMES
+        self.logger.info(
+            "World model pass: %d frames, clip_size=%d", len(frame_records), clip_size,
+        )
+        for batch_start in range(0, len(frame_records), clip_size):
+            batch = frame_records[batch_start: batch_start + clip_size]
+            images = []
+            for rec in batch:
+                try:
+                    images.append(Image.open(rec["frame_path"]).convert("RGB"))
+                except Exception:
+                    images.append(Image.new("RGB", (224, 224)))
+            result = self.world_model.process_clip(images)
+            # Assign world model result to the middle frame of the clip
+            mid = len(batch) // 2
+            rec = batch[mid]
+            fj = rec.get("frame_facts_json") or {}
+            if isinstance(fj, dict):
+                fj.update(result)
+                rec["frame_facts_json"] = fj
+        self.logger.info("World model pass complete")
+
+    def _run_florence_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Caption all kept frames with Florence-2 and update Qdrant payloads.
+
+        Loads each image from disk, runs caption_batch() in FLORENCE_BATCH_SIZE
+        chunks, updates frame_records in-place, then pushes captions to Qdrant
+        via set_payload in 128-frame batches.
+        """
+        self.logger.info(
+            "Florence captioning pass: %d frames (batch_size=%d)",
+            len(frame_records),
+            settings.FLORENCE_BATCH_SIZE,
+        )
+
+        caption_model_tag = self.florence_model.model_tag
+
+        # Process in FLORENCE_BATCH_SIZE chunks
+        for batch_start in range(0, len(frame_records), settings.FLORENCE_BATCH_SIZE):
+            batch = frame_records[batch_start : batch_start + settings.FLORENCE_BATCH_SIZE]
+
+            # Load PIL images from disk
+            pil_images: List = []
+            for rec in batch:
+                try:
+                    pil_images.append(Image.open(rec["frame_path"]).convert("RGB"))
+                except Exception:
+                    self.logger.warning(
+                        "Florence: could not open %s; using blank image", rec["frame_path"]
+                    )
+                    pil_images.append(Image.new("RGB", (224, 224)))
+
+            # caption_batch already handles OOM fallback internally
+            try:
+                captions_and_confs = self.florence_model.caption_batch(
+                    pil_images, batch_size=settings.FLORENCE_BATCH_SIZE
+                )
+            except Exception:
+                self.logger.warning(
+                    "Florence batch failed for frames %d–%d; using empty captions",
+                    batch_start,
+                    batch_start + len(batch) - 1,
+                    exc_info=True,
+                )
+                captions_and_confs = [("", 0.5)] * len(batch)
+
+            for rec, (caption, confidence) in zip(batch, captions_and_confs):
+                rec["caption"] = caption
+                rec["caption_confidence"] = confidence
+                rec["caption_model"] = caption_model_tag
+
+        # Push captions to Qdrant in 128-frame batches
+        self._set_caption_payload(frame_records)
+
+    def _set_caption_payload(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Write caption into Qdrant point payloads (display-only in Phase 1).
+
+        Qdrant set_payload applies a single payload dict to all listed points,
+        so each distinct caption requires its own call. We bound the outer loop
+        at 128-frame chunks for consistent log granularity and error reporting.
+        """
+        for batch_start in range(0, len(frame_records), 128):
+            batch = frame_records[batch_start : batch_start + 128]
+            failed = 0
+            for rec in batch:
+                qdrant_id = rec.get("qdrant_id")
+                if qdrant_id is None:
+                    continue
+                try:
+                    self.store.client.set_payload(
+                        collection_name=self.store.collection,
+                        payload={"caption": rec.get("caption", "")},
+                        points=[qdrant_id],
+                    )
+                except Exception:
+                    failed += 1
+            if failed:
+                self.logger.warning(
+                    "Florence: %d/%d Qdrant set_payload calls failed in batch "
+                    "starting at frame %d; DB has captions, backfill will sync Qdrant.",
+                    failed,
+                    len(batch),
+                    batch_start,
+                )
 
     def _index_tiles(
         self,

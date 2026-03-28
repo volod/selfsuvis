@@ -2,23 +2,52 @@
 """selfsuvis end-to-end demo pipeline.
 
 Runs the full perception stack on every video file in a source directory:
-  A. Frame extraction + metadata
-  B. Index frames into Qdrant vector store (or in-memory fallback)
-  C. Base-model transformation test   → {video_dir}/base_search.md
-  D. SSL DINOv3 fine-tuning           → {video_dir}/finetune_stats.md
-  E. Knowledge distillation           → {video_dir}/distill_stats.md
-  F. ONNX export + gallery build      → {video_dir}/edge_models/
-  G. Fine-tuned model search test     → {video_dir}/finetuned_search.md
-  H. Comparison + video description   → {video_dir}/comparison.md
-  I. 3D sparse map (SfM or PCA)       → {video_dir}/3d_map/
-  J. Interactive 3D viewers (one window per video)
-  K. Final statistics                 → output/final_stats.md
+
+  Core steps (always run):
+    A. Frame extraction + metadata      → {video_dir}/frames_metadata.json
+    B. Index frames (CLIP + DINOv3)     → Qdrant or in-memory store
+    C. Base-model search test           → {video_dir}/base_search.md
+    D. SSL DINOv3 fine-tuning           → {video_dir}/finetune_stats.md
+    E. Knowledge distillation           → {video_dir}/distill_stats.md
+    F. ONNX export + gallery build      → {video_dir}/edge_models/
+    G. Fine-tuned model search test     → {video_dir}/finetuned_search.md
+    H. Comparison + video description   → {video_dir}/comparison.md, description.md
+    I. 3D sparse map (SfM or PCA)       → {video_dir}/3d_map/
+    J. Interactive 3D viewers (one window per video)
+    K. Final statistics                 → output/final_stats.md
+
+  Optional multimodal steps (off by default; enable with flags below):
+    L. Florence-2 scene captioning      → {video_dir}/scene_captions.md
+    M. ASR — Whisper speech-to-text     → {video_dir}/asr_subtitles.md
+    N. OCR — text extraction per frame  → merged into multimodal_features.md
+    O. Depth estimation per frame       → merged into multimodal_features.md
+    P. Object detection per frame       → merged into multimodal_features.md
+    Q. World model video embeddings     → merged into multimodal_features.md
+
+  Edge model outputs (step F):
+    edge_models/dino_demo.onnx          Student or teacher backbone (ONNX)
+    edge_models/gallery.npz             Embedding gallery for 1-NN classification
 
 Usage:
-    python demo.py                            # default: data_test/videos/
+    python demo.py                              # default: data_test/videos/
     python demo.py --videos-dir /path/to/videos
     python demo.py --device cuda --epochs 5
-    python demo.py --no-qdrant --no-sfm      # offline / CPU-only demo
+    python demo.py --no-qdrant --no-sfm        # offline / CPU-only demo
+
+  Multimodal flags (each loads its model lazily on first frame):
+    python demo.py --asr                        # Whisper ASR from audio track
+    python demo.py --ocr                        # OCR text extraction
+    python demo.py --depth                      # Depth estimation
+    python demo.py --detection                  # Object detection
+    python demo.py --world-model                # World model video embeddings
+    python demo.py --asr --ocr --depth --detection  # all optional steps
+
+  Model selection (auto = GPU-aware, see pipeline/model_registry.py):
+    python demo.py --asr --asr-model openai/whisper-large-v3
+    python demo.py --ocr --ocr-model ucaslcl/GOT-OCR2_0
+    python demo.py --depth --depth-model depth-anything/Depth-Anything-V2-Large-hf
+    python demo.py --detection --detection-model IDEA-Research/grounding-dino-base
+    python demo.py --world-model --world-model-id facebook/vjepa2-vitg-fpc64-256
 """
 
 # ── Early arg parse — must happen BEFORE pipeline imports so env vars are set ─
@@ -50,6 +79,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                    help="Skip Qdrant; use in-memory cosine search")
     p.add_argument("--no-sfm", action="store_true",
                    help="Skip pycolmap SfM; use PCA point-cloud fallback")
+    p.add_argument("--no-caption", action="store_true",
+                   help="Skip Florence-2 scene captioning (step L)")
     p.add_argument("--distill-epochs", type=int, default=5,
                    help="Knowledge distillation epochs (student ViT-S/14, default 5)")
     p.add_argument("--no-distill", action="store_true",
@@ -66,6 +97,31 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                    ))
     p.add_argument("--no-view", action="store_true",
                    help="Skip the interactive 3D map viewer at the end of the pipeline")
+    # ── Optional multimodal step flags ────────────────────────────────────────
+    p.add_argument("--asr", action="store_true",
+                   help="Enable ASR step (Whisper speech-to-text from audio track)")
+    p.add_argument("--asr-model", default="auto",
+                   help="Whisper model ID or 'auto' (GPU-aware selection)")
+    p.add_argument("--asr-language", default="",
+                   help="Force ASR language code (e.g. 'en', 'uk'). Empty = auto-detect")
+    p.add_argument("--ocr", action="store_true",
+                   help="Enable OCR text extraction per frame")
+    p.add_argument("--ocr-model", default="auto",
+                   help="OCR model ID or 'auto'")
+    p.add_argument("--depth", action="store_true",
+                   help="Enable depth estimation per frame")
+    p.add_argument("--depth-model", default="auto",
+                   help="Depth model ID or 'auto'")
+    p.add_argument("--detection", action="store_true",
+                   help="Enable object detection per frame")
+    p.add_argument("--detection-model", default="auto",
+                   help="Detection model ID or 'auto'")
+    p.add_argument("--detection-labels", default="",
+                   help="Comma-separated labels for open-vocabulary detection")
+    p.add_argument("--world-model", action="store_true",
+                   help="Enable world model video embeddings")
+    p.add_argument("--world-model-id", default="auto",
+                   help="World model ID or 'auto'")
     return p
 
 
@@ -85,6 +141,19 @@ os.environ.setdefault("SAMPLE_FPS_MAX", str(args.fps))
 os.environ.setdefault("SFM_FPS", "1")
 os.environ.setdefault("ALLOWED_INDEX_PATHS", "")
 os.environ.setdefault("API_KEY", "")
+# ── Multimodal model env vars (set before pipeline.config import) ─────────
+os.environ.setdefault("ASR_ENABLED",  "true" if args.asr           else "false")
+os.environ.setdefault("ASR_MODEL",    args.asr_model)
+os.environ.setdefault("ASR_LANGUAGE", args.asr_language)
+os.environ.setdefault("OCR_ENABLED",  "true" if args.ocr           else "false")
+os.environ.setdefault("OCR_MODEL",    args.ocr_model)
+os.environ.setdefault("DEPTH_ENABLED","true" if args.depth         else "false")
+os.environ.setdefault("DEPTH_MODEL",  args.depth_model)
+os.environ.setdefault("DETECTION_ENABLED","true" if args.detection else "false")
+os.environ.setdefault("DETECTION_MODEL",  args.detection_model)
+os.environ.setdefault("DETECTION_LABELS", args.detection_labels)
+os.environ.setdefault("WORLD_MODEL_ENABLED","true" if args.world_model else "false")
+os.environ.setdefault("WORLD_MODEL",  args.world_model_id)
 
 # ── Standard imports ──────────────────────────────────────────────────────────
 import json
@@ -329,6 +398,42 @@ def write_search_md(
         f"",
         f"---",
         f"*Artifact produced by `demo.py`. Re-run the demo to regenerate.*",
+    ]
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    log.info("  ✓ Written %s", output_path)
+
+
+def write_scene_captions_md(
+    output_path: Path,
+    video_name: str,
+    caption_results: List[Dict[str, Any]],
+    elapsed_sec: float,
+) -> None:
+    """Write per-frame Florence-2 captions as Markdown."""
+    lines = [
+        f"# Scene Captions — {video_name}",
+        f"",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Model: Florence-2-large (MORE_DETAILED_CAPTION)",
+        f"Frames captioned: {len(caption_results)}",
+        f"Elapsed: {elapsed_sec:.1f}s",
+        f"",
+        f"## Per-Frame Captions",
+        f"",
+        f"| Frame | t (s) | Confidence | Caption |",
+        f"|-------|-------|------------|---------|",
+    ]
+    for r in caption_results:
+        fp = r.get("frame_path", "")
+        name = Path(fp).name if fp else "—"
+        t = r.get("t_sec", 0.0)
+        conf = r.get("caption_confidence", 0.0) or 0.0
+        cap = (r.get("caption") or "").replace("|", "\\|")
+        lines.append(f"| `{name}` | {t:.1f} | {conf:.3f} | {cap} |")
+    lines += [
+        f"",
+        f"---",
+        f"*Produced by `demo.py` · Florence-2-large · phase1 captioning*",
     ]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     log.info("  ✓ Written %s", output_path)
@@ -628,6 +733,7 @@ def write_final_stats_md(
         f"|------|-------------|",
         f"| `frames_metadata.json` | Extracted frame paths, timestamps, fps |",
         f"| `base_search.md` | Nearest-neighbour results with base DINOv3 |",
+        f"| `scene_captions.md` | Per-frame Florence-2 captions (confidence scores) |",
         f"| `finetune_stats.md` | SSL fine-tuning loss curve + config |",
         f"| `finetuned_search.md` | Nearest-neighbour results with fine-tuned DINOv3 |",
         f"| `comparison.md` | Base vs fine-tuned stats + video description |",
@@ -636,6 +742,8 @@ def write_final_stats_md(
         f"| `distill_stats.md` | Distillation loss curve + architecture notes |",
         f"| `edge_models/dino_demo.onnx` | ONNX export (student when distilled, teacher otherwise) |",
         f"| `edge_models/gallery.npz` | Embedding gallery for 1-NN classification |",
+        f"| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step M) |",
+        f"| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps N–Q) |",
         f"| `3d_map/sparse_map.npz` | 3D point cloud (from SfM or PCA fallback) |",
         f"| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
         f"",
@@ -649,15 +757,21 @@ def write_final_stats_md(
 # ── Run statistics printer ────────────────────────────────────────────────────
 
 _STEP_LABELS = [
-    ("A_extract",   "A  Frame extraction"),
-    ("B_index",     "B  Vector store indexing"),
+    ("A_extract",    "A  Frame extraction"),
+    ("B_index",      "B  Vector store indexing"),
+    ("L_caption",    "L  Scene captioning (Florence-2)"),
+    ("M_asr",        "M  ASR (Whisper)"),
+    ("N_ocr",        "N  OCR (text extraction)"),
+    ("O_depth",      "O  Depth estimation"),
+    ("P_detection",  "P  Object detection"),
+    ("Q_world",      "Q  World model"),
     ("C_base_search","C  Base search test"),
-    ("D_finetune",  "D  SSL fine-tuning"),
-    ("E_distill",   "E  Knowledge distillation"),
-    ("F_export",    "F  ONNX export + gallery"),
-    ("G_ft_search", "G  Fine-tuned search test"),
-    ("H_compare",   "H  Comparison + description"),
-    ("I_3dmap",     "I  3D map creation"),
+    ("D_finetune",   "D  SSL fine-tuning"),
+    ("E_distill",    "E  Knowledge distillation"),
+    ("F_export",     "F  ONNX export + gallery"),
+    ("G_ft_search",  "G  Fine-tuned search test"),
+    ("H_compare",    "H  Comparison + description"),
+    ("I_3dmap",      "I  3D map creation"),
 ]
 
 
@@ -917,6 +1031,82 @@ def step_index_to_store(
     elapsed = time.time() - t0
     log.info("  ✓ %d frames indexed into %s in %.1fs", indexed, dest, elapsed)
     return {"indexed": indexed, "elapsed_sec": elapsed}
+
+
+def step_scene_captioning(
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+    device: str,
+) -> Dict[str, Any]:
+    """Step L: Run Florence-2 detailed scene captioning on extracted frames.
+
+    Loads Florence-2-large, captions all frames in FLORENCE_BATCH_SIZE batches,
+    writes scene_captions.md.
+    """
+    out_md = video_dir / "scene_captions.md"
+
+    try:
+        from pipeline.florence_model import FlorenceModel
+    except ImportError as exc:
+        log.warning("  Florence-2 unavailable (%s) — skipping captioning", exc)
+        return {"skipped": True, "reason": str(exc), "captions": []}
+
+    log.info("Loading Florence-2-large on %s …", device)
+    t0 = time.time()
+    try:
+        florence = FlorenceModel()
+    except Exception as exc:
+        log.warning("  Florence-2 load failed (%s) — skipping captioning", exc)
+        return {"skipped": True, "reason": str(exc), "captions": []}
+
+    load_sec = time.time() - t0
+    log.info("  ✓ Florence-2-large loaded in %.1fs", load_sec)
+    log.info("  Captioning %d frames …", len(frame_list))
+
+    caption_results: List[Dict[str, Any]] = []
+    batch_size = settings.FLORENCE_BATCH_SIZE
+
+    for batch_start in range(0, len(frame_list), batch_size):
+        batch = frame_list[batch_start : batch_start + batch_size]
+        pil_images = []
+        for fp, _t in batch:
+            try:
+                pil_images.append(Image.open(fp).convert("RGB"))
+            except Exception:
+                pil_images.append(Image.new("RGB", (224, 224)))
+
+        try:
+            captions_and_confs = florence.caption_batch(pil_images)
+        except Exception as exc:
+            log.warning("  Florence batch %d failed: %s", batch_start, exc)
+            captions_and_confs = [("", 0.5)] * len(batch)
+
+        for (fp, t_sec), (cap, conf) in zip(batch, captions_and_confs):
+            caption_results.append({
+                "frame_path": fp,
+                "t_sec": t_sec,
+                "caption": cap,
+                "caption_confidence": conf,
+            })
+
+    elapsed = time.time() - t0
+    captioned = sum(1 for r in caption_results if r.get("caption"))
+    log.info("  ✓ %d/%d frames captioned in %.1fs", captioned, len(frame_list), elapsed)
+
+    write_scene_captions_md(out_md, video_name, caption_results, elapsed)
+    log.info("  Artifact: %s", out_md)
+
+    # Sample a few captions for the stats table
+    samples = [(r["caption"], r["caption_confidence"]) for r in caption_results if r.get("caption")][:3]
+
+    return {
+        "skipped": False,
+        "captions": caption_results,
+        "captioned_count": captioned,
+        "elapsed_sec": elapsed,
+        "sample_captions": samples,
+    }
 
 
 def _pick_query_frame(frame_list: List[Tuple[str, float]]) -> Tuple[str, float]:
@@ -1190,81 +1380,144 @@ def step_export_model(
 
     When student_backbone is provided the student is exported; otherwise the
     fine-tuned teacher weights are loaded from checkpoint_path and exported.
+
+    Gallery fallback order:
+      1. Use just-exported ONNX file (preferred — same weights, no PyTorch required)
+      2. Use PyTorch backbone directly
+      3. Fall back to CLIP (always available) when no DINO backbone exists
     """
     edge_dir = video_dir / "edge_models"
     edge_dir.mkdir(parents=True, exist_ok=True)
     onnx_path = str(edge_dir / "dino_demo.onnx")
     gallery_path = str(edge_dir / "gallery.npz")
 
-    result: Dict[str, Any] = {"onnx_path": onnx_path, "gallery_path": gallery_path,
-                               "onnx_mb": 0.0, "exported": False}
+    result: Dict[str, Any] = {
+        "onnx_path": onnx_path, "gallery_path": gallery_path,
+        "onnx_mb": 0.0, "exported": False, "gallery_saved": False,
+    }
 
-    if not _HAS_DINO:
-        log.warning("  DINO not available — skipping ONNX export")
-        return result
-
-    # Resolve which backbone to export
+    # ── Resolve backbone to export ─────────────────────────────────────────
+    backbone_to_export = None
     if student_backbone is not None:
         backbone_to_export = student_backbone
         model_label = f"distilled student (ViT-S/14, dim={student_dim})"
-    else:
-        # Fall back to loading the fine-tuned teacher
+    elif _HAS_DINO:
         dino = models.get("dino")
         if dino is None:
-            log.warning("  DINO not available — skipping ONNX export")
-            return result
-        try:
-            log.info("Loading fine-tuned checkpoint: %s", checkpoint_path)
-            dino.load_backbone_checkpoint(checkpoint_path)
-            log.info("  ✓ Checkpoint loaded")
-        except Exception as exc:
-            log.warning("  Could not load checkpoint (%s) — skipping ONNX export", exc)
-            return result
-        backbone_to_export = dino.model.eval()
-        model_label = "fine-tuned teacher (ViT-B/14)"
+            log.warning("  DINO not available — will use CLIP for gallery only")
+        else:
+            try:
+                log.info("Loading fine-tuned checkpoint: %s", checkpoint_path)
+                dino.load_backbone_checkpoint(checkpoint_path)
+                log.info("  ✓ Checkpoint loaded")
+                backbone_to_export = dino.model.eval()
+                model_label = "fine-tuned teacher (ViT-B/14)"
+            except Exception as exc:
+                log.warning("  Could not load checkpoint (%s) — will use base DINO for export", exc)
+                backbone_to_export = dino.model.eval()
+                model_label = "base DINOv3 teacher (ViT-B/14)"
+    else:
+        log.warning("  DINO not available — skipping ONNX export; will use CLIP for gallery")
 
-    # ONNX export
-    if not args.no_onnx:
+    # ── ONNX export ────────────────────────────────────────────────────────
+    if backbone_to_export is not None and not args.no_onnx:
         try:
             import torch
-            backbone_to_export = backbone_to_export.eval()
+            # Move to CPU for ONNX export to avoid device/trace issues
+            backbone_cpu = backbone_to_export.cpu().eval()
+            dummy = torch.zeros(1, 3, 224, 224)
             log.info("Exporting ONNX (%s) to %s …", model_label, onnx_path)
-            dummy = torch.zeros(1, 3, 224, 224).to(device)
             torch.onnx.export(
-                backbone_to_export, dummy, onnx_path,
+                backbone_cpu, dummy, onnx_path,
                 opset_version=14,
                 input_names=["pixel_values"],
                 output_names=["embedding"],
                 dynamic_axes={"pixel_values": {0: "batch"}, "embedding": {0: "batch"}},
                 do_constant_folding=True,
             )
-            onnx_mb = os.path.getsize(onnx_path) / 1e6
-            result["onnx_mb"] = onnx_mb
-            result["exported"] = True
-            log.info("  ✓ ONNX export complete: %.1f MB → %s", onnx_mb, onnx_path)
-            log.info("  Artifact: %s  (deploy on Jetson/Hailo-8/ARM)", onnx_path)
+            if os.path.exists(onnx_path):
+                onnx_mb = os.path.getsize(onnx_path) / 1e6
+                result["onnx_mb"] = onnx_mb
+                result["exported"] = True
+                log.info("  ✓ ONNX export complete: %.1f MB → %s", onnx_mb, onnx_path)
+                log.info("  Artifact: %s  (deploy on Jetson/Hailo-8/ARM)", onnx_path)
+            else:
+                log.warning("  ONNX export ran but file not found at %s", onnx_path)
+            # Restore backbone to original device for gallery building
+            backbone_to_export = backbone_to_export.to(device).eval()
         except Exception as exc:
             log.warning("  ONNX export failed (%s) — skipping", exc)
-    else:
+            if backbone_to_export is not None:
+                try:
+                    backbone_to_export = backbone_to_export.to(device).eval()
+                except Exception:
+                    pass
+    elif backbone_to_export is not None:
         log.info("  ONNX export skipped (--no-onnx)")
 
-    # Gallery build using the same backbone that was exported
+    # ── Gallery build ──────────────────────────────────────────────────────
     log.info("Building embedding gallery from %d frames …", len(frame_list))
     try:
         step = max(1, len(frame_list) // 200)
         sampled = [fp for fp, _ in frame_list[::step]]
+        # Filter to paths that actually exist
+        sampled = [fp for fp in sampled if os.path.isfile(fp)]
+        if not sampled:
+            raise ValueError("No valid frame paths for gallery build")
+
         labels_map = {"scene": sampled}
-        build_gallery(
-            labels_map=labels_map,
-            output_path=gallery_path,
-            backbone=backbone_to_export,
-        )
-        gallery_mb = os.path.getsize(gallery_path) / 1e6
-        log.info("  ✓ Gallery built: %d embeddings → %s (%.1f MB)",
-                 len(sampled), gallery_path, gallery_mb)
-        log.info("  Artifact: %s  (use with EdgeClassifier for on-device 1-NN)", gallery_path)
+
+        if result["exported"] and os.path.exists(onnx_path):
+            # Preferred: use the just-written ONNX — consistent weights, no PyTorch needed
+            build_gallery(labels_map=labels_map, output_path=gallery_path,
+                          onnx_path=onnx_path)
+            log.info("  Gallery built using ONNX model")
+        elif backbone_to_export is not None:
+            build_gallery(labels_map=labels_map, output_path=gallery_path,
+                          backbone=backbone_to_export)
+            log.info("  Gallery built using PyTorch backbone")
+        else:
+            # Fallback: use CLIP (always available)
+            clip_model: OpenCLIPEmbedder = models["clip"]
+            import torch
+            import torch.nn.functional as F
+
+            _device_clip = next(clip_model.model.parameters()).device
+            transform_clip = __import__("torchvision").transforms.Compose([
+                __import__("torchvision").transforms.Resize(
+                    224, interpolation=__import__("torchvision").transforms.InterpolationMode.BICUBIC),
+                __import__("torchvision").transforms.CenterCrop(224),
+                __import__("torchvision").transforms.ToTensor(),
+                __import__("torchvision").transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+
+            all_embeds = []
+            all_labels_g = []
+            for fp in sampled:
+                img = Image.open(fp).convert("RGB")
+                emb = clip_model.encode_images([img])[0]
+                emb = emb / (np.linalg.norm(emb) + 1e-9)
+                all_embeds.append(emb.astype(np.float32))
+                all_labels_g.append("scene")
+            emb_arr = np.stack(all_embeds, axis=0)
+            np.savez(gallery_path,
+                     embeddings=emb_arr,
+                     labels=np.array(all_labels_g, dtype=object),
+                     label_names=np.array(["scene"], dtype=object))
+            log.info("  Gallery built using CLIP fallback (no DINO available)")
+
+        if os.path.exists(gallery_path):
+            gallery_mb = os.path.getsize(gallery_path) / 1e6
+            result["gallery_saved"] = True
+            log.info("  ✓ Gallery saved: %d embeddings → %s (%.1f MB)",
+                     len(sampled), gallery_path, gallery_mb)
+            log.info("  Artifact: %s  (use with EdgeClassifier for on-device 1-NN)", gallery_path)
+        else:
+            log.warning("  Gallery file not found after build: %s", gallery_path)
+
     except Exception as exc:
-        log.warning("  Gallery build failed (%s)", exc)
+        log.warning("  Gallery build failed (%s)", exc, exc_info=True)
 
     return result
 
@@ -1294,6 +1547,358 @@ def step_finetuned_model_search_test(
                     query_frame, results, query_t_sec)
     log.info("  Artifact: %s", out_md)
     return {"results": results, "infer_ms": ft_infer_ms}
+
+
+def step_asr_transcription(
+    video_path: Path,
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+) -> Dict[str, Any]:
+    """Step M: extract audio and run Whisper ASR to generate per-frame subtitles."""
+    out_md = video_dir / "asr_subtitles.md"
+    result: Dict[str, Any] = {"skipped": True, "subtitle_map": {}, "segments": []}
+
+    try:
+        from pipeline.audio_extractor import extract_audio, map_subtitles_to_frames
+        from pipeline.asr_model import ASRModel
+    except ImportError as exc:
+        log.warning("  ASR unavailable (%s) — skipping", exc)
+        return result
+
+    asr = ASRModel()
+    if not asr.is_enabled():
+        log.info("  ASR disabled (ASR_ENABLED=false) — skipping")
+        return result
+
+    audio_dir = video_dir / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    log.info("Extracting audio from %s …", video_path.name)
+    wav_path = extract_audio(str(video_path), str(audio_dir))
+    if not wav_path:
+        log.warning("  No audio stream found in %s — ASR skipped", video_path.name)
+        return result
+
+    log.info("Transcribing audio with %s …", asr.model_id)
+    t0 = time.time()
+    segments = asr.transcribe(wav_path)
+    elapsed = time.time() - t0
+
+    if not segments:
+        log.warning("  ASR returned no segments for %s", video_path.name)
+        return result
+
+    frame_timestamps = [t for _, t in frame_list]
+    subtitle_map = map_subtitles_to_frames(segments, frame_timestamps,
+                                           window_sec=settings.ASR_SUBTITLE_WINDOW_SEC)
+    covered = sum(1 for t in frame_timestamps if t in subtitle_map)
+    log.info("  ✓ ASR: %d segments → %d/%d frames have subtitles (%.1fs, model=%s)",
+             len(segments), covered, len(frame_list), elapsed, asr.model_id)
+
+    # Write subtitle markdown
+    lines = [
+        f"# ASR Subtitles — {video_name}",
+        f"",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Model: `{asr.model_id}`",
+        f"Segments: {len(segments)}  |  Frames with subtitles: {covered}/{len(frame_list)}",
+        f"Elapsed: {elapsed:.1f}s",
+        f"",
+        f"## Subtitle Segments",
+        f"",
+        f"| Start (s) | End (s) | Text |",
+        f"|-----------|---------|------|",
+    ]
+    for seg in segments:
+        ts = seg.get("timestamp", (0.0, 0.0)) or (0.0, 0.0)
+        start, end = ts
+        text = seg.get("text", "").strip().replace("|", "\\|")
+        lines.append(f"| {start:.2f} | {end:.2f} | {text} |")
+    lines += ["", "---", "*Produced by `demo.py` · ASR step M*"]
+    out_md.write_text("\n".join(lines), encoding="utf-8")
+    log.info("  Artifact: %s", out_md)
+
+    result.update({"skipped": False, "subtitle_map": subtitle_map,
+                   "segments": segments, "elapsed_sec": elapsed,
+                   "covered_frames": covered})
+    return result
+
+
+def step_ocr_extraction(
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+) -> Dict[str, Any]:
+    """Step N: extract visible text from each frame using OCR."""
+    result: Dict[str, Any] = {"skipped": True, "ocr_results": []}
+
+    try:
+        from pipeline.ocr_model import OCRModel
+    except ImportError as exc:
+        log.warning("  OCR unavailable (%s) — skipping", exc)
+        return result
+
+    ocr = OCRModel()
+    if not ocr.is_enabled():
+        log.info("  OCR disabled (OCR_ENABLED=false) — skipping")
+        return result
+
+    log.info("Running OCR on %d frames (model=%s) …", len(frame_list), ocr.model_id)
+    t0 = time.time()
+    ocr_results: List[Dict[str, Any]] = []
+    batch_size = settings.OCR_BATCH_SIZE
+
+    for batch_start in range(0, len(frame_list), batch_size):
+        batch = frame_list[batch_start : batch_start + batch_size]
+        imgs = []
+        for fp, _t in batch:
+            try:
+                imgs.append(Image.open(fp).convert("RGB"))
+            except Exception:
+                imgs.append(Image.new("RGB", (224, 224)))
+        try:
+            batch_results = ocr.extract_text_batch(imgs)
+        except Exception as exc:
+            log.warning("  OCR batch %d failed: %s", batch_start, exc)
+            batch_results = [{"ocr_text": "", "ocr_error": True}] * len(batch)
+        for (fp, t_sec), r in zip(batch, batch_results):
+            ocr_results.append({"frame_path": fp, "t_sec": t_sec, **r})
+
+    elapsed = time.time() - t0
+    non_empty = sum(1 for r in ocr_results if r.get("ocr_text"))
+    log.info("  ✓ OCR: %d/%d frames have text in %.1fs", non_empty, len(frame_list), elapsed)
+    result.update({"skipped": False, "ocr_results": ocr_results,
+                   "non_empty": non_empty, "elapsed_sec": elapsed})
+    return result
+
+
+def step_depth_estimation(
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+) -> Dict[str, Any]:
+    """Step O: estimate depth for each frame (5-bucket percentile summary)."""
+    result: Dict[str, Any] = {"skipped": True, "depth_results": []}
+
+    try:
+        from pipeline.depth_model import DepthModel
+    except ImportError as exc:
+        log.warning("  Depth model unavailable (%s) — skipping", exc)
+        return result
+
+    depth_model = DepthModel()
+    if not depth_model.is_enabled():
+        log.info("  Depth disabled (DEPTH_ENABLED=false) — skipping")
+        return result
+
+    log.info("Running depth estimation on %d frames (model=%s) …",
+             len(frame_list), depth_model.model_id)
+    t0 = time.time()
+    depth_results: List[Dict[str, Any]] = []
+    batch_size = 4
+
+    for batch_start in range(0, len(frame_list), batch_size):
+        batch = frame_list[batch_start : batch_start + batch_size]
+        imgs = []
+        for fp, _t in batch:
+            try:
+                imgs.append(Image.open(fp).convert("RGB"))
+            except Exception:
+                imgs.append(Image.new("RGB", (224, 224)))
+        try:
+            batch_out = depth_model.estimate_batch(imgs)
+        except Exception as exc:
+            log.warning("  Depth batch %d failed: %s", batch_start, exc)
+            batch_out = [{"depth_error": True}] * len(batch)
+        for (fp, t_sec), r in zip(batch, batch_out):
+            depth_results.append({"frame_path": fp, "t_sec": t_sec, **r})
+
+    elapsed = time.time() - t0
+    ok = sum(1 for r in depth_results if not r.get("depth_error"))
+    log.info("  ✓ Depth: %d/%d frames estimated in %.1fs", ok, len(frame_list), elapsed)
+    result.update({"skipped": False, "depth_results": depth_results,
+                   "ok_count": ok, "elapsed_sec": elapsed})
+    return result
+
+
+def step_object_detection(
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+) -> Dict[str, Any]:
+    """Step P: run object detection on each frame."""
+    result: Dict[str, Any] = {"skipped": True, "detection_results": []}
+
+    try:
+        from pipeline.detection_model import DetectionModel
+    except ImportError as exc:
+        log.warning("  Detection model unavailable (%s) — skipping", exc)
+        return result
+
+    det_model = DetectionModel()
+    if not det_model.is_enabled():
+        log.info("  Detection disabled (DETECTION_ENABLED=false) — skipping")
+        return result
+
+    log.info("Running object detection on %d frames (model=%s) …",
+             len(frame_list), det_model.model_id)
+    t0 = time.time()
+    det_results: List[Dict[str, Any]] = []
+    batch_size = 4
+
+    for batch_start in range(0, len(frame_list), batch_size):
+        batch = frame_list[batch_start : batch_start + batch_size]
+        imgs = []
+        for fp, _t in batch:
+            try:
+                imgs.append(Image.open(fp).convert("RGB"))
+            except Exception:
+                imgs.append(Image.new("RGB", (224, 224)))
+        try:
+            batch_out = det_model.detect_batch(imgs)
+        except Exception as exc:
+            log.warning("  Detection batch %d failed: %s", batch_start, exc)
+            batch_out = [{"detection_error": True}] * len(batch)
+        for (fp, t_sec), r in zip(batch, batch_out):
+            det_results.append({"frame_path": fp, "t_sec": t_sec, **r})
+
+    elapsed = time.time() - t0
+    total_objs = sum(len(r.get("detections", [])) for r in det_results)
+    ok = sum(1 for r in det_results if not r.get("detection_error"))
+    log.info("  ✓ Detection: %d objects across %d/%d frames in %.1fs",
+             total_objs, ok, len(frame_list), elapsed)
+    result.update({"skipped": False, "detection_results": det_results,
+                   "total_objects": total_objs, "ok_count": ok, "elapsed_sec": elapsed})
+    return result
+
+
+def step_world_model_pass(
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+) -> Dict[str, Any]:
+    """Step Q: compute world model video embeddings for temporal clips."""
+    result: Dict[str, Any] = {"skipped": True, "world_results": []}
+
+    try:
+        from pipeline.world_model import WorldModel
+    except ImportError as exc:
+        log.warning("  World model unavailable (%s) — skipping", exc)
+        return result
+
+    wm = WorldModel()
+    if not wm.is_enabled():
+        log.info("  World model disabled (WORLD_MODEL_ENABLED=false) — skipping")
+        return result
+
+    clip_frames = settings.WORLD_MODEL_CLIP_FRAMES
+    log.info("Running world model on %d frames in clips of %d (model=%s) …",
+             len(frame_list), clip_frames, wm.model_id)
+    t0 = time.time()
+    world_results: List[Dict[str, Any]] = []
+
+    for clip_start in range(0, len(frame_list), clip_frames):
+        clip = frame_list[clip_start : clip_start + clip_frames]
+        imgs = []
+        for fp, _t in clip:
+            try:
+                imgs.append(Image.open(fp).convert("RGB"))
+            except Exception:
+                imgs.append(Image.new("RGB", (224, 224)))
+        try:
+            clip_out = wm.process_clip(imgs)
+        except Exception as exc:
+            log.warning("  World model clip %d failed: %s", clip_start, exc)
+            clip_out = {"world_model_error": True}
+        # Assign result to middle frame of the clip
+        mid = clip_start + len(clip) // 2
+        fp, t_sec = frame_list[mid]
+        world_results.append({"frame_path": fp, "t_sec": t_sec, **clip_out})
+
+    elapsed = time.time() - t0
+    ok = sum(1 for r in world_results if not r.get("world_model_error"))
+    log.info("  ✓ World model: %d clips processed in %.1fs", ok, elapsed)
+    result.update({"skipped": False, "world_results": world_results,
+                   "ok_count": ok, "elapsed_sec": elapsed})
+    return result
+
+
+def write_multimodal_md(
+    output_path: Path,
+    video_name: str,
+    asr_result: Dict[str, Any],
+    ocr_result: Dict[str, Any],
+    depth_result: Dict[str, Any],
+    det_result: Dict[str, Any],
+    world_result: Dict[str, Any],
+) -> None:
+    """Write combined multimodal features report (OCR, depth, detection, world model)."""
+    lines = [
+        f"# Multimodal Features — {video_name}",
+        f"",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"",
+        f"## Summary",
+        f"",
+        f"| Step | Status | Detail |",
+        f"|------|--------|--------|",
+        f"| ASR (Whisper) | {'✓' if not asr_result.get('skipped') else '—'} | "
+        f"{asr_result.get('covered_frames', 0)} frames with subtitles |",
+        f"| OCR | {'✓' if not ocr_result.get('skipped') else '—'} | "
+        f"{ocr_result.get('non_empty', 0)} frames with text |",
+        f"| Depth | {'✓' if not depth_result.get('skipped') else '—'} | "
+        f"{depth_result.get('ok_count', 0)} frames estimated |",
+        f"| Detection | {'✓' if not det_result.get('skipped') else '—'} | "
+        f"{det_result.get('total_objects', 0)} objects detected |",
+        f"| World Model | {'✓' if not world_result.get('skipped') else '—'} | "
+        f"{world_result.get('ok_count', 0)} clips processed |",
+        f"",
+    ]
+
+    # OCR sample
+    if not ocr_result.get("skipped"):
+        lines += ["## OCR — Sample Text Extractions", ""]
+        ocr_rows = [r for r in ocr_result.get("ocr_results", []) if r.get("ocr_text")][:10]
+        if ocr_rows:
+            lines += ["| t (s) | Extracted Text |", "|-------|----------------|"]
+            for r in ocr_rows:
+                txt = (r.get("ocr_text") or "").replace("|", "\\|")[:120]
+                lines.append(f"| {r['t_sec']:.1f} | {txt} |")
+        lines.append("")
+
+    # Detection sample
+    if not det_result.get("skipped"):
+        lines += ["## Detection — Objects Found", ""]
+        det_rows = [r for r in det_result.get("detection_results", [])
+                    if r.get("detections")][:10]
+        if det_rows:
+            lines += ["| t (s) | Detections |", "|-------|------------|"]
+            for r in det_rows:
+                objs = ", ".join(
+                    f"{d['label']} ({d['confidence']:.2f})"
+                    for d in r["detections"][:5]
+                )
+                lines.append(f"| {r['t_sec']:.1f} | {objs} |")
+        lines.append("")
+
+    # Depth sample
+    if not depth_result.get("skipped"):
+        lines += ["## Depth — Percentile Summary (sample)", ""]
+        depth_rows = [r for r in depth_result.get("depth_results", [])
+                      if r.get("depth")][:5]
+        if depth_rows:
+            lines += ["| t (s) | p10 | p25 | p50 | p75 | p90 |",
+                      "|-------|-----|-----|-----|-----|-----|"]
+            for r in depth_rows:
+                p = r["depth"].get("percentiles", [0]*5)
+                lines.append(f"| {r['t_sec']:.1f} | "
+                              f"{p[0]:.3f} | {p[1]:.3f} | {p[2]:.3f} | {p[3]:.3f} | {p[4]:.3f} |")
+        lines.append("")
+
+    lines += ["---", "*Produced by `demo.py` · multimodal steps M–Q*"]
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    log.info("  ✓ Written %s", output_path)
 
 
 def step_compare_and_describe(
@@ -1396,7 +2001,7 @@ def step_create_3d_map(
 
 # ── Per-video orchestrator ─────────────────────────────────────────────────────
 
-_TOTAL_STEPS = 9
+_TOTAL_STEPS = 15
 
 
 def run_video_pipeline(
@@ -1443,8 +2048,87 @@ def run_video_pipeline(
     stats["index_sec"]       = b["elapsed_sec"]
     stats["indexed_frames"]  = b.get("indexed", 0)
 
+    # ── L: Scene captioning ────────────────────────────────────────────────────
+    caption_results: List[Dict[str, Any]] = []
+    if not args.no_caption:
+        _step(3, _TOTAL_STEPS, "Florence-2 scene captioning → scene_captions.md")
+        with _Timer(T, "L_caption"):
+            l_cap = step_scene_captioning(frame_list, video_name, video_dir, device)
+        caption_results = l_cap.get("captions", [])
+        if not l_cap.get("skipped"):
+            stats["captioned_frames"] = l_cap.get("captioned_count", 0)
+            stats["caption_elapsed_sec"] = l_cap.get("elapsed_sec", 0.0)
+    else:
+        T["L_caption"] = 0.0
+        _step(3, _TOTAL_STEPS, "Scene captioning (skipped — --no-caption)")
+        log.info("  Captioning skipped (--no-caption)")
+
+    # ── M: ASR ────────────────────────────────────────────────────────────────
+    asr_result: Dict[str, Any] = {"skipped": True, "subtitle_map": {}}
+    if args.asr:
+        _step(4, _TOTAL_STEPS, "ASR transcription → asr_subtitles.md")
+        with _Timer(T, "M_asr"):
+            asr_result = step_asr_transcription(video_path, frame_list, video_name, video_dir)
+        if not asr_result.get("skipped"):
+            stats["asr_segments"]      = len(asr_result.get("segments", []))
+            stats["asr_covered_frames"] = asr_result.get("covered_frames", 0)
+    else:
+        T["M_asr"] = 0.0
+
+    # ── N: OCR ────────────────────────────────────────────────────────────────
+    ocr_result: Dict[str, Any] = {"skipped": True, "ocr_results": []}
+    if args.ocr:
+        _step(5, _TOTAL_STEPS, "OCR text extraction")
+        with _Timer(T, "N_ocr"):
+            ocr_result = step_ocr_extraction(frame_list, video_name, video_dir)
+        if not ocr_result.get("skipped"):
+            stats["ocr_frames_with_text"] = ocr_result.get("non_empty", 0)
+    else:
+        T["N_ocr"] = 0.0
+
+    # ── O: Depth ──────────────────────────────────────────────────────────────
+    depth_result: Dict[str, Any] = {"skipped": True, "depth_results": []}
+    if args.depth:
+        _step(6, _TOTAL_STEPS, "Depth estimation")
+        with _Timer(T, "O_depth"):
+            depth_result = step_depth_estimation(frame_list, video_name, video_dir)
+        if not depth_result.get("skipped"):
+            stats["depth_frames_ok"] = depth_result.get("ok_count", 0)
+    else:
+        T["O_depth"] = 0.0
+
+    # ── P: Detection ──────────────────────────────────────────────────────────
+    det_result: Dict[str, Any] = {"skipped": True, "detection_results": []}
+    if args.detection:
+        _step(7, _TOTAL_STEPS, "Object detection")
+        with _Timer(T, "P_detection"):
+            det_result = step_object_detection(frame_list, video_name, video_dir)
+        if not det_result.get("skipped"):
+            stats["det_total_objects"] = det_result.get("total_objects", 0)
+    else:
+        T["P_detection"] = 0.0
+
+    # ── Q: World model ────────────────────────────────────────────────────────
+    world_result: Dict[str, Any] = {"skipped": True, "world_results": []}
+    if args.world_model:
+        _step(8, _TOTAL_STEPS, "World model video embeddings")
+        with _Timer(T, "Q_world"):
+            world_result = step_world_model_pass(frame_list, video_name, video_dir)
+        if not world_result.get("skipped"):
+            stats["world_clips_ok"] = world_result.get("ok_count", 0)
+    else:
+        T["Q_world"] = 0.0
+
+    # Write combined multimodal report if any optional step ran
+    _any_multimodal = (args.asr or args.ocr or args.depth or args.detection or args.world_model)
+    if _any_multimodal:
+        _mm_md = video_dir / "multimodal_features.md"
+        write_multimodal_md(_mm_md, video_name, asr_result, ocr_result,
+                            depth_result, det_result, world_result)
+        log.info("  Artifact: %s", _mm_md)
+
     # ── C: Base model search test ──────────────────────────────────────────────
-    _step(3, _TOTAL_STEPS, "Base model transformation test → base_search.md")
+    _step(9, _TOTAL_STEPS, "Base model transformation test → base_search.md")
     with _Timer(T, "C_base_search"):
         c = step_base_model_search_test(
             frame_list, store, is_qdrant, models, video_id, video_name, video_dir,
@@ -1455,7 +2139,7 @@ def run_video_pipeline(
     stats["base_top_score"] = base_results[0]["score"] if base_results else 0.0
 
     # ── D: SSL fine-tuning ─────────────────────────────────────────────────────
-    _step(4, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
+    _step(10, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
     with _Timer(T, "D_finetune"):
         d = step_ssl_finetune(video_id, video_name, video_dir, frame_list, device)
     stats["best_loss"]    = d["best_loss"]
@@ -1468,7 +2152,7 @@ def run_video_pipeline(
     student_backbone = None
     student_dim = 768
     if not args.no_distill:
-        _step(5, _TOTAL_STEPS, "Knowledge distillation: ViT-B/14 teacher → ViT-S/14 student")
+        _step(11, _TOTAL_STEPS, "Knowledge distillation: ViT-B/14 teacher → ViT-S/14 student")
         with _Timer(T, "E_distill"):
             e_distill = step_distill(checkpoint_path, frame_list, video_name, video_dir, device)
         if not e_distill["skipped"]:
@@ -1480,11 +2164,11 @@ def run_video_pipeline(
             stats["teacher_dim"]     = e_distill["teacher_dim"]
     else:
         T["E_distill"] = 0.0
-        _step(5, _TOTAL_STEPS, "Knowledge distillation (skipped — --no-distill)")
+        _step(11, _TOTAL_STEPS, "Knowledge distillation (skipped — --no-distill)")
         log.info("  Distillation skipped; exporting teacher to ONNX instead")
 
     # ── F: ONNX export + gallery ──────────────────────────────────────────────
-    _step(6, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
+    _step(12, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
     with _Timer(T, "F_export"):
         e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
                               student_backbone=student_backbone, student_dim=student_dim)
@@ -1493,7 +2177,7 @@ def run_video_pipeline(
     stats["onnx_exported"] = e.get("exported", False)
 
     # ── G: Fine-tuned model search test ───────────────────────────────────────
-    _step(7, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
+    _step(13, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
     with _Timer(T, "G_ft_search"):
         f = step_finetuned_model_search_test(
             frame_list, store, is_qdrant, models,
@@ -1503,7 +2187,7 @@ def run_video_pipeline(
     stats["ft_top_score"] = ft_results[0]["score"] if ft_results else 0.0
 
     # ── H: Comparison + video description ────────────────────────────────────
-    _step(8, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
+    _step(14, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
     with _Timer(T, "H_compare"):
         g = step_compare_and_describe(
             frame_list, store, is_qdrant, base_results, ft_results,
@@ -1516,7 +2200,7 @@ def run_video_pipeline(
         stats["top_description"] = g.get("top_description", "")
 
     # ── I: 3D map ─────────────────────────────────────────────────────────────
-    _step(9, _TOTAL_STEPS, "3D map creation → 3d_map/sparse_map.npz + sparse_map.ply")
+    _step(15, _TOTAL_STEPS, "3D map creation → 3d_map/sparse_map.npz + sparse_map.ply")
     with _Timer(T, "I_3dmap"):
         h = step_create_3d_map(
             video_path, video_id, video_dir, frame_list, models,
@@ -1563,6 +2247,12 @@ def main() -> None:
     log.info("Epochs           : %d", args.epochs)
     log.info("Qdrant           : %s", "disabled" if args.no_qdrant else "auto-detect")
     log.info("SfM              : %s", "disabled" if args.no_sfm else "auto-detect (pycolmap)")
+    if any([args.asr, args.ocr, args.depth, args.detection, args.world_model]):
+        log.info("Multimodal steps   : %s",
+                 " ".join(s for s, e in [("ASR", args.asr), ("OCR", args.ocr),
+                                          ("Depth", args.depth),
+                                          ("Detection", args.detection),
+                                          ("WorldModel", args.world_model)] if e))
 
     videos_dir = Path(args.videos_dir)
     if not videos_dir.is_dir():
@@ -1635,7 +2325,7 @@ def main() -> None:
     log.info("  Artifacts:")
     for v in per_video_stats:
         name = v.get("name", "?")
-        log.info("    %s/  →  base_search.md  finetune_stats.md  distill_stats.md"
+        log.info("    %s/  →  base_search.md  scene_captions.md  finetune_stats.md  distill_stats.md"
                  "  finetuned_search.md  comparison.md  3d_map/", name)
     log.info("")
     log.info("  Final statistics: %s", stats_path)

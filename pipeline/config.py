@@ -125,6 +125,10 @@ class Settings:
 
     # Pipeline — Florence-2 captioning
     FLORENCE_BATCH_SIZE = _env_int("FLORENCE_BATCH_SIZE", 16)
+    # Prompt version tag stored in caption_model alongside model name and precision.
+    # Bump this (e.g. "v2") whenever the Florence task prompt or post-processing
+    # changes, so existing captions can be distinguished from newly generated ones.
+    FLORENCE_PROMPT_VERSION = _env("FLORENCE_PROMPT_VERSION", "v1")
 
     # Pipeline — GPS extraction
     GPS_SIDECAR_PATH = _env("GPS_SIDECAR_PATH", "")
@@ -146,6 +150,76 @@ class Settings:
     NERFSTUDIO_API_URL = _env("NERFSTUDIO_API_URL", "http://nerfstudio:8000")
     # ICP fusion mapper service (docker-compose.override.yml, port 8100 on host / 8000 in container)
     MAPPER_API_URL = _env("MAPPER_API_URL", "http://mapper:8000")
+
+    # Phase 2 — Qwen2.5-VL-7B structured scene extraction (HTTP sidecar)
+    # Set QWEN_API_URL to enable: http://qwen:8000/v1 (vLLM) or http://qwen:11434/v1 (ollama)
+    # Leave empty to disable Phase 2 Qwen extraction.
+    QWEN_API_URL = _env("QWEN_API_URL", "")
+    QWEN_MODEL = _env("QWEN_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
+    QWEN_BACKEND = _env("QWEN_BACKEND", "vllm")  # "vllm" or "ollama"
+    QWEN_TIMEOUT_SEC = _env_int("QWEN_TIMEOUT_SEC", 30)
+    QWEN_CLIP_THRESHOLD = _env_float("QWEN_CLIP_THRESHOLD", 0.25)
+
+    # ── ASR (Whisper) — audio-to-subtitle transcription ──────────────────────
+    # Extracted subtitles are stored in frames.subtitle_text and injected into
+    # the Qwen2.5-VL prompt as audio context for richer scene description.
+    #
+    # ASR_MODEL: "auto" = GPU-aware auto-selection (see pipeline/model_registry.py)
+    #   or any HuggingFace ASR model ID, e.g. "openai/whisper-large-v3-turbo"
+    # ASR_LANGUAGE: ISO-639-1 code (e.g. "en", "fr") or "" for auto-detect.
+    ASR_ENABLED = _env("ASR_ENABLED", "false").lower() == "true"
+    ASR_MODEL = _env("ASR_MODEL", "auto")
+    ASR_LANGUAGE = _env("ASR_LANGUAGE", "")
+    ASR_BATCH_SIZE = _env_int("ASR_BATCH_SIZE", 8)
+    ASR_CHUNK_LENGTH_SEC = _env_int("ASR_CHUNK_LENGTH_SEC", 30)
+    # Subtitle window: ±seconds around a frame timestamp when matching segments.
+    ASR_SUBTITLE_WINDOW_SEC = _env_float("ASR_SUBTITLE_WINDOW_SEC", 3.0)
+    # Directory for extracted WAV files (temporary audio for Whisper input).
+    # Defaults to a subdirectory of DATA_DIR to co-locate with video data.
+    ASR_AUDIO_DIR = _env("ASR_AUDIO_DIR", os.path.join(DATA_DIR, "audio"))
+
+    # ── OCR — visible text extraction from frame images ───────────────────────
+    # OCR results are stored in frame_facts_json["ocr_text"] and the dedicated
+    # frames.ocr_text column, and injected into the Qwen prompt as visual context.
+    #
+    # OCR_MODEL: "auto" or HuggingFace model ID, e.g. "deepseek-ai/DeepSeek-OCR-2"
+    # OCR_API_URL: if non-empty, use this vLLM/ollama endpoint instead of local model.
+    OCR_ENABLED = _env("OCR_ENABLED", "false").lower() == "true"
+    OCR_MODEL = _env("OCR_MODEL", "auto")
+    OCR_API_URL = _env("OCR_API_URL", "")
+    OCR_BATCH_SIZE = _env_int("OCR_BATCH_SIZE", 4)
+    OCR_TIMEOUT_SEC = _env_int("OCR_TIMEOUT_SEC", 30)
+    # Minimum caption_confidence below which OCR is run (high-confidence frames
+    # usually have been captioned well enough; set to 1.0 to OCR all frames).
+    OCR_MIN_CAPTION_CONFIDENCE = _env_float("OCR_MIN_CAPTION_CONFIDENCE", 0.0)
+
+    # ── Depth estimation ──────────────────────────────────────────────────────
+    # Stores 5-bucket depth percentiles in frame_facts_json["depth"].
+    # DEPTH_MODEL: "auto" or HuggingFace model ID.
+    DEPTH_ENABLED = _env("DEPTH_ENABLED", "false").lower() == "true"
+    DEPTH_MODEL = _env("DEPTH_MODEL", "auto")
+
+    # ── Object detection ──────────────────────────────────────────────────────
+    # Stores normalised bounding boxes in frame_facts_json["detections"].
+    # DETECTION_MODEL: "auto" or HuggingFace model ID.
+    # DETECTION_LABELS: comma-separated candidate labels for open-vocabulary
+    #   models (Grounding DINO, OmDet-Turbo). Empty = use model's built-in COCO.
+    DETECTION_ENABLED = _env("DETECTION_ENABLED", "false").lower() == "true"
+    DETECTION_MODEL = _env("DETECTION_MODEL", "auto")
+    DETECTION_CONFIDENCE = _env_float("DETECTION_CONFIDENCE", 0.5)
+    DETECTION_LABELS = _env("DETECTION_LABELS", "")
+
+    # ── World model ───────────────────────────────────────────────────────────
+    # Produces video clip embeddings for temporal scene understanding.
+    # Target: arxiv.org/abs/2603.19312v1 — set WORLD_MODEL to its HF ID when released.
+    # WORLD_MODEL: "auto" or HuggingFace model ID.
+    # WORLD_MODEL_CLIP_FRAMES: number of frames aggregated per clip embedding.
+    # WORLD_MODEL_STORE_EMBED: store raw embedding vector in frame_facts_json
+    #   (increases DB size significantly; default false — only stores metadata).
+    WORLD_MODEL_ENABLED = _env("WORLD_MODEL_ENABLED", "false").lower() == "true"
+    WORLD_MODEL = _env("WORLD_MODEL", "auto")
+    WORLD_MODEL_CLIP_FRAMES = _env_int("WORLD_MODEL_CLIP_FRAMES", 8)
+    WORLD_MODEL_STORE_EMBED = _env("WORLD_MODEL_STORE_EMBED", "false").lower() == "true"
 
     # CVAT annotation service (http://localhost:8091 when running via make cvat-up)
     CVAT_URL = _env("CVAT_URL", "http://localhost:8091")

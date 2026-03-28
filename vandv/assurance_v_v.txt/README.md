@@ -1,1 +1,0 @@
-# assurance_v_v-txt

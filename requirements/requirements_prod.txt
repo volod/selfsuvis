@@ -21,3 +21,13 @@ tqdm==4.66.2
 faiss-cpu==1.8.0
 requests==2.31.0
 transformers>=4.40.0
+openai>=1.0
+httpx>=0.27.0
+# ASR — Whisper and faster alternatives
+faster-whisper>=1.0.0
+sentencepiece>=0.1.99
+# Model registry resource detection
+psutil>=5.9.0
+# GOT-OCR2_0 support
+tiktoken>=0.6.0
+verovio>=3.12.0

@@ -51,10 +51,20 @@ search path. Validate on real customer footage. Then decide if Qwen upgrade is w
 
 - Must run on existing Docker Compose stack (GPU worker container)
 - No new cloud API dependencies for core inference (on-device only)
-- Florence-2: ~6-8GB VRAM; peak concurrent with OpenCLIP+DINOv3 is ~12-14GB total.
-  Sequential model unloading (see Phase 1 step 2) keeps peak within 16GB GPU budget.
-  Minimum recommended GPU: 16GB for Phase 1; 24GB for Phase 2 (Qwen).
-- Qwen2.5-VL-7B: ~18GB VRAM, runs sequentially (not concurrent with other models or nerfstudio)
+- Florence-2: ~2.7GB VRAM (profiled on RTX 4060 Ti FP16). Runs in-process in the worker
+  alongside CLIP+DINOv3 (total 3.4GB). No sequential unloading needed.
+  **Minimum GPU: 8GB for Phase 1.**
+- Qwen2.5-VL-7B: served as a **separate Docker sidecar** (ollama or vLLM) — NOT loaded
+  in-process in the worker. Worker calls it via HTTP (OpenAI-compatible API). The sidecar
+  manages its own VRAM pool and can trade CPU RAM for GPU VRAM automatically:
+  - **ollama (recommended):** GGUF Q4_K_M quantization ~5.4GB VRAM. Fits on 16GB GPU
+    alongside Florence with 8GB to spare. Automatically offloads layers to CPU RAM when
+    GPU is full (e.g., nerfstudio running concurrently). Minimum system RAM: 16GB.
+  - **vLLM (production alternative):** FP16 serving with `--cpu-offload-gb` to spill
+    KV cache to CPU RAM. Higher throughput than ollama but more complex setup.
+    Use `--gpu-memory-utilization 0.5` on 16GB GPU to reserve 8GB for Florence.
+  - **Minimum hardware for Phase 2:** 8GB+ GPU + 16GB+ system RAM (ollama Q4_K_M).
+    ~~24GB GPU no longer required.~~
 - Active learning uses `caption_confidence` — must remain non-NULL float after wiring
 
 ---
@@ -66,8 +76,9 @@ search path. Validate on real customer footage. Then decide if Qwen upgrade is w
    Qwen based on evidence, not upfront reasoning.**
 2. Query precision requires object-level structured output: counts, types, spatial
    arrangement. Free-text prose approximates these; structured JSON captures them exactly.
-3. Qwen2.5-VL-7B (~18GB VRAM) fits on the existing GPU. Run only on vehicle-likely
-   frames (pre-screened by existing OpenCLIPTagger) — not the full corpus.
+3. Qwen2.5-VL-7B served via ollama/vLLM sidecar (~5.4GB VRAM via Q4_K_M). Runs only
+   on vehicle-likely frames (pre-screened by existing OpenCLIPTagger). Worker calls it
+   via HTTP; no in-process PyTorch loading; no advisory lock needed for VRAM isolation.
 4. Caption richness improves text search recall; does not directly improve vector
    similarity (embeddings already captured by OpenCLIP/DINOv3).
 
@@ -109,11 +120,12 @@ search path. Validate on real customer footage. Then decide if Qwen upgrade is w
 - **Limitation:** not instruction-following; won't reliably produce counts or structured
   vehicle attributes
 
-### Approach B: Qwen2.5-VL-7B Structured JSON (Ideal Architecture)
-- Replace/augment Florence with Qwen2.5-VL-7B
+### Approach B: Qwen2.5-VL-7B Structured JSON via ollama/vLLM sidecar (Ideal Architecture)
+- Replace/augment Florence with Qwen2.5-VL-7B served via ollama or vLLM Docker sidecar
 - Prompt for structured JSON: `{vehicles:[{type,count,color,position}], road_condition, scene_summary}`
 - Store JSON in `frame_facts_json JSONB` column; template into human-readable caption string
-- ~18GB VRAM, 3-5x slower than Florence per frame; Qwen runs only on vehicle-likely frames
+- ollama Q4_K_M: ~5.4GB VRAM (fits on 16GB GPU). vLLM FP16: ~14GB (needs cpu-offload on 16GB)
+- Worker calls HTTP API; no in-process model loading; sidecar handles mixed CPU/GPU memory
 - **Best query precision:** "five trucks in a row" reliably found
 
 ### Approach C: Two-Stage CLIP Detection + VLM (Creative/Lateral)
@@ -128,49 +140,81 @@ search path. Validate on real customer footage. Then decide if Qwen upgrade is w
 
 **Phase 1 (ship now):**
 1. Implement `pipeline/florence_model.py` — Florence-2-large with `<MORE_DETAILED_CAPTION>`
-2. Wire into `pipeline/indexer.py` after embed step (same position as CLAUDE.md describes).
-   Florence loads after OpenCLIP/DINOv3 complete and those models are unloaded (sequential,
-   not concurrent) to stay within VRAM budget. Use existing `FLORENCE_BATCH_SIZE` env var
-   (default 16) with OOM fallback to batch=1.
-3. `caption_confidence`: mean of per-token probabilities from
+2. **Load at `VideoIndexer.__init__()` — fail fast on startup.** Worker crashes immediately
+   if Florence weights are missing or corrupted. Call `torch.cuda.empty_cache()` before
+   `from_pretrained()` to avoid OOM on initial load. Use `FLORENCE_BATCH_SIZE` env var
+   (default 16) with OOM fallback to batch=1 inside `caption_batch()`.
+3. **Florence runs as a batch post-loop pass inside `index_video()`.** After the main
+   per-frame loop completes, re-load kept frames from disk with `Image.open(r["frame_path"])`
+   (avoids keeping ~250MB of PIL images in RAM during the loop). Run `caption_batch()` on
+   all kept frames in one batched pass. Update `frame_records[i]["caption"]`,
+   `frame_records[i]["caption_confidence"]`, and `frame_records[i]["caption_model"]`.
+4. `caption_confidence`: mean of per-token probabilities from
    `model.generate(..., output_scores=True, return_dict_in_generate=True)`.
    Specifically: mean of `softmax(scores[i])[generated_token_id]` where
-   `generated_token_id` is the actual token chosen at position i (not argmax;
-   identical under greedy decode but explicit for clarity). Clamp to [0.0, 1.0].
+   `generated_token_id` is the actual token chosen at position i. Clamp to [0.0, 1.0].
    If scores unavailable or caption is empty/malformed, default to 0.5 (not NULL).
    Empty caption fallback: store empty string `""` as caption value, not NULL.
-4. Add `frame_facts_json JSONB` column to `frames` table via migration (Phase 1, NULL value).
-   No indexes in Phase 1 — defer until Phase 2 if triggered.
-5. Wire `caption` text into Qdrant payload at upsert time: add `caption` key to the
-   payload dict in `_build_frame_point` before calling `qdrant_client.upsert()`.
-   For existing frames (backfill), use `qdrant_client.set_payload(collection_name, payload={"caption": text}, points=[point_id])`.
+   **CI test:** `@pytest.mark.gpu` smoke test calls `caption_batch([1x1 PIL image])`,
+   asserts returned confidence is a `float` in [0.0, 1.0]. Validates `output_scores` works
+   with Florence-2-large's VisionEncoderDecoder architecture.
+5. **`caption_batch()` contract:** `List[Tuple[str, float]]` with `len(result) == len(input)`
+   guaranteed. Stable input→output ordering. Per-item error state: any per-image exception
+   returns `("", 0.5)` for that index rather than crashing the batch.
+6. Add `frame_facts_json JSONB` and `caption_model TEXT` columns to `frames` table
+   (Phase 1, NULL value for `frame_facts_json`). Migration: update `CREATE TABLE frames`
+   definition AND append `ALTER TABLE frames ADD COLUMN IF NOT EXISTS` for both columns
+   (idempotent — safe for existing databases).
+7. **Wire `caption` into Qdrant via `set_payload` after the Florence pass** (not at
+   initial upsert time — Qdrant upserts happen DURING the per-frame loop before Florence
+   runs). After `caption_batch()` completes, call `set_payload` in 128-frame batches:
+   ```python
+   for i in range(0, len(frame_records), 128):
+       batch = frame_records[i:i+128]
+       store.set_payload(
+           collection_name,
+           payload={"caption": r["caption"] for r in batch},
+           points=[r["qdrant_id"] for r in batch],
+       )
+   ```
    Caption is display-only in Phase 1 — Qdrant does not support FTS. The existing
    `app/services/search.py` vector path is unchanged; caption is returned in results payload.
-6. **Backfill:** one-off script `scripts/backfill_captions.py`:
-   - SELECT id, frame_path FROM frames WHERE caption IS NULL (resume-safe: re-run skips already-captioned)
+   **Failure handling:** if `set_payload` fails (Qdrant unavailable), log warning and
+   continue. DB has the caption; Qdrant is eventually consistent via backfill.
+8. **Backfill:** one-off script `scripts/backfill_captions.py`:
+   - `SELECT id, frame_path FROM frames WHERE caption IS NULL` (resume-safe: re-run skips already-captioned)
    - For each frame_path: skip with warning if file does not exist on disk (`FileNotFoundError` → log + continue, do not crash)
-   - Run Florence in batches, UPDATE frames SET caption=?, caption_confidence=? WHERE id=?
-   - Then set_payload in Qdrant for each updated frame
+   - Run Florence in batches, `UPDATE frames SET caption=?, caption_confidence=?, caption_model=? WHERE id=?`
+   - Then `set_payload` in Qdrant for each updated frame (128-frame batches)
+   - `--skip-qdrant` flag: skip Qdrant update entirely (useful when Qdrant is unavailable)
    - Not a worker job (avoid queue complexity for a one-time operation)
-7. **Eval set (before shipping to customer):** 50-100 real keyframes + 20 target queries
-   including vehicle-count queries. Measure precision@5. Threshold to trigger Phase 2:
+9. **Eval set (before shipping to customer):** See TODOS.md `[P1][S] Structured eval design
+   spec` — run eval design before building the eval set. Key requirements: stratified
+   query taxonomy (count, spatial, road condition, negative controls), FTS-only baseline
+   comparison, 100+ frames minimum. Precision@5 threshold to trigger Phase 2:
    precision@5 < 0.6 on vehicle-count queries.
 
 **Phase 2 (triggered if precision@5 < 0.6 on vehicle-count queries):**
-- Add Qwen2.5-VL-7B layer for vehicle-rich frames:
-  - `pipeline/qwen_model.py`: structured JSON extraction with prompt template
+- Add Qwen2.5-VL-7B layer for vehicle-rich frames via ollama/vLLM HTTP sidecar:
+  - **Inference serving (see "Phase 2 Inference Serving" section below):** Qwen runs in a
+    separate Docker Compose service (`ollama` or `vllm`). Worker calls it via HTTP —
+    no PyTorch model loading in the worker process, no advisory lock for VRAM isolation.
+    The sidecar handles mixed CPU/GPU memory automatically.
+  - `pipeline/qwen_model.py`: thin HTTP client — sends base64-encoded PIL image + prompt
+    to `POST ${QWEN_API_URL}/v1/chat/completions` (OpenAI-compatible). Parses JSON response.
+    `QWEN_API_URL` env var (default `http://qwen:11434/v1` for ollama,
+    `http://qwen:8000/v1` for vLLM). `QWEN_MODEL` env var (default `qwen2.5-vl:7b`).
   - Pre-screen with `OpenCLIPTagger` (`pipeline/vision_models.py`, already in codebase):
     call `tagger.describe_image(frame_pil, top_k=1)` and check if the top label is in
     `{"vehicle", "truck", "car", "bus", "convoy", "emergency vehicle"}` with score ≥ 0.25
     cosine similarity. `OpenCLIPTagger` wraps `OpenCLIPEmbedder` — no extra model load.
-  - Qwen runs after Florence in the indexer step; loads only after Florence is unloaded.
-    GPU locking: use a **PostgreSQL advisory lock** (not a file lock — `/tmp` is not shared
-    across Docker containers). Worker acquires `pg_try_advisory_lock(1)` before loading Qwen;
-    nerfstudio FastAPI wrapper acquires the same lock before calling `ns-train`.
-    Both release via `pg_advisory_unlock(1)` after inference/training completes.
-    Uses the existing `DATABASE_URL` connection — no new infrastructure required.
-  - If Qwen-eligible frames arrive while lock is held: store frame_ids in
-    `jobs.facts_pending_json JSONB`, process in a post-map pass after nerfstudio releases lock.
+    Configure threshold via `QWEN_CLIP_THRESHOLD` env var (default 0.25).
+  - Qwen sidecar health check: `GET ${QWEN_API_URL}/health` (vLLM) or
+    `GET http://qwen:11434/api/tags` (ollama). If unhealthy, skip Qwen pass for the
+    mission and set `frame_facts_json = {"service_unavailable": true}` — never NULL.
+  - If sidecar is slow/busy (HTTP timeout > `QWEN_TIMEOUT_SEC`, default 30s): store
+    frame_ids in `jobs.facts_pending_json JSONB`, retry in a post-pipeline pass.
+    No advisory lock needed — sidecar queues requests internally.
   - Qwen JSON error handling: on invalid JSON or missing keys, log warning and store
     `{"parse_error": true, "raw": "<truncated output>"}` in `frame_facts_json`.
     Never leave field NULL after Phase 2 Qwen run attempted.
@@ -182,6 +226,57 @@ search path. Validate on real customer footage. Then decide if Qwen upgrade is w
     Filter is activated by a new optional query parameter `use_structured_filter: bool = False`
     on the search endpoint. When true: intersect Qdrant result point_ids with Postgres FTS/JSONB
     result IDs, return intersection ranked by embedding score. Default false preserves v1 behavior.
+
+**Phase 2 Inference Serving: ollama vs vLLM**
+
+Both expose an OpenAI-compatible API; `pipeline/qwen_model.py` works with either.
+
+| | ollama | vLLM |
+|---|---|---|
+| **VRAM (Qwen2.5-VL:7b)** | ~5.4GB (Q4_K_M GGUF) | ~14GB (FP16) or ~7GB (INT8) |
+| **CPU offload** | Automatic (llama.cpp layer offloading) | `--cpu-offload-gb N` for KV cache |
+| **Docker image** | `ollama/ollama` | `vllm/vllm-openai` |
+| **Setup** | `ollama pull qwen2.5-vl:7b` | `--model Qwen/Qwen2.5-VL-7B-Instruct` |
+| **Throughput** | Lower (llama.cpp) | Higher (PagedAttention) |
+| **Multimodal** | Native (vision built-in) | Needs `--limit-mm-per-prompt image=1` |
+| **Recommendation** | **Use for dev / 16GB GPU** | Use for production / ≥24GB GPU |
+
+**Recommended docker-compose.override.yml service (ollama):**
+```yaml
+qwen:
+  image: ollama/ollama:latest
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+  volumes:
+    - ollama_models:/root/.ollama
+  ports:
+    - "11434:11434"
+  environment:
+    - OLLAMA_NUM_PARALLEL=1
+    - OLLAMA_MAX_LOADED_MODELS=1
+  # After first start: docker exec <container> ollama pull qwen2.5-vl:7b
+
+volumes:
+  ollama_models:
+```
+
+`QWEN_API_URL=http://qwen:11434/v1` (set in `.env` when ollama service is active).
+`QWEN_API_URL=""` (empty) disables Phase 2 Qwen pass entirely — worker skips structured
+extraction and leaves `frame_facts_json = NULL` for that mission.
+
+**Memory behaviour under load (ollama on 16GB GPU):**
+```
+Idle:          Florence(2.7GB) + CLIP/DINOv3(0.7GB) = 3.4GB used, 12.6GB free
+Qwen serving:  + Qwen Q4_K_M(5.4GB) = 8.8GB used, 7.2GB free  ← fits comfortably
+Nerfstudio:    nerfstudio runs in separate container; shares GPU VRAM.
+               ollama auto-offloads Qwen layers to CPU RAM if VRAM < threshold.
+               Latency increases during nerfstudio runs but requests never fail.
+```
 
 **Storage schema additions:**
 ```sql
@@ -212,13 +307,11 @@ CREATE INDEX CONCURRENTLY frames_facts_gin ON frames USING gin(frame_facts_json)
 1. Does mean token probability from Florence-2 correlate with actual caption quality on
    outdoor robotics footage? Validate on eval set before trusting it for active learning.
    If correlation is weak (r < 0.5), consider using sequence length or perplexity instead.
-2. Run `scripts/profile_gpu_memory.py` to measure actual concurrent VRAM of Florence +
-   OpenCLIP + DINOv3 before implementing the sequential unload logic. If they fit within
-   budget together, remove the unload step entirely (simpler code path).
-3. Qwen + nerfstudio contention: if deferral (storing frame_ids for post-map pass) is
-   too complex to implement cleanly, fallback decision: skip Qwen entirely on missions
-   where nerfstudio was running, and add a `selfsuvis-recaption` job type to the queue.
-   Decide at Phase 2 implementation time based on actual contention frequency observed.
+2. ~~Sequential unloading~~ — **resolved**: Florence + CLIP + DINOv3 all fit concurrently
+   at 3.4GB (profiled `docs/gpu_memory_profile.md`). No teardown logic needed.
+3. Qwen + nerfstudio contention: ollama auto-offloads layers to CPU RAM when GPU is full.
+   No worker-side coordination needed. Monitor nerfstudio + ollama latency on first real
+   mission with both running; adjust `OLLAMA_NUM_PARALLEL` if needed.
 
 ---
 
@@ -236,18 +329,24 @@ CREATE INDEX CONCURRENTLY frames_facts_gin ON frames USING gin(frame_facts_json)
 
 - Florence-2-large: `microsoft/Florence-2-large` via HuggingFace (~900MB, already in
   `requirements` and `scripts/profile_gpu_memory.py`)
-- Qwen2.5-VL-7B (Phase 2 only): `Qwen/Qwen2.5-VL-7B-Instruct` (~15GB download)
-- `transformers >= 4.41` already required
-- `filelock` Python package (Phase 2): GPU lock coordination between worker and nerfstudio
+- Qwen2.5-VL-7B (Phase 2 only): served via **ollama** (`ollama pull qwen2.5-vl:7b`, ~4.7GB
+  download for Q4_K_M) or **vLLM** (`Qwen/Qwen2.5-VL-7B-Instruct` from HuggingFace, ~15GB).
+  Neither is a Python package dependency — they run as Docker services.
+- `transformers >= 4.41` already required (Florence only; Qwen uses HTTP, not transformers)
+- `httpx` or `openai` Python package (Phase 2): HTTP client for Qwen sidecar API calls.
+  `openai` SDK preferred — its `AsyncOpenAI` client works against any OpenAI-compatible endpoint.
 - `scripts/migrate_postgres.py`:
   - Phase 1: `ALTER TABLE frames ADD COLUMN IF NOT EXISTS frame_facts_json JSONB;`
+    Also: `ALTER TABLE frames ADD COLUMN IF NOT EXISTS caption_model TEXT;`
   - Phase 2 (separate migration): FTS and GIN indexes — must run outside a transaction
     (`CREATE INDEX CONCURRENTLY` fails inside `BEGIN`). Use a dedicated migration script
     that does not wrap these in a transaction block.
-- **Minimum GPU VRAM:** 24GB recommended. Florence (~8GB) + OpenCLIP/DINOv3 (~4-6GB) =
-  ~12-14GB peak concurrent. Qwen2.5-VL-7B (~18GB) runs sequentially; nerfstudio (~10GB)
-  runs separately. A 16GB GPU will not fit Qwen. Validate with `scripts/profile_gpu_memory.py`
-  before Phase 2.
+- **Minimum hardware:**
+  - Phase 1 (Florence only): 8GB+ GPU, any system RAM.
+  - Phase 2 (ollama Q4_K_M): 8GB+ GPU + 16GB+ system RAM. ~~24GB GPU no longer required.~~
+  - Phase 2 (vLLM FP16): 16GB GPU with `--cpu-offload-gb 4`, or 24GB GPU without offload.
+  - Profiled baseline: Florence + CLIP + DINOv3 = 3.4GB VRAM on RTX 4060 Ti (21% utilisation).
+    Ollama Qwen Q4_K_M adds ~5.4GB → 8.8GB total → 7.2GB free for nerfstudio spill-over.
 
 ---
 

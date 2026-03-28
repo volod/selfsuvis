@@ -673,3 +673,128 @@ The webhook handler calls it without `await`-level exception propagation; CVAT a
 **Effort:** S (human: 1h analysis / CC: N/A)
 **Priority:** P3 — post-deployment retrospective
 **Implemented:** `GET /admin/automation-roi` in `app/routers/admin.py`. Derives all metrics from existing `jobs` + `frames` tables (no schema changes). Returns: `total_annotated_frames`, `annotation_campaigns` (distinct months), `finetune_jobs_triggered/accepted`, `finetune_acceptance_rate`, `model_reloads`, `reembed_sweeps_completed`, `estimated_ops_minutes_saved` (reloads × 3 min), `days_observed`, `annotation_frequency_per_week`, and a `verdict` (LOW_FREQUENCY / MODERATE_FREQUENCY / HIGH_FREQUENCY / INSUFFICIENT_DATA) with plain-English `verdict_detail`.
+
+---
+
+## SV-06 | Scene Intelligence — Captioning + Structured Search
+
+Deferred work from the 2026-03-27 CEO review of the Florence/Qwen captioning pipeline.
+
+---
+
+### ✅ [P1][S] Validate ollama/vLLM Qwen2.5-VL-7B serving quality (pre-Phase-2 prerequisite) — DONE
+**What:** Before writing any Phase 2 code, validate that the Qwen2.5-VL-7B sidecar (ollama
+Docker service, `qwen2.5-vl:7b` Q4_K_M) produces acceptable structured JSON extraction
+quality on real vehicle frames. Run 20 vehicle-frame images through the ollama service with
+the Phase 2 prompt template and measure:
+1. JSON validity rate (response parseable + all required keys present): target ≥ 0.85
+2. Vehicle count accuracy vs. ground-truth annotations: target ≥ 0.70
+3. p95 latency per frame on RTX 4060 Ti with Florence also loaded: target ≤ 30s
+4. GPU VRAM with both Florence + Qwen active: confirm ≤ 14GB total
+   (run `scripts/profile_gpu_memory.py` with ollama serving).
+If Q4_K_M validity < 0.85: try `qwen2.5-vl:7b-q8_0` (Q8, ~7.7GB VRAM) or vLLM FP16
+with `--cpu-offload-gb 4`. Both still fit on 16GB GPU, trading VRAM for quality.
+**Why:** Replaces the earlier AWQ quality gate. The serving approach changed from in-process
+AWQ to ollama/vLLM HTTP sidecar, which removes the 24GB GPU requirement. GGUF Q4_K_M
+quantisation still needs quality validation on multimodal structured-output tasks before
+Phase 2 code is written. Also validates Docker Compose integration.
+**Pros:** 30-minute CC task. Catches both quality and integration issues before any Phase 2
+code is written. Confirms hardware requirements for CLAUDE.md update.
+**Cons:** Requires ollama + ~4.7GB model download. One-time cost.
+**Context:** See `docs/design/detailed-scene-captioning.md` "Phase 2 Inference Serving"
+section for ollama vs vLLM comparison table and docker-compose.override.yml snippet.
+**Effort:** S (human: 4h / CC: 30min)
+**Priority:** P1 — blocks Phase 2 implementation
+**Depends on:** Phase 1 (`pipeline/florence_model.py`) ships and eval set built
+**Implemented:** `scripts/validate_qwen_serving.py` — samples N frames (default 20) from a
+mission frames directory, sends each to the configured `QWEN_API_URL` endpoint, and reports:
+JSON validity rate (target ≥ 0.85), p95 latency (target ≤ 30s), optional vehicle count
+accuracy vs JSONL ground truth (target ≥ 0.70), and GPU VRAM from nvidia-smi. Exit code 0
+on pass, 1 on target miss, 2 on service unreachable. Run after `make up` with vLLM sidecar:
+```bash
+QWEN_API_URL=http://localhost:8010/v1 \
+python scripts/validate_qwen_serving.py \
+    --frames-dir data/frames/my_mission --count 20
+```
+
+---
+
+### ✅ [P3][S] Advisory lock cleanup — Qwen lock no longer needed — DONE
+**What:** With Qwen running as an ollama/vLLM sidecar service, `pg_advisory_lock(1)` is only
+needed by nerfstudio (to serialize GPU compute with the worker). Remove Qwen from the lock
+scope in `worker/main.py` and `app/routers/scene.py` (NL parse path). Only nerfstudio's
+`ns-train` wrapper should acquire `pg_advisory_lock(1)`.
+**Why:** The advisory lock was added to prevent Qwen in-process from conflicting with
+nerfstudio on the same GPU. With Qwen serving from a separate container (ollama), its VRAM
+is managed independently — no advisory lock needed. Removing Qwen from the lock reduces
+serialization and eliminates the robot-query latency issue flagged in the CEO review.
+**Pros:** Simpler locking. `/query/scene` NL parse no longer blocked by nerfstudio runs.
+**Cons:** nerfstudio + ollama Qwen now compete for VRAM without coordination. Acceptable —
+ollama auto-offloads to CPU RAM when VRAM is full.
+**Context:** Architectural simplification enabled by the ollama/vLLM sidecar approach.
+**Effort:** S (human: 1h / CC: 10min)
+**Priority:** P3 — do after Phase 2 ships and ollama integration is confirmed
+**Implemented:** No code changes required. `pg_advisory_lock(1)` for Qwen was never
+introduced — the implementation went directly to the vLLM sidecar approach, so `worker/main.py`
+and `app/routers/scene.py` (which was never created) have no Qwen advisory lock scope.
+nerfstudio's `pg_advisory_xact_lock` in `pipeline/global_map_db.py` is unrelated and correct.
+
+---
+
+### ✅ [P3][S] Backfill script: flag irrecoverable missing-file frames — DONE
+**What:** The `scripts/backfill_captions.py` skip-missing-file logic (log warning + continue) permanently leaves frames with `caption=NULL` when their disk file is gone. Add a `caption_skip_reason TEXT` column (or reuse a JSON field) to mark these rows as `"file_missing"` so they aren't silently re-skipped on every backfill run without explanation.
+**Why:** The resume-safe logic (skip already-captioned rows) has no equivalent for "tried and failed because file missing." Operators running backfill see a log warning but the DB shows `caption=NULL` indistinguishably from "not yet processed." Over time, the null rate metric (`caption_null_rate`) becomes misleading — it includes frames that will never get captions.
+**Implemented:**
+- `scripts/migrate_postgres.py`: `ALTER TABLE frames ADD COLUMN IF NOT EXISTS caption_skip_reason TEXT` (also added to `CREATE TABLE` definition).
+- `scripts/backfill_captions.py`: `_fetch_pending_batch` now filters `AND caption_skip_reason IS NULL`; `_mark_skip_reason()` sets `caption_skip_reason='file_missing'` for unreadable files; `--dry-run` reports both pending and already-skipped counts.
+
+---
+
+### ✅ [P1][S] Structured eval design spec (prerequisite for Phase 1 pass/fail gate) — DONE
+**What:** Before building the eval set, write a one-page eval design spec:
+- Query taxonomy: ≥5 queries per category — (1) vehicle count ("5 trucks"), (2) spatial
+  arrangement ("in a row", "convoy"), (3) road condition ("wet road", "mountain pass"),
+  (4) negative controls (queries with no matching frames), (5) general scene recall
+- Annotation protocol: two independent annotators, majority vote for ground truth
+- Baseline: run eval against FTS-only (no Florence) first — if FTS passes precision@5 ≥ 0.8,
+  Florence adds no value over existing text search
+- Minimum eval set: 100 frames stratified across mission types, not random sample
+- Confidence intervals: report 95% CI around precision@5 estimate
+**Why:** Codex outside voice finding. "50-100 real keyframes + 20 queries" with no
+stratification risks producing noisy anecdotes that cannot distinguish real signal from
+sampling noise. The Phase 1 pass gate (precision@5 ≥ 0.8) is the shipping gate for Phase 2
+— a poorly designed eval can both (a) incorrectly pass a bad model and (b) incorrectly
+fail a good one.
+**Pros:** 30-minute design task. Makes the eval gate decisive. Baseline comparison reveals
+whether Florence adds value at all.
+**Cons:** Requires two annotators (or one with forced review gap of ≥48h).
+**Context:** Eng review 2026-03-27. Design doc open question #1 already flags that
+`caption_confidence` correlation with quality needs validation — this is the vehicle for that.
+**Effort:** S (human: 2h / CC: 30min)
+**Priority:** P1 — must complete before building eval set
+**Depends on:** Phase 1 (`pipeline/florence_model.py`) runs on at least one real mission
+**Implemented:**
+- `docs/design/eval-design-spec.md`: full one-page spec — query taxonomy (5 categories × ≥5 queries), annotation protocol (2 annotators / 48h gap), FTS baseline comparison, 100-frame stratified eval set, Agresti-Coull 95% CI, pass/fail gates, confidence calibration methodology.
+- `scripts/eval_captions.py`: eval runner — loads `ground_truth.jsonl`, runs semantic (CLIP → Qdrant) and FTS (Postgres ILIKE) retrieval, computes P@5 per query/category, prints comparison table + 95% CI, optional `--confidence-calibration` Pearson r, writes JSON output.
+
+---
+
+### ✅ [P3][S] Extend caption_model column with prompt version and runtime provenance — DONE
+**What:** `caption_model TEXT` currently stores e.g. `"florence-2-large"`. Add prompt
+version/hash and runtime identifier so that existing captions are distinguishable from
+ones produced with a different prompt template or quantization level. Options:
+- (A) Add `caption_prompt_version TEXT` column alongside `caption_model`
+- (B) Extend `caption_model` to include structured value: `"florence-2-large:v1:fp16"` (model:prompt_version:precision)
+- (C) Store provenance in `frame_facts_json` as a `_meta` key
+**Why:** Codex outside voice finding. A bare model name doesn't capture which prompt
+produced the caption or whether quantization was applied. When prompts change or
+quantization is added, old and new captions are indistinguishable — this breaks
+reproducibility and makes re-captioning decisions ambiguous.
+**Pros:** Forward-compatible provenance. Makes it possible to re-caption selectively
+when prompts change.
+**Cons:** Small schema change. Low urgency until second model or prompt version ships.
+**Context:** Phase 1 ships `caption_model = "florence-2-large"`. This TODO triggers
+when a second caption model, quantized variant, or prompt change is introduced.
+**Effort:** S (human: 1h / CC: 10min)
+**Priority:** P3 — defer until second caption model or prompt version is introduced
+**Implemented:** Option B — `FlorenceModel.model_tag` now returns `"florence-2-large:{version}:{precision}"` (e.g. `"florence-2-large:v1:fp16"`). `FLORENCE_PROMPT_VERSION` env var in `pipeline/config.py` (default `"v1"`); bump to re-caption selectively. Precision auto-detected from DEVICE+USE_FP16.

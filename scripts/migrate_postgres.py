@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """Bootstrap the PostgreSQL schema for selfsuvis.
 
-Creates the full current schema on a fresh database. The project is still in
-development, so this script intentionally defines only the latest schema and
-does not carry forward legacy ALTER-based migrations or SQLite import logic.
-
+Creates the full current schema (tables + indexes) on a fresh database.
 Run after PostgreSQL is available:
 
     python scripts/migrate_postgres.py
@@ -31,6 +28,9 @@ DATABASE_URL = os.getenv(
     "postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis",
 )
 
+# All DDL is idempotent (IF NOT EXISTS / ON CONFLICT DO NOTHING).
+# The list is applied in order inside a single connection; each statement
+# is executed individually so a failure is easy to pinpoint.
 _SCHEMA = [
     """
     CREATE TABLE IF NOT EXISTS jobs (
@@ -101,6 +101,11 @@ _SCHEMA = [
         segment_id          INTEGER,
         caption             TEXT,
         caption_confidence  DOUBLE PRECISION,
+        caption_model       TEXT,
+        caption_skip_reason TEXT,
+        subtitle_text       TEXT,
+        ocr_text            TEXT,
+        frame_facts_json    JSONB,
         al_score            DOUBLE PRECISION,
         al_tag              TEXT NOT NULL DEFAULT 'none'
                                 CHECK (al_tag IN ('none','needs_annotation','novel','annotated')),
@@ -125,6 +130,28 @@ _SCHEMA = [
         "CREATE INDEX IF NOT EXISTS idx_frames_annotated_label "
         "ON frames (mission_id, cvat_label) "
         "WHERE al_tag = 'annotated' AND cvat_label IS NOT NULL"
+    ),
+    # Phase 2 search indexes — GIN on caption text and frame_facts_json.
+    # Not CONCURRENTLY because this is an initial migration on an empty table.
+    (
+        "CREATE INDEX IF NOT EXISTS idx_frames_caption_fts "
+        "ON frames USING gin(to_tsvector('english', coalesce(caption, '')))"
+    ),
+    (
+        "CREATE INDEX IF NOT EXISTS idx_frames_facts_gin "
+        "ON frames USING gin(frame_facts_json) "
+        "WHERE frame_facts_json IS NOT NULL"
+    ),
+    # Phase 3 search indexes — subtitle_text and ocr_text full-text search.
+    (
+        "CREATE INDEX IF NOT EXISTS idx_frames_subtitle_fts "
+        "ON frames USING gin(to_tsvector('english', coalesce(subtitle_text, ''))) "
+        "WHERE subtitle_text IS NOT NULL"
+    ),
+    (
+        "CREATE INDEX IF NOT EXISTS idx_frames_ocr_fts "
+        "ON frames USING gin(to_tsvector('english', coalesce(ocr_text, ''))) "
+        "WHERE ocr_text IS NOT NULL"
     ),
 
     """

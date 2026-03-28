@@ -74,12 +74,14 @@ async def replace_frames(conn, mission_id: str, frames: Iterable[Dict[str, Any]]
         """
         INSERT INTO frames
             (id, mission_id, frame_path, t_sec, segment_id, caption, caption_confidence,
+             caption_model, subtitle_text, ocr_text, frame_facts_json,
              al_score, al_tag, cvat_label, pose_status, pose_json, gps_json,
              global_pose_json, qdrant_id, created_at, updated_at)
         VALUES
             ($1, $2, $3, $4, $5, $6, $7,
-             $8, $9, $10, $11, $12::jsonb, $13::jsonb,
-             $14::jsonb, $15, $16, $17)
+             $8, $9, $10, $11::jsonb,
+             $12, $13, $14, $15, $16::jsonb, $17::jsonb,
+             $18::jsonb, $19, $20, $21)
         """,
         [
             (
@@ -90,6 +92,10 @@ async def replace_frames(conn, mission_id: str, frames: Iterable[Dict[str, Any]]
                 row.get("segment_id"),
                 row.get("caption"),
                 row.get("caption_confidence"),
+                row.get("caption_model"),
+                row.get("subtitle_text"),
+                row.get("ocr_text"),
+                json.dumps(row.get("frame_facts_json")) if row.get("frame_facts_json") is not None else None,
                 row.get("al_score"),
                 row.get("al_tag", "none"),
                 row.get("cvat_label"),
