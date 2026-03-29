@@ -14,13 +14,17 @@ numpy>=1.26.4
 scikit-image>=0.26.0
 scikit-learn>=1.4.0
 plyfile>=0.9
+# 3D Gaussian Splatting — CUDA JIT kernels compiled on first use.
+# Requires CUDA-enabled torch.  CPU-only machines skip gsplat gracefully.
+gsplat>=1.4.0
 qdrant-client==1.8.0
 asyncpg>=0.29.0
-python-multipart==0.0.9
-pydantic>=2.6.1
+python-multipart>=0.0.9
+pydantic>=2.8.0
 tqdm==4.66.2
 faiss-cpu==1.8.0
 onnxscript>=0.1
+pycolmap==4.0.2
 # onnxruntime: CPU-only base install.  On CUDA machines scripts/install_requirements.sh
 # upgrades this to onnxruntime-gpu (which also bundles TensorrtExecutionProvider).
 # Do NOT install both onnxruntime and onnxruntime-gpu in the same environment.

@@ -107,10 +107,12 @@ def _run_pycolmap(
 
     try:
         # Feature extraction
+        reader_options = pycolmap.ImageReaderOptions()
+        reader_options.camera_model = camera_model
         pycolmap.extract_features(
             database_path=database_path,
             image_path=image_dir,
-            camera_model=camera_model,
+            reader_options=reader_options,
         )
         # Feature matching (exhaustive for small scenes; sequential for large)
         n_images = len([f for f in os.listdir(image_dir) if f.endswith(".jpg")])

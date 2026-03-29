@@ -116,6 +116,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="[demo] Skip pycolmap SfM; use PCA point-cloud fallback",
     )
     parser.add_argument(
+        "--no-gsplat", action="store_true",
+        help="[demo] Skip 3D Gaussian Splatting (step I); keep sparse point-cloud only",
+    )
+    parser.add_argument(
         "--no-caption", action="store_true",
         help="[demo] Skip Florence-2 scene captioning (step L)",
     )

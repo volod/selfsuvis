@@ -341,7 +341,14 @@ def write_distill_stats_md(
     video_name: str,
     stats: Dict[str, Any],
 ) -> None:
-    loss_history = stats.get("loss_history", [])
+    loss_history    = stats.get("loss_history", [])
+    recall_history  = stats.get("recall_history", [])
+    loss_components = stats.get("loss_components", {})
+    compression     = stats.get("compression_ratio", 0.0)
+    t_params        = stats.get("teacher_params", 0)
+    s_params        = stats.get("student_params", 0)
+    best_recall     = stats.get("best_recall", float("nan"))
+
     lines = [
         f"# Knowledge Distillation — {video_name}",
         f"",
@@ -351,9 +358,10 @@ def write_distill_stats_md(
         f"",
         f"| Parameter | Value |",
         f"|-----------|-------|",
-        f"| Teacher | DINOv3 ViT-B/14 (fine-tuned SSL) — dim={stats.get('teacher_dim', 768)} |",
-        f"| Student | {stats.get('student_model', 'dinov2_vits14')} — dim={stats.get('student_dim', 384)} |",
-        f"| Loss | Cosine feature distillation: 1 − cos(proj(student), teacher) |",
+        f"| Teacher | DINOv3 ViT-B/14 (fine-tuned SSL) — dim={stats.get('teacher_dim', 768)}, {t_params // 1_000_000}M params |",
+        f"| Student | {stats.get('student_model', 'dinov2_vits14')} — dim={stats.get('student_dim', 384)}, {s_params // 1_000_000}M params |",
+        f"| Method | RKD-DA (distance + angle) + KoLeo spread regulariser + cosine anchor |",
+        f"| Loss weights | λ_D=25  λ_A=50  λ_kd=1.0  λ_koleo=0.1 |",
         f"| Epochs | {len(loss_history)} |",
         f"| Elapsed | {stats.get('elapsed', 0):.1f}s |",
         f"",
@@ -361,31 +369,43 @@ def write_distill_stats_md(
         f"",
         f"| Metric | Value |",
         f"|--------|-------|",
-        f"| Best distillation loss | {stats.get('best_loss', float('nan')):.4f} |",
-        f"| Student params | ~22M (vs teacher ~86M — {86/22:.1f}× compression) |",
+        f"| Best total loss | {stats.get('best_loss', float('nan')):.4f} |",
+        f"| Best Recall@1 (student vs teacher) | {best_recall:.3f} |",
+        f"| Compression ratio | {compression:.1f}× ({t_params // 1_000_000}M → {s_params // 1_000_000}M params) |",
         f"| Student dim | {stats.get('student_dim', 384)} (vs teacher {stats.get('teacher_dim', 768)}) |",
         f"| Best checkpoint | `{Path(stats.get('best_path', '')).name}` |",
         f"",
-        f"## Loss Curve",
+        f"## Per-Epoch Metrics",
         f"",
-        f"| Epoch | Loss |",
-        f"|-------|------|",
+        f"| Epoch | Total | RKD-D | RKD-A | Cosine | KoLeo | Recall@1 |",
+        f"|-------|-------|-------|-------|--------|-------|----------|",
     ]
-    for i, loss in enumerate(loss_history, 1):
-        lines.append(f"| {i} | {loss:.4f} |")
+    n = len(loss_history)
+    for i in range(n):
+        r1  = recall_history[i] if i < len(recall_history) else float("nan")
+        rd  = loss_components.get("rkd_d", [])[i]   if i < len(loss_components.get("rkd_d",   [])) else float("nan")
+        ra  = loss_components.get("rkd_a", [])[i]   if i < len(loss_components.get("rkd_a",   [])) else float("nan")
+        cos = loss_components.get("cosine", [])[i]  if i < len(loss_components.get("cosine",  [])) else float("nan")
+        kol = loss_components.get("koleo", [])[i]   if i < len(loss_components.get("koleo",   [])) else float("nan")
+        lines.append(f"| {i+1} | {loss_history[i]:.4f} | {rd:.4f} | {ra:.4f} | {cos:.4f} | {kol:.4f} | {r1:.3f} |")
+
     lines += [
         f"",
         f"## Architecture",
         f"",
         f"```",
         f"Teacher (frozen):  DINOv3 ViT-B/14  →  768-dim embedding",
-        f"                         ↓ cosine distillation loss",
-        f"Proj head (temp):  Linear(384 → 768)  [discarded after training]",
+        f"                         ↓ RKD-DA (distance + angle) + cosine anchor",
+        f"Proj head (temp):  Linear(384 → 768, orthogonal init)  [discarded after training]",
         f"                         ↑",
         f"Student (trained): DINOv2 ViT-S/14  →  384-dim embedding",
+        f"                         ↑",
+        f"                    KoLeo spread regulariser (prevents collapse)",
         f"```",
         f"",
-        f"The student is 4× smaller and ~2× faster at inference.",
+        f"**RKD-DA** (Relational Knowledge Distillation) preserves pairwise neighbourhood",
+        f"topology in the student embedding space, directly optimising retrieval Recall@K.",
+        f"The student is {compression:.1f}× smaller and ~2× faster at inference.",
         f"The projection head is used only during training to align embedding spaces.",
         f"The saved checkpoint contains **only the student backbone weights**.",
         f"",
@@ -1519,6 +1539,7 @@ def step_distill(
     out_md = video_dir / "distill_stats.md"
     result: Dict[str, Any] = {
         "student_backbone": None, "best_path": "", "best_loss": float("nan"),
+        "best_recall": float("nan"), "compression_ratio": 0.0,
         "student_dim": 384, "teacher_dim": 768,
         "student_model": "dinov2_vits14", "ckpt_mb": 0.0, "skipped": False,
     }
@@ -1549,8 +1570,12 @@ def step_distill(
     result.update(stats)
     result["student_backbone"] = distiller.student_backbone()
     result["ckpt_mb"]          = os.path.getsize(stats["best_path"]) / 1e6
-    _log.info("  ✓ Distillation complete in %.1fs | best_loss=%.4f | student=%s (dim=%d)",
-              stats["elapsed"], stats["best_loss"], stats["student_model"], stats["student_dim"])
+    _log.info(
+        "  ✓ Distillation complete in %.1fs | best_loss=%.4f | best_R@1=%.3f | "
+        "compression=%.1f× | student=%s (dim=%d)",
+        stats["elapsed"], stats["best_loss"], stats.get("best_recall", float("nan")),
+        stats.get("compression_ratio", 0.0), stats["student_model"], stats["student_dim"],
+    )
     write_distill_stats_md(out_md, video_name, stats)
     return result
 
@@ -2050,8 +2075,10 @@ def step_create_3d_map(
     frame_list: List[Tuple[str, float]],
     models: Dict[str, Any],
     run_sfm_flag: bool,
+    run_gsplat_flag: bool = True,
+    device: str = "cuda",
 ) -> Dict[str, Any]:
-    """Step I: build sparse 3D map."""
+    """Step I: build sparse 3D map + 3D Gaussian Splat."""
     return build_sparse_map(
         video_path=str(video_path),
         video_id=video_id,
@@ -2059,6 +2086,8 @@ def step_create_3d_map(
         frame_list=frame_list,
         models=models,
         run_sfm_flag=run_sfm_flag,
+        run_gsplat_flag=run_gsplat_flag,
+        device=device,
     )
 
 
@@ -2498,18 +2527,29 @@ def run_video_pipeline(
         stats["top_description"] = g.get("top_description", "")
         video_context["top_descriptions"] = g.get("text_descriptions", [])
 
-    # I: 3D map
-    _step(16, _TOTAL_STEPS, "3D map creation → 3d_map/sparse_map.npz")
+    # I: 3D map + Gaussian Splat
+    _step(16, _TOTAL_STEPS, "3D map + Gaussian Splat → 3d_map/")
     with _Timer(T, "I_3dmap"):
-        h = step_create_3d_map(video_path, video_id, video_dir, frame_list, models,
-                               run_sfm_flag=not args.no_sfm)
-    stats["sfm_poses"]  = h["sfm_poses"]
-    stats["map_method"] = h["method"]
-    stats["map_points"] = int(h["points"].shape[0]) if h.get("points") is not None else 0
+        h = step_create_3d_map(
+            video_path, video_id, video_dir, frame_list, models,
+            run_sfm_flag=not args.no_sfm,
+            run_gsplat_flag=not getattr(args, "no_gsplat", False),
+            device=device,
+        )
+    stats["sfm_poses"]     = h["sfm_poses"]
+    stats["map_method"]    = h["method"]
+    stats["map_points"]    = int(h["points"].shape[0]) if h.get("points") is not None else 0
+    stats["gsplat_method"] = h.get("gsplat_method", "skipped")
+    stats["splat_ply"]     = h.get("splat_ply")
+    if h.get("splat_ply"):
+        _log.info("  ✓ Gaussian Splat → %s", h["splat_ply"])
+        _log.info("  ✓ Interactive viewer → %s", h.get("viewer_html", ""))
     video_context["map"] = {
-        "method": h["method"],
-        "points": stats["map_points"],
-        "sfm_poses": h["sfm_poses"],
+        "method":        h["method"],
+        "points":        stats["map_points"],
+        "sfm_poses":     h["sfm_poses"],
+        "gsplat_method": stats["gsplat_method"],
+        "splat_ply":     stats["splat_ply"],
     }
 
     # Z: Video synthesis — offload CLIP+DINO; Ollama API call only (no local model)

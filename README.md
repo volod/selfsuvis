@@ -153,10 +153,71 @@ QWEN_API_URL=http://qwen:8010/v1 \
 > **Note:** If `QWEN_API_URL` is empty (the default), step R is skipped automatically.
 > The demo still runs to completion without it.
 
+### 3D Gaussian Splat map (step I)
+
+Step I builds a 3D Gaussian Splat of each video scene using
+[gsplat](https://github.com/nerfstudio-project/gsplat) — the reference
+implementation from the nerfstudio project.
+
+**Two initialization modes (auto-selected):**
+
+| Mode | When | Quality |
+|---|---|---|
+| `gsplat_sfm` | pycolmap installed + ≥3 poses recovered | Best — real camera poses + 3D scene points |
+| `gsplat_free` | pycolmap unavailable or SfM failed | Good — forward-facing pose estimate from frame timestamps |
+
+**Prerequisites:**
+
+```bash
+# gsplat is in requirements_prod.txt — install with the rest of deps:
+make venv
+
+# Verify CUDA kernels compile (first call JIT-compiles, ~60s):
+python -c "from gsplat.rendering import rasterization; print('gsplat OK')"
+```
+
+**Output** per video in `3d_map/`:
+- `gaussian_splat.ply` — standard 3DGS PLY (viewable in SuperSplat, Luma AI, etc.)
+- `view_splat.html` — standalone browser viewer (uses GaussianSplats3D CDN)
+- `sparse_map.ply` — classic sparse point cloud (SfM or PCA)
+
+**Viewing the generated 3D Gaussian Splat:**
+
+**Option A — Drag-and-drop (easiest, no local server):**
+
+1. Open https://playcanvas.com/supersplat/editor in your browser
+2. Drag `3d_map/gaussian_splat.ply` onto the page
+3. Use mouse/trackpad to orbit, pan, and zoom
+
+**Option B — Built-in HTML viewer (local server required for CORS):**
+
+```bash
+# Serve the output directory over HTTP:
+cd data_test/videos_test/<video-name>/3d_map/
+python -m http.server 8765
+
+# Open in browser:
+# http://localhost:8765/view_splat.html
+```
+
+Controls: left-drag to orbit · right-drag to pan · scroll to zoom
+
+**Option C — View NPZ point cloud** (no gsplat needed, matplotlib):
+
+```bash
+python main.py --mode demo --view-npz data_test/videos_test/<name>/3d_map/sparse_map.npz
+```
+
+**Skip gsplat** (faster runs, point-cloud only):
+
+```bash
+python main.py --mode demo --no-gsplat
+```
+
 ### Run
 
 ```bash
-# Basic — uses data_test/videos/, writes to data_test/output/
+# Basic — uses data_test/videos/, writes to data_test/videos_test/
 python main.py --mode demo
 
 # Custom directories
@@ -209,10 +270,12 @@ For each video `<name>.mp4` the demo writes `<output-dir>/<name>/`:
 | `comparison.md` | Side-by-side comparison + video-to-text description |
 | `edge_models/` | ONNX model + frame gallery for edge deployment |
 | `checkpoints/` | Fine-tuned `.pt` checkpoints |
-| `3d_map/` | Point cloud `.npy` (SfM poses or PCA fallback) + manifest |
+| `3d_map/sparse_map.ply` | Sparse point cloud (SfM camera centres or PCA fallback) |
+| `3d_map/gaussian_splat.ply` | 3D Gaussian Splat — open in SuperSplat or `view_splat.html` |
+| `3d_map/view_splat.html` | Standalone browser viewer (serve with `python -m http.server 8765`) |
 | `final_stats.md` | Per-video and aggregate statistics |
 
-After all videos are processed, an interactive 3D scatter viewer opens for each video (close with the on-screen button or the window's close control).
+After all videos are processed, an interactive 3D scatter viewer opens for each video (close with the on-screen button or the window's close control). To view the Gaussian Splat, use the HTML viewer or SuperSplat (see §3D Gaussian Splat map above).
 
 ## Docs
 - [Architecture decisions](docs/adr/README.md)

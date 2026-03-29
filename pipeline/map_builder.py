@@ -2,6 +2,7 @@
 
 Builds a point cloud from mission frames either via pycolmap SfM
 (camera centres) or a PCA projection of frame embeddings as fallback.
+Optionally trains a 3D Gaussian Splat using gsplat (CUDA required).
 Saves ``sparse_map.npz`` and ``map_stats.json`` into *map_dir*.
 
 Returns
@@ -13,6 +14,9 @@ dict with keys:
     sfm_poses   : int  — number of frames with recovered SfM pose
     scene_count : int  — number of SfM connected components
     method      : str  — "sfm" | "pca_dino" | "pca_clip" | "failed"
+    splat_ply   : str | None  — path to 3DGS PLY (when gsplat ran)
+    viewer_html : str | None  — path to standalone HTML viewer
+    gsplat_method : str       — gsplat method or "skipped"
 """
 import json
 from pathlib import Path
@@ -30,10 +34,11 @@ logger = get_logger(__name__)
 def _sfm_point_cloud(
     video_path: str,
     video_id: str,
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], int, int]:
-    """Run pycolmap SfM and return (points, colours, sfm_poses, scene_count).
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], int, int, Optional[List]]:
+    """Run pycolmap SfM and return (points, colours, sfm_poses, scene_count, sfm_frames).
 
-    Returns (None, None, 0, 0) if SfM fails or recovers no poses.
+    sfm_frames is the raw frame list from run_sfm (with pose_json per frame) — used
+    by the gsplat builder.  Returns (None, None, 0, 0, None) if SfM fails.
     """
     sfm_result = run_sfm(video_path, video_id, video_id)
     success_frames = [f for f in sfm_result["frames"] if f["pose_status"] == "success"]
@@ -43,7 +48,7 @@ def _sfm_point_cloud(
                 sfm_poses, len(sfm_result["frames"]), scene_count)
 
     if sfm_poses == 0:
-        return None, None, sfm_poses, scene_count
+        return None, None, sfm_poses, scene_count, sfm_result["frames"]
 
     pts, cols = [], []
     max_t = max(sfm_result["frames"][-1]["t_sec"], 1.0)
@@ -60,6 +65,7 @@ def _sfm_point_cloud(
         np.array(cols, dtype=np.float32),
         sfm_poses,
         scene_count,
+        sfm_result["frames"],
     )
 
 
@@ -128,17 +134,21 @@ def build_sparse_map(
     frame_list: List[Tuple[str, float]],
     models: Dict[str, Any],
     run_sfm_flag: bool = True,
+    run_gsplat_flag: bool = True,
+    device: str = "cuda",
 ) -> Dict[str, Any]:
-    """Build sparse 3D map and save to *map_dir*.
+    """Build sparse 3D map and optionally a 3D Gaussian Splat, saving to *map_dir*.
 
     Parameters
     ----------
-    video_path   : absolute path to source video
-    video_id     : unique video identifier
-    map_dir      : output directory (created if absent)
-    frame_list   : list of (frame_path, t_sec) tuples from frame extraction
-    models       : dict with "clip" and optionally "dino" embedder instances
-    run_sfm_flag : attempt pycolmap SfM when True; go straight to PCA when False
+    video_path      : absolute path to source video
+    video_id        : unique video identifier
+    map_dir         : output directory (created if absent)
+    frame_list      : list of (frame_path, t_sec) tuples from frame extraction
+    models          : dict with "clip" and optionally "dino" embedder instances
+    run_sfm_flag    : attempt pycolmap SfM when True; go straight to PCA when False
+    run_gsplat_flag : train 3D Gaussians with gsplat when True (CUDA required)
+    device          : torch device string passed to gsplat
     """
     map_dir = Path(map_dir)
     map_dir.mkdir(parents=True, exist_ok=True)
@@ -150,11 +160,12 @@ def build_sparse_map(
     sfm_poses   = 0
     scene_count = 0
     method      = "none"
+    sfm_frames: Optional[List] = None
 
     if run_sfm_flag:
         logger.info("Running Structure-from-Motion (pycolmap) …")
         try:
-            points3d, colours, sfm_poses, scene_count = _sfm_point_cloud(
+            points3d, colours, sfm_poses, scene_count, sfm_frames = _sfm_point_cloud(
                 video_path, video_id
             )
             if points3d is not None:
@@ -177,25 +188,61 @@ def build_sparse_map(
 
     np.savez(str(npz_path), points=points3d, colours=colours)
     ply_path = export_ply(points3d, colours, map_dir / "sparse_map.ply")
+
+    # ── 3D Gaussian Splatting ─────────────────────────────────────────────────
+    splat_ply    = None
+    viewer_html  = None
+    gsplat_method = "skipped"
+    if run_gsplat_flag:
+        logger.info("Building 3D Gaussian Splat (gsplat) …")
+        try:
+            from pipeline.gsplat_builder import build_gaussian_splat
+            gs = build_gaussian_splat(
+                frame_list=frame_list,
+                map_dir=map_dir,
+                sfm_frames=sfm_frames,
+                device=device,
+            )
+            gsplat_method = gs["method"]
+            if not gs["skipped"]:
+                splat_ply   = gs["splat_ply"]
+                viewer_html = gs["viewer_html"]
+                logger.info("  Gaussian Splat: %d Gaussians → %s  (%.1fs)",
+                            gs["point_count"], Path(splat_ply).name, gs["train_sec"])
+                logger.info("  Viewer HTML: %s", viewer_html)
+            else:
+                logger.info("  Gaussian Splat skipped: %s", gs["reason"])
+        except Exception as exc:
+            logger.warning("gsplat step failed: %s", exc, exc_info=True)
+            gsplat_method = "error"
+
     map_stats = {
-        "method":      method,
-        "point_count": int(len(points3d)),
-        "sfm_poses":   sfm_poses,
-        "scene_count": scene_count,
-        "npz":         str(npz_path),
-        "ply":         str(ply_path),
+        "method":        method,
+        "point_count":   int(len(points3d)),
+        "sfm_poses":     sfm_poses,
+        "scene_count":   scene_count,
+        "npz":           str(npz_path),
+        "ply":           str(ply_path),
+        "gsplat_method": gsplat_method,
+        "splat_ply":     splat_ply,
+        "viewer_html":   viewer_html,
     }
     stats_path.write_text(json.dumps(map_stats, indent=2), encoding="utf-8")
 
     logger.info("3D map saved: %d points  method=%s", len(points3d), method)
     logger.info("  NPZ: %s", npz_path)
     logger.info("  PLY: %s  (open in MeshLab / CloudCompare / Blender)", ply_path)
+    if splat_ply:
+        logger.info("  3DGS: %s  (open view_splat.html in browser for interactive view)", splat_ply)
     return {
-        "npz_path":    str(npz_path),
-        "ply_path":    str(ply_path),
-        "points":      points3d,
-        "colours":     colours,
-        "sfm_poses":   sfm_poses,
-        "scene_count": scene_count,
-        "method":      method,
+        "npz_path":      str(npz_path),
+        "ply_path":      str(ply_path),
+        "points":        points3d,
+        "colours":       colours,
+        "sfm_poses":     sfm_poses,
+        "scene_count":   scene_count,
+        "method":        method,
+        "splat_ply":     splat_ply,
+        "viewer_html":   viewer_html,
+        "gsplat_method": gsplat_method,
     }
