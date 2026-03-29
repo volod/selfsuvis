@@ -75,48 +75,79 @@ python scripts/prepare_models.py --whisper --florence
 python scripts/prepare_models.py --all
 ```
 
+### Florence-2 scene captioning (step L)
+
+Step L captions every keyframe using Florence-2-large (`<MORE_DETAILED_CAPTION>`).
+By default the model is loaded locally into the same GPU process.
+If another process (e.g. Ollama with a 7B VLM) already occupies most VRAM, the
+pipeline automatically tries two strategies before falling back to Qwen API:
+
+1. **Ollama VRAM eviction (automatic)** — when `--qwen-api-url` points to Ollama
+   (port 11434), the pipeline sends `keep_alive=0` to unload the running VLM before
+   loading Florence-2 (~11–12 GiB freed). Ollama reloads its model automatically
+   when step R (Qwen) sends the first request. No extra flags needed.
+
+   > **Note on vLLM:** Florence-2 (`Florence2ForConditionalGeneration`) was
+   > supported in vLLM up to v0.10.2 and was **removed in v0.11+**. The current
+   > `vllm/vllm-openai:latest` image does not support Florence-2. If you have a
+   > custom OpenAI-compatible server that does serve Florence-2, pass its URL via
+   > `--florence-api-url`. For all standard setups, use the Ollama auto-eviction
+   > approach above.
+
 ### Qwen VLM sidecar (optional — for detailed scene captioning, step R)
 
 Step R (`--qwen`) calls an OpenAI-compatible vision endpoint for structured per-frame analysis.
 It uses ASR subtitles (from step M) and OCR text (from step N) as context in the prompt.
 
-**Option 1 — vLLM (recommended, GPU required):**
+> **Important:** Do **not** `pip install vllm` into the project virtualenv —
+> vLLM replaces pydantic, protobuf, fastapi, and transformers with incompatible
+> versions and will break the project. Run vLLM in Docker instead.
+>
+> **Florence-2 is not supported in vLLM 0.11+.** Only Qwen can be served via
+> vLLM Docker. Florence-2 is loaded locally with automatic Ollama eviction (see
+> Option 2) or skipped with `--no-caption`.
+
+**Option 1 — vLLM Docker: Qwen only**
 
 ```bash
-# Install vLLM (once):
-pip install vllm
+# Qwen2.5-VL-7B for step R (detailed captioning), port 8010:
+docker run --gpus all --rm -p 8010:8000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  vllm/vllm-openai:latest \
+  --model Qwen/Qwen2.5-VL-7B-Instruct \
+  --max-model-len 8192 --limit-mm-per-prompt image=1
 
-# Serve Qwen2.5-VL-7B-Instruct on port 8010:
-vllm serve Qwen/Qwen2.5-VL-7B-Instruct \
-  --port 8010 \
-  --max-model-len 8192 \
-  --limit-mm-per-prompt image=1
-
-# Then run the demo with Qwen enabled:
-python demo.py --asr --qwen --qwen-api-url http://localhost:8010/v1
+# Run — Qwen via vLLM Docker, Florence loaded locally:
+python main.py --mode demo --asr --ocr --qwen \
+  --qwen-api-url http://localhost:8010/v1
 ```
 
-**Option 2 — Ollama (CPU-friendly):**
+**Option 2 — Ollama: Qwen only (Florence loaded locally with auto-eviction)**
+
+Ollama runs Qwen; Florence-2 is loaded locally. The pipeline automatically sends
+`keep_alive=0` to Ollama before loading Florence (~11–12 GiB freed), then Ollama
+reloads when step R runs. No extra flags needed.
 
 ```bash
 # Install ollama (https://ollama.com), then pull the model:
 ollama pull qwen2.5vl:7b
 
-# Ollama exposes an OpenAI-compatible API on port 11434:
-python demo.py --asr --qwen --qwen-api-url http://localhost:11434/v1
+# Run — Florence local (Ollama auto-evicted before step L), Qwen via Ollama:
+python main.py --mode demo --asr --ocr --qwen \
+  --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b
 
-# Or set the env var permanently:
+# Or set env vars permanently:
 export QWEN_API_URL=http://localhost:11434/v1
 export QWEN_BACKEND=ollama
-python demo.py --asr --qwen
+python main.py --mode demo --asr --ocr --qwen
 ```
 
 **Option 3 — Remote / Docker Compose:**
 
 ```bash
-# In docker-compose.yml, add a qwen service that exposes port 8010,
-# then point the worker/demo at it:
-QWEN_API_URL=http://qwen:8010/v1 python demo.py --asr --qwen
+# In docker-compose.yml, add a qwen service, then:
+QWEN_API_URL=http://qwen:8010/v1 \
+  python main.py --mode demo --asr --ocr --qwen
 ```
 
 > **Note:** If `QWEN_API_URL` is empty (the default), step R is skipped automatically.
@@ -126,36 +157,40 @@ QWEN_API_URL=http://qwen:8010/v1 python demo.py --asr --qwen
 
 ```bash
 # Basic — uses data_test/videos/, writes to data_test/output/
-python demo.py
+python main.py --mode demo
 
 # Custom directories
-python demo.py --videos-dir /path/to/videos --output-dir /path/to/output
+python main.py --mode demo --videos-dir /path/to/videos --output-dir /path/to/output
 
 # CPU only (no CUDA required)
-python demo.py --device cpu
+python main.py --mode demo --device cpu
 
 # Skip optional steps
-python demo.py --no-qdrant --no-sfm --no-onnx
+python main.py --mode demo --no-qdrant --no-sfm --no-onnx
 
 # Enable multimodal steps (each loads its model lazily on first frame):
-python demo.py --asr                          # Whisper speech-to-text
-python demo.py --ocr                          # OCR text extraction per frame
-python demo.py --depth                        # Depth estimation per frame
-python demo.py --detection                    # Object detection per frame
-python demo.py --world-model                  # World model video embeddings
-python demo.py --qwen --qwen-api-url http://localhost:8010/v1  # Qwen VLM detailed captioning
+python main.py --mode demo --asr                   # Whisper speech-to-text
+python main.py --mode demo --ocr                   # OCR text extraction per frame
+python main.py --mode demo --depth                 # Depth estimation per frame
+python main.py --mode demo --detection             # Object detection per frame
+python main.py --mode demo --world-model           # World model video embeddings
+python main.py --mode demo --qwen --qwen-api-url http://localhost:8010/v1  # Qwen VLM (step R)
 
-# Full multimodal run (ASR subtitles fed into Qwen as context):
-python demo.py --asr --ocr --qwen --qwen-api-url http://localhost:8010/v1
+# Full multimodal — Florence local (Ollama auto-evicted before step L), Qwen via vLLM Docker:
+python main.py --mode demo --asr --ocr --qwen \
+  --qwen-api-url http://localhost:8010/v1
 
-python demo.py --asr --ocr --qwen --qwen-api-url http://localhost:11434/v1
+# Full multimodal — Florence local (Ollama auto-evicted), Qwen via Ollama:
+python main.py --mode demo --asr --ocr --qwen \
+  --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b
 
 # Select specific models (default: GPU-aware auto-selection):
-python demo.py --asr --asr-model openai/whisper-large-v3
-python demo.py --qwen --qwen-model Qwen/Qwen2.5-VL-72B-Instruct --qwen-api-url http://host:8010/v1
+python main.py --mode demo --asr --asr-model openai/whisper-large-v3
+
+python main.py --mode demo --qwen --qwen-model Qwen/Qwen2.5-VL-72B-Instruct --qwen-api-url http://host:8010/v1
 
 # Full options
-python demo.py --help
+python main.py --mode demo --help
 ```
 
 ### Output artifacts
@@ -256,6 +291,9 @@ After all videos are processed, an interactive 3D scatter viewer opens for each 
 
 [YK](https://github.com/garrytan/gstack)
 /office-hours → /plan-ceo-review → /plan-eng-review → [build] → /review → /qa → /ship
+
+cloc $(git ls-files)
+
 [G](https://github.com/sickn33/antigravity-awesome-skills)
 [ACC](https://github.com/hesreallyhim/awesome-claude-code)
 [ECC](https://github.com/affaan-m/everything-claude-code)

@@ -16,7 +16,7 @@ ui/components/ splat_viewer.py — SuperSplat iframe component
 app/routers/  index.py, query.py, jobs.py, robot.py (POST /query/pose)
 docker/       Dockerfiles and compose files (+ docker-compose.override.yml for nerfstudio)
 scripts/      migrate_postgres.py, reset_qdrant.sh, prepare_models.py, index helpers
-demo.py       end-to-end demo pipeline (steps A–H, no Docker required)
+pipeline/demo_runner.py  end-to-end demo pipeline (steps A–H, no Docker required; run via main.py --mode demo)
 tests/        unit tests (tests/unit/) and integration (tests/test_api.py, test_robot_api.py)
 docs/         documentation and ADRs
 ```

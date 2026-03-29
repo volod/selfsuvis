@@ -158,7 +158,17 @@ class OCRModel:
         elif self.model_id.startswith("microsoft/Florence"):
             self._backend = "florence"
         elif any(self.model_id.startswith(p) for p in _VLM_PREFIXES):
-            self._backend = "vlm"
+            # VLM model — if a Qwen/ollama sidecar is already running, route OCR
+            # through it instead of loading another ~8 GB model into VRAM.
+            if settings.QWEN_API_URL:
+                self._backend = "vllm"
+                logger.info(
+                    "OCR: VLM model %s routed through Qwen sidecar at %s "
+                    "(avoids loading model into GPU VRAM alongside sidecar)",
+                    self.model_id, settings.QWEN_API_URL,
+                )
+            else:
+                self._backend = "vlm"
         else:
             # TrOCR family (microsoft/trocr-*)
             self._backend = "trocr"
@@ -169,14 +179,21 @@ class OCRModel:
 
     def _extract_vllm(self, image: Image.Image) -> str:
         from openai import OpenAI
-        client = OpenAI(
-            api_key="EMPTY",
-            base_url=settings.OCR_API_URL,
-            timeout=settings.OCR_TIMEOUT_SEC,
-        )
+        # Prefer the dedicated OCR sidecar; fall back to the Qwen/ollama sidecar when
+        # the OCR model is a VLM that would OOM if loaded locally alongside the sidecar.
+        if settings.OCR_API_URL:
+            api_url = settings.OCR_API_URL
+            model = settings.OCR_MODEL if settings.OCR_MODEL.lower() not in ("auto", "") else self.model_id
+            timeout = settings.OCR_TIMEOUT_SEC
+        else:
+            # Routed through Qwen sidecar (ollama / vLLM already running)
+            api_url = settings.QWEN_API_URL
+            model = settings.QWEN_MODEL
+            timeout = settings.QWEN_TIMEOUT_SEC
+        client = OpenAI(api_key="EMPTY", base_url=api_url, timeout=timeout)
         b64 = _encode_b64(image)
         response = client.chat.completions.create(
-            model=settings.OCR_MODEL if settings.OCR_MODEL.lower() not in ("auto", "") else self.model_id,
+            model=model,
             messages=[
                 {
                     "role": "user",
@@ -297,7 +314,7 @@ class OCRModel:
             import torch
             device = _get_device()
 
-            # Strategy 1: apply_chat_template with image+text message (modern VLMs)
+            # Strategy 1: processor.apply_chat_template (Qwen2-VL, LLaVA, etc.)
             try:
                 messages = [{"role": "user", "content": [
                     {"type": "image"},
@@ -309,8 +326,27 @@ class OCRModel:
                 inputs = self._processor(
                     text=text, images=[image], return_tensors="pt"
                 ).to(device)
+            except AttributeError:
+                # Strategy 2: tokenizer.apply_chat_template with image placeholder
+                # (Phi-3.5-vision: Phi3VProcessor has no apply_chat_template but its
+                #  inner tokenizer does; the text MUST contain <|image_1|> so the
+                #  processor can match images to placeholders.)
+                try:
+                    tokenizer = getattr(self._processor, "tokenizer", self._processor)
+                    messages = [{"role": "user", "content": f"<|image_1|>\n{_OCR_PROMPT}"}]
+                    text = tokenizer.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=True
+                    )
+                    inputs = self._processor(
+                        text=text, images=[image], return_tensors="pt"
+                    ).to(device)
+                except Exception:
+                    # Strategy 3: direct processor call (TrOCR-style / older models)
+                    inputs = self._processor(
+                        text=_OCR_PROMPT, images=image, return_tensors="pt"
+                    ).to(device)
             except Exception:
-                # Strategy 2: direct processor call (fallback for simpler processors)
+                # Strategy 3 fallback for non-AttributeError failures
                 inputs = self._processor(
                     text=_OCR_PROMPT, images=image, return_tensors="pt"
                 ).to(device)
@@ -321,25 +357,72 @@ class OCRModel:
             # Strip echoed input tokens — only decode the newly generated portion
             input_len = inputs["input_ids"].shape[1]
             return self._processor.decode(out[0, input_len:], skip_special_tokens=True)
-        except Exception:
-            logger.warning("VLM OCR inference failed for %s", self.model_id, exc_info=True)
+        except Exception as _exc:
+            # Detect CUDA OOM — no point retrying on subsequent frames; disable now.
+            if type(_exc).__name__ == "OutOfMemoryError":
+                logger.warning(
+                    "VLM OCR CUDA OOM for %s — disabling OCR for remaining frames. "
+                    "Use a smaller OCR model or free GPU memory.",
+                    self.model_id,
+                )
+                self._load_failed = True
+            else:
+                logger.warning("VLM OCR inference failed for %s", self.model_id, exc_info=True)
             return ""
+
+    def release(self) -> None:
+        """Unload model weights from GPU to free VRAM for subsequent models."""
+        import gc
+        import torch
+        if getattr(self, "_model", None) is not None:
+            try:
+                # Move to CPU first so accelerate's device_map hooks release GPU pages.
+                self._model.cpu()
+            except Exception:
+                pass
+            del self._model
+            self._model = None
+        if getattr(self, "_processor", None) is not None:
+            del self._processor
+            self._processor = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
 
     def _load_vlm_local(self) -> None:
         try:
             import torch
             from transformers import AutoProcessor, AutoModelForCausalLM
 
+            # Phi-3.5-vision's cached modeling code calls get_max_length() but
+            # newer transformers renamed it to get_seq_length() on DynamicCache.
+            try:
+                from transformers.cache_utils import DynamicCache
+                if not hasattr(DynamicCache, "get_max_length"):
+                    DynamicCache.get_max_length = DynamicCache.get_seq_length  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
             device = _get_device()
             self._processor = AutoProcessor.from_pretrained(
                 self.model_id, trust_remote_code=True
             )
             dtype = torch.float16 if (settings.USE_FP16 and device != "cpu") else torch.float32
+            attn_impl = _best_attn_impl()
+            # trust_remote_code models (e.g. Phi-3.5-vision) may have hardcoded flash_attn_func
+            # calls in their cached modeling code that bypass attn_implementation entirely.
+            # When flash_attn is installed and we're on CUDA, force float16 so those calls
+            # don't crash. Falling back to sdpa in attn_implementation is not enough here.
+            if attn_impl == "flash_attention_2" and dtype == torch.float32 and device == "cuda":
+                dtype = torch.float16
+            elif attn_impl == "flash_attention_2" and dtype == torch.float32:
+                attn_impl = "sdpa"
             load_kwargs: dict = {
                 "trust_remote_code": True,
                 "torch_dtype": dtype,
                 "low_cpu_mem_usage": True,
-                "attn_implementation": _best_attn_impl(),
+                "attn_implementation": attn_impl,
             }
             # device_map requires accelerate; fall back to .to(device) when absent
             try:

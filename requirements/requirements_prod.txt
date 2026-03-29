@@ -20,6 +20,11 @@ python-multipart==0.0.9
 pydantic>=2.6.1
 tqdm==4.66.2
 faiss-cpu==1.8.0
+onnxscript>=0.1
+# onnxruntime: CPU-only base install.  On CUDA machines scripts/install_requirements.sh
+# upgrades this to onnxruntime-gpu (which also bundles TensorrtExecutionProvider).
+# Do NOT install both onnxruntime and onnxruntime-gpu in the same environment.
+onnxruntime>=1.18.0
 requests==2.31.0
 transformers>=4.47.0,<4.54.0
 accelerate>=0.26.0

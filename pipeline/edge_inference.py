@@ -34,6 +34,81 @@ _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
+# ── Provider selection ─────────────────────────────────────────────────────────
+
+def _select_providers(device: str) -> List[str]:
+    """Select ONNX Runtime execution providers for *device*, logging gaps.
+
+    Preference order for ``device="cuda"``:
+      1. TensorrtExecutionProvider  — highest throughput on NVIDIA GPUs
+         (shipped in ``onnxruntime-gpu``; requires TensorRT shared libs at runtime)
+      2. CUDAExecutionProvider      — general CUDA acceleration
+      3. CPUExecutionProvider       — fallback (always available)
+
+    Note on QNN: ``QNNExecutionProvider`` targets Qualcomm Hexagon DSP / NPU
+    hardware (Snapdragon, Windows-on-ARM).  It is not available on CUDA/x86
+    machines and there is no CUDA simulator for it.  TensorRT is the correct
+    NVIDIA analogue.
+
+    Warns explicitly (rather than silently falling back) whenever a requested
+    accelerated provider is absent so the operator knows inference degraded.
+    """
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        logger.error(
+            "onnxruntime not installed — cannot select providers. "
+            "Install: pip install onnxruntime  (CPU)  or  pip install onnxruntime-gpu  (CUDA)."
+        )
+        return ["CPUExecutionProvider"]
+
+    available = ort.get_available_providers()
+    logger.debug("ONNX Runtime available providers on this host: %s", available)
+
+    if device == "cpu":
+        return ["CPUExecutionProvider"]
+
+    if device == "cuda":
+        selected: List[str] = []
+
+        # ── TensorRT EP ────────────────────────────────────────────────────────
+        # Highest throughput on NVIDIA GPUs. Included in onnxruntime-gpu but
+        # also requires libnvinfer.so.* (TensorRT) to be present at runtime.
+        if "TensorrtExecutionProvider" in available:
+            selected.append("TensorrtExecutionProvider")
+            logger.info(
+                "ONNX Runtime: TensorrtExecutionProvider available — "
+                "using TensorRT for best NVIDIA GPU throughput."
+            )
+        else:
+            logger.info(
+                "ONNX Runtime: TensorrtExecutionProvider not available. "
+                "To enable: install onnxruntime-gpu and TensorRT "
+                "(apt install tensorrt  or  pip install tensorrt). "
+                "Falling through to CUDAExecutionProvider."
+            )
+
+        # ── CUDA EP ────────────────────────────────────────────────────────────
+        if "CUDAExecutionProvider" in available:
+            selected.append("CUDAExecutionProvider")
+        else:
+            logger.warning(
+                "ONNX Runtime: CUDAExecutionProvider not available even though "
+                "device='cuda' was requested. "
+                "Install onnxruntime-gpu:  pip install onnxruntime-gpu  "
+                "(current package may be CPU-only onnxruntime). "
+                "Inference will fall back to CPU — expect slower performance."
+            )
+
+        selected.append("CPUExecutionProvider")
+        return selected
+
+    logger.warning(
+        "EdgeClassifier: unrecognised device=%r — falling back to CPUExecutionProvider.", device
+    )
+    return ["CPUExecutionProvider"]
+
+
 # ── Preprocessing ─────────────────────────────────────────────────────────────
 
 def _preprocess_image(image_pil: Image.Image, image_size: int = 224) -> np.ndarray:
@@ -119,26 +194,75 @@ class EdgeClassifier:
         self.top_k = top_k
         self._device = device
 
-        # Select providers
-        if device == "cuda":
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        else:
-            providers = ["CPUExecutionProvider"]
+        if not os.path.isfile(onnx_path):
+            raise FileNotFoundError(
+                f"EdgeClassifier: ONNX model not found: {onnx_path}. "
+                "Export it first with:  python scripts/export_onnx.py"
+            )
+
+        providers = _select_providers(device)
+        logger.info(
+            "EdgeClassifier: requested providers for device=%r: %s", device, providers
+        )
 
         self._session = ort.InferenceSession(onnx_path, providers=providers)
+        active_providers = self._session.get_providers()
+        logger.info(
+            "EdgeClassifier: ONNX session active providers: %s  (model=%s)",
+            active_providers, onnx_path,
+        )
+
+        # Warn when the session silently downgraded to CPU
+        if device == "cuda" and "CUDAExecutionProvider" not in active_providers:
+            logger.warning(
+                "EdgeClassifier: CUDA was requested but CUDAExecutionProvider is NOT active. "
+                "All inference will run on CPU. "
+                "Verify onnxruntime-gpu is installed: pip install onnxruntime-gpu"
+            )
+
         self._input_name: str = self._session.get_inputs()[0].name
-        logger.info("EdgeClassifier: loaded ONNX model from %s", onnx_path)
+        logger.info(
+            "EdgeClassifier: loaded ONNX model from %s  (input=%r)",
+            onnx_path, self._input_name,
+        )
 
         # Load gallery
-        data = np.load(gallery_path, allow_pickle=True)
-        self._gallery_embeddings: np.ndarray = data["embeddings"].astype(np.float32)
-        self._gallery_labels: np.ndarray = data["labels"]
-        logger.info(
-            "EdgeClassifier: gallery loaded from %s  (%d embeddings, dim=%d)",
-            gallery_path,
-            len(self._gallery_embeddings),
-            self._gallery_embeddings.shape[1] if self._gallery_embeddings.ndim == 2 else -1,
-        )
+        # gallery_path="" is a supported "embed-only" mode used by build_gallery
+        # (it only needs the ONNX session for embed(); classify() must not be called).
+        if gallery_path:
+            if not os.path.isfile(gallery_path):
+                raise FileNotFoundError(
+                    f"EdgeClassifier: gallery NPZ not found: {gallery_path}. "
+                    "Build it first with:  python scripts/build_gallery.py"
+                )
+            data = np.load(gallery_path, allow_pickle=True)
+            missing = [k for k in ("embeddings", "labels") if k not in data]
+            if missing:
+                raise KeyError(
+                    f"EdgeClassifier: gallery NPZ {gallery_path!r} is missing keys: {missing}. "
+                    "Rebuild with:  python scripts/build_gallery.py"
+                )
+            self._gallery_embeddings: np.ndarray = data["embeddings"].astype(np.float32)
+            self._gallery_labels: np.ndarray = data["labels"]
+            if self._gallery_embeddings.ndim != 2:
+                raise ValueError(
+                    f"EdgeClassifier: gallery embeddings have unexpected shape "
+                    f"{self._gallery_embeddings.shape} (expected 2-D array). "
+                    "Rebuild the gallery."
+                )
+            logger.info(
+                "EdgeClassifier: gallery loaded from %s  (%d embeddings, dim=%d)",
+                gallery_path,
+                len(self._gallery_embeddings),
+                self._gallery_embeddings.shape[1],
+            )
+        else:
+            logger.debug(
+                "EdgeClassifier: no gallery_path provided — running in embed-only mode. "
+                "classify() must not be called."
+            )
+            self._gallery_embeddings = np.zeros((0, 1), dtype=np.float32)
+            self._gallery_labels = np.array([], dtype=object)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -283,10 +407,8 @@ def build_gallery(
 
     # Build embedder
     if onnx_path is not None:
+        # gallery_path="" activates embed-only mode (no gallery file required)
         clf = EdgeClassifier(onnx_path=onnx_path, gallery_path="", top_k=1)
-        # Override gallery (not needed for embed)
-        clf._gallery_embeddings = np.zeros((0, 1), dtype=np.float32)
-        clf._gallery_labels = np.array([], dtype=object)
 
         def _embed_fn(img: Image.Image) -> np.ndarray:
             return clf.embed(img)
@@ -320,16 +442,43 @@ def build_gallery(
     # Embed all frames
     all_embeddings: List[np.ndarray] = []
     all_labels: List[str] = []
+    skipped: List[str] = []
+
+    total_frames = sum(len(v) for v in labels_map.values())
+    logger.info(
+        "build_gallery: embedding %d frames across %d labels …",
+        total_frames, len(labels_map),
+    )
 
     for label in sorted(labels_map.keys()):
         paths = labels_map[label]
+        logger.debug("build_gallery: label=%r — %d frames", label, len(paths))
         for p in paths:
-            img = Image.open(p).convert("RGB")
-            emb = _embed_fn(img)
-            emb = _l2_normalise(emb.reshape(1, -1))[0]
-            all_embeddings.append(emb)
-            all_labels.append(label)
-            logger.debug("build_gallery: embedded %s → label=%s", p, label)
+            try:
+                img = Image.open(p).convert("RGB")
+                emb = _embed_fn(img)
+                emb = _l2_normalise(emb.reshape(1, -1))[0]
+                all_embeddings.append(emb)
+                all_labels.append(label)
+                logger.debug("build_gallery: embedded %s → label=%s", p, label)
+            except Exception:
+                logger.warning(
+                    "build_gallery: FAILED to embed %s (label=%r) — skipping frame.",
+                    p, label, exc_info=True,
+                )
+                skipped.append(p)
+
+    if skipped:
+        logger.warning(
+            "build_gallery: %d / %d frames were skipped due to errors: %s",
+            len(skipped), total_frames, skipped,
+        )
+
+    if not all_embeddings:
+        raise RuntimeError(
+            "build_gallery: no frames were embedded successfully — gallery not saved. "
+            "Check the errors above."
+        )
 
     embeddings = np.stack(all_embeddings, axis=0).astype(np.float32)  # (N, D)
     labels_arr = np.array(all_labels, dtype=object)

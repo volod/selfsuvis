@@ -548,9 +548,9 @@ Results stored in `change_detections` table. Accessible via `GET /missions/{id}/
 
 ---
 
-## Demo pipeline (`demo.py`)
+## Demo pipeline (`main.py --mode demo`)
 
-A self-contained end-to-end demo that runs the full perception stack on local video files without Docker. Steps A–H run sequentially per video.
+A self-contained end-to-end demo that runs the full perception stack on local video files without Docker. Steps A–H run sequentially per video. All logic lives in `pipeline/demo_runner.py`.
 
 ```
 A  Frame extraction        ffmpeg → JPEG frames at --fps (default 2)
@@ -602,14 +602,14 @@ PLY colour: blue (early frames) → red (late frames).
 ### CLI flags
 
 ```bash
-python demo.py                          # full pipeline, auto-opens 3D viewer at end
-python demo.py --no-view                # skip interactive 3D viewer
-python demo.py --no-sfm                 # skip pycolmap, use PCA point cloud
-python demo.py --view-npz               # view all sparse_map.npz in output dir (no pipeline)
-python demo.py --view-npz path/         # view specific video output directory
-python demo.py --view-npz file.npz      # view a specific .npz file
-python demo.py --no-qdrant              # force in-memory store
-python demo.py --device cuda --epochs 5
+python main.py --mode demo                          # full pipeline, auto-opens 3D viewer at end
+python main.py --mode demo --no-view                # skip interactive 3D viewer
+python main.py --mode demo --no-sfm                 # skip pycolmap, use PCA point cloud
+python main.py --mode demo --view-npz               # view all sparse_map.npz in output dir (no pipeline)
+python main.py --mode demo --view-npz path/         # view specific video output directory
+python main.py --mode demo --view-npz file.npz      # view a specific .npz file
+python main.py --mode demo --no-qdrant              # force in-memory store
+python main.py --mode demo --device cuda --epochs 5
 ```
 
 ### New pipeline modules (added during demo refactor)

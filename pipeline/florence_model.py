@@ -65,12 +65,24 @@ class FlorenceModel:
         self._processor = AutoProcessor.from_pretrained(
             _MODEL_ID, trust_remote_code=True
         )
-        self._model = AutoModelForCausalLM.from_pretrained(
-            _MODEL_ID,
-            torch_dtype=torch_dtype,
-            trust_remote_code=True,
-            attn_implementation=_best_attn_impl(),
-        ).to(self.device)
+        attn_impl = _best_attn_impl()
+        # Flash Attention 2.0 requires float16 or bfloat16; fall back to sdpa for float32.
+        if attn_impl == "flash_attention_2" and torch_dtype == torch.float32:
+            attn_impl = "sdpa"
+        load_kwargs: dict = {
+            "torch_dtype": torch_dtype,
+            "trust_remote_code": True,
+            "attn_implementation": attn_impl,
+        }
+        # Flash Attention 2.0 requires weights to land on GPU at load time.
+        # Single-GPU: use {"": 0} to skip accelerate's conservative 90/10 memory
+        # estimation (which emits an INFO log and unnecessarily caps usable VRAM).
+        # Multi-GPU: fall back to "auto" so accelerate distributes layers.
+        if self.device == "cuda":
+            load_kwargs["device_map"] = "auto" if torch.cuda.device_count() > 1 else {"": 0}
+        self._model = AutoModelForCausalLM.from_pretrained(_MODEL_ID, **load_kwargs)
+        if self.device != "cuda":
+            self._model = self._model.to(self.device)
         self._model.eval()
 
         logger.info(
@@ -78,6 +90,25 @@ class FlorenceModel:
             self.device,
             torch_dtype,
         )
+
+    def release(self) -> None:
+        """Unload model weights from GPU to free VRAM for subsequent models."""
+        import gc
+        if getattr(self, "_model", None) is not None:
+            try:
+                # Move to CPU first so accelerate's device_map hooks release GPU pages.
+                self._model.cpu()
+            except Exception:
+                pass
+            del self._model
+            self._model = None  # type: ignore[assignment]
+        if getattr(self, "_processor", None) is not None:
+            del self._processor
+            self._processor = None  # type: ignore[assignment]
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
 
     # ── public API ────────────────────────────────────────────────────────────
 

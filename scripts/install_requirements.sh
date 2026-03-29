@@ -102,3 +102,61 @@ if "$PYTHON_BIN" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 
 else
   echo "No CUDA GPU detected — skipping flash-attn (CPU-only mode)."
 fi
+
+# ── TensorRT + onnxruntime-gpu ─────────────────────────────────────────────────
+# onnxruntime-gpu replaces the CPU-only onnxruntime installed from requirements.
+# It adds CUDAExecutionProvider and TensorrtExecutionProvider, giving the fastest
+# ONNX inference on NVIDIA GPUs.  TensorRT must also be present at runtime for
+# TensorrtExecutionProvider to activate; we install it from NVIDIA's PyPI index.
+#
+# TensorRT CUDA compatibility:
+#   CUDA 12.x → TensorRT 10.x  (tensorrt>=10.0 from pypi.nvidia.com)
+#   CUDA 11.8 → TensorRT 8.x   (tensorrt<9; use apt or older wheel)
+#
+# Non-fatal: falls back to CPU onnxruntime if GPU install fails.
+if [[ -n "$TORCH_CUDA_INDEX" ]]; then
+  echo ""
+  echo "── onnxruntime-gpu + TensorRT ────────────────────────────────────────────────"
+
+  # Uninstall CPU-only onnxruntime first to avoid package conflict.
+  "$PYTHON_BIN" -m pip uninstall -y onnxruntime 2>/dev/null || true
+
+  echo "Installing onnxruntime-gpu …"
+  if "$PYTHON_BIN" -m pip install "onnxruntime-gpu>=1.18.0" -q; then
+    echo "  onnxruntime-gpu installed (CUDAExecutionProvider enabled)."
+  else
+    echo "  WARNING: onnxruntime-gpu install failed — reinstalling CPU onnxruntime."
+    "$PYTHON_BIN" -m pip install "onnxruntime>=1.18.0" -q || true
+  fi
+
+  # TensorRT wheels are published by NVIDIA at https://pypi.nvidia.com.
+  # Version selection:
+  #   CUDA 12.x → tensorrt>=10 (cu12 variant)
+  #   CUDA 11.8 → tensorrt<9   (cu11 bindings are not on pypi.nvidia.com; use apt)
+  echo "Installing TensorRT Python package (enables TensorrtExecutionProvider) …"
+  if [[ "$TORCH_CUDA_INDEX" == cu118 ]]; then
+    echo "  CUDA 11.8 detected — TensorRT 10+ is not available for CUDA 11."
+    echo "  Install TensorRT 8.x via apt from the NVIDIA TensorRT apt repo, then"
+    echo "  the TensorrtExecutionProvider will activate automatically."
+    echo "  See: https://docs.nvidia.com/deeplearning/tensorrt/install-guide/index.html"
+  else
+    # CUDA 12.x — use NVIDIA's PyPI index (pypi.nvidia.com publishes cu12 wheels).
+    if "$PYTHON_BIN" -m pip install \
+        "tensorrt>=10.0" \
+        "tensorrt-cu12-bindings" \
+        "tensorrt-cu12-libs" \
+        --extra-index-url https://pypi.nvidia.com \
+        -q; then
+      echo "  TensorRT installed (TensorrtExecutionProvider will be active)."
+    else
+      echo "  WARNING: TensorRT pip install failed. Possible fixes:"
+      echo "    pip install tensorrt --extra-index-url https://pypi.nvidia.com"
+      echo "    sudo apt-get install -y tensorrt  (requires nvidia-tensorrt apt repo)"
+      echo "    See: https://docs.nvidia.com/deeplearning/tensorrt/install-guide/index.html"
+      echo "  Without TensorRT, onnxruntime-gpu will use CUDAExecutionProvider only."
+    fi
+  fi
+else
+  echo ""
+  echo "No CUDA detected — keeping CPU-only onnxruntime (no TensorRT)."
+fi

@@ -257,8 +257,11 @@ class QwenModel:
             if tagger is not None:
                 try:
                     result = tagger.describe_image(image, top_k=1)
-                    if result:
-                        top_label, top_score = result[0]
+                    # describe_image returns {"labels": [{"label": ..., "score": ...}]}
+                    labels = result.get("labels", []) if isinstance(result, dict) else []
+                    if labels:
+                        top_label = labels[0]["label"]
+                        top_score = labels[0]["score"]
                         if top_label.lower() not in _VEHICLE_LABELS or top_score < settings.QWEN_CLIP_THRESHOLD:
                             return {"clip_filtered": True, "reason": "below_vehicle_threshold"}
                     else:

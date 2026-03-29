@@ -150,7 +150,7 @@ Sort: most recent first (default). User can resort by clicking column headers.
 
 ## Sparse point cloud viewer (demo pipeline)
 
-The demo pipeline (`demo.py`) produces a lightweight PLY point cloud at
+The demo pipeline (`main.py --mode demo`) produces a lightweight PLY point cloud at
 `{video_dir}/3d_map/sparse_map.ply` independent of nerfstudio. It is a coloured
 vertex-only PLY file (XYZ + RGB) viewable in any standard 3D tool:
 

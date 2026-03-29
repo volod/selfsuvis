@@ -129,6 +129,12 @@ class Settings:
     # Bump this (e.g. "v2") whenever the Florence task prompt or post-processing
     # changes, so existing captions can be distinguished from newly generated ones.
     FLORENCE_PROMPT_VERSION = _env("FLORENCE_PROMPT_VERSION", "v1")
+    # Optional: serve Florence-2 via a vLLM endpoint instead of loading locally.
+    # Set to e.g. "http://localhost:8020/v1" and start vLLM with:
+    #   vllm serve microsoft/Florence-2-large --trust-remote-code --task generate --port 8020
+    # When set, no local Florence weights are loaded and VRAM is not consumed.
+    FLORENCE_API_URL = _env("FLORENCE_API_URL", "")
+    FLORENCE_MODEL = _env("FLORENCE_MODEL", "microsoft/Florence-2-large")
 
     # Pipeline — GPS extraction
     GPS_SIDECAR_PATH = _env("GPS_SIDECAR_PATH", "")
@@ -155,8 +161,15 @@ class Settings:
     # Set QWEN_API_URL to enable: http://qwen:8000/v1 (vLLM) or http://qwen:11434/v1 (ollama)
     # Leave empty to disable Phase 2 Qwen extraction.
     QWEN_API_URL = _env("QWEN_API_URL", "")
-    QWEN_MODEL = _env("QWEN_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
     QWEN_BACKEND = _env("QWEN_BACKEND", "vllm")  # "vllm" or "ollama"
+    # Default model name differs per backend: Ollama uses its own tag format.
+    _qwen_model_default = (
+        "qwen2.5vl:7b"
+        if _env("QWEN_BACKEND", "vllm").lower() == "ollama"
+        or "11434" in _env("QWEN_API_URL", "")
+        else "Qwen/Qwen2.5-VL-7B-Instruct"
+    )
+    QWEN_MODEL = _env("QWEN_MODEL", _qwen_model_default)
     QWEN_TIMEOUT_SEC = _env_int("QWEN_TIMEOUT_SEC", 30)
     QWEN_CLIP_THRESHOLD = _env_float("QWEN_CLIP_THRESHOLD", 0.25)
 

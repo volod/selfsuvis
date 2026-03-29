@@ -271,9 +271,13 @@ class DINOEmbedder:
         embeddings = []
         for i in range(0, len(images), batch_size):
             batch = images[i : i + batch_size]
-            tensors = torch.stack([self.preprocess(img) for img in batch]).to(self.device)
+            try:
+                actual_device = next(self.model.parameters()).device
+            except StopIteration:
+                actual_device = torch.device(self.device)
+            tensors = torch.stack([self.preprocess(img) for img in batch]).to(actual_device)
             with torch.no_grad():
-                if settings.USE_FP16 and self.device == "cuda":
+                if settings.USE_FP16 and str(actual_device).startswith("cuda"):
                     with torch.cuda.amp.autocast():
                         feats = self.model(tensors)
                 else:

@@ -80,7 +80,8 @@ def open_3d_viewers(viewer_data: List[Dict[str, Any]]) -> None:
         logger.info("  Opened: %s", vd["title"])
 
     try:
-        plt.show()
+        if matplotlib.get_backend().lower() != "agg":
+            plt.show()
     except Exception as exc:
         logger.warning("3D viewer error: %s", exc)
 

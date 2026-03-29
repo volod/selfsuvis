@@ -72,6 +72,8 @@ warnings.filterwarnings("ignore", message="xFormers is not available")
 warnings.filterwarnings("ignore", message="xFormers is available", category=UserWarning)
 warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
                         category=FutureWarning)
+# timm ResNet50 meta-parameter copy warnings (hundreds of lines, all expected).
+warnings.filterwarnings("ignore", message="copying from a non-meta parameter", category=UserWarning)
 
 # Allow running from repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -89,14 +91,6 @@ log = logging.getLogger("prepare_models")
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-
-def _fmt_bytes(n: int) -> str:
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024:
-            return f"{n:.1f} {unit}"
-        n /= 1024
-    return f"{n:.1f} TB"
-
 
 # ── Auth error detection & interactive retry ──────────────────────────────────
 
@@ -163,12 +157,10 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
          https://huggingface.co/settings/tokens
        Choose "Read" permissions.
 
-    3. Authenticate this machine (one-time setup):
-         huggingface-cli login
-       — or —
-         export HF_TOKEN=<your_token>
+    3. Enter your token at the prompt below (it will be set for this session),
+       or leave blank if you already ran  huggingface-cli login.
 
-    4. Once done, press Enter here and the download will retry automatically.
+    4. The download will retry automatically.
 """, flush=True)
             else:
                 print(f"""
@@ -180,40 +172,44 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
     2. Generate a Read token:
          https://huggingface.co/settings/tokens
 
-    3. Authenticate:
-         huggingface-cli login
-       — or —
-         export HF_TOKEN=<your_token>
-
-    4. If the model page shows a license, accept it at:
+    3. If the model page shows a license, accept it at:
          {hf_url}
 
-    5. Press Enter here to retry.
+    4. Enter your token at the prompt below (it will be set for this session),
+       or leave blank if you already ran  huggingface-cli login.
 """, flush=True)
 
-            retries_left = max_retries - attempts
             if not sys.stdin.isatty():
                 print(
                     "  Running non-interactively — cannot prompt.\n"
-                    "  Authenticate and re-run this script in an interactive terminal.\n"
+                    "  Set HF_TOKEN env var and re-run this script in an interactive terminal.\n"
                     f"{bar}\n",
                     flush=True,
                 )
                 raise
 
             try:
-                prompt = (
-                    f"  Press Enter to retry ({retries_left} attempt(s) left),"
-                    " or type 's' to skip: "
-                )
-                answer = input(prompt).strip().lower()
+                import getpass
+                token_input = getpass.getpass(
+                    f"  HF token (leave blank to skip token entry, 's' to skip model): "
+                ).strip()
             except (EOFError, KeyboardInterrupt):
                 print(flush=True)
                 raise exc
 
-            if answer == "s":
+            if token_input.lower() == "s":
                 log.warning("Skipping %s (user chose to skip)", label)
                 raise exc
+
+            if token_input and token_input.lower() != "s":
+                os.environ["HF_TOKEN"] = token_input
+                # Also propagate to huggingface_hub so it picks up the token immediately.
+                try:
+                    from huggingface_hub import login as hf_login
+                    hf_login(token=token_input, add_to_git_credential=False)
+                    log.info("HuggingFace token accepted.")
+                except Exception:
+                    pass  # login() not critical; env var is the fallback
 
             log.info("Retrying download: %s …", label)
 
@@ -271,6 +267,9 @@ def _install_flash_attn() -> None:
 
 def _download_openclip(model: str, pretrained: str, device: str) -> None:
     log.info("OpenCLIP — model=%s  pretrained=%s  device=%s", model, pretrained, device)
+    if _is_openclip_cached(model, pretrained):
+        log.info("  ✓ OpenCLIP already cached — skipping load")
+        return
     import open_clip
     t0 = time.monotonic()
     open_clip.create_model_and_transforms(model, pretrained=pretrained, device=device)
@@ -290,6 +289,9 @@ def _label(model_name: str, resolved: str) -> str:
 
 def _download_whisper(model_id: str) -> None:
     log.info("Whisper ASR — model=%s", model_id)
+    if _is_hf_cached(model_id):
+        log.info("  ✓ Whisper already cached — skipping load")
+        return
     t0 = time.monotonic()
     try:
         from transformers import pipeline as _hf_pipeline
@@ -302,6 +304,9 @@ def _download_whisper(model_id: str) -> None:
 
 def _download_florence(model_id: str = "microsoft/Florence-2-large") -> None:
     log.info("Florence-2 — model=%s", model_id)
+    if _is_hf_cached(model_id):
+        log.info("  ✓ Florence-2 already cached — skipping load")
+        return
     t0 = time.monotonic()
     try:
         from transformers import AutoProcessor, AutoModelForCausalLM
@@ -329,6 +334,9 @@ def _download_ocr(model_id: str) -> None:
     - Florence-2 (microsoft/Florence-*): AutoProcessor + AutoModelForCausalLM
     """
     log.info("OCR model — model=%s", model_id)
+    if _is_hf_cached(model_id):
+        log.info("  ✓ OCR model already cached — skipping load")
+        return
     t0 = time.monotonic()
     try:
         if model_id.startswith("microsoft/trocr-"):
@@ -361,6 +369,9 @@ def _download_ocr(model_id: str) -> None:
 def _download_depth(model_id: str) -> None:
     """Download depth-estimation model weights via HF transformers pipeline."""
     log.info("Depth model — model=%s", model_id)
+    if _is_hf_cached(model_id):
+        log.info("  ✓ Depth model already cached — skipping load")
+        return
     t0 = time.monotonic()
     try:
         from transformers import pipeline as _hf_pipeline
@@ -374,6 +385,9 @@ def _download_depth(model_id: str) -> None:
 def _download_detection(model_id: str) -> None:
     """Download object-detection model weights via HF transformers pipeline."""
     log.info("Detection model — model=%s", model_id)
+    if _is_hf_cached(model_id):
+        log.info("  ✓ Detection model already cached — skipping load")
+        return
     t0 = time.monotonic()
     try:
         from transformers import pipeline as _hf_pipeline
@@ -385,12 +399,32 @@ def _download_detection(model_id: str) -> None:
 
 
 def _download_world_model(model_id: str) -> None:
-    """Download world-model (video/image) weights — AutoFeatureExtractor + AutoModel."""
+    """Download world-model weights.
+
+    Tries AutoFeatureExtractor + AutoModel first (works for VideoMAE, VJEPA2, etc.).
+    Falls back to snapshot_download for models that lack preprocessor_config.json
+    (e.g. nvidia/Cosmos-1.0-Autoregressive-4B which is a generative autoregressive model).
+    """
     log.info("World model — model=%s", model_id)
+    if _is_hf_cached(model_id):
+        log.info("  ✓ World model already cached — skipping load")
+        return
     t0 = time.monotonic()
     try:
         from transformers import AutoFeatureExtractor, AutoModel
-        AutoFeatureExtractor.from_pretrained(model_id)
+        try:
+            AutoFeatureExtractor.from_pretrained(model_id)
+        except (OSError, EnvironmentError) as feat_exc:
+            if "does not appear to have a file named" in str(feat_exc):
+                log.info("  No preprocessor_config.json — downloading repo via snapshot_download")
+                from huggingface_hub import snapshot_download
+                snapshot_download(
+                    repo_id=model_id,
+                    ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
+                )
+                log.info("  ✓ World model cached  (%.1fs)", time.monotonic() - t0)
+                return
+            raise
         AutoModel.from_pretrained(model_id, torch_dtype="auto")
         log.info("  ✓ World model ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
@@ -404,7 +438,7 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
     import torch.hub as _hub
     from models.dino_model import (
         DINO_HUB_REPO, _DINO_MODEL_ALIAS, _DINO_HF_REPO,
-        _resolve_dino_hub, _load_dino_from_hf, hub_load_dino,
+        _resolve_dino_hub, hub_load_dino,
     )
 
     actual_name = _DINO_MODEL_ALIAS.get(model_name, model_name)
@@ -430,6 +464,13 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
 
     if hub_source == "local":
         log.info("  Hub archive cached at %s", repo_or_dir)
+        # Check if pretrained weights are already on disk — if so skip the load.
+        hub_checkpoints = Path(os.getenv("TORCH_HOME",
+                                         str(Path.home() / ".cache" / "torch"))) / "hub" / "checkpoints"
+        if any(hub_checkpoints.glob(f"{resolved}*pretrain*.pth")):
+            _warmed.add(model_name)
+            log.info("  ✓ DINO weights cached  %s  — skipping load", label)
+            return
     else:
         log.info("  Downloading hub archive from %s …", DINO_HUB_REPO)
         log.info("  Cache dir: %s", _hub.get_dir())
@@ -446,7 +487,7 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
             bar = _tqdm(total=total, unit="B", unit_scale=True,
                         desc=f"    {Path(dst).name}", leave=True)
 
-            def _hook(blk, blk_sz, tot):
+            def _hook(_blk, blk_sz, tot):
                 if tot > 0:
                     bar.total = tot
                 bar.update(blk_sz)
@@ -500,7 +541,7 @@ def _hf_load_with_license_check(model_name: str, hf_repo: str):
         raise
 
 
-def _run_dummy(model: "torch.nn.Module", device: str) -> None:
+def _run_dummy(model, device: str) -> None:
     import torch as _torch
     dummy = _torch.zeros(1, 3, 224, 224, device=device)
     with _torch.no_grad():
@@ -526,21 +567,12 @@ def _is_hf_cached(model_id: str) -> bool:
 def _is_openclip_cached(model: str, pretrained: str) -> bool:
     """Return True if open_clip weights are in the local cache."""
     try:
-        import open_clip
-        # open_clip stores weights under torch hub or its own cache dir
+        # open_clip stores weights under torch hub checkpoints
         cache_dir = Path(os.getenv("TORCH_HOME",
-                                   Path.home() / ".cache" / "torch")) / "hub" / "checkpoints"
-        # open_clip uses a model tag like "ViT-B-16_openai.pt" → look for any file matching
+                                   str(Path.home() / ".cache" / "torch"))) / "hub" / "checkpoints"
         tag = f"{model.replace('/', '_')}_{pretrained}".lower()
         if cache_dir.exists():
             for f in cache_dir.iterdir():
-                if tag in f.name.lower():
-                    return True
-        # Also try open_clip's own cache dir
-        import appdirs
-        oc_cache = Path(appdirs.user_cache_dir("open_clip"))
-        if oc_cache.exists():
-            for f in oc_cache.rglob("*"):
                 if tag in f.name.lower():
                     return True
     except Exception:
@@ -548,13 +580,11 @@ def _is_openclip_cached(model: str, pretrained: str) -> bool:
     return False
 
 
-def _is_dino_hub_cached(model_name: str) -> bool:
+def _is_dino_hub_cached(_model_name: str) -> bool:
     """Return True if the DINOv2 torch.hub archive is present."""
     try:
         import torch.hub as _hub
-        from models.dino_model import _DINO_MODEL_ALIAS
         hub_dir = Path(_hub.get_dir())
-        # Hub repos are stored as facebookresearch_dinov2_main/
         repo_dir = hub_dir / "facebookresearch_dinov2_main"
         return repo_dir.exists()
     except Exception:

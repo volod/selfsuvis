@@ -5,7 +5,7 @@ Format: [Priority] [Effort] — Description
 
 ---
 
-## SV-DEMO | End-to-end demo pipeline (`demo.py`)
+## SV-DEMO | End-to-end demo pipeline (`main.py --mode demo`)
 
 Self-contained CLI that runs the full perception stack on a directory of videos
 and produces per-video reports, a fine-tuned model, 3D maps, and final statistics —
@@ -13,8 +13,8 @@ without requiring the Docker stack (except optional Qdrant for vector search).
 
 ### ✅ DONE — [DEMO-01] Setup: directory structure + arg parsing + logging
 - `video_demo/videos/.gitkeep` placeholder for input videos
-- `demo.py` root entry point with `--videos-dir`, `--output-dir`, `--device`,
-  `--epochs`, `--batch-size`, `--no-qdrant`, `--no-sfm` flags
+- `main.py --mode demo` entry point with `--videos-dir`, `--output-dir`, `--device`,
+  `--epochs`, `--batch-size`, `--no-qdrant`, `--no-sfm` flags (logic in `pipeline/demo_runner.py`)
 - Colored, timestamped console logger with step banners
 - Env vars set before pipeline imports so `settings.*` reflect demo paths
 
@@ -76,7 +76,7 @@ without requiring the Docker stack (except optional Qdrant for vector search).
 
 ### ✅ DONE — [DEMO-13] README.md "Demo" section
 - Prerequisites (ffmpeg, qdrant optional, sample video download)
-- Step-by-step: `make venv` → place videos → `python demo.py`
+- Step-by-step: `make venv` → place videos → `python main.py --mode demo`
 - Description of every artifact produced
 
 ---

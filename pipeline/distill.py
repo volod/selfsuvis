@@ -121,7 +121,7 @@ class KnowledgeDistiller:
         """Run teacher with AMP on CUDA; returns normalised float32 embeddings."""
         with torch.no_grad():
             if self.config.device == "cuda":
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     t = self.teacher(batch)
             else:
                 t = self.teacher(batch)
@@ -130,7 +130,7 @@ class KnowledgeDistiller:
     def _forward_student(self, batch: torch.Tensor) -> torch.Tensor:
         """Run student + projection head with AMP; returns normalised embeddings."""
         if self.config.device == "cuda":
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 s = self.student(batch)
         else:
             s = self.student(batch)
