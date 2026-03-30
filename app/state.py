@@ -4,7 +4,7 @@ from PIL import Image
 
 from models.dino_model import DINOEmbedder
 from models.openclip_model import OpenCLIPEmbedder
-from pipeline.config import settings, validate_settings
+from pipeline.config import get_dino_model_name, settings, validate_settings
 from pipeline.logging_utils import get_logger
 from pipeline.processed_db import init_db as init_processed_db
 from pipeline.qdrant_utils import QdrantStore
@@ -60,7 +60,10 @@ dino_model = None
 if settings.MODEL_NAME in {"dinov2", "dinov3"}:
     _resolve_dino_checkpoint()   # may update settings.DINO_CHECKPOINT from DB
     try:
-        dino_model = DINOEmbedder("dinov2_vitb14")
+        dino_name = get_dino_model_name(settings.MODEL_NAME)
+        if dino_name is None:
+            raise ValueError(f"Unsupported DINO model family: {settings.MODEL_NAME}")
+        dino_model = DINOEmbedder(dino_name)
     except (RuntimeError, OSError, ValueError) as exc:
         logger.exception("DINO model failed to load, disabling: %s", exc)
         dino_model = None

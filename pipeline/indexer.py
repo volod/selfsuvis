@@ -12,7 +12,7 @@ from qdrant_client.http import models as qmodels
 
 from models.openclip_model import OpenCLIPEmbedder
 from models.dino_model import DINOEmbedder
-from pipeline.config import settings
+from pipeline.config import get_dino_model_name, settings
 from pipeline.florence_model import FlorenceModel
 from pipeline.qwen_model import QwenModel
 from pipeline.asr_model import ASRModel
@@ -60,7 +60,9 @@ class VideoIndexer:
         self.clip_model = OpenCLIPEmbedder()
         self.dino_model = None
         if settings.MODEL_NAME in {"dinov2", "dinov3"}:
-            name = "dinov2_vitb14" if settings.MODEL_NAME == "dinov2" else "dinov3_vitb14"
+            name = get_dino_model_name(settings.MODEL_NAME)
+            if name is None:
+                raise ValueError(f"Unsupported DINO model family: {settings.MODEL_NAME}")
             self.dino_model = DINOEmbedder(model_name=name)
         # Load Florence at construction time — fail fast if weights are missing.
         self.florence_model = FlorenceModel()

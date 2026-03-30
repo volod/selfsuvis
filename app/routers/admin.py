@@ -18,11 +18,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import asyncpg
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
 from pipeline.config import settings
 
@@ -33,24 +33,15 @@ router = APIRouter(
 )
 
 
-def _job_counts() -> Dict[str, int]:
+async def _job_counts(request: Request) -> Dict[str, int]:
     """Return counts of jobs by status from PostgreSQL."""
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        return {"pending": 0, "running": 0, "finished": 0, "error": 0}
     try:
-        import asyncio
-        async def _query():
-            conn = await asyncpg.connect(db_url, timeout=5)
-            try:
-                rows = await conn.fetch(
-                    "SELECT status, COUNT(*) AS cnt FROM jobs GROUP BY status"
-                )
-                return {row["status"]: row["cnt"] for row in rows}
-            finally:
-                await conn.close()
-
-        counts = asyncio.run(_query())
+        pool = get_db_pool(request)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT status, COUNT(*) AS cnt FROM jobs GROUP BY status"
+            )
+            counts = {row["status"]: row["cnt"] for row in rows}
     except Exception:
         counts = {}
     return {
@@ -61,29 +52,18 @@ def _job_counts() -> Dict[str, int]:
     }
 
 
-def _al_tag_counts() -> Dict[str, int]:
+async def _al_tag_counts(request: Request) -> Dict[str, int]:
     """Return al_tag distribution from the PostgreSQL frames table.
 
     Returns zeros until the PostgreSQL migration has been applied and frames are indexed.
     """
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        return {"needs_annotation": 0, "novel": 0, "none": 0}
     try:
-        import asyncpg  # noqa: F401  — only used if DATABASE_URL is set
-        import asyncio
-
-        async def _query():
-            conn = await asyncpg.connect(db_url, timeout=5)
-            try:
-                rows = await conn.fetch(
-                    "SELECT al_tag, COUNT(*) AS cnt FROM frames GROUP BY al_tag"
-                )
-                return {row["al_tag"]: row["cnt"] for row in rows}
-            finally:
-                await conn.close()
-
-        counts = asyncio.run(_query())
+        pool = get_db_pool(request)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT al_tag, COUNT(*) AS cnt FROM frames GROUP BY al_tag"
+            )
+            counts = {row["al_tag"]: row["cnt"] for row in rows}
     except Exception:
         counts = {}
     return {
@@ -112,29 +92,19 @@ def _discover_splat_paths(mission_id: str) -> List[str]:
     return []
 
 
-def _list_missions() -> List[Dict[str, Any]]:
+async def _list_missions(request: Request) -> List[Dict[str, Any]]:
     """Return missions from PostgreSQL with splat path discovery."""
-    db_url = settings.DATABASE_URL
     missions = []
-    if db_url:
-        try:
-            import asyncio
-            import asyncpg
-
-            async def _query():
-                conn = await asyncpg.connect(db_url, timeout=5)
-                try:
-                    rows = await conn.fetch(
-                        "SELECT id, video_id, status, map_status, frame_count, created_at "
-                        "FROM missions ORDER BY created_at DESC LIMIT 100"
-                    )
-                    return [dict(r) for r in rows]
-                finally:
-                    await conn.close()
-
-            missions = asyncio.run(_query())
-        except Exception:
-            missions = []
+    try:
+        pool = get_db_pool(request)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, video_id, status, map_status, frame_count, created_at "
+                "FROM missions ORDER BY created_at DESC LIMIT 100"
+            )
+            missions = [dict(r) for r in rows]
+    except Exception:
+        missions = []
 
     # Attach splat paths discovered from the filesystem
     for m in missions:
@@ -146,64 +116,43 @@ def _list_missions() -> List[Dict[str, Any]]:
 
 
 @router.get("/missions", summary="List missions with map status and splat paths")
-def admin_missions() -> List[Dict[str, Any]]:
+async def admin_missions(request: Request) -> List[Dict[str, Any]]:
     """Return up to 100 most recent missions with map status and discovered splat.ply paths."""
-    return _list_missions()
+    return await _list_missions(request)
 
 
 @router.get("/robots", summary="List distinct robot_ids contributing to the map")
-def admin_robots() -> List[str]:
+async def admin_robots(request: Request) -> List[str]:
     """Return all distinct robot_ids from the missions table.
 
     Returns an empty list if the robot_id column has not been added yet
     (migration not yet applied) or if DATABASE_URL is not configured.
     """
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        return []
     try:
-        import asyncio
-        import asyncpg
-
-        async def _query():
-            conn = await asyncpg.connect(db_url, timeout=5)
-            try:
-                rows = await conn.fetch(
-                    "SELECT DISTINCT robot_id FROM missions "
-                    "WHERE robot_id IS NOT NULL ORDER BY robot_id"
-                )
-                return [row["robot_id"] for row in rows]
-            finally:
-                await conn.close()
-
-        return asyncio.run(_query())
+        pool = get_db_pool(request)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT DISTINCT robot_id FROM missions "
+                "WHERE robot_id IS NOT NULL ORDER BY robot_id"
+            )
+            return [row["robot_id"] for row in rows]
     except Exception:
         return []
 
 
 @router.get("/global-maps", summary="List all global map sites")
-def admin_global_maps() -> List[Dict[str, Any]]:
+async def admin_global_maps(request: Request) -> List[Dict[str, Any]]:
     """Return all global_map rows — one entry per geographic site.
 
     Each entry has: id, origin_lat, origin_lon, origin_alt, splat_path, created_at.
     Returns an empty list if DATABASE_URL is not configured or the table does not exist.
     """
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        return []
     try:
-        import asyncio
-        import asyncpg
         from pipeline.global_map_db import list_global_maps
 
-        async def _query():
-            conn = await asyncpg.connect(db_url, timeout=5)
-            try:
-                return await list_global_maps(conn)
-            finally:
-                await conn.close()
-
-        return asyncio.run(_query())
+        pool = get_db_pool(request)
+        async with pool.acquire() as conn:
+            return await list_global_maps(conn)
     except Exception:
         return []
 
@@ -259,7 +208,7 @@ def export_map_cache(
 
 
 @router.get("/stats", summary="Queue depth, worker status, and al_tag distribution")
-def admin_stats() -> Dict[str, Any]:
+async def admin_stats(request: Request) -> Dict[str, Any]:
     """Return operational statistics for the admin dashboard.
 
     Fields:
@@ -267,8 +216,8 @@ def admin_stats() -> Dict[str, Any]:
         al_tags:   {needs_annotation, novel, none} frame counts (PostgreSQL frames table).
         worker_active: true if any jobs are currently in 'running' state.
     """
-    jobs = _job_counts()
-    al_tags = _al_tag_counts()
+    jobs = await _job_counts(request)
+    al_tags = await _al_tag_counts(request)
     return {
         "jobs": jobs,
         "al_tags": al_tags,
@@ -294,7 +243,7 @@ _MANUAL_RESTART_MINUTES = 3  # estimated time per manual `docker restart api`
 
 
 @router.get("/automation-roi", summary="Annotation frequency, finetune trigger rate, ops time saved")
-async def automation_roi() -> Dict[str, Any]:
+async def automation_roi(request: Request) -> Dict[str, Any]:
     """Measure whether the auto-trigger pipeline is paying its maintenance cost.
 
     All metrics are derived from the jobs and frames tables — no extra
@@ -319,13 +268,9 @@ async def automation_roi() -> Dict[str, Any]:
     """
     import json as _json
 
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        return {"error": "DATABASE_URL not configured"}
-
     try:
-        conn = await asyncpg.connect(db_url, timeout=5)
-        try:
+        pool = get_db_pool(request)
+        async with pool.acquire() as conn:
             # Annotated frame count
             total_annotated = await conn.fetchval(
                 "SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'"
@@ -376,8 +321,6 @@ async def automation_roi() -> Dict[str, Any]:
                 "ft_accepted": ft_accepted,
                 "reembed_done": reembed_done,
             }
-        finally:
-            await conn.close()
     except Exception as exc:
         return {"error": f"DB query failed: {exc}"}
 
@@ -500,7 +443,7 @@ async def reload_model(body: ReloadModelRequest = ReloadModelRequest()) -> Dict[
 # ── Re-embed all endpoint ────────────────────────────────────────────────────
 
 @router.post("/reembed-all", summary="Enqueue full re-embedding sweep (dino vectors)")
-async def reembed_all() -> Dict[str, Any]:
+async def reembed_all(request: Request) -> Dict[str, Any]:
     """Enqueue a background job to re-embed all indexed frames with the current DINOv3 model.
 
     Returns the job_id immediately. Monitor progress via GET /jobs/{job_id}.
@@ -508,17 +451,10 @@ async def reembed_all() -> Dict[str, Any]:
     """
     from pipeline.job_db_pg import create_job
 
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
-
     job_id = uuid.uuid4().hex
-    conn = await asyncpg.connect(db_url, timeout=5)
-    try:
+    pool = get_db_pool(request)
+    async with pool.acquire() as conn:
         await create_job(conn, job_id, {}, job_type="reembed")
-    finally:
-        await conn.close()
 
     return {"job_id": job_id}
 
@@ -526,7 +462,7 @@ async def reembed_all() -> Dict[str, Any]:
 # ── Reembed status endpoint ───────────────────────────────────────────────────
 
 @router.get("/reembed-status", summary="Check whether a reembed sweep is active")
-async def reembed_status() -> Dict[str, Any]:
+async def reembed_status(request: Request) -> Dict[str, Any]:
     """Return whether a re-embedding sweep is currently running.
 
     Search uses this to suppress dino vector reranking during the sweep window,
@@ -538,20 +474,14 @@ async def reembed_status() -> Dict[str, Any]:
         job_id: the running job's id, or null if none.
         frames_reembedded: progress counter from the job payload, or null.
     """
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        return {"active": False, "job_id": None, "frames_reembedded": None}
-
     try:
-        conn = await asyncpg.connect(db_url, timeout=5)
-        try:
+        pool = get_db_pool(request)
+        async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT id, progress_json FROM jobs "
                 "WHERE type = 'reembed' AND status = 'running' "
                 "ORDER BY created_at DESC LIMIT 1"
             )
-        finally:
-            await conn.close()
     except Exception:
         return {"active": False, "job_id": None, "frames_reembedded": None}
 

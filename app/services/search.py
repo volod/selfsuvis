@@ -1,6 +1,8 @@
 import logging
-from typing import List, Optional
+import time
+from typing import Any, List, Optional
 
+import asyncpg
 from PIL import Image
 from qdrant_client.http import models as qmodels
 
@@ -8,6 +10,9 @@ from app.state import dino_model, store
 from pipeline.config import settings
 
 logger = logging.getLogger(__name__)
+
+_REEMBED_STATUS_CACHE_TTL_SEC = 2.0
+_reembed_status_cache = {"value": False, "checked_at": 0.0}
 
 
 def payload_filter(search_type: str) -> Optional[qmodels.Filter]:
@@ -23,42 +28,54 @@ def payload_filter(search_type: str) -> Optional[qmodels.Filter]:
     )
 
 
-def _reembed_is_active() -> bool:
+async def _reembed_is_active(db_pool: Optional[Any] = None) -> bool:
     """Return True if a reembed job is currently running.
 
-    Queries the jobs table directly (synchronous asyncpg.run) so it can be
-    called from synchronous search code.  Fails fast on any DB error (returns
-    False) so search is never blocked by a DB outage.
+    Uses a short TTL cache to avoid querying DB for every image query.
+    Fails fast on DB errors (returns False) so search is never blocked.
     """
+    now = time.monotonic()
+    if now - _reembed_status_cache["checked_at"] < _REEMBED_STATUS_CACHE_TTL_SEC:
+        return bool(_reembed_status_cache["value"])
+
     db_url = settings.DATABASE_URL
-    if not db_url:
+    if db_pool is None and not db_url:
+        _reembed_status_cache["value"] = False
+        _reembed_status_cache["checked_at"] = now
         return False
     try:
-        import asyncio
-        import asyncpg
-
-        async def _check():
+        if db_pool is not None:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT 1 FROM jobs WHERE type = 'reembed' AND status = 'running' LIMIT 1"
+                )
+                active = row is not None
+        else:
             conn = await asyncpg.connect(db_url, timeout=3)
             try:
                 row = await conn.fetchrow(
                     "SELECT 1 FROM jobs WHERE type = 'reembed' AND status = 'running' LIMIT 1"
                 )
-                return row is not None
+                active = row is not None
             finally:
                 await conn.close()
-
-        return asyncio.run(_check())
+        _reembed_status_cache["value"] = active
+        _reembed_status_cache["checked_at"] = now
+        return active
     except Exception:
+        _reembed_status_cache["value"] = False
+        _reembed_status_cache["checked_at"] = now
         return False
 
 
-def search_vectors(
+async def search_vectors(
     vector_space: str,
     query_vec,
     search_type: str,
     top_k: int,
     enable_rerank: bool,
     image_query: Optional[Image.Image],
+    db_pool: Optional[Any] = None,
 ) -> List[dict]:
     k_retrieve = max(top_k, settings.K_RETRIEVE)
     filter_obj = payload_filter(search_type)
@@ -70,7 +87,7 @@ def search_vectors(
         # Suppress dino reranking while a reembed sweep is active: Qdrant holds a
         # mix of old-model and new-model dino vectors during the sweep, so cosine
         # similarity between them is meaningless and would corrupt result ranking.
-        if _reembed_is_active():
+        if await _reembed_is_active(db_pool=db_pool):
             logger.info(
                 "Dino reranking suppressed: reembed sweep is active (falling back to clip)"
             )

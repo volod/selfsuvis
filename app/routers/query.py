@@ -1,9 +1,10 @@
 import io
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from PIL import Image, UnidentifiedImageError
 
 from app.api_utils import ERROR_RESPONSES, error_response
+from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
 from app.schemas import QueryResponse, TextQuery
 from app.services.search import search_vectors
@@ -33,6 +34,7 @@ def _validate_query_params(search_type: str, vector_space: str | None = None) ->
     responses={400: ERROR_RESPONSES[400], 413: ERROR_RESPONSES[413]},
 )
 async def query_image(
+    request: Request,
     file: UploadFile = File(...),
     top_k: int = Form(default=20, ge=1, le=100),
     search_type: str = Form(default="both"),
@@ -62,13 +64,15 @@ async def query_image(
         query_vec = clip_vec
         vs = "clip"
 
-    results = search_vectors(
+    db_pool = get_db_pool(request)
+    results = await search_vectors(
         vector_space=vs,
         query_vec=query_vec,
         search_type=search_type,
         top_k=top_k,
         enable_rerank=enable_rerank,
         image_query=image,
+        db_pool=db_pool,
     )
     return QueryResponse(results=results)
 
@@ -80,6 +84,7 @@ async def query_image(
     responses={400: ERROR_RESPONSES[400]},
 )
 async def query_text(
+    request: Request,
     payload: TextQuery,
     top_k: int = Query(default=20, ge=1, le=100),
     search_type: str = Query(default="both"),
@@ -90,12 +95,14 @@ async def query_text(
         return error_response(err)
     text = payload.text
     clip_vec = clip_model.encode_texts([text], batch_size=1)[0]
-    results = search_vectors(
+    db_pool = get_db_pool(request)
+    results = await search_vectors(
         vector_space="clip",
         query_vec=clip_vec,
         search_type=search_type,
         top_k=top_k,
         enable_rerank=enable_rerank,
         image_query=None,
+        db_pool=db_pool,
     )
     return QueryResponse(results=results)

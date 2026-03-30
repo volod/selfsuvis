@@ -7,7 +7,7 @@ from typing import Optional
 
 import asyncpg
 
-from pipeline.config import settings, validate_settings
+from pipeline.config import get_dino_model_name, settings, validate_settings
 from pipeline.indexer import VideoIndexer
 from pipeline.job_db_pg import create_job, fetch_and_claim_next_pending, update_job
 from pipeline.logging_utils import get_logger
@@ -450,28 +450,6 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
 
     batch_size = settings.REEMBED_BATCH_SIZE
 
-    async def _get_progress():
-        conn = await asyncpg.connect(conn_url)
-        try:
-            row = await conn.fetchrow("SELECT progress_json FROM jobs WHERE id = $1", job_id)
-            if row:
-                progress = row["progress_json"] or {}
-                if isinstance(progress, str):
-                    import json
-                    progress = json.loads(progress)
-                return progress
-            return {}
-        finally:
-            await conn.close()
-
-    progress = asyncio.run(_get_progress())
-    last_cursor_raw = progress.get("last_cursor")
-    last_cursor = None
-    if isinstance(last_cursor_raw, list) and len(last_cursor_raw) == 2:
-        last_cursor = (last_cursor_raw[0], last_cursor_raw[1])
-
-    logger.info("Reembed job started id=%s resuming_from_cursor=%s", job_id, last_cursor)
-
     _gpu_checkin(job_id, "reembed", conn_url, logger)
     try:
         # Load DINO model for embedding
@@ -479,109 +457,147 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
         from models.openclip_model import OpenCLIPEmbedder
         from PIL import Image as PILImage
 
-        dino = DINOEmbedder("dinov2_vitb14")
+        dino_name = get_dino_model_name(settings.MODEL_NAME)
+        if dino_name is None:
+            raise ValueError(f"Unsupported DINO model family: {settings.MODEL_NAME}")
+        dino = DINOEmbedder(dino_name)
         clip = OpenCLIPEmbedder()
         qdrant = QdrantStore(
             clip_dim=clip.image_dim(),
             dino_dim=dino.image_dim(),
         )
 
-        async def _fetch_batch(cursor):
+        async def _run_reembed_with_single_conn() -> int:
+            import json
+
             conn = await asyncpg.connect(conn_url)
             try:
-                return await list_frames_after(conn, cursor, batch_size)
-            finally:
-                await conn.close()
+                row = await conn.fetchrow("SELECT progress_json FROM jobs WHERE id = $1", job_id)
+                progress = {}
+                if row:
+                    progress = row["progress_json"] or {}
+                    if isinstance(progress, str):
+                        progress = json.loads(progress)
 
-        async def _checkpoint_cursor(cursor, frames_done: int):
-            conn = await asyncpg.connect(conn_url)
-            try:
-                cursor_payload = None
-                if cursor:
-                    cursor_payload = [datetime_to_ts(cursor[0]), cursor[1]]
-                await update_job(conn, job_id,
-                                 progress={"last_cursor": cursor_payload,
-                                           "frames_reembedded": frames_done})
-            finally:
-                await conn.close()
+                last_cursor_raw = progress.get("last_cursor")
+                last_cursor = None
+                if isinstance(last_cursor_raw, list) and len(last_cursor_raw) == 2:
+                    last_cursor = (last_cursor_raw[0], last_cursor_raw[1])
 
-        cursor = tuple(last_cursor) if last_cursor else None
-        frames_reembedded = progress.get("frames_reembedded", 0)
+                logger.info(
+                    "Reembed job started id=%s resuming_from_cursor=%s",
+                    job_id,
+                    last_cursor,
+                )
 
-        while True:
-            batch = asyncio.run(_fetch_batch(cursor))
-            if not batch:
-                break
+                cursor = tuple(last_cursor) if last_cursor else None
+                frames_reembedded = progress.get("frames_reembedded", 0)
 
-            # Load images
-            images = []
-            valid_rows = []
-            for row in batch:
-                try:
-                    img = PILImage.open(row["frame_path"]).convert("RGB")
-                    images.append(img)
-                    valid_rows.append(row)
-                except Exception as exc:
-                    logger.debug("Reembed: skipping unreadable frame id=%s err=%s", row["id"], exc)
+                while True:
+                    batch = await list_frames_after(conn, cursor, batch_size)
+                    if not batch:
+                        break
 
-            if images:
-                dino_vecs = dino.encode_images(images)
-                clip_vecs = clip.encode_images(images)
-
-                # Upsert entire batch in one Qdrant call
-                from qdrant_client.http import models as qmodels
-                points = [
-                    qmodels.PointStruct(
-                        id=row["qdrant_id"],
-                        vector={
-                            "clip": clip_vecs[i].tolist(),
-                            "dino": dino_vecs[i].tolist(),
-                        },
-                        payload={"frame_id": row["id"], "mission_id": row["mission_id"]},
-                    )
-                    for i, row in enumerate(valid_rows)
-                ]
-
-                try:
-                    qdrant.upsert_points(points)
-                except Exception as exc:
-                    logger.error("Reembed: Qdrant upsert failed cursor=%s err=%s", cursor, exc)
-                    # Checkpoint last safe offset and mark error
-                    async def _err():
-                        conn = await asyncpg.connect(conn_url)
+                    images = []
+                    valid_rows = []
+                    for frame_row in batch:
                         try:
-                            await update_job(conn, job_id,
-                                             status="error",
-                                             error=str(exc),
-                                             progress={"last_cursor": [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None,
-                                                       "frames_reembedded": frames_reembedded},
-                                             finished_at=time.time())
-                        finally:
-                            await conn.close()
-                    asyncio.run(_err())
-                    return
+                            img = PILImage.open(frame_row["frame_path"]).convert("RGB")
+                            images.append(img)
+                            valid_rows.append(frame_row)
+                        except Exception as exc:
+                            logger.debug(
+                                "Reembed: skipping unreadable frame id=%s err=%s",
+                                frame_row["id"],
+                                exc,
+                            )
 
-                frames_reembedded += len(valid_rows)
+                    if images:
+                        dino_vecs = dino.encode_images(images)
+                        clip_vecs = clip.encode_images(images)
 
-            last_row = batch[-1]
-            cursor = (last_row["created_at"], last_row["id"])
-            asyncio.run(_checkpoint_cursor(cursor, frames_reembedded))
-            logger.debug("Reembed: cursor=%s frames_reembedded=%d", cursor, frames_reembedded)
+                        from qdrant_client.http import models as qmodels
 
-        # Done
-        async def _finish():
-            conn = await asyncpg.connect(conn_url)
-            try:
-                await update_job(conn, job_id,
-                                 status="finished",
-                                 progress={"last_cursor": [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None,
-                                           "frames_reembedded": frames_reembedded},
-                                 finished_at=time.time())
+                        points = [
+                            qmodels.PointStruct(
+                                id=frame_row["qdrant_id"],
+                                vector={
+                                    "clip": clip_vecs[i].tolist(),
+                                    "dino": dino_vecs[i].tolist(),
+                                },
+                                payload={
+                                    "frame_id": frame_row["id"],
+                                    "mission_id": frame_row["mission_id"],
+                                },
+                            )
+                            for i, frame_row in enumerate(valid_rows)
+                        ]
+
+                        try:
+                            qdrant.upsert_points(points)
+                        except Exception as exc:
+                            logger.error(
+                                "Reembed: Qdrant upsert failed cursor=%s err=%s",
+                                cursor,
+                                exc,
+                            )
+                            await update_job(
+                                conn,
+                                job_id,
+                                status="error",
+                                error=str(exc),
+                                progress={
+                                    "last_cursor": (
+                                        [datetime_to_ts(cursor[0]), cursor[1]]
+                                        if cursor
+                                        else None
+                                    ),
+                                    "frames_reembedded": frames_reembedded,
+                                },
+                                finished_at=time.time(),
+                            )
+                            return frames_reembedded
+
+                        frames_reembedded += len(valid_rows)
+
+                    last_row = batch[-1]
+                    cursor = (last_row["created_at"], last_row["id"])
+                    await update_job(
+                        conn,
+                        job_id,
+                        progress={
+                            "last_cursor": [datetime_to_ts(cursor[0]), cursor[1]],
+                            "frames_reembedded": frames_reembedded,
+                        },
+                    )
+                    logger.debug(
+                        "Reembed: cursor=%s frames_reembedded=%d",
+                        cursor,
+                        frames_reembedded,
+                    )
+
+                await update_job(
+                    conn,
+                    job_id,
+                    status="finished",
+                    progress={
+                        "last_cursor": (
+                            [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None
+                        ),
+                        "frames_reembedded": frames_reembedded,
+                    },
+                    finished_at=time.time(),
+                )
+                return frames_reembedded
             finally:
                 await conn.close()
 
-        asyncio.run(_finish())
-        logger.info("Reembed job finished id=%s frames_reembedded=%d", job_id, frames_reembedded)
+        frames_reembedded = asyncio.run(_run_reembed_with_single_conn())
+        logger.info(
+            "Reembed job finished id=%s frames_reembedded=%d",
+            job_id,
+            frames_reembedded,
+        )
 
     except Exception as exc:
         logger.exception("Reembed job failed id=%s error=%s", job_id, exc)
@@ -599,26 +615,20 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
 
 # ── Main loop ────────────────────────────────────────────────────────────────
 
-def _claim_next_job(conn_url: str) -> Optional[dict]:
+def _claim_next_job(pool) -> Optional[dict]:
     """Atomically claim the next pending job using SELECT FOR UPDATE SKIP LOCKED."""
     async def _claim():
-        conn = await asyncpg.connect(conn_url)
-        try:
+        async with pool.acquire() as conn:
             async with conn.transaction():
                 return await fetch_and_claim_next_pending(conn)
-        finally:
-            await conn.close()
 
     return asyncio.run(_claim())
 
 
-def _update_job_sync(conn_url: str, job_id: str, **kwargs) -> None:
+def _update_job_sync(pool, job_id: str, **kwargs) -> None:
     async def _upd():
-        conn = await asyncpg.connect(conn_url)
-        try:
+        async with pool.acquire() as conn:
             await update_job(conn, job_id, **kwargs)
-        finally:
-            await conn.close()
 
     asyncio.run(_upd())
 
@@ -634,193 +644,234 @@ def main() -> None:
         logger.error("DATABASE_URL not configured — worker cannot start")
         return
 
-    while True:
-        job = _claim_next_job(conn_url)
-        if not job:
-            time.sleep(settings.WORKER_POLL_INTERVAL)
-            continue
+    pool = asyncio.run(
+        asyncpg.create_pool(
+            dsn=conn_url,
+            min_size=1,
+            max_size=10,
+            timeout=10,
+        )
+    )
 
-        job_id = job["id"]
-        job_type = job.get("type")
-        payload = job["payload"]
-        logger.info("Job claimed id=%s type=%s", job_id, job_type)
-
-        # Route by job type
-        if job_type == "supervised_finetune":
-            handle_finetune_job(job_id, payload, conn_url, logger)
-            continue
-
-        if job_type == "reembed":
-            handle_reembed_job(job_id, payload, conn_url, logger)
-            continue
-
-        if job_type not in (None, "index"):
-            logger.warning("Unknown job type=%s id=%s — marking error", job_type, job_id)
-            _update_job_sync(conn_url, job_id, status="error",
-                             error=f"unknown job type: {job_type}",
-                             finished_at=time.time())
-            continue
-
-        # Default: index job (type=None for legacy rows, type='index' for new rows)
-        logger.info("Index job started id=%s video_id=%s", job_id, payload.get("video_id"))
-        indexer = VideoIndexer(enable_tiles=payload.get("enable_tiles", True))
-
-        def progress_cb(progress):
-            _update_job_sync(conn_url, job_id, progress=progress)
-
-        video_path: Optional[str] = None
-        try:
-            video_id = payload["video_id"]
-            video_path = payload.get("video_path")
-            url = payload.get("video_url")
-
-            if url and not video_path:
-                video_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}.mp4")
-                if payload.get("ingest_mode") == "rtsp":
-                    from pipeline.rtsp_ingest import record_rtsp
-                    record_rtsp(
-                        url,
-                        video_path,
-                        duration_sec=payload.get("duration_sec"),
-                    )
-                else:
-                    download_url(url, video_path)
-
-            if not video_path or not os.path.exists(video_path):
-                raise RuntimeError("video_path not found")
-
-            size_bytes = os.path.getsize(video_path)
-            mtime = os.path.getmtime(video_path)
-            file_hash = file_sha256(video_path)
-            existing = get_by_hash(file_hash)
-            if existing and existing.get("status") == "processed":
-                if url and video_path and os.path.exists(video_path):
-                    try:
-                        os.remove(video_path)
-                    except OSError as e:
-                        logger.warning("Could not remove duplicate video file path=%s err=%s", video_path, e)
-                logger.info("Skipping duplicate video_id=%s hash=%s", payload.get("video_id"), file_hash)
-                _update_job_sync(
-                    conn_url, job_id,
-                    status="finished",
-                    progress={
-                        "skipped": True,
-                        "reason": "duplicate",
-                        "video_id": existing.get("video_id"),
-                    },
-                    finished_at=time.time(),
-                )
+    try:
+        while True:
+            job = _claim_next_job(pool)
+            if not job:
+                time.sleep(settings.WORKER_POLL_INTERVAL)
                 continue
 
-            mission_id = payload.get("mission_id") or video_id
+            job_id = job["id"]
+            job_type = job.get("type")
+            payload = job["payload"]
+            logger.info("Job claimed id=%s type=%s", job_id, job_type)
 
-            # Resolve site ENU origin before indexing so Qdrant ENU coords are site-consistent
-            global_map_id, site_enu_origin = _resolve_site_origin(video_path, logger)
+            # Route by job type
+            if job_type == "supervised_finetune":
+                handle_finetune_job(job_id, payload, conn_url, logger)
+                continue
 
-            result = indexer.index_video(
-                video_path, video_id,
-                mission_id=mission_id,
-                robot_id=settings.ROBOT_ID,
-                site_enu_origin=site_enu_origin,
-                global_map_id=global_map_id,
-                progress_cb=progress_cb,
-            )
-            result_summary = {k: v for k, v in result.items() if k != "frame_records"}
+            if job_type == "reembed":
+                handle_reembed_job(job_id, payload, conn_url, logger)
+                continue
 
-            async def _persist_index_result():
-                conn = await asyncpg.connect(conn_url)
-                try:
-                    async with conn.transaction():
-                        await upsert_mission(
-                            conn,
-                            mission_id=mission_id,
-                            video_id=video_id,
-                            video_path=video_path,
-                            job_id=job_id,
-                            robot_id=settings.ROBOT_ID,
-                            status="indexing",
-                            frame_count=result_summary.get("frames", 0),
-                            duration_sec=result_summary.get("duration_sec"),
-                            gps_origin=result_summary.get("gps_origin"),
-                        )
-                        await replace_frames(conn, mission_id, result.get("frame_records", []))
-                finally:
-                    await conn.close()
+            if job_type not in (None, "index"):
+                logger.warning("Unknown job type=%s id=%s — marking error", job_type, job_id)
+                _update_job_sync(pool, job_id, status="error",
+                                 error=f"unknown job type: {job_type}",
+                                 finished_at=time.time())
+                continue
 
-            asyncio.run(_persist_index_result())
+            # Default: index job (type=None for legacy rows, type='index' for new rows)
+            logger.info("Index job started id=%s video_id=%s", job_id, payload.get("video_id"))
+            indexer = VideoIndexer(enable_tiles=payload.get("enable_tiles", True))
 
-            # Pass A: SfM → GPS registration → 3DGS mapper (GPU optional)
-            _run_pass_a(video_path, video_id, mission_id, result, logger, global_map_id=global_map_id)
+            def progress_cb(progress):
+                _update_job_sync(pool, job_id, progress=progress)
 
-            async def _finalize_success():
-                conn = await asyncpg.connect(conn_url)
-                try:
-                    async with conn.transaction():
-                        await processed_db_mod.aupsert(
-                            file_hash,
-                            video_id,
+            video_path: Optional[str] = None
+            try:
+                video_id = payload["video_id"]
+                video_path = payload.get("video_path")
+                url = payload.get("video_url")
+
+                if url and not video_path:
+                    video_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}.mp4")
+                    if payload.get("ingest_mode") == "rtsp":
+                        from pipeline.rtsp_ingest import record_rtsp
+
+                        record_rtsp(
+                            url,
                             video_path,
-                            size_bytes,
-                            mtime,
-                            "processed",
-                            {"url": url},
-                            conn=conn,
+                            duration_sec=payload.get("duration_sec"),
                         )
-                        await mark_mission_finished(
-                            conn,
-                            mission_id,
-                            status="done",
-                            error=None,
-                        )
-                        await update_job(
-                            conn,
-                            job_id,
-                            status="finished",
-                            progress={**(job.get("progress") or {}), **result_summary},
-                            finished_at=time.time(),
-                        )
-                finally:
-                    await conn.close()
+                    else:
+                        download_url(url, video_path)
 
-            asyncio.run(_finalize_success())
-            logger.info("Index job finished id=%s video_id=%s", job_id, video_id)
-        except Exception as exc:
-            logger.exception("Index job failed id=%s error=%s", job_id, exc)
-            if video_path and os.path.exists(video_path):
-                try:
-                    size_bytes = os.path.getsize(video_path)
-                    mtime = os.path.getmtime(video_path)
-                    file_hash = file_sha256(video_path)
-                    async def _finalize_error():
-                        conn = await asyncpg.connect(conn_url)
+                if not video_path or not os.path.exists(video_path):
+                    raise RuntimeError("video_path not found")
+
+                size_bytes = os.path.getsize(video_path)
+                mtime = os.path.getmtime(video_path)
+                file_hash = file_sha256(video_path)
+                existing = get_by_hash(file_hash)
+                if existing and existing.get("status") == "processed":
+                    if url and video_path and os.path.exists(video_path):
                         try:
-                            async with conn.transaction():
-                                await processed_db_mod.aupsert(
-                                    file_hash,
-                                    payload.get("video_id", uuid.uuid4().hex),
-                                    video_path,
-                                    size_bytes,
-                                    mtime,
-                                    "error",
-                                    {"error": str(exc)},
-                                    conn=conn,
-                                )
-                                if payload.get("video_id"):
-                                    await mark_mission_finished(
-                                        conn,
-                                        payload.get("mission_id") or payload["video_id"],
-                                        status="error",
-                                        error=str(exc),
-                                    )
-                        finally:
-                            await conn.close()
+                            os.remove(video_path)
+                        except OSError as e:
+                            logger.warning(
+                                "Could not remove duplicate video file path=%s err=%s",
+                                video_path,
+                                e,
+                            )
+                    logger.info(
+                        "Skipping duplicate video_id=%s hash=%s",
+                        payload.get("video_id"),
+                        file_hash,
+                    )
+                    _update_job_sync(
+                        pool,
+                        job_id,
+                        status="finished",
+                        progress={
+                            "skipped": True,
+                            "reason": "duplicate",
+                            "video_id": existing.get("video_id"),
+                        },
+                        finished_at=time.time(),
+                    )
+                    continue
 
-                    asyncio.run(_finalize_error())
-                except OSError as e:
-                    logger.warning("Could not read video for error record path=%s err=%s", video_path, e)
-                except Exception as e:
-                    logger.warning("Could not upsert error record for path=%s err=%s", video_path, e)
-            _update_job_sync(conn_url, job_id, status="error", error=str(exc), finished_at=time.time())
+                mission_id = payload.get("mission_id") or video_id
+
+                # Resolve site ENU origin before indexing so Qdrant ENU coords are site-consistent
+                global_map_id, site_enu_origin = _resolve_site_origin(video_path, logger)
+
+                result = indexer.index_video(
+                    video_path,
+                    video_id,
+                    mission_id=mission_id,
+                    robot_id=settings.ROBOT_ID,
+                    site_enu_origin=site_enu_origin,
+                    global_map_id=global_map_id,
+                    progress_cb=progress_cb,
+                )
+                result_summary = {k: v for k, v in result.items() if k != "frame_records"}
+
+                async def _persist_index_result():
+                    conn = await asyncpg.connect(conn_url)
+                    try:
+                        async with conn.transaction():
+                            await upsert_mission(
+                                conn,
+                                mission_id=mission_id,
+                                video_id=video_id,
+                                video_path=video_path,
+                                job_id=job_id,
+                                robot_id=settings.ROBOT_ID,
+                                status="indexing",
+                                frame_count=result_summary.get("frames", 0),
+                                duration_sec=result_summary.get("duration_sec"),
+                                gps_origin=result_summary.get("gps_origin"),
+                            )
+                            await replace_frames(conn, mission_id, result.get("frame_records", []))
+                    finally:
+                        await conn.close()
+
+                asyncio.run(_persist_index_result())
+
+                # Pass A: SfM → GPS registration → 3DGS mapper (GPU optional)
+                _run_pass_a(
+                    video_path,
+                    video_id,
+                    mission_id,
+                    result,
+                    logger,
+                    global_map_id=global_map_id,
+                )
+
+                async def _finalize_success():
+                    conn = await asyncpg.connect(conn_url)
+                    try:
+                        async with conn.transaction():
+                            await processed_db_mod.aupsert(
+                                file_hash,
+                                video_id,
+                                video_path,
+                                size_bytes,
+                                mtime,
+                                "processed",
+                                {"url": url},
+                                conn=conn,
+                            )
+                            await mark_mission_finished(
+                                conn,
+                                mission_id,
+                                status="done",
+                                error=None,
+                            )
+                            await update_job(
+                                conn,
+                                job_id,
+                                status="finished",
+                                progress={**(job.get("progress") or {}), **result_summary},
+                                finished_at=time.time(),
+                            )
+                    finally:
+                        await conn.close()
+
+                asyncio.run(_finalize_success())
+                logger.info("Index job finished id=%s video_id=%s", job_id, video_id)
+            except Exception as exc:
+                logger.exception("Index job failed id=%s error=%s", job_id, exc)
+                if video_path and os.path.exists(video_path):
+                    try:
+                        size_bytes = os.path.getsize(video_path)
+                        mtime = os.path.getmtime(video_path)
+                        file_hash = file_sha256(video_path)
+
+                        async def _finalize_error():
+                            conn = await asyncpg.connect(conn_url)
+                            try:
+                                async with conn.transaction():
+                                    await processed_db_mod.aupsert(
+                                        file_hash,
+                                        payload.get("video_id", uuid.uuid4().hex),
+                                        video_path,
+                                        size_bytes,
+                                        mtime,
+                                        "error",
+                                        {"error": str(exc)},
+                                        conn=conn,
+                                    )
+                                    if payload.get("video_id"):
+                                        await mark_mission_finished(
+                                            conn,
+                                            payload.get("mission_id") or payload["video_id"],
+                                            status="error",
+                                            error=str(exc),
+                                        )
+                            finally:
+                                await conn.close()
+
+                        asyncio.run(_finalize_error())
+                    except OSError as e:
+                        logger.warning(
+                            "Could not read video for error record path=%s err=%s",
+                            video_path,
+                            e,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Could not upsert error record for path=%s err=%s",
+                            video_path,
+                            e,
+                        )
+                _update_job_sync(
+                    pool, job_id, status="error", error=str(exc), finished_at=time.time()
+                )
+    finally:
+        asyncio.run(pool.close())
 
 
 if __name__ == "__main__":

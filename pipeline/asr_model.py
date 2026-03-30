@@ -37,6 +37,10 @@ CLI override examples::
 """
 from __future__ import annotations
 
+import contextlib
+import subprocess
+import io
+import warnings
 from typing import Any, Dict, List, Optional
 
 from pipeline.config import settings
@@ -60,7 +64,12 @@ def _resolve_model_id() -> str:
     if model_cfg and model_cfg.lower() != "auto":
         return model_cfg
     resources = detect_resources()
-    return auto_select("asr", resources) or "openai/whisper-large-v3-turbo"
+    selected = auto_select("asr", resources) or "openai/whisper-large-v3-turbo"
+    if not _supports_native_timestamps(selected):
+        fallback = "openai/whisper-large-v3-turbo"
+        logger.info("ASR auto-selection skipped unsupported model %s; using %s", selected, fallback)
+        return fallback
+    return selected
 
 
 class ASRModel:
@@ -95,18 +104,23 @@ class ASRModel:
             return []
         try:
             language = settings.ASR_LANGUAGE.strip() or None
-            generate_kwargs: Dict[str, Any] = {}
+            generate_kwargs: Dict[str, Any] = {"task": "transcribe"}
             if language:
                 generate_kwargs["language"] = language
 
-            result = pipe(
-                audio_path,
-                return_timestamps=True,
-                generate_kwargs=generate_kwargs,
-                batch_size=settings.ASR_BATCH_SIZE,
-                chunk_length_s=settings.ASR_CHUNK_LENGTH_SEC,
-            )
-            chunks = result.get("chunks", [])
+            pipe_kwargs: Dict[str, Any] = {
+                "generate_kwargs": generate_kwargs,
+                "batch_size": settings.ASR_BATCH_SIZE,
+            }
+            if _supports_native_timestamps(self.model_id):
+                pipe_kwargs["return_timestamps"] = True
+                pipe_kwargs["chunk_length_s"] = settings.ASR_CHUNK_LENGTH_SEC
+                pipe_kwargs["ignore_warning"] = True
+
+            with _suppress_whisper_pipeline_noise():
+                result = pipe(audio_path, **pipe_kwargs)
+
+            chunks = _normalise_asr_output(result, audio_path)
             logger.info(
                 "ASR transcribed %s → %d segments (model=%s)",
                 audio_path, len(chunks), self._model_id,
@@ -157,6 +171,65 @@ class ASRModel:
         return self._pipe
 
 
+def _supports_native_timestamps(model_id: str) -> bool:
+    return model_id.startswith(_WHISPER_PREFIXES)
+
+
+def _normalise_asr_output(result: Any, audio_path: str) -> List[Dict[str, Any]]:
+    duration = _probe_audio_duration(audio_path)
+    if isinstance(result, dict):
+        chunks = result.get("chunks")
+        if isinstance(chunks, list) and chunks:
+            return [_normalise_asr_chunk(chunk, duration) for chunk in chunks]
+        text = str(result.get("text", "")).strip()
+        if text:
+            return [{"text": text, "timestamp": (0.0, duration)}]
+    elif isinstance(result, str):
+        text = result.strip()
+        if text:
+            return [{"text": text, "timestamp": (0.0, duration)}]
+    return []
+
+
+def _normalise_asr_chunk(chunk: Dict[str, Any], duration: float) -> Dict[str, Any]:
+    text = str(chunk.get("text", "")).strip()
+    ts = chunk.get("timestamp")
+    start = 0.0
+    end = duration
+    if isinstance(ts, (tuple, list)) and len(ts) == 2:
+        if ts[0] is not None:
+            start = max(0.0, float(ts[0]))
+        if ts[1] is not None:
+            end = max(start, float(ts[1]))
+    if end <= start:
+        end = max(start, duration)
+    return {"text": text, "timestamp": (start, end)}
+
+
+def _probe_audio_duration(audio_path: str) -> float:
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                audio_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            return max(0.0, float(proc.stdout.strip()))
+    except Exception:
+        pass
+    return 0.0
+
+
 def _resolve_device() -> str:
     """Return 'cuda', 'mps', or 'cpu' based on availability and DEVICE setting."""
     cfg = settings.DEVICE.lower()
@@ -175,3 +248,41 @@ def _resolve_device() -> str:
     except ImportError:
         pass
     return "cpu"
+
+
+@contextlib.contextmanager
+def _suppress_whisper_pipeline_noise():
+    transformers_logging = None
+    transformers_verbosity = None
+    try:
+        from transformers.utils import logging as transformers_logging  # type: ignore
+
+        transformers_verbosity = transformers_logging.get_verbosity()
+        transformers_logging.set_verbosity_error()
+    except Exception:
+        transformers_logging = None
+
+    sink = io.StringIO()
+    try:
+        with warnings.catch_warnings(), contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            warnings.filterwarnings(
+                "ignore",
+                message=r".*chunk_length_s.*very experimental with seq2seq models.*",
+            )
+            warnings.filterwarnings(
+                "ignore",
+                category=FutureWarning,
+                message=r".*The input name `inputs` is deprecated.*",
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=r".*attention mask is not set and cannot be inferred.*",
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=r".*Whisper did not predict an ending timestamp.*",
+            )
+            yield
+    finally:
+        if transformers_logging is not None and transformers_verbosity is not None:
+            transformers_logging.set_verbosity(transformers_verbosity)

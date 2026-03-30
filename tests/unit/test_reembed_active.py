@@ -40,7 +40,9 @@ class TestReembedIsActive:
         from app.services import search as search_mod
         with patch.object(sys.modules["asyncpg"], "connect", asyncpg_mock.connect), \
              patch.object(search_mod.settings, "DATABASE_URL", db_url):
-            return search_mod._reembed_is_active()
+            search_mod._reembed_status_cache["checked_at"] = 0.0
+            search_mod._reembed_status_cache["value"] = False
+            return asyncio.run(search_mod._reembed_is_active())
 
     def test_returns_true_when_reembed_running(self):
         result = self._call(fetchrow_return=MagicMock())  # truthy row
@@ -60,7 +62,9 @@ class TestReembedIsActive:
         with patch.object(sys.modules["asyncpg"], "connect",
                           AsyncMock(side_effect=OSError("refused"))), \
              patch.object(search_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
-            result = search_mod._reembed_is_active()
+            search_mod._reembed_status_cache["checked_at"] = 0.0
+            search_mod._reembed_status_cache["value"] = False
+            result = asyncio.run(search_mod._reembed_is_active())
         assert result is False
 
     def test_returns_false_on_fetchrow_error(self):
@@ -72,7 +76,9 @@ class TestReembedIsActive:
         with patch.object(sys.modules["asyncpg"], "connect",
                           AsyncMock(return_value=mock_conn)), \
              patch.object(search_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
-            result = search_mod._reembed_is_active()
+            search_mod._reembed_status_cache["checked_at"] = 0.0
+            search_mod._reembed_status_cache["value"] = False
+            result = asyncio.run(search_mod._reembed_is_active())
         assert result is False
 
     def test_connection_closed_on_success(self):
@@ -84,7 +90,9 @@ class TestReembedIsActive:
         with patch.object(sys.modules["asyncpg"], "connect",
                           AsyncMock(return_value=mock_conn)), \
              patch.object(search_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
-            search_mod._reembed_is_active()
+            search_mod._reembed_status_cache["checked_at"] = 0.0
+            search_mod._reembed_status_cache["value"] = False
+            asyncio.run(search_mod._reembed_is_active())
 
         mock_conn.close.assert_called_once()
 
@@ -100,12 +108,25 @@ class _Resp:
 
 class TestReembedStatusEndpoint:
 
-    def _get(self, mock_conn, db_url="postgresql://fake/db"):
+    def _get(self, mock_conn):
+        class _AcquireCtx:
+            def __init__(self, conn):
+                self._conn = conn
+
+            async def __aenter__(self):
+                return self._conn
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
         from app.routers import admin as admin_mod
-        with patch.object(sys.modules["asyncpg"], "connect",
-                          AsyncMock(return_value=mock_conn)), \
-             patch.object(admin_mod.settings, "DATABASE_URL", db_url):
-            return _Resp(asyncio.run(admin_mod.reembed_status()))
+        request = MagicMock()
+        request.app = MagicMock()
+        request.app.state = MagicMock()
+        pool = MagicMock()
+        pool.acquire.return_value = _AcquireCtx(mock_conn)
+        request.app.state.db_pool = pool
+        return _Resp(asyncio.run(admin_mod.reembed_status(request)))
 
     def test_returns_active_true_when_job_running(self):
         import json
@@ -135,21 +156,22 @@ class TestReembedStatusEndpoint:
         assert body["job_id"] is None
         assert body["frames_reembedded"] is None
 
-    def test_returns_false_when_no_database_url(self):
-        mock_conn = AsyncMock()
-        mock_conn.fetchrow = AsyncMock(return_value=None)
-        mock_conn.close = AsyncMock()
-
-        resp = self._get(mock_conn, db_url="")
-        assert resp.status_code == 200
-        assert resp.json()["active"] is False
-
     def test_returns_false_on_db_error(self):
+        class _AcquireCtx:
+            async def __aenter__(self):
+                raise OSError("refused")
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
         from app.routers import admin as admin_mod
-        with patch.object(sys.modules["asyncpg"], "connect",
-                          AsyncMock(side_effect=OSError("refused"))), \
-             patch.object(admin_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
-            resp = _Resp(asyncio.run(admin_mod.reembed_status()))
+        request = MagicMock()
+        request.app = MagicMock()
+        request.app.state = MagicMock()
+        pool = MagicMock()
+        pool.acquire.return_value = _AcquireCtx()
+        request.app.state.db_pool = pool
+        resp = _Resp(asyncio.run(admin_mod.reembed_status(request)))
 
         assert resp.status_code == 200
         assert resp.json()["active"] is False

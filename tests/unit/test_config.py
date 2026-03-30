@@ -105,3 +105,31 @@ def test_validate_settings_no_allowed_paths_logs_warning(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="pipeline.config"):
         config.validate_settings()
     assert any("ALLOWED_INDEX_PATHS" in r.message for r in caplog.records)
+
+
+def test_env_json_dict_valid(monkeypatch):
+    """_env_json_dict returns parsed dict for valid JSON object values."""
+    monkeypatch.setenv("CVAT_LABEL_MAPPINGS", '{"automobile":"car"}')
+    parsed = config._env_json_dict("CVAT_LABEL_MAPPINGS", {})
+    assert parsed == {"automobile": "car"}
+
+
+def test_env_json_dict_invalid_json_fallback(monkeypatch):
+    """_env_json_dict falls back to default for invalid JSON values."""
+    monkeypatch.setenv("CVAT_LABEL_MAPPINGS", "{invalid")
+    parsed = config._env_json_dict("CVAT_LABEL_MAPPINGS", {"default": "value"})
+    assert parsed == {"default": "value"}
+
+
+def test_env_json_dict_non_object_fallback(monkeypatch):
+    """_env_json_dict falls back to default for non-object JSON values."""
+    monkeypatch.setenv("CVAT_LABEL_MAPPINGS", '["not","an","object"]')
+    parsed = config._env_json_dict("CVAT_LABEL_MAPPINGS", {"default": "value"})
+    assert parsed == {"default": "value"}
+
+
+def test_get_dino_model_name():
+    """get_dino_model_name maps model families to concrete backbones."""
+    assert config.get_dino_model_name("dinov2") == "dinov2_vitb14"
+    assert config.get_dino_model_name("dinov3") == "dinov3_vitb14"
+    assert config.get_dino_model_name("openclip") is None

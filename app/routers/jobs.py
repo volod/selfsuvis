@@ -1,11 +1,10 @@
 import re
 
-import asyncpg
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.api_utils import ERROR_RESPONSES, error_response
+from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
-from pipeline.config import settings
 from pipeline.job_db_pg import fetch_job
 
 router = APIRouter(tags=["jobs"], dependencies=[Depends(require_api_key), Depends(rate_limit)])
@@ -28,19 +27,14 @@ def _validate_job_id(job_id: str) -> str | None:
     summary="Get job status by id",
     responses={400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404]},
 )
-async def job_status(job_id: str):
+async def job_status(job_id: str, request: Request):
     """Return status, progress, started_at, finished_at, and error for a job."""
     err = _validate_job_id(job_id)
     if err:
         return error_response(err, status_code=400)
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        return error_response("DATABASE_URL not configured", status_code=503)
-    conn = await asyncpg.connect(db_url, timeout=5)
-    try:
+    pool = get_db_pool(request)
+    async with pool.acquire() as conn:
         job = await fetch_job(conn, job_id)
-    finally:
-        await conn.close()
     if not job:
         return error_response("job not found", status_code=404)
     return {

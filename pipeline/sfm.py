@@ -25,7 +25,6 @@ pose_status values:
 import json
 import os
 import subprocess
-import tempfile
 from typing import Any, Dict, List, Optional
 
 from pipeline.config import settings
@@ -33,6 +32,7 @@ from pipeline.logging_utils import get_logger
 from pipeline.utils import ensure_dir
 
 logger = get_logger(__name__)
+_MIN_SFM_FRAMES = 3
 
 _COLMAP_CAMERA_MODELS = frozenset(
     {"SIMPLE_RADIAL", "RADIAL", "PINHOLE", "OPENCV", "FULL_OPENCV", "SIMPLE_PINHOLE"}
@@ -106,26 +106,75 @@ def _run_pycolmap(
     database_path = os.path.join(output_dir, "database.db")
 
     try:
+        _configure_pycolmap_logging(pycolmap)
+
         # Feature extraction
         reader_options = pycolmap.ImageReaderOptions()
         reader_options.camera_model = camera_model
+        extraction_options = pycolmap.FeatureExtractionOptions()
+        extraction_options.max_image_size = settings.PYCOLMAP_MAX_IMAGE_SIZE
+        extraction_options.num_threads = settings.PYCOLMAP_NUM_THREADS
+
+        camera_mode = (
+            pycolmap.CameraMode.SINGLE
+            if settings.PYCOLMAP_SINGLE_CAMERA
+            else pycolmap.CameraMode.AUTO
+        )
         pycolmap.extract_features(
             database_path=database_path,
             image_path=image_dir,
+            camera_mode=camera_mode,
             reader_options=reader_options,
+            extraction_options=extraction_options,
         )
-        # Feature matching (exhaustive for small scenes; sequential for large)
-        n_images = len([f for f in os.listdir(image_dir) if f.endswith(".jpg")])
-        if n_images <= 200:
-            pycolmap.match_exhaustive(database_path)
+
+        matching_options = pycolmap.FeatureMatchingOptions()
+        matching_options.num_threads = settings.PYCOLMAP_NUM_THREADS
+        verification_options = pycolmap.TwoViewGeometryOptions()
+        verification_options.min_num_inliers = max(15, settings.PYCOLMAP_INIT_MIN_NUM_INLIERS // 2)
+
+        matching_mode = settings.PYCOLMAP_MATCHING.strip().lower()
+        if matching_mode == "exhaustive":
+            pycolmap.match_exhaustive(
+                database_path,
+                matching_options=matching_options,
+                verification_options=verification_options,
+            )
         else:
-            pycolmap.match_sequential(database_path, overlap=10)
+            pairing_options = pycolmap.SequentialPairingOptions()
+            pairing_options.overlap = settings.PYCOLMAP_SEQUENTIAL_OVERLAP
+            pairing_options.quadratic_overlap = True
+            pairing_options.loop_detection = False
+            pairing_options.num_threads = settings.PYCOLMAP_NUM_THREADS
+            pycolmap.match_sequential(
+                database_path,
+                matching_options=matching_options,
+                pairing_options=pairing_options,
+                verification_options=verification_options,
+            )
 
         # Incremental reconstruction — may produce multiple disconnected components
+        pipeline_options = pycolmap.IncrementalPipelineOptions()
+        pipeline_options.num_threads = settings.PYCOLMAP_NUM_THREADS
+        pipeline_options.multiple_models = True
+        pipeline_options.min_model_size = 5
+        pipeline_options.min_num_matches = 15
+        pipeline_options.mapper.num_threads = settings.PYCOLMAP_NUM_THREADS
+        pipeline_options.mapper.init_min_num_inliers = settings.PYCOLMAP_INIT_MIN_NUM_INLIERS
+        pipeline_options.mapper.init_min_tri_angle = settings.PYCOLMAP_INIT_MIN_TRI_ANGLE
+        pipeline_options.mapper.init_max_forward_motion = settings.PYCOLMAP_INIT_MAX_FORWARD_MOTION
+        pipeline_options.mapper.abs_pose_min_inlier_ratio = settings.PYCOLMAP_ABS_POSE_MIN_INLIER_RATIO
+        pipeline_options.mapper.abs_pose_min_num_inliers = max(
+            20, settings.PYCOLMAP_INIT_MIN_NUM_INLIERS // 2
+        )
+        pipeline_options.mapper.filter_min_tri_angle = min(
+            1.5, settings.PYCOLMAP_INIT_MIN_TRI_ANGLE
+        )
         maps = pycolmap.incremental_mapping(
             database_path=database_path,
             image_path=image_dir,
             output_path=output_dir,
+            options=pipeline_options,
         )
         if not maps:
             logger.warning("pycolmap returned no reconstructions for %s", image_dir)
@@ -146,10 +195,21 @@ def _run_pycolmap(
         return []
 
 
+def _configure_pycolmap_logging(pycolmap) -> None:
+    try:
+        pycolmap.logging.minloglevel = settings.PYCOLMAP_MIN_LOG_LEVEL
+        pycolmap.logging.logtostderr = False
+        pycolmap.logging.logtostdout = False
+        pycolmap.logging.alsologtostderr = False
+    except Exception:
+        pass
+
+
 def _pose_to_dict(image) -> Dict[str, Any]:
     """Convert a pycolmap Image object to a serialisable dict."""
-    R = image.rotmat().tolist()
-    t = image.tvec.tolist()
+    cam_from_world = image.cam_from_world()
+    R = cam_from_world.rotation.matrix().tolist()
+    t = cam_from_world.translation.tolist()
     return {
         "R": R,
         "t": t,
@@ -190,6 +250,32 @@ def run_sfm(
     if not frame_paths:
         logger.warning("SfM: no frames extracted for video_id=%s", video_id)
         return {"frames": [], "scene_count": 0}
+    if len(frame_paths) < _MIN_SFM_FRAMES:
+        logger.info(
+            "SfM skipped for %s: need at least %d dense frames, got %d. Using PCA fallback.",
+            mission_id,
+            _MIN_SFM_FRAMES,
+            len(frame_paths),
+        )
+        results = [
+            {
+                "frame_path": frame_path,
+                "t_sec": idx / fps,
+                "pose_json": None,
+                "pose_status": "failed",
+                "scene_index": None,
+            }
+            for idx, frame_path in enumerate(frame_paths)
+        ]
+        logger.info(
+            "SfM complete: mission=%s frames=%d poses=%d/%d scenes=%d",
+            mission_id,
+            len(results),
+            0,
+            len(results),
+            0,
+        )
+        return {"frames": results, "scene_count": 0}
 
     image_dir = os.path.dirname(frame_paths[0])
     output_dir = os.path.join(settings.MAPS_DIR, mission_id, "colmap")

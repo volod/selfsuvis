@@ -8,7 +8,7 @@ Called via::
 
 The caller is responsible for setting the necessary env vars **before**
 importing this module (so ``pipeline.config.settings`` picks them up).
-``main.py`` calls :func:`pipeline.demo_runner.apply_demo_env` for this.
+``main.py`` calls :func:`pipeline.demo_env.apply_demo_env` for this.
 """
 
 from __future__ import annotations
@@ -45,53 +45,6 @@ except Exception:
     _HAS_DINO = False
 
 logger = logging.getLogger(__name__)
-
-# ── Env setup (called by main.py BEFORE importing this module) ────────────────
-
-def apply_demo_env(args: Any) -> None:
-    """Set env vars from demo *args* namespace before ``pipeline.config`` is imported."""
-    os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
-
-    output_dir = Path(args.output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    os.environ.setdefault("DATA_DIR", str(output_dir))
-    os.environ.setdefault("MODEL_NAME", "dinov3")
-    os.environ.setdefault("QDRANT_HOST", "localhost")
-    os.environ.setdefault("QDRANT_PORT", "6333")
-    os.environ.setdefault("QDRANT_COLLECTION", "demo_video_semantic")
-    os.environ.setdefault("DEVICE", args.device)
-    os.environ.setdefault("USE_FP16", "false")
-    os.environ.setdefault("SAMPLE_FPS_MAX", str(args.fps))
-    os.environ.setdefault("SFM_FPS", "1")
-    os.environ.setdefault("ALLOWED_INDEX_PATHS", "")
-    os.environ.setdefault("API_KEY", "")
-    os.environ.setdefault("ASR_ENABLED",  "true" if args.asr else "false")
-    os.environ.setdefault("ASR_MODEL",    args.asr_model)
-    os.environ.setdefault("ASR_LANGUAGE", args.asr_language)
-    os.environ.setdefault("OCR_ENABLED",  "true" if args.ocr else "false")
-    os.environ.setdefault("OCR_MODEL",    args.ocr_model)
-    os.environ.setdefault("DEPTH_ENABLED",        "true" if args.depth else "false")
-    os.environ.setdefault("DEPTH_MODEL",           args.depth_model)
-    os.environ.setdefault("DETECTION_ENABLED",    "true" if args.detection else "false")
-    os.environ.setdefault("DETECTION_MODEL",       args.detection_model)
-    os.environ.setdefault("DETECTION_LABELS",      args.detection_labels)
-    os.environ.setdefault("WORLD_MODEL_ENABLED",  "true" if args.world_model else "false")
-    os.environ.setdefault("WORLD_MODEL",           args.world_model_id)
-    if args.qwen_api_url:
-        os.environ["QWEN_API_URL"] = args.qwen_api_url
-    os.environ.setdefault("QWEN_API_URL", "")
-    if args.qwen_model:
-        os.environ["QWEN_MODEL"] = args.qwen_model
-    if args.qwen_backend:
-        os.environ["QWEN_BACKEND"] = args.qwen_backend
-    florence_api_url = getattr(args, "florence_api_url", "")
-    if florence_api_url:
-        os.environ["FLORENCE_API_URL"] = florence_api_url
-    florence_model = getattr(args, "florence_model", "")
-    if florence_model:
-        os.environ["FLORENCE_MODEL"] = florence_model
-
 
 # ── Logging helpers ────────────────────────────────────────────────────────────
 
@@ -1045,6 +998,11 @@ def _offload_models_to_cpu(models: Dict[str, Any]) -> None:
                 backbone.cpu()
             except Exception:
                 pass
+    try:
+        from models.dino_model import _set_dino_xformers_enabled
+        _set_dino_xformers_enabled(False)
+    except Exception:
+        pass
     gc.collect()
     if _torch.cuda.is_available():
         _torch.cuda.empty_cache()
@@ -1081,7 +1039,31 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> None:
                     backbone.cpu()
                 except Exception:
                     pass
+    try:
+        from models.dino_model import _set_dino_xformers_enabled
+        _set_dino_xformers_enabled(str(device).startswith("cuda"))
+    except Exception:
+        pass
     _log.info("  CLIP+DINO restored to %s", device)
+
+
+def _models_on_device(models: Dict[str, Any], device: str) -> bool:
+    import torch as _torch
+    expected = _torch.device(device)
+    for key in ("clip", "dino"):
+        m = models.get(key)
+        if m is None:
+            continue
+        backbone = getattr(m, "model", None)
+        if backbone is None:
+            continue
+        try:
+            actual = next(backbone.parameters()).device
+        except StopIteration:
+            continue
+        if actual != expected:
+            return False
+    return True
 
 
 def _unload_ollama_model(api_url: str, model: str) -> bool:
@@ -1567,9 +1549,14 @@ def step_distill(
         _log.warning("  Distillation failed (%s) — skipping", exc)
         result["skipped"] = True; return result
     distiller = stats.pop("distiller")
+    best_path = stats.get("best_path", "")
+    if not best_path or not os.path.exists(best_path) or not math.isfinite(stats.get("best_loss", float("nan"))):
+        _log.warning("  Distillation produced no valid student checkpoint — skipping")
+        result["skipped"] = True
+        return result
     result.update(stats)
     result["student_backbone"] = distiller.student_backbone()
-    result["ckpt_mb"]          = os.path.getsize(stats["best_path"]) / 1e6
+    result["ckpt_mb"]          = os.path.getsize(best_path) / 1e6
     _log.info(
         "  ✓ Distillation complete in %.1fs | best_loss=%.4f | best_R@1=%.3f | "
         "compression=%.1f× | student=%s (dim=%d)",
@@ -1635,6 +1622,10 @@ def step_export_model(
                 def forward(self, x):
                     return self.bb(x)
             export_model = _SingleInputWrapper(backbone_cpu).eval()
+            if hasattr(export_model.bb, "interpolate_antialias"):
+                export_model.bb.interpolate_antialias = False
+            if hasattr(export_model.bb, "interpolate_offset"):
+                export_model.bb.interpolate_offset = 0.0
             # 224 matches EdgeClassifier._preprocess_image default (224×224).
             # DINOv2 accepts any multiple of patch_size=14; 224=14×16 is valid.
             dummy = torch.zeros(1, 3, 224, 224)
@@ -1781,7 +1772,8 @@ def step_asr_transcription(
     ]
     for seg in segments:
         ts = seg.get("timestamp", (0.0, 0.0)) or (0.0, 0.0)
-        start, end = ts
+        start = float(ts[0]) if len(ts) > 0 and ts[0] is not None else 0.0
+        end = float(ts[1]) if len(ts) > 1 and ts[1] is not None else start
         text = seg.get("text", "").strip().replace("|", "\\|")
         lines.append(f"| {start:.2f} | {end:.2f} | {text} |")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · ASR step M*"]
@@ -1866,7 +1858,13 @@ def step_depth_estimation(
         for (fp, t_sec), r in zip(batch, batch_out):
             depth_results.append({"frame_path": fp, "t_sec": t_sec, **r})
     elapsed = time.time() - t0
-    ok = sum(1 for r in depth_results if not r.get("depth_error"))
+    ok = sum(
+        1
+        for r in depth_results
+        if not r.get("depth_error")
+        and not r.get("depth_unavailable")
+        and not r.get("depth_disabled")
+    )
     _log.info("  ✓ Depth: %d/%d frames estimated in %.1fs", ok, len(frame_list), elapsed)
     result.update({"skipped": False, "depth_results": depth_results,
                    "ok_count": ok, "elapsed_sec": elapsed})
@@ -1908,7 +1906,13 @@ def step_object_detection(
             det_results.append({"frame_path": fp, "t_sec": t_sec, **r})
     elapsed     = time.time() - t0
     total_objs  = sum(len(r.get("detections", [])) for r in det_results)
-    ok          = sum(1 for r in det_results if not r.get("detection_error"))
+    ok          = sum(
+        1
+        for r in det_results
+        if not r.get("detection_error")
+        and not r.get("detection_unavailable")
+        and not r.get("detection_disabled")
+    )
     _log.info("  ✓ Detection: %d objects across %d/%d frames in %.1fs",
               total_objs, ok, len(frame_list), elapsed)
     result.update({"skipped": False, "detection_results": det_results,
@@ -1952,7 +1956,13 @@ def step_world_model_pass(
         fp, t_sec = frame_list[mid]
         world_results.append({"frame_path": fp, "t_sec": t_sec, **clip_out})
     elapsed = time.time() - t0
-    ok = sum(1 for r in world_results if not r.get("world_model_error"))
+    ok = sum(
+        1
+        for r in world_results
+        if not r.get("world_model_error")
+        and not r.get("world_model_unavailable")
+        and not r.get("world_model_disabled")
+    )
     _log.info("  ✓ World model: %d clips processed in %.1fs", ok, elapsed)
     result.update({"skipped": False, "world_results": world_results,
                    "ok_count": ok, "elapsed_sec": elapsed})
@@ -2325,7 +2335,7 @@ def run_video_pipeline(
     video_context: Dict[str, Any] = {"video_name": video_name}
 
     # Tracks whether CLIP+DINO backbones are on GPU (relevant only when device=="cuda").
-    clip_dino_on_gpu = (device == "cuda")
+    clip_dino_on_gpu = (device == "cuda" and _models_on_device(models, "cuda"))
 
     # A: Extract frames
     _step(1, _TOTAL_STEPS, "Frame extraction")
@@ -2343,9 +2353,14 @@ def run_video_pipeline(
         return stats
 
     # B: Index — needs CLIP+DINO on GPU
+    if device == "cuda" and not clip_dino_on_gpu:
+        _restore_models_to_gpu(models, device)
+        clip_dino_on_gpu = _models_on_device(models, device)
     _step(2, _TOTAL_STEPS, "Vector store indexing")
     with _Timer(T, "B_index"):
         b = step_index_to_store(video_path, video_id, store, is_qdrant, models, frame_list)
+    if device == "cuda":
+        clip_dino_on_gpu = _models_on_device(models, device)
     stats["index_sec"] = b["elapsed_sec"]
 
     # L: Scene captioning — offloads CLIP+DINO internally, does NOT restore them
@@ -2459,7 +2474,7 @@ def run_video_pipeline(
             if _qwen_url and _qwen_model:
                 _unload_ollama_model(_qwen_url, _qwen_model)
         _restore_models_to_gpu(models, device)
-        clip_dino_on_gpu = True
+        clip_dino_on_gpu = _models_on_device(models, device)
     _step(10, _TOTAL_STEPS, "Base model transformation test → base_search.md")
     with _Timer(T, "C_base_search"):
         c = step_base_model_search_test(frame_list, store, is_qdrant, models,
@@ -2499,7 +2514,7 @@ def run_video_pipeline(
     # F: ONNX export + gallery — restore CLIP+DINO (export uses models["dino"])
     if device == "cuda" and not clip_dino_on_gpu:
         _restore_models_to_gpu(models, device)
-        clip_dino_on_gpu = True
+        clip_dino_on_gpu = _models_on_device(models, device)
     _step(13, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
     with _Timer(T, "F_export"):
         e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,

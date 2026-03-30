@@ -22,9 +22,11 @@ import hmac
 import json
 from typing import Any, Dict, List, Optional
 
+import asyncpg
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
+from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
 from pipeline.config import settings
 from pipeline.logging_utils import get_logger
@@ -46,42 +48,30 @@ def _verify_cvat_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-async def _frames_for_cvat_task(cvat_task_id: int) -> List[str]:
+async def _frames_for_cvat_task(cvat_task_id: int, pool: asyncpg.Pool) -> List[str]:
     """Return selfsuvis frame_ids registered for the given CVAT task."""
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        return []
-    import asyncpg
-    conn = await asyncpg.connect(db_url, timeout=10)
-    try:
+    async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT frame_id FROM cvat_tasks WHERE cvat_task_id = $1",
             cvat_task_id,
         )
         return [r["frame_id"] for r in rows]
-    finally:
-        await conn.close()
 
 
-async def _mark_frames_annotated(frame_ids: List[str]) -> int:
+async def _mark_frames_annotated(frame_ids: List[str], pool: asyncpg.Pool) -> int:
     """Set al_tag='annotated' on the given frames. Returns count of rows updated."""
-    db_url = settings.DATABASE_URL
-    if not db_url or not frame_ids:
+    if not frame_ids:
         return 0
-    import asyncpg
-    conn = await asyncpg.connect(db_url, timeout=10)
-    try:
+    async with pool.acquire() as conn:
         result = await conn.execute(
             "UPDATE frames SET al_tag = 'annotated' "
             "WHERE id = ANY($1::text[]) AND al_tag != 'annotated'",
             frame_ids,
         )
         return int(result.split()[-1])
-    finally:
-        await conn.close()
 
 
-async def _maybe_trigger_finetune() -> None:
+async def _maybe_trigger_finetune(pool: asyncpg.Pool) -> None:
     """Enqueue a supervised_finetune job if conditions are met.
 
     Guards:
@@ -92,19 +82,12 @@ async def _maybe_trigger_finetune() -> None:
 
     DB errors are caught and logged so the webhook always returns 200.
     """
-    import asyncio
-    import time
     import uuid
-    import asyncpg
 
     from pipeline.config import settings
     from pipeline.job_db_pg import create_job
 
     if not settings.SUP_AUTO_TRIGGER:
-        return
-
-    db_url = settings.DATABASE_URL
-    if not db_url:
         return
 
     try:
@@ -115,8 +98,7 @@ async def _maybe_trigger_finetune() -> None:
             return
 
         async with _finetune_lock:
-            conn = await asyncpg.connect(db_url, timeout=10)
-            try:
+            async with pool.acquire() as conn:
                 # Count total annotated frames
                 total_annotated = await conn.fetchval(
                     "SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'"
@@ -161,8 +143,6 @@ async def _maybe_trigger_finetune() -> None:
                     "(total_annotated=%d watermark=%d delta=%d)",
                     job_id, total_annotated, last_watermark, delta,
                 )
-            finally:
-                await conn.close()
 
     except Exception as exc:
         logger.warning("_maybe_trigger_finetune failed (non-fatal): %s", exc)
@@ -210,15 +190,16 @@ async def cvat_webhook(
             # For update:task, the task itself is the obj, so use obj["id"].
             task_id = obj.get("task_id") if event == "update:job" else obj.get("id")
             if task_id is not None:
-                frame_ids = await _frames_for_cvat_task(int(task_id))
+                pool = get_db_pool(request)
+                frame_ids = await _frames_for_cvat_task(int(task_id), pool)
                 if frame_ids:
-                    count = await _mark_frames_annotated(frame_ids)
+                    count = await _mark_frames_annotated(frame_ids, pool)
                     logger.info(
                         "CVAT webhook: task_id=%s completed → %d frames annotated",
                         task_id, count,
                     )
                     # Attempt to trigger supervised fine-tuning (non-fatal on error)
-                    await _maybe_trigger_finetune()
+                    await _maybe_trigger_finetune(pool)
                     return {"status": "ok", "event": event, "annotated": count}
                 else:
                     logger.info(
@@ -263,6 +244,7 @@ class CvatTaskRegistration(BaseModel):
     summary="List frames pending annotation (for building a CVAT task)",
 )
 async def cvat_annotation_frames(
+    request: Request,
     al_tag: str = "needs_annotation",
     limit: int = 200,
 ) -> CvatFrameListResponse:
@@ -282,13 +264,8 @@ async def cvat_annotation_frames(
     if not (1 <= limit <= 5000):
         raise HTTPException(status_code=422, detail="limit must be 1–5000")
 
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        return CvatFrameListResponse(total=0, frames=[])
-
-    import asyncpg
-    conn = await asyncpg.connect(db_url, timeout=10)
-    try:
+    pool = get_db_pool(request)
+    async with pool.acquire() as conn:
         if al_tag == "any":
             tag_clause = "al_tag IN ('needs_annotation', 'novel')"
             rows = await conn.fetch(
@@ -308,8 +285,6 @@ async def cvat_annotation_frames(
             total = await conn.fetchval(
                 "SELECT COUNT(*) FROM frames WHERE al_tag = $1", al_tag
             )
-    finally:
-        await conn.close()
 
     frames = [
         CvatFrameItem(
@@ -328,7 +303,9 @@ async def cvat_annotation_frames(
     "/task",
     summary="Register a CVAT task → frame mapping (enables webhook resolution)",
 )
-async def register_cvat_task(body: CvatTaskRegistration) -> Dict[str, Any]:
+async def register_cvat_task(
+    body: CvatTaskRegistration, request: Request
+) -> Dict[str, Any]:
     """Store the mapping from a CVAT task ID to selfsuvis frame IDs.
 
     Call this after creating a CVAT task with frames from GET /admin/cvat/frames.
@@ -342,20 +319,13 @@ async def register_cvat_task(body: CvatTaskRegistration) -> Dict[str, Any]:
     if len(body.frame_ids) > 5000:
         raise HTTPException(status_code=422, detail="frame_ids must not exceed 5000")
 
-    db_url = settings.DATABASE_URL
-    if not db_url:
-        raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
-
-    import asyncpg
-    conn = await asyncpg.connect(db_url, timeout=10)
-    try:
+    pool = get_db_pool(request)
+    async with pool.acquire() as conn:
         await conn.executemany(
             "INSERT INTO cvat_tasks (cvat_task_id, frame_id) VALUES ($1, $2) "
             "ON CONFLICT DO NOTHING",
             [(body.cvat_task_id, fid) for fid in body.frame_ids],
         )
-    finally:
-        await conn.close()
 
     logger.info(
         "CVAT task registered: cvat_task_id=%d frame_count=%d",

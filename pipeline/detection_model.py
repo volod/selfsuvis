@@ -29,6 +29,10 @@ CLI override::
 """
 from __future__ import annotations
 
+import contextlib
+import gc
+import io
+import warnings
 from typing import Any, Dict, List, Optional
 
 from PIL import Image
@@ -58,6 +62,7 @@ class DetectionModel:
         self._pipe = None
         self._model_id: Optional[str] = None
         self._load_failed: bool = False
+        self._device: Optional[str] = None
 
     def is_enabled(self) -> bool:
         return settings.DETECTION_ENABLED
@@ -76,10 +81,14 @@ class DetectionModel:
         """Run detection on a batch of images. Returns one result dict per image."""
         if not self.is_enabled():
             return [{"detection_disabled": True}] * len(images)
-        pipe = self._get_pipe()
-        if pipe is None:
-            return [{"detection_unavailable": True}] * len(images)
-        return [self._detect_one(img, pipe, candidate_labels) for img in images]
+        results: List[Dict[str, Any]] = []
+        for image in images:
+            pipe = self._get_pipe()
+            if pipe is None:
+                results.append({"detection_unavailable": True})
+                continue
+            results.append(self._detect_one(image, pipe, candidate_labels))
+        return results
 
     def detect(
         self,
@@ -99,14 +108,16 @@ class DetectionModel:
         pipe,
         candidate_labels: Optional[List[str]],
     ) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {"threshold": settings.DETECTION_CONFIDENCE}
+        if candidate_labels is not None:
+            kwargs["candidate_labels"] = candidate_labels
+        elif settings.DETECTION_LABELS:
+            kwargs["candidate_labels"] = [
+                lbl.strip() for lbl in settings.DETECTION_LABELS.split(",") if lbl.strip()
+            ]
         try:
-            kwargs: Dict[str, Any] = {"threshold": settings.DETECTION_CONFIDENCE}
-            if candidate_labels is not None:
-                kwargs["candidate_labels"] = candidate_labels
-            elif settings.DETECTION_LABELS:
-                kwargs["candidate_labels"] = [
-                    lbl.strip() for lbl in settings.DETECTION_LABELS.split(",") if lbl.strip()
-                ]
+            if hasattr(pipe, "call_count"):
+                pipe.call_count = 0
             raw = pipe(image, **kwargs)
             if not isinstance(raw, list):
                 raw = []
@@ -124,12 +135,24 @@ class DetectionModel:
                     "bbox_norm": [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)],
                 })
             return {"detections": detections, "detection_model": self.model_id}
-        except Exception:
+        except Exception as exc:
+            if _is_cuda_oom(exc) and self._device == "cuda":
+                logger.warning(
+                    "Detection CUDA OOM for %s — retrying on CPU for remaining frames.",
+                    self.model_id,
+                )
+                cpu_pipe = self._fallback_to_cpu()
+                if cpu_pipe is not None:
+                    try:
+                        return self._detect_one(image, cpu_pipe, candidate_labels)
+                    except Exception:
+                        logger.warning("Detection CPU retry failed", exc_info=True)
             logger.warning("Detection failed", exc_info=True)
             return {"detection_error": True}
 
-    def _get_pipe(self):
-        if self._pipe is not None:
+    def _get_pipe(self, force_device: Optional[str] = None):
+        target_device = force_device or self._device or _get_device()
+        if self._pipe is not None and self._device == target_device:
             return self._pipe
         if self._load_failed:
             return None
@@ -137,23 +160,73 @@ class DetectionModel:
         try:
             import torch
             from transformers import pipeline as hf_pipeline
-            device = _get_device()
-            torch_dtype = torch.float16 if settings.USE_FP16 and device != "cpu" else torch.float32
-            self._pipe = hf_pipeline(
-                "object-detection",
-                model=self.model_id,
-                device=device,
-                torch_dtype=torch_dtype,
-            )
-            logger.info("Detection model loaded: %s on %s", self.model_id, device)
-        except Exception:
+            torch_dtype = torch.float16 if settings.USE_FP16 and target_device != "cpu" else torch.float32
+            self._release_pipe()
+            with _suppress_hf_detection_noise():
+                self._pipe = hf_pipeline(
+                    "object-detection",
+                    model=self.model_id,
+                    device=_pipeline_device_arg(target_device),
+                    torch_dtype=torch_dtype,
+                    use_fast=True,
+                )
+            self._device = target_device
+            if hasattr(self._pipe, "call_count"):
+                self._pipe.call_count = 0
+            logger.info("Detection model loaded: %s on %s", self.model_id, target_device)
+        except Exception as exc:
+            if _is_cuda_oom(exc) and target_device == "cuda" and force_device != "cpu":
+                logger.warning(
+                    "Detection model %s failed to load on CUDA due to OOM — retrying on CPU.",
+                    self.model_id,
+                )
+                self._release_pipe()
+                self._load_failed = False
+                return self._get_pipe(force_device="cpu")
             logger.warning(
                 "Failed to load detection model %s — run: python scripts/prepare_models.py --detection",
                 self.model_id, exc_info=True,
             )
             self._pipe = None
+            self._device = None
             self._load_failed = True
         return self._pipe
+
+    def _release_pipe(self) -> None:
+        try:
+            import torch
+        except ImportError:
+            torch = None  # type: ignore[assignment]
+        if self._pipe is not None:
+            model = getattr(self._pipe, "model", None)
+            if model is not None:
+                try:
+                    model.cpu()
+                except Exception:
+                    pass
+            del self._pipe
+            self._pipe = None
+        gc.collect()
+        if torch is not None and torch.cuda.is_available():
+            try:
+                torch.cuda.synchronize()
+            except Exception:
+                pass
+            torch.cuda.empty_cache()
+
+    def _fallback_to_cpu(self):
+        self._release_pipe()
+        self._load_failed = False
+        return self._get_pipe(force_device="cpu")
+
+
+def _is_cuda_oom(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return type(exc).__name__ == "OutOfMemoryError" or "cuda out of memory" in msg
+
+
+def _pipeline_device_arg(device: str) -> int:
+    return -1 if device == "cpu" else 0
 
 
 def _get_device() -> str:
@@ -167,3 +240,41 @@ def _get_device() -> str:
     except ImportError:
         pass
     return "cpu"
+
+
+@contextlib.contextmanager
+def _suppress_hf_detection_noise():
+    transformers_logging = None
+    hf_hub_logging = None
+    transformers_verbosity = None
+    hf_hub_verbosity = None
+    try:
+        from transformers.utils import logging as transformers_logging  # type: ignore
+
+        transformers_verbosity = transformers_logging.get_verbosity()
+        transformers_logging.set_verbosity_error()
+    except Exception:
+        transformers_logging = None
+    try:
+        from huggingface_hub.utils import logging as hf_hub_logging  # type: ignore
+
+        hf_hub_verbosity = hf_hub_logging.get_verbosity()
+        hf_hub_logging.set_verbosity_error()
+    except Exception:
+        hf_hub_logging = None
+
+    sink = io.StringIO()
+    try:
+        with warnings.catch_warnings(), contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            warnings.filterwarnings("ignore", message=".*copying from a non-meta parameter.*")
+            warnings.filterwarnings(
+                "ignore",
+                message=".*Some weights of the model checkpoint at .* were not used when initializing.*",
+            )
+            warnings.filterwarnings("ignore", message=".*Using a slow image processor.*")
+            yield
+    finally:
+        if transformers_logging is not None and transformers_verbosity is not None:
+            transformers_logging.set_verbosity(transformers_verbosity)
+        if hf_hub_logging is not None and hf_hub_verbosity is not None:
+            hf_hub_logging.set_verbosity(hf_hub_verbosity)

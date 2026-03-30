@@ -38,12 +38,30 @@ class OpenCLIPEmbedder:
         embeddings = []
         for i in range(0, len(images), batch_size):
             batch = images[i : i + batch_size]
-            tensors = torch.stack([self.preprocess(img) for img in batch]).to(self.device)
-            with torch.no_grad():
-                if settings.USE_FP16 and self.device == "cuda":
-                    with torch.cuda.amp.autocast():
+            try:
+                actual_device = next(self.model.parameters()).device
+            except StopIteration:
+                actual_device = torch.device(self.device)
+            try:
+                tensors = torch.stack([self.preprocess(img) for img in batch]).to(actual_device)
+                with torch.no_grad():
+                    if settings.USE_FP16 and str(actual_device).startswith("cuda"):
+                        with torch.cuda.amp.autocast():
+                            feats = self.model.encode_image(tensors)
+                    else:
                         feats = self.model.encode_image(tensors)
-                else:
+            except Exception as exc:
+                if not _is_cuda_oom(exc) or not str(actual_device).startswith("cuda"):
+                    raise
+                self.logger.warning(
+                    "OpenCLIP CUDA OOM during image encoding; moving backbone to CPU for remaining batches."
+                )
+                self.model.cpu()
+                actual_device = torch.device("cpu")
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                tensors = torch.stack([self.preprocess(img) for img in batch]).to(actual_device)
+                with torch.no_grad():
                     feats = self.model.encode_image(tensors)
             feats = torch.nn.functional.normalize(feats, dim=-1)
             embeddings.append(feats.detach().cpu().numpy())
@@ -55,12 +73,30 @@ class OpenCLIPEmbedder:
         embeddings = []
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            tokens = self.tokenizer(batch).to(self.device)
-            with torch.no_grad():
-                if settings.USE_FP16 and self.device == "cuda":
-                    with torch.cuda.amp.autocast():
+            try:
+                actual_device = next(self.model.parameters()).device
+            except StopIteration:
+                actual_device = torch.device(self.device)
+            try:
+                tokens = self.tokenizer(batch).to(actual_device)
+                with torch.no_grad():
+                    if settings.USE_FP16 and str(actual_device).startswith("cuda"):
+                        with torch.cuda.amp.autocast():
+                            feats = self.model.encode_text(tokens)
+                    else:
                         feats = self.model.encode_text(tokens)
-                else:
+            except Exception as exc:
+                if not _is_cuda_oom(exc) or not str(actual_device).startswith("cuda"):
+                    raise
+                self.logger.warning(
+                    "OpenCLIP CUDA OOM during text encoding; moving backbone to CPU."
+                )
+                self.model.cpu()
+                actual_device = torch.device("cpu")
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                tokens = self.tokenizer(batch).to(actual_device)
+                with torch.no_grad():
                     feats = self.model.encode_text(tokens)
             feats = torch.nn.functional.normalize(feats, dim=-1)
             embeddings.append(feats.detach().cpu().numpy())
@@ -73,3 +109,8 @@ class OpenCLIPEmbedder:
 
     def text_dim(self) -> int:
         return self.model.text.output_dim
+
+
+def _is_cuda_oom(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return type(exc).__name__ == "OutOfMemoryError" or "cuda out of memory" in msg

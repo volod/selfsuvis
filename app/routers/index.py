@@ -4,13 +4,14 @@ import uuid
 from typing import Generator, Optional, Tuple
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import Request
 
 from app.api_utils import ERROR_RESPONSES, error_response
+from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
 from app.services.upload_utils import hash_upload_limited, write_upload_to_path
 from app.state import logger
 from pipeline.config import settings
-import asyncpg
 
 from pipeline.net_utils import safe_request, validate_url
 from pipeline.processed_db import aget_by_hash, aget_by_size, aget_by_url
@@ -20,14 +21,11 @@ from pipeline.job_db_pg import create_job
 router = APIRouter(tags=["index"], dependencies=[Depends(require_api_key), Depends(rate_limit)])
 
 
-async def _enqueue_job(payload: dict) -> str:
+async def _enqueue_job(payload: dict, request: Request) -> str:
     job_id = uuid.uuid4().hex
-    db_url = settings.DATABASE_URL
-    conn = await asyncpg.connect(db_url, timeout=5)
-    try:
+    pool = get_db_pool(request)
+    async with pool.acquire() as conn:
         await create_job(conn, job_id, payload, job_type="index")
-    finally:
-        await conn.close()
     return job_id
 
 
@@ -81,6 +79,7 @@ def _iter_video_paths_in_allowed_dir(
     responses={400: ERROR_RESPONSES[400], 403: ERROR_RESPONSES[403], 413: ERROR_RESPONSES[413]},
 )
 async def index_video(
+    request: Request,
     file: Optional[UploadFile] = File(default=None),
     path: Optional[str] = Form(default=None),
     enable_tiles: bool = Form(default=True),
@@ -108,13 +107,17 @@ async def index_video(
             return error_response("path not allowed or not a file", status_code=403)
         video_path = resolved
 
-    job_id = await _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
+    job_id = await _enqueue_job(
+        {"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles},
+        request,
+    )
     logger.info("Enqueued video_id=%s job_id=%s", video_id, job_id)
     return {"video_id": video_id, "job_id": job_id}
 
 
 @router.post("/index/url", summary="Index a video from URL", responses={400: ERROR_RESPONSES[400]})
 async def index_url(
+    request: Request,
     url: str = Form(...),
     enable_tiles: bool = Form(default=True),
 ):
@@ -123,7 +126,10 @@ async def index_url(
     except ValueError as exc:
         return error_response(str(exc))
     video_id = uuid.uuid4().hex
-    job_id = await _enqueue_job({"video_id": video_id, "video_url": url, "enable_tiles": enable_tiles})
+    job_id = await _enqueue_job(
+        {"video_id": video_id, "video_url": url, "enable_tiles": enable_tiles},
+        request,
+    )
     logger.info("Enqueued url video_id=%s job_id=%s", video_id, job_id)
     return {"video_id": video_id, "job_id": job_id}
 
@@ -134,6 +140,7 @@ async def index_url(
     responses={403: ERROR_RESPONSES[403]},
 )
 async def index_dir(
+    request: Request,
     path: str = Form(...),
     enable_tiles: bool = Form(default=True),
 ):
@@ -148,7 +155,10 @@ async def index_dir(
             if stat_failed:
                 continue
             video_id = uuid.uuid4().hex
-            job_id = await _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
+            job_id = await _enqueue_job(
+                {"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles},
+                request,
+            )
             jobs.append({"video_id": video_id, "job_id": job_id})
     except _DirLimitExceeded as e:
         return error_response(e.msg)
@@ -211,6 +221,7 @@ async def _precheck_url(url: str):
     responses={400: ERROR_RESPONSES[400]},
 )
 async def index_rtsp(
+    request: Request,
     stream_url: str = Form(...),
     mission_id: Optional[str] = Form(default=None),
     duration_sec: Optional[int] = Form(default=None),
@@ -234,14 +245,17 @@ async def index_rtsp(
 
     video_id = uuid.uuid4().hex
     effective_mission_id = mission_id or video_id
-    job_id = await _enqueue_job({
-        "video_id": video_id,
-        "mission_id": effective_mission_id,
-        "video_url": stream_url,
-        "ingest_mode": "rtsp",
-        "duration_sec": duration_sec,
-        "enable_tiles": enable_tiles,
-    })
+    job_id = await _enqueue_job(
+        {
+            "video_id": video_id,
+            "mission_id": effective_mission_id,
+            "video_url": stream_url,
+            "ingest_mode": "rtsp",
+            "duration_sec": duration_sec,
+            "enable_tiles": enable_tiles,
+        },
+        request,
+    )
     logger.info(
         "Enqueued RTSP stream video_id=%s mission_id=%s job_id=%s url=%s",
         video_id, effective_mission_id, job_id, stream_url,
@@ -266,6 +280,7 @@ async def precheck(
 
 @router.post("/index/precheck_dir")
 async def precheck_dir(
+    request: Request,
     path: str = Form(...),
     enqueue: bool = Form(default=False),
     enable_tiles: bool = Form(default=True),
@@ -288,14 +303,17 @@ async def precheck_dir(
                 logger.debug("Hash failed for path=%s err=%s", video_path, e)
                 results.append({"filename": os.path.basename(video_path), "status": "error", "reason": "hash_failed"})
                 continue
-            existing = get_by_hash(file_hash)
+            existing = await aget_by_hash(file_hash)
             if existing:
                 results.append({"filename": os.path.basename(video_path), "status": "duplicate", "reason": "hash", "existing": existing})
             else:
                 entry = {"filename": os.path.basename(video_path), "status": "new", "reason": "hash", "hash": file_hash}
                 if enqueue:
                     video_id = uuid.uuid4().hex
-                    job_id = await _enqueue_job({"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles})
+                    job_id = await _enqueue_job(
+                        {"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles},
+                        request,
+                    )
                     entry["enqueued"] = True
                     entry["video_id"] = video_id
                     entry["job_id"] = job_id

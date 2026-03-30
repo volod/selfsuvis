@@ -411,22 +411,27 @@ def _download_world_model(model_id: str) -> None:
         return
     t0 = time.monotonic()
     try:
+        from huggingface_hub import snapshot_download
         from transformers import AutoFeatureExtractor, AutoModel
         try:
             AutoFeatureExtractor.from_pretrained(model_id)
         except (OSError, EnvironmentError) as feat_exc:
             if "does not appear to have a file named" in str(feat_exc):
                 log.info("  No preprocessor_config.json — downloading repo via snapshot_download")
-                from huggingface_hub import snapshot_download
-                snapshot_download(
+                local_dir = snapshot_download(
                     repo_id=model_id,
                     ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
                 )
-                log.info("  ✓ World model cached  (%.1fs)", time.monotonic() - t0)
+                log.info("  ✓ World model cached at %s  (%.1fs)", local_dir, time.monotonic() - t0)
                 return
             raise
         AutoModel.from_pretrained(model_id, torch_dtype="auto")
-        log.info("  ✓ World model ready  (%.1fs)", time.monotonic() - t0)
+        local_dir = snapshot_download(
+            repo_id=model_id,
+            local_files_only=True,
+            ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
+        )
+        log.info("  ✓ World model ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
     except Exception as exc:
         log.warning("  World model download failed: %s", exc)
         raise

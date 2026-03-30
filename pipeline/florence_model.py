@@ -14,6 +14,7 @@ caption_batch() contract:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import List, Tuple
 
 import torch
@@ -61,9 +62,15 @@ class FlorenceModel:
 
         # dtype: FP16 on CUDA, FP32 on CPU
         torch_dtype = torch.float16 if (self.device == "cuda" and settings.USE_FP16) else torch.float32
+        source = _resolve_local_model_source(_MODEL_ID)
+        source_label = str(source) if isinstance(source, Path) else _MODEL_ID
+        load_common_kwargs = {
+            "trust_remote_code": True,
+            "local_files_only": isinstance(source, Path),
+        }
 
         self._processor = AutoProcessor.from_pretrained(
-            _MODEL_ID, trust_remote_code=True
+            source_label, **load_common_kwargs
         )
         attn_impl = _best_attn_impl()
         # Flash Attention 2.0 requires float16 or bfloat16; fall back to sdpa for float32.
@@ -71,16 +78,16 @@ class FlorenceModel:
             attn_impl = "sdpa"
         load_kwargs: dict = {
             "torch_dtype": torch_dtype,
-            "trust_remote_code": True,
             "attn_implementation": attn_impl,
         }
+        load_kwargs.update(load_common_kwargs)
         # Flash Attention 2.0 requires weights to land on GPU at load time.
         # Single-GPU: use {"": 0} to skip accelerate's conservative 90/10 memory
         # estimation (which emits an INFO log and unnecessarily caps usable VRAM).
         # Multi-GPU: fall back to "auto" so accelerate distributes layers.
         if self.device == "cuda":
             load_kwargs["device_map"] = "auto" if torch.cuda.device_count() > 1 else {"": 0}
-        self._model = AutoModelForCausalLM.from_pretrained(_MODEL_ID, **load_kwargs)
+        self._model = AutoModelForCausalLM.from_pretrained(source_label, **load_kwargs)
         if self.device != "cuda":
             self._model = self._model.to(self.device)
         self._model.eval()
@@ -173,7 +180,6 @@ class FlorenceModel:
                     "Florence OOM on batch_size=%d; falling back to batch=1", batch_size
                 )
                 torch.cuda.empty_cache()
-                # Process images one by one
                 return [self._caption_single(img) for img in images]
             raise
 
@@ -187,7 +193,6 @@ class FlorenceModel:
             return_tensors="pt",
             padding=True,
         ).to(self.device)
-        # Cast float tensors to model dtype (FP16 on CUDA) to avoid dtype mismatch in conv layers.
         model_dtype = next(self._model.parameters()).dtype
         inputs = {
             k: v.to(model_dtype) if v.is_floating_point() else v
@@ -203,14 +208,11 @@ class FlorenceModel:
                 do_sample=False,
             )
 
-        # Decode captions
         sequences = generated.sequences
-        # Strip the input prompt tokens from each generated sequence
         input_ids_len = inputs["input_ids"].shape[1]
         generated_ids = sequences[:, input_ids_len:]
 
         decoded = self._processor.batch_decode(generated_ids, skip_special_tokens=True)
-        # Post-process removes task prompt prefix that Florence sometimes echoes
         captions = []
         for raw, img in zip(decoded, images):
             parsed = self._processor.post_process_generation(
@@ -219,14 +221,9 @@ class FlorenceModel:
                 image_size=(img.width, img.height),
             )
             text = parsed.get(_TASK_PROMPT, raw)
-            if isinstance(text, str):
-                captions.append(text.strip())
-            else:
-                captions.append("")
+            captions.append(text.strip() if isinstance(text, str) else "")
 
-        # Compute per-image confidence from generation scores
         confidences = _compute_confidences(generated.scores, generated_ids)
-
         return list(zip(captions, confidences))
 
     def _caption_single(self, image: Image.Image) -> Tuple[str, float]:
@@ -237,6 +234,24 @@ class FlorenceModel:
         except Exception:
             logger.warning("Florence failed on a single image; returning empty caption", exc_info=True)
             return ("", 0.5)
+
+
+def _resolve_local_model_source(model_id: str) -> str | Path:
+    """Prefer an already-cached HF snapshot to avoid noisy HEAD retries on startup."""
+    try:
+        from huggingface_hub import snapshot_download
+
+        local_dir = snapshot_download(
+            repo_id=model_id,
+            local_files_only=True,
+        )
+        path = Path(local_dir)
+        if path.exists():
+            logger.info("Florence cache hit: %s → %s", model_id, path)
+            return path
+    except Exception:
+        pass
+    return model_id
 
 
 # ── confidence computation ────────────────────────────────────────────────────

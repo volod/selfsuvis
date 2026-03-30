@@ -27,6 +27,7 @@ CLI override::
 """
 from __future__ import annotations
 
+import gc
 from typing import Any, Dict, List, Optional
 
 from PIL import Image
@@ -56,6 +57,7 @@ class DepthModel:
         self._pipe = None
         self._model_id: Optional[str] = None
         self._load_failed: bool = False
+        self._device: Optional[str] = None
 
     def is_enabled(self) -> bool:
         return settings.DEPTH_ENABLED
@@ -70,11 +72,12 @@ class DepthModel:
         """Return depth summary dicts for a list of images."""
         if not self.is_enabled():
             return [{"depth_disabled": True}] * len(images)
-        pipe = self._get_pipe()
-        if pipe is None:
-            return [{"depth_unavailable": True}] * len(images)
         results = []
         for img in images:
+            pipe = self._get_pipe()
+            if pipe is None:
+                results.append({"depth_unavailable": True})
+                continue
             results.append(self._estimate_one(img, pipe))
         return results
 
@@ -106,12 +109,24 @@ class DepthModel:
                     "model": self.model_id,
                 }
             }
-        except Exception:
+        except Exception as exc:
+            if _is_cuda_oom(exc) and self._device == "cuda":
+                logger.warning(
+                    "Depth CUDA OOM for %s — retrying on CPU for remaining frames.",
+                    self.model_id,
+                )
+                cpu_pipe = self._fallback_to_cpu()
+                if cpu_pipe is not None:
+                    try:
+                        return self._estimate_one(image, cpu_pipe)
+                    except Exception:
+                        logger.warning("Depth CPU retry failed", exc_info=True)
             logger.warning("Depth estimation failed", exc_info=True)
             return {"depth_error": True}
 
-    def _get_pipe(self):
-        if self._pipe is not None:
+    def _get_pipe(self, force_device: Optional[str] = None):
+        target_device = force_device or self._device or _get_device()
+        if self._pipe is not None and self._device == target_device:
             return self._pipe
         if self._load_failed:
             return None
@@ -119,23 +134,60 @@ class DepthModel:
         try:
             import torch
             from transformers import pipeline as hf_pipeline
-            device = _get_device()
-            torch_dtype = torch.float16 if settings.USE_FP16 and device != "cpu" else torch.float32
+            torch_dtype = torch.float16 if settings.USE_FP16 and target_device != "cpu" else torch.float32
+            self._release_pipe()
             self._pipe = hf_pipeline(
                 "depth-estimation",
                 model=self.model_id,
-                device=device,
+                device=_pipeline_device_arg(target_device),
                 torch_dtype=torch_dtype,
             )
-            logger.info("Depth model loaded: %s on %s", self.model_id, device)
-        except Exception:
+            self._device = target_device
+            logger.info("Depth model loaded: %s on %s", self.model_id, target_device)
+        except Exception as exc:
+            if _is_cuda_oom(exc) and target_device == "cuda" and force_device != "cpu":
+                logger.warning(
+                    "Depth model %s failed to load on CUDA due to OOM — retrying on CPU.",
+                    self.model_id,
+                )
+                self._release_pipe()
+                self._load_failed = False
+                return self._get_pipe(force_device="cpu")
             logger.warning(
                 "Failed to load depth model %s — run: python scripts/prepare_models.py --depth",
                 self.model_id, exc_info=True,
             )
             self._pipe = None
+            self._device = None
             self._load_failed = True
         return self._pipe
+
+    def _release_pipe(self) -> None:
+        try:
+            import torch
+        except ImportError:
+            torch = None  # type: ignore[assignment]
+        if self._pipe is not None:
+            model = getattr(self._pipe, "model", None)
+            if model is not None:
+                try:
+                    model.cpu()
+                except Exception:
+                    pass
+            del self._pipe
+            self._pipe = None
+        gc.collect()
+        if torch is not None and torch.cuda.is_available():
+            try:
+                torch.cuda.synchronize()
+            except Exception:
+                pass
+            torch.cuda.empty_cache()
+
+    def _fallback_to_cpu(self):
+        self._release_pipe()
+        self._load_failed = False
+        return self._get_pipe(force_device="cpu")
 
 
 def _get_device() -> str:
@@ -149,3 +201,12 @@ def _get_device() -> str:
     except ImportError:
         pass
     return "cpu"
+
+
+def _pipeline_device_arg(device: str) -> int:
+    return -1 if device == "cpu" else 0
+
+
+def _is_cuda_oom(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return type(exc).__name__ == "OutOfMemoryError" or "cuda out of memory" in msg

@@ -20,10 +20,13 @@
 </head>
 <body>
   <h1>Index Video</h1>
-  <p>Upload a local video file or enter a URL to download and index for semantic search.</p>
+  <p>Upload a local video file, use a local path, or enter a URL to index for semantic search.</p>
   <form id="indexForm">
     <label for="file">Local video file</label>
     <input type="file" id="file" name="file" accept=".mp4,.mov,.mkv,.avi">
+    <div class="divider">or</div>
+    <label for="path">Local server path</label>
+    <input type="text" id="path" name="path" placeholder="/data/videos/example.mp4">
     <div class="divider">or</div>
     <label for="url">Video URL (HTTP/HTTPS)</label>
     <input type="text" id="url" name="url" placeholder="https://example.com/video.mp4" inputmode="url">
@@ -38,6 +41,7 @@
     document.getElementById('indexForm').onsubmit = async function(e) {
       e.preventDefault();
       const fileInput = document.getElementById('file');
+      const pathInput = document.getElementById('path').value.trim();
       const urlInput = document.getElementById('url').value.trim();
       const enableTiles = document.getElementById('enable_tiles').checked;
       const apiKey = document.getElementById('api_key').value.trim();
@@ -51,6 +55,20 @@
         fd.append('enable_tiles', enableTiles ? 'true' : 'false');
         try {
           const r = await fetch('/index/video', { method: 'POST', headers, body: fd });
+          const data = await r.json().catch(() => ({}));
+          if (r.ok) {
+            result.innerHTML = '<p class="success">Job created: ' + (data.job_id || data.video_id) + '</p>';
+          } else {
+            result.innerHTML = '<p class="error">' + (data.detail || r.statusText || 'Error') + '</p>';
+          }
+        } catch (err) {
+          result.innerHTML = '<p class="error">' + err.message + '</p>';
+        }
+      } else if (pathInput) {
+        headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        const body = 'path=' + encodeURIComponent(pathInput) + '&enable_tiles=' + enableTiles;
+        try {
+          const r = await fetch('/index/video', { method: 'POST', headers, body });
           const data = await r.json().catch(() => ({}));
           if (r.ok) {
             result.innerHTML = '<p class="success">Job created: ' + (data.job_id || data.video_id) + '</p>';
@@ -75,7 +93,7 @@
           result.innerHTML = '<p class="error">' + err.message + '</p>';
         }
       } else {
-        result.innerHTML = '<p class="error">Select a file or enter a URL.</p>';
+        result.innerHTML = '<p class="error">Select a file, local path, or URL.</p>';
       }
     };
   </script>

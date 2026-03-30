@@ -1,6 +1,9 @@
-from fastapi import Request
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
+from app.db import close_db_pool, init_db_pool
 from app.routers.admin import router as admin_router
 from app.routers.cvat import cvat_admin_router, webhook_router
 from app.routers.health import router as health_router
@@ -10,7 +13,17 @@ from app.routers.query import router as query_router
 from app.routers.robot import router as robot_router
 from app.services.form_templates import get_index_form_html
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize and tear down shared resources."""
+    await init_db_pool(app)
+    try:
+        yield
+    finally:
+        await close_db_pool(app)
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.middleware("http")

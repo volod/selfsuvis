@@ -1,6 +1,7 @@
 import os
+import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -43,6 +44,32 @@ def _parse_allowed_paths(val: Optional[str]) -> List[str]:
     if val is None or not val.strip():
         return []
     return [p.strip() for p in val.split(",") if p.strip()]
+
+
+def _env_json_dict(key: str, default: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Parse a JSON object from env, returning a safe default on invalid values."""
+    fallback = default or {}
+    raw = os.getenv(key, "")
+    if not raw:
+        return dict(fallback)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("%s contains invalid JSON; using default value", key)
+        return dict(fallback)
+    if not isinstance(parsed, dict):
+        logger.warning("%s must be a JSON object; using default value", key)
+        return dict(fallback)
+    return parsed
+
+
+def get_dino_model_name(model_name: str) -> Optional[str]:
+    """Resolve configured model family to a concrete DINO backbone name."""
+    if model_name == "dinov2":
+        return "dinov2_vitb14"
+    if model_name == "dinov3":
+        return "dinov3_vitb14"
+    return None
 
 
 class Settings:
@@ -122,6 +149,16 @@ class Settings:
     # Pipeline — SfM and 3DGS
     SFM_FPS = _env_float("SFM_FPS", 2.0)
     PYCOLMAP_CAMERA_MODEL = _env("PYCOLMAP_CAMERA_MODEL", "SIMPLE_RADIAL")
+    PYCOLMAP_SINGLE_CAMERA = _env("PYCOLMAP_SINGLE_CAMERA", "true").lower() == "true"
+    PYCOLMAP_MAX_IMAGE_SIZE = _env_int("PYCOLMAP_MAX_IMAGE_SIZE", 1920)
+    PYCOLMAP_NUM_THREADS = _env_int("PYCOLMAP_NUM_THREADS", 8)
+    PYCOLMAP_MATCHING = _env("PYCOLMAP_MATCHING", "sequential")
+    PYCOLMAP_SEQUENTIAL_OVERLAP = _env_int("PYCOLMAP_SEQUENTIAL_OVERLAP", 8)
+    PYCOLMAP_MIN_LOG_LEVEL = _env_int("PYCOLMAP_MIN_LOG_LEVEL", 2)
+    PYCOLMAP_INIT_MIN_NUM_INLIERS = _env_int("PYCOLMAP_INIT_MIN_NUM_INLIERS", 50)
+    PYCOLMAP_INIT_MIN_TRI_ANGLE = _env_float("PYCOLMAP_INIT_MIN_TRI_ANGLE", 4.0)
+    PYCOLMAP_INIT_MAX_FORWARD_MOTION = _env_float("PYCOLMAP_INIT_MAX_FORWARD_MOTION", 0.99)
+    PYCOLMAP_ABS_POSE_MIN_INLIER_RATIO = _env_float("PYCOLMAP_ABS_POSE_MIN_INLIER_RATIO", 0.15)
 
     # Pipeline — Florence-2 captioning
     FLORENCE_BATCH_SIZE = _env_int("FLORENCE_BATCH_SIZE", 16)
@@ -244,9 +281,7 @@ class Settings:
     # Labels absent from the dict are passed through unchanged.
     # Applied in AnnotatedFrameDataset.from_xml() and from_db() to normalize
     # label names across CVAT tasks before building the class vocabulary.
-    CVAT_LABEL_MAPPINGS: dict = __import__("json").loads(
-        _env("CVAT_LABEL_MAPPINGS", "{}")
-    )
+    CVAT_LABEL_MAPPINGS: dict = _env_json_dict("CVAT_LABEL_MAPPINGS", {})
 
     # Security and limits
     ALLOWED_INDEX_PATHS = _parse_allowed_paths(os.getenv("ALLOWED_INDEX_PATHS"))

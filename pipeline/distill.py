@@ -91,7 +91,19 @@ def _pairwise_dist(x: Tensor) -> Tensor:
     """Squared Euclidean pairwise distance matrix, clamped ≥ 0."""
     xx = (x * x).sum(dim=-1, keepdim=True)           # (B, 1)
     dist2 = xx + xx.T - 2.0 * (x @ x.T)             # (B, B)
-    return dist2.clamp(min=0.0).sqrt()                # (B, B)
+    dist = dist2.clamp(min=1e-12).sqrt()              # (B, B)
+    mask = torch.eye(dist.shape[0], device=dist.device, dtype=torch.bool)
+    return dist.masked_fill(mask, 0.0)
+
+
+def _mean_off_diagonal(x: Tensor) -> Tensor:
+    if x.shape[0] < 2:
+        return x.new_tensor(1.0)
+    mask = ~torch.eye(x.shape[0], device=x.device, dtype=torch.bool)
+    vals = x.masked_select(mask)
+    if vals.numel() == 0:
+        return x.new_tensor(1.0)
+    return vals.mean().clamp(min=1e-8)
 
 
 def rkd_distance_loss(t: Tensor, s: Tensor) -> Tensor:
@@ -102,8 +114,8 @@ def rkd_distance_loss(t: Tensor, s: Tensor) -> Tensor:
     td = _pairwise_dist(t)
     sd = _pairwise_dist(s)
     # Normalise by mean so scale differences don't dominate
-    td = td / (td.mean() + 1e-8)
-    sd = sd / (sd.mean() + 1e-8)
+    td = td / _mean_off_diagonal(td)
+    sd = sd / _mean_off_diagonal(sd)
     return F.huber_loss(sd, td, delta=1.0)
 
 
@@ -135,6 +147,8 @@ def koleo_loss(s: Tensor) -> Tensor:
 
     s should be L2-normalised (B, D).
     """
+    if s.shape[0] < 2:
+        return s.new_tensor(0.0)
     dist = _pairwise_dist(s)                              # (B, B)
     mask = torch.eye(s.shape[0], device=s.device, dtype=torch.bool)
     dist = dist.masked_fill(mask, float('inf'))
@@ -333,6 +347,19 @@ class KnowledgeDistiller:
                       + cfg.lambda_kd     * l_cosine
                       + cfg.lambda_koleo  * l_koleo)
 
+                if not torch.isfinite(loss):
+                    logger.warning(
+                        "Non-finite distillation loss at epoch %d; "
+                        "rkd_d=%s rkd_a=%s cosine=%s koleo=%s. Skipping batch.",
+                        epoch,
+                        float(l_rkd_d.detach().float().cpu()),
+                        float(l_rkd_a.detach().float().cpu()),
+                        float(l_cosine.detach().float().cpu()),
+                        float(l_koleo.detach().float().cpu()),
+                    )
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
+
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.student.parameters(), cfg.grad_clip)
@@ -345,6 +372,11 @@ class KnowledgeDistiller:
                 ep_total.append(loss.item())
 
             scheduler.step()
+
+            if not ep_total:
+                logger.warning("Distill %d/%d produced no valid batches; stopping early.",
+                               epoch, cfg.epochs)
+                break
 
             epoch_loss = float(np.mean(ep_total))
             loss_history.append(epoch_loss)

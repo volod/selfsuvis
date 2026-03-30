@@ -163,9 +163,9 @@ class OCRModel:
             if settings.QWEN_API_URL:
                 self._backend = "vllm"
                 logger.info(
-                    "OCR: VLM model %s routed through Qwen sidecar at %s "
-                    "(avoids loading model into GPU VRAM alongside sidecar)",
-                    self.model_id, settings.QWEN_API_URL,
+                    "OCR: requested model %s routed through sidecar at %s using served model %s "
+                    "(avoids loading another local VLM into GPU VRAM)",
+                    self.model_id, settings.QWEN_API_URL, settings.QWEN_MODEL,
                 )
             else:
                 self._backend = "vlm"
@@ -186,11 +186,17 @@ class OCRModel:
             model = settings.OCR_MODEL if settings.OCR_MODEL.lower() not in ("auto", "") else self.model_id
             timeout = settings.OCR_TIMEOUT_SEC
         else:
-            # Routed through Qwen sidecar (ollama / vLLM already running)
+            # Routed through an already-running sidecar. The actual served model is
+            # the sidecar's QWEN_MODEL, not the OCR auto-selected model ID.
             api_url = settings.QWEN_API_URL
             model = settings.QWEN_MODEL
-            timeout = settings.QWEN_TIMEOUT_SEC
-        client = OpenAI(api_key="EMPTY", base_url=api_url, timeout=timeout)
+            timeout = max(settings.OCR_TIMEOUT_SEC, settings.QWEN_TIMEOUT_SEC, 180)
+        client = OpenAI(
+            api_key="EMPTY",
+            base_url=api_url,
+            timeout=timeout,
+            max_retries=0,
+        )
         b64 = _encode_b64(image)
         response = client.chat.completions.create(
             model=model,

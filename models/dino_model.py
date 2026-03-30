@@ -41,6 +41,15 @@ _DINO_HF_REPO: dict = {
 }
 
 
+def _set_dino_xformers_enabled(enabled: bool) -> None:
+    """Toggle dinov2 xFormers attention for already-imported hub modules."""
+    import sys
+
+    for mod_name, mod in sys.modules.items():
+        if "dinov2" in mod_name and hasattr(mod, "XFORMERS_AVAILABLE"):
+            mod.XFORMERS_AVAILABLE = enabled
+
+
 class _HFDINOWrapper(torch.nn.Module):
     """Wrap a HF ``Dinov2Model`` to match the torch.hub forward interface.
 
@@ -233,6 +242,7 @@ class DINOEmbedder:
         finally:
             _hub.download_url_to_file = _orig_download
         model = model.to(self.device)
+        _set_dino_xformers_enabled(str(self.device).startswith("cuda"))
         # Resolve checkpoint: DINO_CHECKPOINT env var takes priority,
         # then active_checkpoint.txt (written by POST /admin/reload-model).
         ckpt = settings.DINO_CHECKPOINT
@@ -265,6 +275,7 @@ class DINOEmbedder:
         import torch as _torch
         state = _torch.load(path, map_location=self.device)
         self.model.load_state_dict(state)
+        _set_dino_xformers_enabled(str(self.device).startswith("cuda"))
         self.logger.info("DINO: hot-swapped backbone checkpoint %s", path)
 
     def encode_images(self, images: List[Image.Image], batch_size: int = 16) -> np.ndarray:
@@ -275,12 +286,37 @@ class DINOEmbedder:
                 actual_device = next(self.model.parameters()).device
             except StopIteration:
                 actual_device = torch.device(self.device)
-            tensors = torch.stack([self.preprocess(img) for img in batch]).to(actual_device)
-            with torch.no_grad():
-                if settings.USE_FP16 and str(actual_device).startswith("cuda"):
-                    with torch.cuda.amp.autocast():
+            try:
+                tensors = torch.stack([self.preprocess(img) for img in batch]).to(actual_device)
+                with torch.no_grad():
+                    try:
+                        if settings.USE_FP16 and str(actual_device).startswith("cuda"):
+                            with torch.cuda.amp.autocast():
+                                feats = self.model(tensors)
+                        else:
+                            feats = self.model(tensors)
+                    except NotImplementedError as exc:
+                        if "memory_efficient_attention_forward" not in str(exc):
+                            raise
+                        self.logger.warning(
+                            "DINO: xFormers attention unavailable on %s; retrying with PyTorch attention",
+                            actual_device,
+                        )
+                        _set_dino_xformers_enabled(False)
                         feats = self.model(tensors)
-                else:
+            except Exception as exc:
+                if not _is_cuda_oom(exc) or not str(actual_device).startswith("cuda"):
+                    raise
+                self.logger.warning(
+                    "DINO CUDA OOM during image encoding; moving backbone to CPU for remaining batches."
+                )
+                self.model.cpu()
+                _set_dino_xformers_enabled(False)
+                actual_device = torch.device("cpu")
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                tensors = torch.stack([self.preprocess(img) for img in batch]).to(actual_device)
+                with torch.no_grad():
                     feats = self.model(tensors)
             feats = torch.nn.functional.normalize(feats, dim=-1)
             embeddings.append(feats.detach().cpu().numpy())
@@ -290,3 +326,8 @@ class DINOEmbedder:
 
     def image_dim(self) -> int:
         return self._embed_dim
+
+
+def _is_cuda_oom(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return type(exc).__name__ == "OutOfMemoryError" or "cuda out of memory" in msg
