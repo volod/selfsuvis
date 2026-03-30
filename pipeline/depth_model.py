@@ -72,14 +72,10 @@ class DepthModel:
         """Return depth summary dicts for a list of images."""
         if not self.is_enabled():
             return [{"depth_disabled": True}] * len(images)
-        results = []
-        for img in images:
-            pipe = self._get_pipe()
-            if pipe is None:
-                results.append({"depth_unavailable": True})
-                continue
-            results.append(self._estimate_one(img, pipe))
-        return results
+        pipe = self._get_pipe()
+        if pipe is None:
+            return [{"depth_unavailable": True}] * len(images)
+        return self._estimate_many(images, pipe)
 
     def estimate(self, image: Image.Image) -> Dict[str, Any]:
         if not self.is_enabled():
@@ -91,24 +87,7 @@ class DepthModel:
 
     def _estimate_one(self, image: Image.Image, pipe) -> Dict[str, Any]:
         try:
-            import numpy as np
-            output = pipe(image)
-            # HuggingFace depth-estimation pipeline returns {"depth": PIL.Image, ...}
-            depth_img = output.get("depth") if isinstance(output, dict) else output
-            if depth_img is None:
-                return {"depth_unavailable": True}
-            depth_arr = np.array(depth_img).astype(np.float32)
-            # Normalise to [0, 1]
-            dmin, dmax = float(depth_arr.min()), float(depth_arr.max())
-            if dmax > dmin:
-                depth_arr = (depth_arr - dmin) / (dmax - dmin)
-            pcts = np.percentile(depth_arr, [10, 25, 50, 75, 90]).tolist()
-            return {
-                "depth": {
-                    "percentiles": [round(p, 4) for p in pcts],
-                    "model": self.model_id,
-                }
-            }
+            return self._normalise_depth_output(pipe(image))
         except Exception as exc:
             if _is_cuda_oom(exc) and self._device == "cuda":
                 logger.warning(
@@ -123,6 +102,42 @@ class DepthModel:
                         logger.warning("Depth CPU retry failed", exc_info=True)
             logger.warning("Depth estimation failed", exc_info=True)
             return {"depth_error": True}
+
+    def _estimate_many(self, images: List[Image.Image], pipe) -> List[Dict[str, Any]]:
+        try:
+            raw_outputs = pipe(images)
+            if isinstance(raw_outputs, list) and len(raw_outputs) == len(images):
+                return [self._normalise_depth_output(output) for output in raw_outputs]
+        except Exception as exc:
+            if _is_cuda_oom(exc) and self._device == "cuda":
+                logger.warning(
+                    "Depth CUDA OOM for %s — retrying on CPU for remaining frames.",
+                    self.model_id,
+                )
+                cpu_pipe = self._fallback_to_cpu()
+                if cpu_pipe is not None:
+                    return self._estimate_many(images, cpu_pipe)
+            logger.debug("Depth batch inference failed; falling back to per-image processing", exc_info=True)
+        return [self._estimate_one(image, pipe) for image in images]
+
+    def _normalise_depth_output(self, output: Any) -> Dict[str, Any]:
+        import numpy as np
+
+        # HuggingFace depth-estimation pipeline returns {"depth": PIL.Image, ...}
+        depth_img = output.get("depth") if isinstance(output, dict) else output
+        if depth_img is None:
+            return {"depth_unavailable": True}
+        depth_arr = np.array(depth_img).astype(np.float32)
+        dmin, dmax = float(depth_arr.min()), float(depth_arr.max())
+        if dmax > dmin:
+            depth_arr = (depth_arr - dmin) / (dmax - dmin)
+        pcts = np.percentile(depth_arr, [10, 25, 50, 75, 90]).tolist()
+        return {
+            "depth": {
+                "percentiles": [round(p, 4) for p in pcts],
+                "model": self.model_id,
+            }
+        }
 
     def _get_pipe(self, force_device: Optional[str] = None):
         target_device = force_device or self._device or _get_device()

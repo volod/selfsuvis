@@ -47,6 +47,28 @@ def detect_vram_gb() -> float:
     return 0.0
 
 
+def detect_free_vram_gb() -> float:
+    """Return currently free GPU VRAM in GiB. Returns 0.0 if no GPU found."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            mib = int(result.stdout.strip().splitlines()[0].strip())
+            return mib / 1024.0
+    except Exception:
+        pass
+    try:
+        import torch
+        if torch.cuda.is_available() and hasattr(torch.cuda, "mem_get_info"):
+            free_bytes, _total_bytes = torch.cuda.mem_get_info(0)
+            return free_bytes / (1024 ** 3)
+    except Exception:
+        pass
+    return 0.0
+
+
 def detect_ram_gb() -> float:
     """Return total system RAM in GiB."""
     try:
@@ -66,11 +88,17 @@ def detect_ram_gb() -> float:
 
 
 def detect_resources() -> Dict[str, float]:
-    """Return dict with ``vram_gb`` and ``ram_gb`` keys."""
+    """Return dict with GPU total/free VRAM and system RAM."""
     vram = detect_vram_gb()
+    free_vram = detect_free_vram_gb()
     ram = detect_ram_gb()
-    logger.debug("Detected resources: VRAM=%.1f GB  RAM=%.1f GB", vram, ram)
-    return {"vram_gb": vram, "ram_gb": ram}
+    logger.debug(
+        "Detected resources: VRAM(total)=%.1f GB  VRAM(free)=%.1f GB  RAM=%.1f GB",
+        vram,
+        free_vram,
+        ram,
+    )
+    return {"vram_gb": vram, "free_vram_gb": free_vram, "ram_gb": ram}
 
 
 # ── Model entry ───────────────────────────────────────────────────────────────
@@ -314,9 +342,24 @@ CATALOGS: Dict[str, List[ModelEntry]] = {
 
 # VRAM safety margin: never use the last N GB to leave headroom for other workers.
 _VRAM_SAFETY_MARGIN_GB = 2.0
+_TASK_RUNTIME_FALLBACKS: Dict[str, Dict[str, str]] = {
+    "world_model": {
+        "nvidia/Cosmos-1.0-": "MCG-NJU/videomae-base",
+        "facebook/vjepa2-": "MCG-NJU/videomae-base",
+    }
+}
 
 
 # ── Auto-selection ────────────────────────────────────────────────────────────
+
+
+def normalize_model_id(task: str, model_id: str) -> str:
+    """Return a runtime-supported model ID for a task."""
+    task_rules = _TASK_RUNTIME_FALLBACKS.get(task, {})
+    for prefix, fallback in task_rules.items():
+        if model_id.startswith(prefix):
+            return fallback
+    return model_id
 
 
 def auto_select(
@@ -338,16 +381,25 @@ def auto_select(
     if resources is None:
         resources = detect_resources()
 
-    available_vram = resources.get("vram_gb", 0.0) - _VRAM_SAFETY_MARGIN_GB
+    total_vram = resources.get("vram_gb", 0.0)
+    free_vram = resources.get("free_vram_gb", total_vram)
+    available_vram = max(0.0, free_vram - _VRAM_SAFETY_MARGIN_GB)
     # If no GPU at all, models must run on CPU — only allow very small models.
-    cpu_only = resources.get("vram_gb", 0.0) < 0.5
+    cpu_only = total_vram < 0.5
     cpu_vram_limit = 0.5  # only <0.5 GB "VRAM" = model loaded in CPU RAM
 
-    candidates = catalog
+    candidates = [
+        entry for entry in catalog
+        if normalize_model_id(task, entry.model_id) == entry.model_id
+    ] or catalog
     if prefer_video:
         video_candidates = [m for m in catalog if m.supports_video]
         if video_candidates:
-            candidates = video_candidates
+            filtered_video_candidates = [
+                entry for entry in video_candidates
+                if normalize_model_id(task, entry.model_id) == entry.model_id
+            ]
+            candidates = filtered_video_candidates or video_candidates
 
     selected = candidates[0]  # default: smallest
     for entry in candidates:
@@ -360,8 +412,8 @@ def auto_select(
                 selected = entry
 
     logger.info(
-        "auto_select task=%s → %s (%.1fB params, %.1f GB VRAM; available=%.1f GB)",
-        task, selected.model_id, selected.params_b, selected.vram_fp16_gb, available_vram,
+        "auto_select task=%s → %s (%.1fB params, %.1f GB VRAM; free=%.1f GB, usable=%.1f GB)",
+        task, selected.model_id, selected.params_b, selected.vram_fp16_gb, free_vram, available_vram,
     )
     return selected.model_id
 

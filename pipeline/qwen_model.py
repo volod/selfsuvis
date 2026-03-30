@@ -20,6 +20,7 @@ from pipeline.config import settings
 from pipeline.logging_utils import get_logger
 
 logger = get_logger(__name__)
+_EFFECTIVE_QWEN_TIMEOUT_SEC = max(settings.QWEN_TIMEOUT_SEC, 90)
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
@@ -279,7 +280,8 @@ class QwenModel:
             client = OpenAI(
                 api_key="EMPTY",  # vLLM/ollama do not require a real key
                 base_url=settings.QWEN_API_URL,
-                timeout=settings.QWEN_TIMEOUT_SEC,
+                timeout=_EFFECTIVE_QWEN_TIMEOUT_SEC,
+                max_retries=0,
             )
 
             response = client.chat.completions.create(
@@ -299,15 +301,15 @@ class QwenModel:
             # Check for timeout specifically (openai >= 1.0 raises APITimeoutError)
             exc_type = type(exc).__name__
             if exc_type == "APITimeoutError" or "timeout" in exc_type.lower():
-                logger.warning("Qwen timeout after %ds", settings.QWEN_TIMEOUT_SEC)
-                return {"timeout": True, "timeout_sec": settings.QWEN_TIMEOUT_SEC}
+                logger.warning("Qwen timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
+                return {"timeout": True, "timeout_sec": _EFFECTIVE_QWEN_TIMEOUT_SEC}
 
             # Try to import and check the proper class if available
             try:
                 from openai import APITimeoutError as _APITimeoutError
                 if isinstance(exc, _APITimeoutError):
-                    logger.warning("Qwen timeout after %ds", settings.QWEN_TIMEOUT_SEC)
-                    return {"timeout": True, "timeout_sec": settings.QWEN_TIMEOUT_SEC}
+                    logger.warning("Qwen timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
+                    return {"timeout": True, "timeout_sec": _EFFECTIVE_QWEN_TIMEOUT_SEC}
             except ImportError:
                 pass
 

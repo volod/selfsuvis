@@ -40,6 +40,13 @@ _DINO_HF_REPO: dict = {
     "dinov2_vitg14": "facebook/dinov2-giant",
 }
 
+_DINO_EMBED_DIM: dict = {
+    "dinov2_vits14": 384,
+    "dinov2_vitb14": 768,
+    "dinov2_vitl14": 1024,
+    "dinov2_vitg14": 1536,
+}
+
 
 def _set_dino_xformers_enabled(enabled: bool) -> None:
     """Toggle dinov2 xFormers attention for already-imported hub modules."""
@@ -185,11 +192,7 @@ class DINOEmbedder:
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]
         )
-        # Cache the embedding dimension so we can return a correct empty array
-        # without a forward pass. Dimension varies by model variant (e.g. 768 for
-        # vitb14, 1024 for vitl14).
-        dummy = Image.new("RGB", (224, 224))
-        self._embed_dim: int = self.encode_images([dummy], batch_size=1).shape[1]
+        self._embed_dim = self._infer_embed_dim(model_name)
         self.logger.info("DINO loaded: %s on %s (dim=%d)", model_name, self.device, self._embed_dim)
 
     def _resolve_device(self) -> str:
@@ -262,6 +265,16 @@ class DINOEmbedder:
         elif ckpt:
             self.logger.warning("DINO checkpoint set but file not found: %s", ckpt)
         return model
+
+    def _infer_embed_dim(self, model_name: str) -> int:
+        actual_name = _DINO_MODEL_ALIAS.get(model_name, model_name)
+        dim = _DINO_EMBED_DIM.get(actual_name)
+        if dim is not None:
+            return dim
+
+        # Fallback for unexpected variants or wrappers without a known static mapping.
+        dummy = Image.new("RGB", (224, 224))
+        return int(self.encode_images([dummy], batch_size=1).shape[1])
 
     def load_backbone_checkpoint(self, path: str) -> None:
         """Hot-swap backbone weights in-place.

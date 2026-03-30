@@ -98,6 +98,51 @@ class _Timer:
         self._store[self._key] = time.time() - self._t0
 
 
+def _open_frame_image(frame_path: str) -> Image.Image:
+    try:
+        return Image.open(frame_path).convert("RGB")
+    except Exception:
+        return Image.new("RGB", (224, 224))
+
+
+def _open_frame_batch(batch: List[Tuple[str, float]]) -> List[Image.Image]:
+    return [_open_frame_image(fp) for fp, _t in batch]
+
+
+def _run_batched_frame_inference(
+    frame_list: List[Tuple[str, float]],
+    *,
+    batch_size: int,
+    batch_fn,
+    warning_label: str,
+    error_result: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    for batch_start in range(0, len(frame_list), batch_size):
+        batch = frame_list[batch_start : batch_start + batch_size]
+        imgs = _open_frame_batch(batch)
+        try:
+            batch_out = batch_fn(batch, imgs)
+        except Exception as exc:
+            _log.warning("  %s batch %d failed: %s", warning_label, batch_start, exc)
+            batch_out = [dict(error_result) for _ in batch]
+        if len(batch_out) != len(batch):
+            _log.warning(
+                "  %s batch %d returned %d results for %d frames; padding/truncating",
+                warning_label,
+                batch_start,
+                len(batch_out),
+                len(batch),
+            )
+            padded = list(batch_out[: len(batch)])
+            while len(padded) < len(batch):
+                padded.append(dict(error_result))
+            batch_out = padded
+        for (fp, t_sec), r in zip(batch, batch_out):
+            results.append({"frame_path": fp, "t_sec": t_sec, **r})
+    return results
+
+
 # ── Text prompts for CLIP video-to-text description ───────────────────────────
 
 _TEXT_PROMPTS: List[str] = [
@@ -1787,6 +1832,7 @@ def step_ocr_extraction(
     frame_list: List[Tuple[str, float]],
     video_name: str,
     video_dir: Path,
+    caption_results: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Step N: visible text extraction per frame."""
     result: Dict[str, Any] = {"skipped": True, "ocr_results": []}
@@ -1799,22 +1845,59 @@ def step_ocr_extraction(
     if not ocr.is_enabled():
         _log.info("  OCR disabled (OCR_ENABLED=false) — skipping"); return result
     _log.info("Running OCR on %d frames (model=%s) …", len(frame_list), ocr.model_id)
-    t0 = time.time(); ocr_results: List[Dict[str, Any]] = []
-    for batch_start in range(0, len(frame_list), settings.OCR_BATCH_SIZE):
-        batch = frame_list[batch_start : batch_start + settings.OCR_BATCH_SIZE]
-        imgs = []
-        for fp, _t in batch:
-            try:
-                imgs.append(Image.open(fp).convert("RGB"))
-            except Exception:
-                imgs.append(Image.new("RGB", (224, 224)))
-        try:
-            batch_results = ocr.extract_text_batch(imgs)
-        except Exception as exc:
-            _log.warning("  OCR batch %d failed: %s", batch_start, exc)
-            batch_results = [{"ocr_text": "", "ocr_error": True}] * len(batch)
-        for (fp, t_sec), r in zip(batch, batch_results):
-            ocr_results.append({"frame_path": fp, "t_sec": t_sec, **r})
+    t0 = time.time()
+    threshold = settings.OCR_MIN_CAPTION_CONFIDENCE
+    caption_conf_by_frame: Dict[str, float] = {}
+    if caption_results:
+        caption_conf_by_frame = {
+            str(r.get("frame_path")): float(r.get("caption_confidence", 0.0) or 0.0)
+            for r in caption_results
+            if r.get("frame_path")
+        }
+
+    selected_frame_list: List[Tuple[str, float]] = []
+    skipped_by_caption: Dict[str, Dict[str, Any]] = {}
+    if threshold > 0.0 and caption_conf_by_frame:
+        for fp, t_sec in frame_list:
+            conf = caption_conf_by_frame.get(fp)
+            if conf is not None and conf >= threshold:
+                skipped_by_caption[fp] = {
+                    "frame_path": fp,
+                    "t_sec": t_sec,
+                    "ocr_text": "",
+                    "ocr_model": ocr.model_id,
+                    "ocr_skipped_by_caption": True,
+                }
+            else:
+                selected_frame_list.append((fp, t_sec))
+        _log.info(
+            "  OCR prescreen: %d/%d frames selected (caption_confidence < %.2f)",
+            len(selected_frame_list),
+            len(frame_list),
+            threshold,
+        )
+    else:
+        selected_frame_list = list(frame_list)
+
+    processed_results = _run_batched_frame_inference(
+        selected_frame_list,
+        batch_size=settings.OCR_BATCH_SIZE,
+        batch_fn=lambda _batch, imgs: ocr.extract_text_batch(imgs),
+        warning_label="OCR",
+        error_result={"ocr_text": "", "ocr_error": True},
+    )
+    processed_by_frame = {str(r["frame_path"]): r for r in processed_results}
+    ocr_results: List[Dict[str, Any]] = []
+    for fp, t_sec in frame_list:
+        if fp in processed_by_frame:
+            ocr_results.append(processed_by_frame[fp])
+        else:
+            ocr_results.append(
+                skipped_by_caption.get(
+                    fp,
+                    {"frame_path": fp, "t_sec": t_sec, "ocr_text": "", "ocr_error": True},
+                )
+            )
     elapsed   = time.time() - t0
     non_empty = sum(1 for r in ocr_results if r.get("ocr_text"))
     _log.info("  ✓ OCR: %d/%d frames have text in %.1fs", non_empty, len(frame_list), elapsed)
@@ -1841,22 +1924,14 @@ def step_depth_estimation(
         _log.info("  Depth disabled (DEPTH_ENABLED=false) — skipping"); return result
     _log.info("Running depth estimation on %d frames (model=%s) …",
               len(frame_list), depth_model.model_id)
-    t0 = time.time(); depth_results: List[Dict[str, Any]] = []
-    for batch_start in range(0, len(frame_list), 4):
-        batch = frame_list[batch_start : batch_start + 4]
-        imgs = []
-        for fp, _t in batch:
-            try:
-                imgs.append(Image.open(fp).convert("RGB"))
-            except Exception:
-                imgs.append(Image.new("RGB", (224, 224)))
-        try:
-            batch_out = depth_model.estimate_batch(imgs)
-        except Exception as exc:
-            _log.warning("  Depth batch %d failed: %s", batch_start, exc)
-            batch_out = [{"depth_error": True}] * len(batch)
-        for (fp, t_sec), r in zip(batch, batch_out):
-            depth_results.append({"frame_path": fp, "t_sec": t_sec, **r})
+    t0 = time.time()
+    depth_results = _run_batched_frame_inference(
+        frame_list,
+        batch_size=4,
+        batch_fn=lambda _batch, imgs: depth_model.estimate_batch(imgs),
+        warning_label="Depth",
+        error_result={"depth_error": True},
+    )
     elapsed = time.time() - t0
     ok = sum(
         1
@@ -1888,22 +1963,14 @@ def step_object_detection(
         _log.info("  Detection disabled (DETECTION_ENABLED=false) — skipping"); return result
     _log.info("Running object detection on %d frames (model=%s) …",
               len(frame_list), det_model.model_id)
-    t0 = time.time(); det_results: List[Dict[str, Any]] = []
-    for batch_start in range(0, len(frame_list), 4):
-        batch = frame_list[batch_start : batch_start + 4]
-        imgs = []
-        for fp, _t in batch:
-            try:
-                imgs.append(Image.open(fp).convert("RGB"))
-            except Exception:
-                imgs.append(Image.new("RGB", (224, 224)))
-        try:
-            batch_out = det_model.detect_batch(imgs)
-        except Exception as exc:
-            _log.warning("  Detection batch %d failed: %s", batch_start, exc)
-            batch_out = [{"detection_error": True}] * len(batch)
-        for (fp, t_sec), r in zip(batch, batch_out):
-            det_results.append({"frame_path": fp, "t_sec": t_sec, **r})
+    t0 = time.time()
+    det_results = _run_batched_frame_inference(
+        frame_list,
+        batch_size=4,
+        batch_fn=lambda _batch, imgs: det_model.detect_batch(imgs),
+        warning_label="Detection",
+        error_result={"detection_error": True},
+    )
     elapsed     = time.time() - t0
     total_objs  = sum(len(r.get("detections", [])) for r in det_results)
     ok          = sum(
@@ -1938,15 +2005,11 @@ def step_world_model_pass(
     clip_frames = settings.WORLD_MODEL_CLIP_FRAMES
     _log.info("Running world model on %d frames in clips of %d (model=%s) …",
               len(frame_list), clip_frames, wm.model_id)
-    t0 = time.time(); world_results: List[Dict[str, Any]] = []
+    t0 = time.time()
+    world_results: List[Dict[str, Any]] = []
     for clip_start in range(0, len(frame_list), clip_frames):
         clip = frame_list[clip_start : clip_start + clip_frames]
-        imgs = []
-        for fp, _t in clip:
-            try:
-                imgs.append(Image.open(fp).convert("RGB"))
-            except Exception:
-                imgs.append(Image.new("RGB", (224, 224)))
+        imgs = _open_frame_batch(clip)
         try:
             clip_out = wm.process_clip(imgs)
         except Exception as exc:
@@ -1995,27 +2058,22 @@ def step_qwen_captioning(
                                   if r.get("t_sec") is not None and r.get("ocr_text")}
     _log.info("Running Qwen detailed captioning on %d frames (model=%s) …",
               len(frame_list), settings.QWEN_MODEL)
-    t0 = time.time(); caption_results: List[Dict[str, Any]] = []
-    for batch_start in range(0, len(frame_list), 4):
-        batch = frame_list[batch_start : batch_start + 4]
-        imgs: List[Image.Image] = []
-        subtitles: List[Optional[str]] = []
-        ocr_texts: List[Optional[str]] = []
-        for fp, t_sec in batch:
-            try:
-                imgs.append(Image.open(fp).convert("RGB"))
-            except Exception:
-                imgs.append(Image.new("RGB", (224, 224)))
-            subtitles.append(subtitle_map.get(t_sec) or None)
-            ocr_texts.append(ocr_map.get(t_sec) or None)
-        try:
-            batch_out = qwen.extract_batch(imgs, subtitle_texts=subtitles, ocr_texts=ocr_texts)
-        except Exception as exc:
-            _log.warning("  Qwen batch %d failed: %s", batch_start, exc)
-            batch_out = [{"service_unavailable": True}] * len(batch)
-        for (fp, t_sec), r in zip(batch, batch_out):
-            caption_results.append({"frame_path": fp, "t_sec": t_sec,
-                                    "subtitle_text": subtitle_map.get(t_sec) or "", **r})
+    t0 = time.time()
+    batch_results = _run_batched_frame_inference(
+        frame_list,
+        batch_size=4,
+        batch_fn=lambda batch, imgs: qwen.extract_batch(
+            imgs,
+            subtitle_texts=[subtitle_map.get(t_sec) or None for _fp, t_sec in batch],
+            ocr_texts=[ocr_map.get(t_sec) or None for _fp, t_sec in batch],
+        ),
+        warning_label="Qwen",
+        error_result={"service_unavailable": True},
+    )
+    caption_results: List[Dict[str, Any]] = []
+    for r in batch_results:
+        t_sec = r.get("t_sec", 0.0)
+        caption_results.append({**r, "subtitle_text": subtitle_map.get(t_sec) or ""})
     elapsed = time.time() - t0
     ok             = sum(1 for r in caption_results
                          if not r.get("service_unavailable") and not r.get("skipped"))
@@ -2399,7 +2457,12 @@ def run_video_pipeline(
     if args.ocr:
         _step(5, _TOTAL_STEPS, "OCR text extraction")
         with _Timer(T, "N_ocr"):
-            ocr_result = step_ocr_extraction(frame_list, video_name, video_dir)
+            ocr_result = step_ocr_extraction(
+                frame_list,
+                video_name,
+                video_dir,
+                caption_results=caption_results,
+            )
     else:
         T["N_ocr"] = 0.0
     video_context["ocr"] = ocr_result.get("ocr_results", [])

@@ -55,25 +55,17 @@ from PIL import Image
 
 from pipeline.config import settings
 from pipeline.logging_utils import get_logger
-from pipeline.model_registry import auto_select, detect_resources
+from pipeline.model_registry import auto_select, detect_resources, normalize_model_id
 
 logger = get_logger(__name__)
 
 _VIDEOMAE_PREFIXES = ("MCG-NJU/videomae", "MCG-NJU/VideoMAE")
-_RUNTIME_UNSUPPORTED_PREFIXES = ("nvidia/Cosmos-1.0-", "facebook/vjepa2-")
-_RUNTIME_FALLBACK_MODEL = "MCG-NJU/videomae-base"
-
-
 def _resolve_model_id() -> str:
     cfg = settings.WORLD_MODEL.strip()
     if cfg and cfg.lower() != "auto":
-        return _runtime_supported_model_id(cfg)
+        return normalize_model_id("world_model", cfg)
     resources = detect_resources()
-    selected = auto_select("world_model", resources) or "MCG-NJU/videomae-base"
-    supported = _runtime_supported_model_id(selected)
-    if supported != selected:
-        logger.info("WORLD_MODEL=auto skipped unsupported model %s; using %s", selected, supported)
-    return supported
+    return auto_select("world_model", resources) or "MCG-NJU/videomae-base"
 
 
 class WorldModel:
@@ -321,14 +313,8 @@ def _resolve_local_world_model_path(model_id: str) -> str | Path:
     return model_id
 
 
-def _runtime_supported_model_id(model_id: str) -> str:
-    if model_id.startswith(_RUNTIME_UNSUPPORTED_PREFIXES):
-        return _RUNTIME_FALLBACK_MODEL
-    return model_id
-
-
 def _candidate_model_ids(model_id: str) -> List[str]:
-    supported = _runtime_supported_model_id(model_id)
+    supported = normalize_model_id("world_model", model_id)
     if supported == model_id:
         return [model_id]
     return [model_id, supported]

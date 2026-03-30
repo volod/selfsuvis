@@ -81,14 +81,10 @@ class DetectionModel:
         """Run detection on a batch of images. Returns one result dict per image."""
         if not self.is_enabled():
             return [{"detection_disabled": True}] * len(images)
-        results: List[Dict[str, Any]] = []
-        for image in images:
-            pipe = self._get_pipe()
-            if pipe is None:
-                results.append({"detection_unavailable": True})
-                continue
-            results.append(self._detect_one(image, pipe, candidate_labels))
-        return results
+        pipe = self._get_pipe()
+        if pipe is None:
+            return [{"detection_unavailable": True}] * len(images)
+        return self._detect_many(images, pipe, candidate_labels)
 
     def detect(
         self,
@@ -108,33 +104,11 @@ class DetectionModel:
         pipe,
         candidate_labels: Optional[List[str]],
     ) -> Dict[str, Any]:
-        kwargs: Dict[str, Any] = {"threshold": settings.DETECTION_CONFIDENCE}
-        if candidate_labels is not None:
-            kwargs["candidate_labels"] = candidate_labels
-        elif settings.DETECTION_LABELS:
-            kwargs["candidate_labels"] = [
-                lbl.strip() for lbl in settings.DETECTION_LABELS.split(",") if lbl.strip()
-            ]
+        kwargs = self._detect_kwargs(candidate_labels)
         try:
             if hasattr(pipe, "call_count"):
                 pipe.call_count = 0
-            raw = pipe(image, **kwargs)
-            if not isinstance(raw, list):
-                raw = []
-            w, h = image.size
-            detections = []
-            for det in raw:
-                box = det.get("box", {})
-                x1 = box.get("xmin", 0) / w
-                y1 = box.get("ymin", 0) / h
-                x2 = box.get("xmax", w) / w
-                y2 = box.get("ymax", h) / h
-                detections.append({
-                    "label": det.get("label", ""),
-                    "confidence": round(float(det.get("score", 0.0)), 4),
-                    "bbox_norm": [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)],
-                })
-            return {"detections": detections, "detection_model": self.model_id}
+            return self._normalise_detection_output(pipe(image, **kwargs), image)
         except Exception as exc:
             if _is_cuda_oom(exc) and self._device == "cuda":
                 logger.warning(
@@ -149,6 +123,65 @@ class DetectionModel:
                         logger.warning("Detection CPU retry failed", exc_info=True)
             logger.warning("Detection failed", exc_info=True)
             return {"detection_error": True}
+
+    def _detect_many(
+        self,
+        images: List[Image.Image],
+        pipe,
+        candidate_labels: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        kwargs = self._detect_kwargs(candidate_labels)
+        try:
+            if hasattr(pipe, "call_count"):
+                pipe.call_count = 0
+            raw_outputs = pipe(images, **kwargs)
+            if isinstance(raw_outputs, list) and len(raw_outputs) == len(images):
+                return [
+                    self._normalise_detection_output(raw, image)
+                    for raw, image in zip(raw_outputs, images)
+                ]
+        except Exception as exc:
+            if _is_cuda_oom(exc) and self._device == "cuda":
+                logger.warning(
+                    "Detection CUDA OOM for %s — retrying on CPU for remaining frames.",
+                    self.model_id,
+                )
+                cpu_pipe = self._fallback_to_cpu()
+                if cpu_pipe is not None:
+                    return self._detect_many(images, cpu_pipe, candidate_labels)
+            logger.debug(
+                "Detection batch inference failed; falling back to per-image processing",
+                exc_info=True,
+            )
+        return [self._detect_one(image, pipe, candidate_labels) for image in images]
+
+    def _detect_kwargs(self, candidate_labels: Optional[List[str]]) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {"threshold": settings.DETECTION_CONFIDENCE}
+        if candidate_labels is not None:
+            kwargs["candidate_labels"] = candidate_labels
+        elif settings.DETECTION_LABELS:
+            kwargs["candidate_labels"] = [
+                lbl.strip() for lbl in settings.DETECTION_LABELS.split(",") if lbl.strip()
+            ]
+        return kwargs
+
+    def _normalise_detection_output(self, raw: Any, image: Image.Image) -> Dict[str, Any]:
+        if not isinstance(raw, list):
+            raw = []
+        w, h = image.size
+        detections = []
+        for det in raw:
+            box = det.get("box", {})
+            x1 = box.get("xmin", 0) / w
+            y1 = box.get("ymin", 0) / h
+            x2 = box.get("xmax", w) / w
+            y2 = box.get("ymax", h) / h
+            detections.append({
+                "label": det.get("label", ""),
+                "confidence": round(float(det.get("score", 0.0)), 4),
+                "bbox_norm": [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)],
+            })
+        return {"detections": detections, "detection_model": self.model_id}
 
     def _get_pipe(self, force_device: Optional[str] = None):
         target_device = force_device or self._device or _get_device()

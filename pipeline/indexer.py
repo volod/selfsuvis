@@ -64,8 +64,7 @@ class VideoIndexer:
             if name is None:
                 raise ValueError(f"Unsupported DINO model family: {settings.MODEL_NAME}")
             self.dino_model = DINOEmbedder(model_name=name)
-        # Load Florence at construction time — fail fast if weights are missing.
-        self.florence_model = FlorenceModel()
+        self._florence_model: Optional[FlorenceModel] = None
         self.store = QdrantStore(clip_dim=self.clip_model.image_dim(), dino_dim=self._dino_dim())
         self.qwen_model = QwenModel(clip_prescreen_fn=self._make_vehicle_prescreen()) if settings.QWEN_API_URL else None
         # Optional enrichment models — lazily loaded on first use (enabled via env vars).
@@ -84,7 +83,13 @@ class VideoIndexer:
     def _dino_dim(self) -> Optional[int]:
         if self.dino_model is None:
             return None
-        return self.dino_model.encode_images([Image.new("RGB", (224, 224))]).shape[1]
+        return self.dino_model.image_dim()
+
+    @property
+    def florence_model(self) -> FlorenceModel:
+        if self._florence_model is None:
+            self._florence_model = FlorenceModel()
+        return self._florence_model
 
     # ── per-frame helpers ─────────────────────────────────────────────────────
 

@@ -143,7 +143,11 @@ class OCRModel:
             else:
                 text = self._extract_trocr(image)
             return {"ocr_text": text.strip() if text else "", "ocr_model": self.model_id}
-        except Exception:
+        except Exception as exc:
+            exc_type = type(exc).__name__.lower()
+            if "timeout" in exc_type:
+                logger.warning("OCR timeout after sidecar request")
+                return {"ocr_text": "", "ocr_timeout": True, "ocr_error": True, "ocr_model": self.model_id}
             logger.warning("OCR extraction failed", exc_info=True)
             return {"ocr_text": "", "ocr_error": True, "ocr_model": self.model_id}
 

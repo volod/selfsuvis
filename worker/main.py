@@ -296,7 +296,7 @@ def _gpu_checkout(job_id: str, conn_url: str, logger) -> None:
 
 # ── Supervised finetune job handler ─────────────────────────────────────────
 
-def handle_finetune_job(job_id: str, payload: dict, conn_url: str, logger) -> None:
+def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logger) -> None:
     """Run supervised contrastive fine-tuning on CVAT-annotated frames.
 
     Expects payload = {} (no fields required; frames fetched from DB via from_db()).
@@ -309,21 +309,15 @@ def handle_finetune_job(job_id: str, payload: dict, conn_url: str, logger) -> No
     def _pg_run(coro):
         return asyncio.run(coro)
 
-    async def _update(conn, **kwargs):
-        await update_job(conn, job_id, **kwargs)
-
     try:
         cfg = config_from_settings(frames_dir=settings.FRAMES_DIR)
         logger.info("Finetune job started id=%s", job_id)
 
-        async def _mark_running():
-            conn = await asyncpg.connect(conn_url)
-            try:
+        async def _mark_running_once():
+            async with db_pool.acquire() as conn:
                 await update_job(conn, job_id, status="running", started_at=time.time())
-            finally:
-                await conn.close()
 
-        _pg_run(_mark_running())
+        _pg_run(_mark_running_once())
 
         _gpu_checkin(job_id, "supervised_finetune", conn_url, logger)
         try:
@@ -336,17 +330,14 @@ def handle_finetune_job(job_id: str, payload: dict, conn_url: str, logger) -> No
                 "Finetune job id=%s — checkpoint rejected (accuracy=%.4f < gate=%.4f)",
                 job_id, result["best_accuracy"], settings.SUP_EVAL_GATE_THRESHOLD,
             )
-            async def _mark_finished_rejected():
-                conn = await asyncpg.connect(conn_url)
-                try:
+            async def _mark_finished_rejected_once():
+                async with db_pool.acquire() as conn:
                     await update_job(conn, job_id,
                                      status="finished",
                                      progress={"accepted": False,
                                                "best_accuracy": result["best_accuracy"]},
                                      finished_at=time.time())
-                finally:
-                    await conn.close()
-            _pg_run(_mark_finished_rejected())
+            _pg_run(_mark_finished_rejected_once())
             return
 
         # Checkpoint accepted — hot-reload via admin API
@@ -365,9 +356,8 @@ def handle_finetune_job(job_id: str, payload: dict, conn_url: str, logger) -> No
             logger.warning("Finetune job id=%s — reload HTTP call failed: %s", job_id, exc)
 
         # Update retrain watermark + record provenance + set authoritative checkpoint source
-        async def _update_watermark_and_finish():
-            conn = await asyncpg.connect(conn_url)
-            try:
+        async def _update_watermark_and_finish_once():
+            async with db_pool.acquire() as conn:
                 now = utcnow()
                 total_annotated = await conn.fetchval(
                     "SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'"
@@ -420,22 +410,17 @@ def handle_finetune_job(job_id: str, payload: dict, conn_url: str, logger) -> No
                                            "checkpoint": ckpt_path,
                                            "model_version_id": model_version_id},
                                  finished_at=now)
-            finally:
-                await conn.close()
 
-        _pg_run(_update_watermark_and_finish())
+        _pg_run(_update_watermark_and_finish_once())
         logger.info("Finetune job finished id=%s checkpoint=%s accuracy=%.4f",
                     job_id, ckpt_path, result["best_accuracy"])
 
     except Exception as exc:
         logger.exception("Finetune job failed id=%s error=%s", job_id, exc)
-        async def _mark_error():
-            conn = await asyncpg.connect(conn_url)
-            try:
+        async def _mark_error_once():
+            async with db_pool.acquire() as conn:
                 await update_job(conn, job_id, status="error", error=str(exc), finished_at=time.time())
-            finally:
-                await conn.close()
-        _pg_run(_mark_error())
+        _pg_run(_mark_error_once())
 
 
 # ── Reembed job handler ──────────────────────────────────────────────────────
@@ -667,7 +652,7 @@ def main() -> None:
 
             # Route by job type
             if job_type == "supervised_finetune":
-                handle_finetune_job(job_id, payload, conn_url, logger)
+                handle_finetune_job(job_id, payload, pool, conn_url, logger)
                 continue
 
             if job_type == "reembed":
@@ -759,8 +744,7 @@ def main() -> None:
                 result_summary = {k: v for k, v in result.items() if k != "frame_records"}
 
                 async def _persist_index_result():
-                    conn = await asyncpg.connect(conn_url)
-                    try:
+                    async with pool.acquire() as conn:
                         async with conn.transaction():
                             await upsert_mission(
                                 conn,
@@ -775,8 +759,6 @@ def main() -> None:
                                 gps_origin=result_summary.get("gps_origin"),
                             )
                             await replace_frames(conn, mission_id, result.get("frame_records", []))
-                    finally:
-                        await conn.close()
 
                 asyncio.run(_persist_index_result())
 
@@ -791,8 +773,7 @@ def main() -> None:
                 )
 
                 async def _finalize_success():
-                    conn = await asyncpg.connect(conn_url)
-                    try:
+                    async with pool.acquire() as conn:
                         async with conn.transaction():
                             await processed_db_mod.aupsert(
                                 file_hash,
@@ -817,8 +798,6 @@ def main() -> None:
                                 progress={**(job.get("progress") or {}), **result_summary},
                                 finished_at=time.time(),
                             )
-                    finally:
-                        await conn.close()
 
                 asyncio.run(_finalize_success())
                 logger.info("Index job finished id=%s video_id=%s", job_id, video_id)
@@ -831,8 +810,7 @@ def main() -> None:
                         file_hash = file_sha256(video_path)
 
                         async def _finalize_error():
-                            conn = await asyncpg.connect(conn_url)
-                            try:
+                            async with pool.acquire() as conn:
                                 async with conn.transaction():
                                     await processed_db_mod.aupsert(
                                         file_hash,
@@ -851,8 +829,6 @@ def main() -> None:
                                             status="error",
                                             error=str(exc),
                                         )
-                            finally:
-                                await conn.close()
 
                         asyncio.run(_finalize_error())
                     except OSError as e:

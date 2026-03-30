@@ -42,3 +42,8 @@ def get_db_pool(request: Request) -> asyncpg.Pool:
     if pool is None:
         raise HTTPException(status_code=503, detail="DATABASE_URL not configured")
     return pool
+
+
+def get_db_pool_optional(request: Request) -> Optional[asyncpg.Pool]:
+    """Return DB pool from request app state, or None if not configured."""
+    return getattr(request.app.state, "db_pool", None)

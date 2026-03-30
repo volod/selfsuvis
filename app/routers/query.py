@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from PIL import Image, UnidentifiedImageError
 
 from app.api_utils import ERROR_RESPONSES, error_response
-from app.db import get_db_pool
+from app.db import get_db_pool_optional
 from app.deps import rate_limit, require_api_key
 from app.schemas import QueryResponse, TextQuery
 from app.services.search import search_vectors
@@ -64,7 +64,7 @@ async def query_image(
         query_vec = clip_vec
         vs = "clip"
 
-    db_pool = get_db_pool(request)
+    db_pool = get_db_pool_optional(request)
     results = await search_vectors(
         vector_space=vs,
         query_vec=query_vec,
@@ -95,7 +95,7 @@ async def query_text(
         return error_response(err)
     text = payload.text
     clip_vec = clip_model.encode_texts([text], batch_size=1)[0]
-    db_pool = get_db_pool(request)
+    db_pool = get_db_pool_optional(request)
     results = await search_vectors(
         vector_space="clip",
         query_vec=clip_vec,
