@@ -69,11 +69,17 @@ def _build_user_content(
     image: Image.Image,
     subtitle_text: Optional[str] = None,
     ocr_text: Optional[str] = None,
+    extra_context: Optional[str] = None,
 ) -> list:
-    """Build the user-message content list, optionally enriched with audio/OCR context.
+    """Build the user-message content list enriched with all available prior knowledge.
 
-    Injects subtitle transcription and OCR text as additional context blocks
-    so Qwen can use spoken/written words to disambiguate scene content.
+    Injection order (each block optional):
+      1. Image
+      2. Task prompt
+      3. Prior knowledge block (Florence caption, depth, detections, scene segment,
+         previous Qwen state) — from VideoKnowledge.context_for_frame()
+      4. ASR audio context
+      5. OCR visible text
     """
     b64 = _encode_image_base64(image)
     content = [
@@ -83,6 +89,11 @@ def _build_user_content(
         },
         {"type": "text", "text": _QWEN_USER_PROMPT},
     ]
+    if extra_context and extra_context.strip():
+        content.append({
+            "type": "text",
+            "text": f"\n[Prior observations about this scene]:\n{extra_context.strip()}",
+        })
     if subtitle_text and subtitle_text.strip():
         content.append({
             "type": "text",
@@ -321,18 +332,120 @@ class QwenModel:
         images: List[Image.Image],
         subtitle_texts: Optional[List[Optional[str]]] = None,
         ocr_texts: Optional[List[Optional[str]]] = None,
+        extra_contexts: Optional[List[Optional[str]]] = None,
+        domain_hint: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Extract frame facts for a list of images with optional per-image context.
 
-        ``subtitle_texts`` and ``ocr_texts`` must be the same length as
-        ``images`` when provided.  Calls ``extract_frame_facts`` sequentially
-        (the sidecar is typically single-GPU and does not benefit from
-        concurrent requests).
+        ``subtitle_texts``, ``ocr_texts``, and ``extra_contexts`` must be the
+        same length as ``images`` when provided.  Calls ``extract_frame_facts``
+        sequentially (the sidecar is typically single-GPU and does not benefit
+        from concurrent requests).
+
+        Parameters
+        ----------
+        extra_contexts:
+            Per-frame prior knowledge strings (from VideoKnowledge.context_for_frame).
+            When provided, injected into each Qwen prompt as
+            ``[Prior observations about this scene]``.
+        domain_hint:
+            Optional scene domain string (e.g. "military convoy") prepended to
+            the system prompt to steer structured extraction.
         """
         n = len(images)
         sub = subtitle_texts if subtitle_texts and len(subtitle_texts) == n else [None] * n
         ocr = ocr_texts if ocr_texts and len(ocr_texts) == n else [None] * n
-        return [self.extract_frame_facts(img, s, o) for img, s, o in zip(images, sub, ocr)]
+        ctx = extra_contexts if extra_contexts and len(extra_contexts) == n else [None] * n
+
+        results = []
+        for img, s, o, c in zip(images, sub, ocr, ctx):
+            results.append(self._extract_frame_facts_with_context(img, s, o, c, domain_hint))
+        return results
+
+    def _extract_frame_facts_with_context(
+        self,
+        image: Image.Image,
+        subtitle_text: Optional[str] = None,
+        ocr_text: Optional[str] = None,
+        extra_context: Optional[str] = None,
+        domain_hint: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Internal: extract_frame_facts extended with extra_context and domain_hint."""
+        if not self.is_enabled():
+            return {"disabled": True}
+
+        if not self.is_healthy():
+            return {"service_unavailable": True}
+
+        # CLIP pre-screen: skip frames that are unlikely to contain vehicles.
+        if self._clip_prescreen_fn is not None:
+            try:
+                if not self._clip_prescreen_fn(image):
+                    return {"clip_filtered": True, "reason": "below_vehicle_threshold"}
+            except Exception:
+                logger.debug("CLIP prescreen raised an exception; proceeding without filter", exc_info=True)
+        elif settings.QWEN_CLIP_THRESHOLD > 0:
+            tagger = self._lazy_tagger()
+            if tagger is not None:
+                try:
+                    result = tagger.describe_image(image, top_k=1)
+                    labels = result.get("labels", []) if isinstance(result, dict) else []
+                    if labels:
+                        top_label = labels[0]["label"]
+                        top_score = labels[0]["score"]
+                        if top_label.lower() not in _VEHICLE_LABELS or top_score < settings.QWEN_CLIP_THRESHOLD:
+                            return {"clip_filtered": True, "reason": "below_vehicle_threshold"}
+                    else:
+                        return {"clip_filtered": True, "reason": "below_vehicle_threshold"}
+                except Exception:
+                    logger.debug("Tagger prescreen failed; proceeding without filter", exc_info=True)
+
+        user_content = _build_user_content(image, subtitle_text, ocr_text, extra_context)
+
+        # Build system prompt — optionally prefixed with domain hint.
+        system_prompt = _QWEN_SYSTEM_PROMPT
+        if domain_hint and domain_hint.strip():
+            system_prompt = f"[Scene domain: {domain_hint.strip()}]\n" + system_prompt
+
+        try:
+            from openai import OpenAI, APITimeoutError
+
+            client = OpenAI(
+                api_key="EMPTY",
+                base_url=settings.QWEN_API_URL,
+                timeout=_EFFECTIVE_QWEN_TIMEOUT_SEC,
+                max_retries=0,
+            )
+
+            response = client.chat.completions.create(
+                model=settings.QWEN_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                max_tokens=512,
+                temperature=0.0,
+            )
+
+            raw_text = response.choices[0].message.content or ""
+            return _parse_qwen_response(raw_text)
+
+        except Exception as exc:
+            exc_type = type(exc).__name__
+            if exc_type == "APITimeoutError" or "timeout" in exc_type.lower():
+                logger.warning("Qwen timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
+                return {"timeout": True, "timeout_sec": _EFFECTIVE_QWEN_TIMEOUT_SEC}
+
+            try:
+                from openai import APITimeoutError as _APITimeoutError
+                if isinstance(exc, _APITimeoutError):
+                    logger.warning("Qwen timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
+                    return {"timeout": True, "timeout_sec": _EFFECTIVE_QWEN_TIMEOUT_SEC}
+            except ImportError:
+                pass
+
+            logger.warning("Qwen extraction failed: %s", exc, exc_info=True)
+            return {"service_unavailable": True}
 
     # ── Private helpers ───────────────────────────────────────────────────────
 

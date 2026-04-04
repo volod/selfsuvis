@@ -14,6 +14,7 @@ Usage::
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -26,8 +27,22 @@ logger = get_logger(__name__)
 # ── Resource detection ────────────────────────────────────────────────────────
 
 
+def _env_float_override(key: str) -> Optional[float]:
+    raw = os.environ.get(key)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("Invalid float override %s=%r ignored", key, raw)
+        return None
+
+
 def detect_vram_gb() -> float:
     """Return total GPU VRAM in GiB. Returns 0.0 if no GPU found."""
+    override = _env_float_override("GPU_TOTAL_GB_HINT")
+    if override is not None:
+        return override
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
@@ -49,6 +64,9 @@ def detect_vram_gb() -> float:
 
 def detect_free_vram_gb() -> float:
     """Return currently free GPU VRAM in GiB. Returns 0.0 if no GPU found."""
+    override = _env_float_override("GPU_FREE_GB_HINT")
+    if override is not None:
+        return override
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
@@ -346,6 +364,9 @@ _TASK_RUNTIME_FALLBACKS: Dict[str, Dict[str, str]] = {
     "world_model": {
         "nvidia/Cosmos-1.0-": "MCG-NJU/videomae-base",
         "facebook/vjepa2-": "MCG-NJU/videomae-base",
+        # ViViT feature extractor is unrecognized in transformers >= 4.50;
+        # fall back to VideoMAE-Base which uses AutoImageProcessor correctly.
+        "google/vivit-": "MCG-NJU/videomae-base",
     }
 }
 

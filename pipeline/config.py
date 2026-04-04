@@ -23,6 +23,22 @@ def _env(key: str, default: str) -> str:
     return os.getenv(key, default)
 
 
+def mask_secret(value: str, visible_suffix: int = 4) -> str:
+    """Return *value* with all but the last *visible_suffix* chars replaced by '*'.
+
+    Safe to pass to any logger. Examples::
+
+        mask_secret("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")  → "****...VXER"
+        mask_secret("")                                          → "<not set>"
+        mask_secret("short")                                     → "****t"
+    """
+    if not value:
+        return "<not set>"
+    if len(value) <= visible_suffix:
+        return "*" * (len(value) - 1) + value[-1]
+    return "*" * (len(value) - visible_suffix) + value[-visible_suffix:]
+
+
 def _env_int(key: str, default: int) -> int:
     val = os.getenv(key, str(default))
     try:
@@ -78,9 +94,47 @@ class Settings:
     TILES_DIR = _env("TILES_DIR", os.path.join(DATA_DIR, "tiles"))
     VIDEOS_DIR = _env("VIDEOS_DIR", os.path.join(DATA_DIR, "videos"))
 
+    # HuggingFace authentication — required for gated models (Gemma, Llama, …).
+    # Set HF_TOKEN=hf_... in .env or export it before running.
+    # Alternatively run: huggingface-cli login
+    HF_TOKEN = _env("HF_TOKEN", _env("HUGGING_FACE_HUB_TOKEN", ""))
+
     MODEL_NAME = _env("MODEL_NAME", "openclip")
     OPENCLIP_MODEL = _env("OPENCLIP_MODEL", "ViT-B-16")
     OPENCLIP_PRETRAINED = _env("OPENCLIP_PRETRAINED", "openai")
+
+    # Gemma open-weight local embedder (MODEL_NAME=gemma)
+    # gemma-3-4b-it: ~8 GiB BF16, multimodal (vision + text) — recommended default.
+    # Smaller text-only option: gemma-3-1b-it (~2 GiB, no vision → image captions fall back to text prompt).
+    # Larger option: gemma-3-12b-it (~24 GiB, requires offloading other models).
+    # All require HF_TOKEN + accepting license at huggingface.co/google/gemma-3-4b-it
+    GEMMA_MODEL_ID = _env("GEMMA_MODEL_ID", "google/gemma-3-4b-it")
+    GEMMA_USE_BF16 = _env("GEMMA_USE_BF16", "true").lower() == "true"
+
+    # Gemma sidecar API (Ollama or vLLM serving Gemma for generative video analysis)
+    # Set GEMMA_API_URL to enable: http://localhost:11434/v1 (Ollama) or http://localhost:8000/v1 (vLLM)
+    # Leave empty to use local GemmaEmbedder only (no generative analysis).
+    GEMMA_API_URL = _env("GEMMA_API_URL", "")
+    GEMMA_API_BACKEND = _env("GEMMA_API_BACKEND", "ollama")  # "ollama" or "vllm"
+    # Default model: Ollama uses its own tag format; vLLM uses HF repo IDs.
+    # For maximum size on mixed GPU+CPU hardware, use the largest model your VRAM+RAM allows.
+    # Ollama offloads layers to RAM automatically when VRAM is insufficient.
+    # gemma4:e4b is the edge-optimised 4B (~3 GiB Q4) — fits on 16 GiB GPUs alongside
+    # CLIP+pipeline models.  Use gemma4:26b / gemma4:31b only if VRAM allows.
+    _gemma_api_model_default = (
+        "gemma4:e4b"
+        if _env("GEMMA_API_BACKEND", "ollama").lower() == "ollama"
+        or "11434" in _env("GEMMA_API_URL", "")
+        else "google/gemma-4-4b-it"
+    )
+    GEMMA_API_MODEL = _env("GEMMA_API_MODEL", _gemma_api_model_default)
+    GEMMA_API_TIMEOUT_SEC = _env_int("GEMMA_API_TIMEOUT_SEC", 60)
+    # Final reasoning/audit sidecar. Defaults to the same endpoint as Gemma
+    # analysis, but can use a larger long-thinking model for the last step.
+    REASONING_API_URL = _env("REASONING_API_URL", GEMMA_API_URL)
+    REASONING_BACKEND = _env("REASONING_BACKEND", GEMMA_API_BACKEND)
+    REASONING_MODEL = _env("REASONING_MODEL", "")
+    REASONING_TIMEOUT_SEC = _env_int("REASONING_TIMEOUT_SEC", 240)
 
     SAM_MODEL_TYPE = _env("SAM_MODEL_TYPE", "vit_h")
     SAM_CHECKPOINT = _env("SAM_CHECKPOINT", "")
@@ -267,7 +321,7 @@ class Settings:
     # WORLD_MODEL_STORE_EMBED: store raw embedding vector in frame_facts_json
     #   (increases DB size significantly; default false — only stores metadata).
     WORLD_MODEL_ENABLED = _env("WORLD_MODEL_ENABLED", "false").lower() == "true"
-    WORLD_MODEL = _env("WORLD_MODEL", "auto")
+    WORLD_MODEL = _env("WORLD_MODEL", "nvidia/Cosmos-1.0-Autoregressive-4B")
     WORLD_MODEL_CLIP_FRAMES = _env_int("WORLD_MODEL_CLIP_FRAMES", 8)
     WORLD_MODEL_STORE_EMBED = _env("WORLD_MODEL_STORE_EMBED", "false").lower() == "true"
 
@@ -380,8 +434,8 @@ def validate_settings() -> None:
     """Validate critical settings at startup. Raises ValueError on invalid config."""
     if settings.QDRANT_PORT < 1 or settings.QDRANT_PORT > 65535:
         raise ValueError("QDRANT_PORT must be 1-65535")
-    if settings.MODEL_NAME not in {"openclip", "dinov2", "dinov3"}:
-        raise ValueError("MODEL_NAME must be openclip, dinov2, or dinov3")
+    if settings.MODEL_NAME not in {"openclip", "dinov2", "dinov3", "gemma"}:
+        raise ValueError("MODEL_NAME must be openclip, dinov2, dinov3, or gemma")
     if settings.MAX_UPLOAD_BYTES < 0 or settings.MAX_DOWNLOAD_BYTES < 0:
         raise ValueError("MAX_UPLOAD_BYTES and MAX_DOWNLOAD_BYTES must be non-negative")
     if settings.FFMPEG_TIMEOUT_SEC < 1:
@@ -400,6 +454,8 @@ def validate_settings() -> None:
         raise ValueError("MAX_IMAGE_PIXELS must be >= 0")
     if settings.MAX_DIR_FILES < 0 or settings.MAX_DIR_BYTES < 0 or settings.MAX_DIR_DEPTH < 0:
         raise ValueError("MAX_DIR_FILES/MAX_DIR_BYTES/MAX_DIR_DEPTH must be >= 0")
+    if settings.HF_TOKEN:
+        logger.info("HF_TOKEN configured: %s", mask_secret(settings.HF_TOKEN))
     if not settings.API_KEY:
         logger.warning(
             "API_KEY is not set; the API is unauthenticated and open to any caller. "

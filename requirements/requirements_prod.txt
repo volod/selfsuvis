@@ -37,6 +37,7 @@ accelerate>=0.26.0
 # It is installed automatically by scripts/install_requirements.sh (make venv) after torch,
 # and manually via:  python scripts/prepare_models.py --flash-attn
 openai>=1.0
+google-genai>=1.0
 # vllm is a separate inference server (run via Docker or standalone process), not a Python import.
 # Install it independently if needed: pip install vllm  (requires its own CUDA env).
 httpx>=0.27.0

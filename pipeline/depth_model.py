@@ -85,6 +85,18 @@ class DepthModel:
             return {"depth_unavailable": True}
         return self._estimate_one(image, pipe)
 
+    def release(self) -> None:
+        """Delete the pipeline and flush CUDA cache."""
+        import gc
+        self._pipe = None
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     def _estimate_one(self, image: Image.Image, pipe) -> Dict[str, Any]:
         try:
             return self._normalise_depth_output(pipe(image))

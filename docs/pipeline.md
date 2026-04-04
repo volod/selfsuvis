@@ -83,6 +83,38 @@ Video file / URL
 
 ## Running the full pipeline
 
+## Demo LLM split
+
+The demo pipeline now separates:
+
+- **step J analysis model** for repeated video/frame analysis
+- **step AA reasoning model** for the final `agentic_flow.md` audit
+
+When `--gemma-api-model` and `--reasoning-model` are omitted, the demo auto-selects defaults from detected hardware. On CPU/RAM-heavy machines it keeps step J lighter and reserves a larger model for the final audit step.
+
+Recommended reasoning tiers for Ollama:
+
+| Hardware | Final reasoning model |
+|---|---|
+| 8 GB GPU + 64 GB RAM | `qwen3:8b` |
+| 16 GB GPU + 64 GB RAM | `deepseek-r1:14b` |
+| 24 GB GPU + 64 GB RAM | `deepseek-r1:14b` |
+| 48 GB GPU + 64 GB RAM | `qwen3:30b` |
+| 80 GB GPU | `deepseek-r1:32b` |
+
+If previous Ollama runs still occupy VRAM, the demo unloads known sidecars before computing defaults. If hardware probing is unavailable in the current process, set `GPU_TOTAL_GB_HINT` and optionally `GPU_FREE_GB_HINT`. The final reasoning query uses a longer timeout budget; override it with `REASONING_TIMEOUT_SEC` when needed.
+The demo logs VRAM snapshots before and after each major local-model step and each sidecar-backed step.
+The local Gemma processor path is pinned to `use_fast=False` so `transformers` upgrades do not silently change multimodal preprocessing behavior.
+
+Example:
+
+```bash
+python main.py --mode demo --gemma-api-url http://localhost:11434/v1 \
+  --reasoning-api-url http://localhost:11434/v1
+```
+
+Use `--gemma-api-model` to pin the step J model and `--reasoning-model` to pin the final long-thinking model.
+
 ### 1. Start the stack
 
 ```bash

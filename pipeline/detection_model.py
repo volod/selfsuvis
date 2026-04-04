@@ -86,6 +86,18 @@ class DetectionModel:
             return [{"detection_unavailable": True}] * len(images)
         return self._detect_many(images, pipe, candidate_labels)
 
+    def release(self) -> None:
+        """Delete the pipeline and flush CUDA cache."""
+        import gc
+        self._pipe = None
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     def detect(
         self,
         image: Image.Image,

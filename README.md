@@ -68,6 +68,10 @@ python scripts/prepare_models.py --dino --source hf
 # Force torch.hub only — no HF fallback
 python scripts/prepare_models.py --dino --source hub
 
+# Gemma open-weight (step J local embedder — gated, requires HF_TOKEN)
+python scripts/prepare_models.py --gemma
+python scripts/prepare_models.py --gemma --gemma-model google/gemma-4-31b-it   # 31B
+
 # Pre-cache Whisper ASR + Florence-2 captioning models
 python scripts/prepare_models.py --whisper --florence
 
@@ -153,6 +157,130 @@ QWEN_API_URL=http://qwen:8010/v1 \
 > **Note:** If `QWEN_API_URL` is empty (the default), step R is skipped automatically.
 > The demo still runs to completion without it.
 
+### Gemma 4 sidecar (optional — for open-weight video analysis, step J)
+
+Step J uses Gemma 4 to analyse sampled video frames.
+It runs in two modes that complement each other:
+
+| Mode | What it does | When active |
+|---|---|---|
+| **Embedding mode** (local) | Loads `GemmaEmbedder` for scene change detection, clustering, zero-shot classification, cross-modal retrieval, and comparison with CLIP and DINOv3 | `MODEL_NAME=gemma` (default in demo) |
+| **Generative mode** (sidecar) | Calls Ollama/vLLM to produce a natural-language description for each sampled frame | `GEMMA_API_URL` is set |
+
+The default sidecar model is **`gemma4:31b`** — Gemma 4's largest open-weight variant.
+Ollama automatically offloads transformer layers to RAM when VRAM is insufficient,
+so it runs on mixed GPU+CPU hardware (e.g. 12 GB VRAM + 32 GB RAM handles 31B INT4).
+
+**Option 1 — Ollama (recommended, mixed GPU+CPU):**
+
+```bash
+# Install Ollama: https://ollama.com
+ollama pull gemma4:31b
+
+# Run with Gemma sidecar (step J generative descriptions):
+python main.py --mode demo --gemma-api-url http://localhost:11434/v1
+
+# Or export once:
+export GEMMA_API_URL=http://localhost:11434/v1
+python main.py --mode demo
+```
+
+**Option 2 — vLLM Docker (GPU-only, higher throughput):**
+
+```bash
+docker run --gpus all --rm -p 8020:8000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  vllm/vllm-openai:latest \
+  --model google/gemma-4-31b-it --trust-remote-code \
+  --max-model-len 4096
+
+python main.py --mode demo \
+  --gemma-api-url http://localhost:8020/v1 \
+  --gemma-api-model google/gemma-4-31b-it
+```
+
+**Combined — Gemma + Qwen + full multimodal:**
+
+```bash
+# Ollama serves both Gemma 4 31B and Qwen2.5-VL 7B:
+ollama pull gemma4:31b
+ollama pull qwen2.5vl:7b
+
+python main.py --mode demo --asr --ocr --depth --detection \
+  --gemma-api-url http://localhost:11434/v1 \
+  --qwen --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b
+```
+
+> **Note:** If `GEMMA_API_URL` is empty, the generative descriptions sub-step is
+> skipped. Embedding-based analysis (scene change, clustering, CLIP/DINOv3 comparison)
+> still runs whenever `MODEL_NAME=gemma` (the demo default).
+
+### Split analysis and reasoning models
+
+The demo now uses two separate LLM roles:
+
+- **Video analysis model**: used during step J for repeated sampled-frame analysis. Keep this relatively light.
+- **Reasoning model**: used only in the final `agentic_flow.md` audit step. This can be larger and slower.
+- The local `GemmaEmbedder` is reused across the run, and repeated image embeddings are cached in-process to avoid unnecessary recomputation.
+
+New demo flags:
+
+```bash
+--gemma-api-url http://localhost:11434/v1
+--gemma-api-model gemma4:4b
+--reasoning-api-url http://localhost:11434/v1
+--reasoning-model deepseek-r1:14b
+```
+
+If you do **not** set `--gemma-api-model` or `--reasoning-model`, the demo auto-selects them from detected hardware:
+
+| Hardware profile | Step J analysis default | Final reasoning default |
+|---|---|---|
+| 8 GB VRAM + 64 GB RAM | `gemma4:e4b` | `qwen3:8b` |
+| 16 GB VRAM + 64 GB RAM | `gemma4:e4b` | `deepseek-r1:14b` |
+| 24 GB VRAM + 64 GB RAM | `gemma4:4b` | `deepseek-r1:14b` |
+| 48 GB VRAM + 64 GB RAM | `gemma4:12b` | `qwen3:30b` |
+| 80 GB VRAM | `gemma4:26b` | `deepseek-r1:32b` |
+| CPU / RAM-only, 64+ GB RAM | `gemma4:4b` | `deepseek-r1:14b` |
+| CPU / RAM-only, 96+ GB RAM | `gemma4:12b` | `deepseek-r1:32b` |
+
+For a machine with **16 GB GPU VRAM** and **64+ GB RAM**, the practical default is:
+
+- **Step J analysis**: `gemma4:e4b`
+- **Final reasoning audit**: `deepseek-r1:14b`
+
+If Ollama or another process keeps the GPU occupied from a previous run, the demo now unloads known sidecar models before sizing the run. If VRAM detection still fails because the NVIDIA driver is not reachable from the current process, set:
+
+```bash
+export GPU_TOTAL_GB_HINT=16
+export GPU_FREE_GB_HINT=12
+```
+
+These hints affect only model planning.
+
+Recommended use:
+
+- Use the smaller analysis model when the step runs many times over video samples.
+- Use a reasoning-first model for the final audit/report step where long-form synthesis matters more than latency.
+- If both models are served by Ollama, pull both in advance:
+
+```bash
+ollama pull gemma4:e4b
+ollama pull deepseek-r1:14b
+```
+
+Example:
+
+```bash
+python main.py --mode demo --asr --ocr --depth --detection --qwen \
+  --gemma-api-url http://localhost:11434/v1 \
+  --reasoning-api-url http://localhost:11434/v1
+```
+
+The demo also logs VRAM snapshots before and after local model loads, model offload/restore events, and sidecar-backed Gemma/Qwen/reasoning calls so you can see whether memory was actually freed between steps. The final reasoning timeout is longer than the default API timeout; override with `REASONING_TIMEOUT_SEC` if needed.
+
+For the local Gemma processor path, the repo now sets `use_fast=False` explicitly. That avoids a future `transformers` default flip changing behavior silently during demo runs.
+
 ### 3D Gaussian Splat map (step I)
 
 Step I builds a 3D Gaussian Splat of each video scene using
@@ -236,13 +364,17 @@ python main.py --mode demo --depth                 # Depth estimation per frame
 python main.py --mode demo --detection             # Object detection per frame
 python main.py --mode demo --world-model           # World model video embeddings
 python main.py --mode demo --qwen --qwen-api-url http://localhost:8010/v1  # Qwen VLM (step R)
+python main.py --mode demo --gemma-api-url http://localhost:11434/v1      # Gemma 4 31B (step J)
 
 # Full multimodal — Florence local (Ollama auto-evicted before step L), Qwen via vLLM Docker:
 python main.py --mode demo --asr --depth --detection --world-model --ocr --qwen --qwen-api-url http://localhost:8010/v1
 
-# Full multimodal — Florence local (Ollama auto-evicted), Qwen via Ollama:
+# Full multimodal — Gemma + Qwen + DeepSeek-R1 reasoning via Ollama:
 export WORLD_MODEL=nvidia/Cosmos-1.0-Autoregressive-4B  # do not force gpu <16GB
-python main.py --mode demo --asr --depth --detection --world-model --ocr --qwen --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b
+python main.py --mode demo --asr --depth --detection --world-model --ocr \
+  --gemma-api-url http://localhost:11434/v1 --gemma-api-model gemma4:e4b \
+  --qwen --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b \
+  --reasoning-api-url http://localhost:11434/v1 --reasoning-model deepseek-r1:14b
 
 # Select specific models (default: GPU-aware auto-selection):
 python main.py --mode demo --asr --asr-model openai/whisper-large-v3
@@ -259,6 +391,8 @@ For each video `<name>.mp4` the demo writes `<output-dir>/<name>/`:
 
 | File / Dir | Contents |
 |---|---|
+| `gemma_analysis.md` | Step J: Gemma scene change detection, clustering, classification, CLIP+DINOv3 comparison |
+| `gemma_captions.md` | Step J: Per-frame natural-language descriptions from Gemma 4 sidecar (`--gemma-api-url`) |
 | `base_search.md` | Nearest-neighbour results with the base DINOv3 model |
 | `scene_captions.md` | Per-frame Florence-2 captions (step L) |
 | `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step M, `--asr`) |

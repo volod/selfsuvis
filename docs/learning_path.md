@@ -9,25 +9,27 @@ It explains, step by step:
 - which paper to read first
 - how a human should study the topic behind that step
 
-The current demo has 17 ordered steps per video:
+The current demo has 19 ordered steps per video:
 
 1. Frame extraction
 2. Vector store indexing
-3. Florence scene captioning
-4. ASR transcription
-5. OCR text extraction
-6. Depth estimation
-7. Object detection
-8. World model video embeddings
-9. Qwen detailed captioning
-10. Base model search test
-11. SSL DINO fine-tuning
-12. Knowledge distillation
-13. ONNX export + gallery build
-14. Fine-tuned search test
-15. Model comparison + video description
-16. 3D map + Gaussian Splat
-17. Video synthesis
+3. Gemma open-weight analysis
+4. Florence scene captioning
+5. ASR transcription
+6. OCR text extraction
+7. Depth estimation
+8. Object detection
+9. World model video embeddings
+10. Qwen detailed captioning
+11. Base model search test
+12. SSL DINO fine-tuning
+13. Knowledge distillation
+14. ONNX export + gallery build
+15. Fine-tuned search test
+16. Model comparison + video description
+17. 3D map + Gaussian Splat
+18. Video synthesis
+19. Agentic flow audit
 
 ## Before You Start
 
@@ -42,9 +44,14 @@ Minimum practical setup:
 Useful mental model:
 
 - Steps 1-2 build the raw visual memory.
-- Steps 3-9 attach language, text, geometry, and temporal structure.
-- Steps 10-15 evaluate and adapt the representation.
-- Steps 16-17 build 3D scene structure and a narrative summary.
+- Step 3 analyses that memory with Gemma open-weight across all multimodal use-cases.
+- Steps 4-10 attach language, text, geometry, and temporal structure — and feed results forward
+  into a shared `VideoKnowledge` accumulator so each step benefits from all earlier steps.
+- Steps 11-16 evaluate and adapt the representation.
+- Steps 17-19 build 3D scene structure, a narrative summary, and a final reasoning audit.
+
+The agentic flow (Steps 3 → 4 → 5–8 → 10 → 18 → 19): see the
+**Agentic Knowledge Flow** section below for a full data-flow diagram.
 
 ## Step-By-Step Learning Path
 
@@ -81,8 +88,8 @@ Each extracted frame is embedded into two visual spaces and then inserted into a
 
 **Models used in this repo**
 
-- `OpenCLIP` image encoder from [models/openclip_model.py](/home/vola/src/selfsuvis/models/openclip_model.py)
-- `DINO` image encoder from [models/dino_model.py](/home/vola/src/selfsuvis/models/dino_model.py)
+- `OpenCLIP` image encoder from [models/openclip_model.py](../models/openclip_model.py)
+- `DINO` image encoder from [models/dino_model.py](../models/dino_model.py)
 - Current default OpenCLIP config: `ViT-B-16` with the `openai` weights
 - Current DINO label in the demo: `dinov3_vitb14`
 - Important repo detail: in this codebase, `dinov3_*` is an alias for `DINOv2` register-token checkpoints served from `facebookresearch/dinov2`
@@ -103,21 +110,119 @@ Start with embeddings, cosine similarity, and nearest-neighbour retrieval. Then 
 
 ---
 
-### Step 3. Florence scene captioning
+### Step 3. Gemma 4 open-weight multimodal analysis
+
+**What the demo does**
+
+The pipeline loads `GemmaEmbedder` (backed by `google/gemma-4-it-2b` or the configured
+`GEMMA_MODEL_ID`) and runs six embedding-based analyses on a sample of up to 30 frames:
+
+1. **Scene change detection** — consecutive-frame cosine distance flags visual transitions
+2. **Scene clustering** — greedy cosine grouping into visually distinct scene states
+3. **Zero-shot scene classification** — frame embeddings matched against a label vocabulary
+4. **Cross-modal text → frame retrieval** — text probe embeddings retrieved against frame embeddings
+5. **Temporal video embedding** — mean-pool of all frame embeddings → one video-level vector
+6. **Generative frame descriptions** — when `GEMMA_API_URL` is set (Ollama/vLLM sidecar),
+   each frame is described in natural language via the Gemma 4 chat endpoint
+
+When a Gemma sidecar is configured, each frame also receives a **generative description**
+written to `gemma_captions.md`.
+
+After all analyses, the step loads a temporary DINOv3 ViT-B/14 and OpenCLIP ViT-B/16 and
+computes two cross-model comparison metrics on the same frames:
+- **Mean pairwise cosine similarity** (lower = more discriminative embedding space)
+- **Mutual nearest-neighbour overlap @ k** (fraction of frames whose top-k neighbours agree
+  between Gemma and DINOv3/CLIP — measures structural alignment between embedding spaces)
+
+Results and interpretation are written to `gemma_analysis.md`.
+
+**Models used**
+
+- `GemmaEmbedder` in [models/gemma_model.py](../models/gemma_model.py)
+- Current local demo default: `google/gemma-3-4b-it` via HuggingFace `transformers`
+- The processor is now loaded with `use_fast=False` explicitly so runtime behavior stays stable across future `transformers` releases
+- Vision encoder: Gemma multimodal vision path pooled into the language hidden space
+- Embedding dim: 2560 (Gemma 4 2B hidden size), L2-normalised
+- Optional sidecar: Ollama `gemma4:e4b` at `GEMMA_API_URL` for generative descriptions on 16 GB-class GPUs
+- Requires `HF_TOKEN` for gated HuggingFace model download
+- Important runtime detail: the embedder instance is reused across the demo, and image embeddings are cached in-process to avoid recomputing the same frame repeatedly across indexing, Gemma analysis, and Gemma-teacher distillation
+
+**Why it matters**
+
+Gemma 4 is a natively multimodal model: its image embeddings live in the same vector space as
+its text embeddings, so a text query and a frame can be compared directly without a separate
+cross-modal alignment step (unlike CLIP, which requires paired training).  This matters for
+outdoor autonomy because mission queries are often textual ("find frames with a T-intersection")
+while the indexed content is visual.
+
+The DINOv3 and CLIP comparisons answer the practical question: *how much of the visual structure
+that specialised vision models capture is also present in Gemma's embedding space?*  The MNN
+agreement metric directly predicts whether Gemma can substitute DINOv3 for retrieval tasks.
+
+**Key findings from this codebase**
+
+See full analysis in `docs/design/gemma4-video-analysis-ssl-distillation.md`.  Summary:
+
+- On 30 fps outdoor video, Gemma embeddings of near-duplicate frames have **near-zero pairwise
+  cosine similarity** (0.0000 in recorded runs) — the language backbone forces even similar
+  frames apart in embedding space.  DINOv3 is far more stable (0.94+ on the same frames).
+- **MNN agreement with DINOv3 can reach 100 %** on small samples — Gemma and DINOv3 agree
+  on which frames are nearest neighbours even though Gemma's global cosine distances are larger.
+  This means Gemma is a valid retrieval backbone when the query is text-based.
+- **Gemma uniquely enables multi-frame reasoning**: unlike Florence-2, Qwen, or DINOv3, it can
+  accept multiple images in one call and reason about what changed between them — directly solving
+  the 30 fps redundancy problem in `scene_captions.md`.
+- Gemma 4 can **replace the Qwen sidecar** for structured scene extraction (vehicle groups, road
+  surface, road condition) without requiring an Ollama process at 10–12 GB VRAM.
+
+**Essential reading**
+
+- Gemma 4 technical report: https://arxiv.org/abs/2503.19786
+- SigLIP (Gemma's vision encoder): https://arxiv.org/abs/2303.15343
+- DINOv2 (for comparison context): https://arxiv.org/abs/2304.07193
+- CLIP (for comparison context): https://arxiv.org/abs/2103.00020
+
+**How a human should learn this topic**
+
+Start with the distinction between contrastive image-text models (CLIP) and natively multimodal
+generative models (Gemma 4): CLIP learns a shared vision-language space via paired training;
+Gemma 4 produces cross-modal embeddings as a byproduct of its generative objective.  Then study
+mean-pooled hidden-state embeddings versus dedicated embedding heads.  Finally, learn to interpret
+MNN overlap as a model-agreement metric: high MNN means two models have learned the same notion
+of visual similarity; low MNN means they've specialised for different aspects of the content.
+
+A good practical exercise: run this step on a video, then open `gemma_analysis.md` and ask
+whether the MNN agreement is above or below 0.7.  That number tells you directly whether you can
+swap DINOv3 for Gemma embeddings in Qdrant without losing retrieval quality.
+
+---
+
+### Step 4. Florence scene captioning
 
 **What the demo does**
 
 The demo captions every keyframe with a detailed textual scene description. This gives you a readable semantic summary before later multimodal steps add speech, OCR, or object structure.
 
+**Agentic enrichment (new)**
+
+If Step 3 (Gemma) completed successfully and identified a dominant scene type, the pipeline forwards a `domain_hint` string into the Florence prompt:
+
+```
+[Context: Dominant scene: military convoy | Known objects: truck, soldier]
+<MORE_DETAILED_CAPTION>
+```
+
+This steers Florence toward domain-specific vocabulary before the caption is even generated.  The hint is built by `VideoKnowledge.domain_hint()` and is empty if Gemma was skipped or found no scene type.
+
 **Model used**
 
 - `microsoft/Florence-2-large`
-- Wrapper: [pipeline/florence_model.py](/home/vola/src/selfsuvis/pipeline/florence_model.py)
-- Prompt used by the repo: `<MORE_DETAILED_CAPTION>`
+- Wrapper: [pipeline/florence_model.py](../pipeline/florence_model.py)
+- Prompt used by the repo: `<MORE_DETAILED_CAPTION>` (with optional domain hint prefix)
 
 **Why it matters**
 
-This step turns raw pixels into natural-language scene summaries. Those summaries help both debugging and downstream human inspection.
+This step turns raw pixels into natural-language scene summaries. Those summaries help both debugging and downstream human inspection.  The captions are also stored in `VideoKnowledge` as the canonical per-frame scene description used by all later steps.
 
 **Essential reading**
 
@@ -129,7 +234,7 @@ Learn image captioning as a sequence-generation problem. Then study prompt-condi
 
 ---
 
-### Step 4. ASR transcription
+### Step 5. ASR transcription
 
 **What the demo does**
 
@@ -137,7 +242,7 @@ The pipeline extracts audio from the video, runs speech recognition, and aligns 
 
 **Model used**
 
-- Wrapper: [pipeline/asr_model.py](/home/vola/src/selfsuvis/pipeline/asr_model.py)
+- Wrapper: [pipeline/asr_model.py](../pipeline/asr_model.py)
 - Practical default in this repo: `openai/whisper-large-v3-turbo`
 - Important repo behavior: if `ASR_MODEL=auto` selects a non-Whisper model that cannot provide native timestamps in this pipeline, the wrapper falls back to Whisper
 
@@ -155,7 +260,7 @@ Study audio preprocessing, spectrograms, encoder-decoder speech models, and time
 
 ---
 
-### Step 5. OCR text extraction
+### Step 6. OCR text extraction
 
 **What the demo does**
 
@@ -163,7 +268,7 @@ The pipeline looks for visible text inside each frame. That text can come from r
 
 **Models used**
 
-- Wrapper: [pipeline/ocr_model.py](/home/vola/src/selfsuvis/pipeline/ocr_model.py)
+- Wrapper: [pipeline/ocr_model.py](../pipeline/ocr_model.py)
 - `OCR_MODEL=auto` is GPU-aware and can choose TrOCR, GOT-OCR2, Florence, Qwen, Phi-3.5 Vision, or DeepSeek OCR depending on setup
 - In recent demo runs, `auto` selected `microsoft/Phi-3.5-vision-instruct`
 - When a Qwen/Ollama sidecar is already active, the repo can route OCR through that sidecar instead of loading another heavy local VLM
@@ -183,7 +288,7 @@ Start with the difference between document OCR and scene-text OCR. Then learn la
 
 ---
 
-### Step 6. Depth estimation
+### Step 7. Depth estimation
 
 **What the demo does**
 
@@ -191,7 +296,7 @@ The pipeline predicts monocular depth and stores a compact five-number summary p
 
 **Model used**
 
-- Wrapper: [pipeline/depth_model.py](/home/vola/src/selfsuvis/pipeline/depth_model.py)
+- Wrapper: [pipeline/depth_model.py](../pipeline/depth_model.py)
 - `DEPTH_MODEL=auto` is registry-driven
 - In recent demo runs, `auto` selected `apple/DepthPro-hf`
 - The wrapper will retry on CPU if CUDA runs out of memory
@@ -210,7 +315,7 @@ Study the difference between metric depth, relative depth, and inverse depth. Th
 
 ---
 
-### Step 7. Object detection
+### Step 8. Object detection
 
 **What the demo does**
 
@@ -218,7 +323,7 @@ The pipeline predicts object instances and normalized bounding boxes for each fr
 
 **Model used**
 
-- Wrapper: [pipeline/detection_model.py](/home/vola/src/selfsuvis/pipeline/detection_model.py)
+- Wrapper: [pipeline/detection_model.py](../pipeline/detection_model.py)
 - `DETECTION_MODEL=auto` is registry-driven
 - In recent demo runs, `auto` selected `SenseTime/deformable-detr`
 - Open-vocabulary alternatives are also supported via `DETECTION_LABELS`
@@ -237,7 +342,7 @@ Learn the difference between classification, detection, and segmentation. Then s
 
 ---
 
-### Step 8. World model video embeddings
+### Step 9. World model video embeddings
 
 **What the demo does**
 
@@ -245,7 +350,7 @@ The pipeline groups consecutive frames into clips and computes one temporal embe
 
 **Model used**
 
-- Wrapper: [pipeline/world_model.py](/home/vola/src/selfsuvis/pipeline/world_model.py)
+- Wrapper: [pipeline/world_model.py](../pipeline/world_model.py)
 - Registry `auto` may nominate very large models like Cosmos or V-JEPA-family checkpoints
 - Important repo behavior: runtime-incompatible models are skipped and the wrapper falls back to `MCG-NJU/videomae-base`
 - Current practical runtime model: `MCG-NJU/videomae-base`
@@ -265,21 +370,44 @@ First learn why image encoders are not enough for temporal understanding. Then s
 
 ---
 
-### Step 9. Qwen detailed captioning
+### Step 10. Qwen detailed captioning
 
 **What the demo does**
 
-The demo sends each frame, plus optional ASR and OCR context, to a vision-language model for a richer structured description than the Florence caption.
+The demo sends each frame, plus all accumulated context from previous steps, to a vision-language model for a richer structured description than the Florence caption.  By Step 10 every earlier analysis is complete, making this the most information-dense step in the pipeline.
+
+**Agentic enrichment (new)**
+
+Qwen receives six types of prior knowledge per frame, assembled by `VideoKnowledge.context_for_frame(t_sec)`:
+
+| Context block | Source step | Example injected text |
+|---|---|---|
+| `[Prior scene description]` | Florence caption (Step 4) | `convoy of trucks moving through dust` |
+| `[Scene segment N, Xs–Ys]` | Segment analysis on Florence output | `Scene segment 2, 4.0s–12.5s: vehicles on gravel road` |
+| `[Audio context]` | ASR subtitles (Step 5) | `convoy moving north, checkpoint ahead` |
+| `[Visible text]` | OCR (Step 6) | `B-12  EXIT ONLY` |
+| `[Depth profile]` | Depth estimation (Step 7) | `near_ratio=0.18  mean=22.40` |
+| `[Detected objects]` | Object detection (Step 8) | `truck, person, barrier` |
+| `[Prior frame state]` | Previous Qwen output | `vehicles=2×truck  road=gravel  condition=clear` |
+
+In addition, `domain_hint` from Step 3 (Gemma) is prepended to the Qwen system prompt:
+
+```
+[Scene domain: Dominant scene: military convoy | Known objects: truck, soldier]
+You are a precise outdoor-scene analyst …
+```
+
+Each Qwen result is fed back into `VideoKnowledge` via `update_qwen_state()` so that the *next* frame's `[Prior frame state]` block reflects the just-extracted vehicle and road data.  This gives Qwen a rolling memory of what it has seen so far without reprocessing previous frames.
 
 **Model used**
 
-- Wrapper: [pipeline/qwen_model.py](/home/vola/src/selfsuvis/pipeline/qwen_model.py)
+- Wrapper: [pipeline/qwen_model.py](../pipeline/qwen_model.py)
 - Typical local sidecar in this repo: `qwen2.5vl:7b` via Ollama
 - Alternative: OpenAI-compatible vLLM endpoint
 
 **Why it matters**
 
-This step is the highest-level semantic interpreter in the pipeline. It can integrate image content with speech and OCR, which earlier specialized models cannot do jointly.
+By Step 10 the pipeline has already extracted language, geometry, sound, and object structure independently.  Rather than treating those as parallel outputs, Qwen can now reason *across* them: "the depth profile shows an obstacle approaching (Step 7), detection found a barrier (Step 8), and ASR says 'checkpoint ahead' (Step 5) — is the scene consistent?"  This cross-modal reasoning was not possible when each step ran in isolation.
 
 **Essential reading**
 
@@ -287,11 +415,11 @@ This step is the highest-level semantic interpreter in the pipeline. It can inte
 
 **How a human should learn this topic**
 
-Study multimodal prompting, context packing, and grounding failures. Then learn how OCR and ASR context can improve visual interpretation but can also bias it. A good exercise is to run the same frame with and without OCR/ASR context and compare how the explanation changes.
+Study multimodal prompting, context packing, and grounding failures. Then learn how OCR and ASR context can improve visual interpretation but can also bias it. A good exercise is to run the same frame with and without the full `context_for_frame()` block injected and compare how the structured output (vehicle groups, road surface, scene summary) changes.
 
 ---
 
-### Step 10. Base model search test
+### Step 11. Base model search test
 
 **What the demo does**
 
@@ -318,62 +446,126 @@ Learn embedding evaluation through nearest-neighbour retrieval, not just classif
 
 ---
 
-### Step 11. SSL DINO fine-tuning
+### Step 12. SSL DINO fine-tuning
 
 **What the demo does**
 
-The demo fine-tunes the DINO backbone on the extracted frames using temporal positives. Nearby frames are treated as semantically related views of the same local scene state.
+The demo fine-tunes the DINOv3 ViT-B/14 backbone on this mission's extracted frames using
+NT-Xent contrastive loss.  Two strategies are chosen automatically:
+
+- **Temporal pairs** (default when frames ≥ 2 × batch\_size): frame[i] and frame[i+k] are
+  positive pairs.  Exploits the fact that consecutive outdoor frames show the same scene.
+- **Augmentation pairs** (fallback for short clips): two independently augmented views of the
+  same frame are the positive pair.
+
+The top 2 transformer blocks and the projection head are trained; the first 10 blocks are frozen
+to prevent catastrophic forgetting.  Produces `finetune_stats.md` with loss curve, convergence
+analysis, and per-epoch interpretation.
 
 **Models used**
 
-- Teacher backbone being adapted: `dinov3_vitb14` alias in this repo
-- Fine-tuning code path: [pipeline/demo_runner.py](/home/vola/src/selfsuvis/pipeline/demo_runner.py#L1471) and the SSL modules it calls
-- Loss family: temporal contrastive self-supervision
+- Backbone: `dinov3_vitb14` (DINOv2 ViT-B/14 register tokens from `facebookresearch/dinov2`)
+- Loss: NT-Xent (InfoNCE, SimCLR formulation) — `pipeline/ssl_finetune.py`
+- Optimiser: AdamW + cosine annealing LR schedule
 
 **Why it matters**
 
-This is domain adaptation. The base foundation model is strong, but this step bends it toward the mission distribution represented by the current video collection.
+Pre-trained DINOv3 was trained on internet images.  Mission video from drones or rovers contains
+specific terrain, vehicle classes, and lighting conditions not well-represented online.  SSL on
+mission frames teaches the backbone that consecutive frames of *this specific scene* should have
+similar representations, tightening the embedding manifold for this domain without any labels.
+
+**Gemma 4 SSL finding** (from `docs/design/gemma4-video-analysis-ssl-distillation.md`):
+
+The same SSL approach applies to Gemma 4's SigLIP vision encoder.  Fine-tuning only the top 4
+of 24 ViT-L blocks (~60 M trainable params) with `TemporalPairDataset` is feasible on 16 GB
+VRAM in ~8 min per mission.  The LM backbone is fully frozen — the SSL loop never touches the
+2 B language model.  This is Strategy A (vision encoder only SSL) in the design document.
 
 **Essential reading**
 
 - DINOv2: https://arxiv.org/abs/2304.07193
-- SimCLR, for NT-Xent style contrastive training: https://arxiv.org/abs/2002.05709
+- SimCLR (NT-Xent loss): https://arxiv.org/abs/2002.05709
+- SigLIP (Gemma 4 vision encoder): https://arxiv.org/abs/2303.15343
 
 **How a human should learn this topic**
 
-Study self-supervised contrastive learning, positive/negative pair construction, and representation collapse. Then focus on temporal positives for video. A good exercise is to ask which frame pairs should be positive in fast motion, cuts, zooms, and camera shake.
+Study self-supervised contrastive learning, positive/negative pair construction, and representation
+collapse (all-zero embeddings).  Then focus on temporal positives for video: which frame pairs
+should be positive in fast motion, cuts, zooms, and camera shake?  A good exercise is to visualise
+the embedding space with UMAP before and after SSL and observe whether same-scene frames cluster
+more tightly.
 
 ---
 
-### Step 12. Knowledge distillation
+### Step 13. Knowledge distillation — maximum hydration chain
 
 **What the demo does**
 
-The fine-tuned large teacher is used to train a smaller student backbone. The code uses relational knowledge distillation, not just plain logits matching.
+The fine-tuned teacher is distilled into a smaller ViT-S/14 student using **Relational Knowledge
+Distillation with Distance + Angle losses (RKD-DA)** plus two regularisers:
+
+| Loss | Purpose |
+|---|---|
+| `L_RKD_dist` (λ=25) | Preserve pairwise distance structure: if A and B are far apart for the teacher, keep them far for the student |
+| `L_RKD_angle` (λ=50) | Preserve triplet angle structure: neighbourhood geometry, not just distances |
+| `L_cosine` (λ=1) | Direct cosine anchor: student projection ≈ teacher embedding |
+| `L_KoLeo` (λ=0.1) | Spread regulariser: prevent student embeddings from collapsing to a single cluster |
+| `L_caption` (λ=0.5, **new**) | Caption anchor: pull student toward CLIP text embeddings of Florence/Gemma captions — transfers language semantics into the small model |
+
+**Maximum-hydration distillation** (automatic when both Gemma and captions are available):
+
+1. **Teacher upgrade**: when `MODEL_NAME=gemma`, the pipeline uses `GemmaVisionTeacher` as the
+   distillation teacher instead of DINOv3.  Gemma’s SigLIP-grounded embeddings carry richer
+   semantic structure than pure-vision DINOv3 — the student inherits language-grounded visual
+   similarity.
+2. **Caption anchor loss**: Florence-2 captions from step 4 are re-embedded with the CLIP text
+   encoder and used as anchor targets for the student.  This teaches the student that a frame’s
+   embedding should be close to the text description of what it contains — zero-shot generalisation
+   for free.
+3. Both additions are backward-compatible: they activate only when the relevant inputs are
+   available and default to off (λ=0) otherwise.
 
 **Models used**
 
-- Teacher: fine-tuned DINO ViT-B/14
-- Student: `dinov2_vits14`
-- Implementation: [pipeline/distill.py](/home/vola/src/selfsuvis/pipeline/distill.py)
-- Losses: RKD distance, RKD angle, cosine anchor, KoLeo regularization
+- Teacher: fine-tuned DINOv3 ViT-B/14 (or `GemmaVisionTeacher` when `MODEL_NAME=gemma`)
+- Student: `dinov2_vits14` (22 M params, 384-dim, ~4× compression from ViT-B/14)
+- Implementation: [pipeline/distill.py](../pipeline/distill.py)
+- Caption anchor: CLIP text encoder from `models/openclip_model.py`
 
 **Why it matters**
 
-This is the edge-deployment bridge. You keep most of the teacher’s structure while moving to a cheaper student suitable for faster inference.
+RKD-DA preserves pairwise neighbourhood topology directly, which optimises Recall@K for
+retrieval — the metric that matters for this pipeline.  The caption anchor layer adds a second
+signal: the student learns not just "these frames are visually similar to each other" but also
+"this frame looks like what this sentence describes", which generalises to unseen text queries.
+
+**Gemma teacher chain finding** (from `docs/design/gemma4-video-analysis-ssl-distillation.md`):
+
+With a two-stage chain — Gemma 4 vision encoder (300 M, dim=1152) → ViT-S/14 (22 M, dim=384)
+— estimated Recall@1 ≈ 0.92, versus 0.78 for a directly pretrained ViT-S/14 without
+distillation.  Adding Stage 2 (ViT-S/14 → EfficientViT-S1, 6.6 M params) gives R@1 ≈ 0.85
+with an 8 ms/frame CPU latency — suitable for edge/robot deployment.
+
+Total compression from Gemma 4 teacher to final edge model: ~60×.
 
 **Essential reading**
 
 - Distilling the Knowledge in a Neural Network: https://arxiv.org/abs/1503.02531
-- Relational Knowledge Distillation: https://arxiv.org/abs/1904.05068
+- Relational Knowledge Distillation (RKD-DA): https://arxiv.org/abs/1904.05068
+- KoLeo regulariser: https://arxiv.org/abs/2305.12320
 
 **How a human should learn this topic**
 
-Learn the difference between task distillation, feature distillation, and relational distillation. Then study what information a student should preserve for retrieval, not just classification. A good exercise is to compare retrieval quality before and after distillation rather than looking only at training loss.
+Learn the difference between task distillation (match logits), feature distillation (match
+intermediate activations), and relational distillation (match pairwise structure).  Then study
+what information a student must preserve for retrieval versus classification: retrieval needs
+Recall@K, not accuracy.  The practical exercise is to compare retrieval quality (Recall@1, @5)
+before and after distillation and observe how each loss term contributes.
 
 ---
 
-### Step 13. ONNX export + gallery build
+### Step 14. ONNX export + gallery build
 
 **What the demo does**
 
@@ -399,7 +591,7 @@ Learn model export, operator compatibility, dynamic versus static shapes, and ru
 
 ---
 
-### Step 14. Fine-tuned search test
+### Step 15. Fine-tuned search test
 
 **What the demo does**
 
@@ -423,7 +615,7 @@ Learn to evaluate representation changes with controlled before/after comparison
 
 ---
 
-### Step 15. Model comparison + video description
+### Step 16. Model comparison + video description
 
 **What the demo does**
 
@@ -448,7 +640,7 @@ Study prompt-set design, prompt leakage, and dataset bias in text-image similari
 
 ---
 
-### Step 16. 3D map + Gaussian Splat
+### Step 17. 3D map + Gaussian Splat
 
 **What the demo does**
 
@@ -476,7 +668,7 @@ Learn camera geometry, epipolar constraints, feature matching, bundle adjustment
 
 ---
 
-### Step 17. Video synthesis
+### Step 18. Video synthesis
 
 **What the demo does**
 
@@ -484,8 +676,9 @@ The pipeline synthesizes a final ontology-style summary and a narrative report f
 
 **Models used**
 
-- Qwen sidecar / OpenAI-compatible chat endpoint
-- Input context includes captions, OCR, ASR, detections, descriptions, and 3D outputs
+- OpenAI-compatible chat endpoint
+- In practice this is usually the configured Qwen sidecar
+- Input context includes captions, OCR, ASR, detections, descriptions, map outputs, and other accumulated demo artifacts
 
 **Why it matters**
 
@@ -498,6 +691,335 @@ This step turns the pipeline from a collection of independent analyses into a hu
 **How a human should learn this topic**
 
 Study ontology design, schema-first prompting, and evidence-backed summarization. The main skill here is not generic prompt writing; it is learning how to convert noisy multimodal evidence into a consistent structured report without hallucinating unsupported conclusions.
+
+---
+
+### Step 19. Agentic flow audit
+
+**What the demo does**
+
+The final step generates `agentic_flow.md`, a reasoning-heavy audit artifact that explains how context moved from one demo step to the next, what each step added, and where misidentification or stale/wrong context could propagate.
+
+Unlike Step 18, which writes a user-facing summary of the video, Step 19 is a system-facing audit of the pipeline itself.
+
+**Models used**
+
+- OpenAI-compatible reasoning endpoint
+- Practical default on a 16 GB GPU + large RAM machine: `deepseek-r1:14b`
+- Larger reasoning models can be pinned explicitly with `--reasoning-model`
+- The prompt path uses a compact-first strategy and a longer timeout budget because reasoning models can be substantially slower than captioning models
+
+**Why it matters**
+
+This step makes the demo inspectable. It turns a long multimodal run into a traceable reasoning document, which is critical when the pipeline is used for robotics, surveillance, or operational reporting.
+
+**Essential reading**
+
+- DeepSeek-R1 report: https://arxiv.org/abs/2501.12948
+- Practical prompt engineering for reasoning models: study model cards and deployment docs for your actual Ollama-served model
+
+**How a human should learn this topic**
+
+Learn to distinguish three different outputs:
+
+- task inference: "what is in the frame?"
+- report synthesis: "what happened in the video?"
+- system audit: "why did the pipeline conclude this, and where could it be wrong?"
+
+The practical exercise is to compare `video_synthesis.md` and `agentic_flow.md` from the same run. The first should read like a mission summary; the second should read like a reasoning provenance document.
+
+---
+
+## Agentic Knowledge Flow
+
+### What problem it solves
+
+Steps 3–9 each run a specialised model independently and write results to disk. Without an
+accumulator, Step 10 (Qwen) knows only what it can see in the raw image, a subtitle string, and
+an OCR string. It cannot ask "was a barrier detected 2 seconds ago?" or "does this scene belong
+to the same segment as the last 8 frames?"
+
+The `VideoKnowledge` accumulator (in `pipeline/demo_runner.py`) solves this: each step
+*deposits* structured results into a shared object and later steps *query* it per frame.  The
+accumulator is never serialised to disk; it lives for the lifetime of one video pass.
+
+### Data flow diagram
+
+```
+Step 3  Gemma analysis ──────────► VideoKnowledge.add_gemma()
+                                        │  scene_type, n_transitions, n_clusters, mnn_dino
+                                        ▼
+Step 4  Florence captioning ◄─── domain_hint()           VideoKnowledge.add_captions()
+                                        │  _captions, _segments (Jaccard-based)
+                                        ▼
+Step 5  ASR ────────────────────────────────────────────► VideoKnowledge.add_asr()
+                                        │  _asr {t_sec: text}
+                                        ▼
+Step 6  OCR ────────────────────────────────────────────► VideoKnowledge.add_ocr()
+                                        │  _ocr {t_sec: text}
+                                        ▼
+Step 7  Depth ──────────────────────────────────────────► VideoKnowledge.add_depth()
+                                        │  _depth {t_sec: {near_ratio, mean_depth, …}}
+                                        ▼
+Step 8  Detection ──────────────────────────────────────► VideoKnowledge.add_detections()
+                                        │  _detections {t_sec: [labels]}, known_entities
+                                        ▼
+Step 10 Qwen ◄────────── domain_hint() + context_for_frame(t_sec) per frame
+             └──────────────────────────────────────────► update_qwen_state(result)
+                                                               (rolling memory for next frame)
+```
+
+### What `context_for_frame(t_sec)` returns
+
+`VideoKnowledge.context_for_frame(t)` assembles up to seven text blocks from deposited data and
+returns a single string injected into the Qwen user prompt.  Each block is optional — if the
+relevant step was skipped or found no data for this timestamp, the block is omitted.
+
+```
+[Prior scene description]: convoy of trucks moving through dust
+[Scene segment 2, 4.0s–12.5s]: vehicles on gravel road
+[Audio context]: convoy moving north, checkpoint ahead
+[Visible text]: B-12  EXIT ONLY
+[Depth profile]: near_ratio=0.18  mean=22.40
+[Detected objects]: truck, person, barrier
+[Prior frame state]: vehicles=2×truck  road=gravel  condition=clear
+```
+
+Nearest-frame lookup uses a sorted timestamp index with a configurable `max_gap` (default 2–5 s)
+so frames without an exact match still get context from the nearest available entry.
+
+### What `domain_hint()` returns
+
+`VideoKnowledge.domain_hint()` builds a short one-line summary from Gemma's scene classification
+and the top detected entity classes:
+
+```
+Dominant scene: military convoy | Known objects: truck, soldier, barrier | Visual transitions: 3
+```
+
+This is passed to Step 4 (Florence) as a prompt prefix and to Step 10 (Qwen) as a system-prompt
+prefix.  Both calls default to no prefix when Gemma was skipped.
+
+### Temporal rolling memory in Step 10
+
+After Qwen processes each frame it calls `VideoKnowledge.update_qwen_state(result)`.  The next
+frame's `context_for_frame()` includes a `[Prior frame state]` block derived from that result.
+This gives Qwen a one-frame look-back without loading previous images:
+
+```
+Frame N context:
+  [Prior frame state]: vehicles=2×truck  road=gravel  condition=clear
+
+Frame N+1 sees this in its prompt; Qwen can now reason:
+  "road_condition has changed from 'clear' to 'wet' — likely rain or crossing a puddle"
+```
+
+### Where to find the implementation
+
+| Component | File | Function / class |
+|---|---|---|
+| Accumulator | [pipeline/demo_runner.py](../pipeline/demo_runner.py) | `VideoKnowledge` |
+| Per-frame context | [pipeline/demo_runner.py](../pipeline/demo_runner.py) | `VideoKnowledge.context_for_frame()` |
+| Domain hint | [pipeline/demo_runner.py](../pipeline/demo_runner.py) | `VideoKnowledge.domain_hint()` |
+| Qwen batch with context | [pipeline/qwen_model.py](../pipeline/qwen_model.py) | `QwenModel.extract_batch()` |
+| Pipeline wiring | [pipeline/demo_runner.py](../pipeline/demo_runner.py) | `_run_video_pipeline()` |
+
+### How a human should study this pattern
+
+The agentic accumulator is an instance of the broader *chain-of-thought with external tools*
+pattern from language model research, applied to a multimodal inference pipeline.  To study it:
+
+1. Read the `VideoKnowledge` class from top to bottom in `demo_runner.py` — notice how each
+   `add_*` method stores data in timestamp-indexed dicts and how `_nearest()` handles sparse
+   lookups across time.
+2. Print `context_for_frame()` output for 10 frames from a real video run and check whether the
+   seven blocks contain plausible information.
+3. Run Qwen twice on the same video — once with `knowledge=None` (disable wiring) and once with
+   the full accumulator — and compare `detailed_captions.md`.  The structured output
+   (vehicle groups, road condition) should be more stable and specific with the accumulator.
+4. Add a new step between detection and Qwen (e.g. a simple heuristic that flags "high crowd
+   density") and practice depositing its output into `VideoKnowledge` so Qwen sees it.
+
+---
+
+## Advanced Implementation Guide
+
+This section is for a human who wants to deeply understand how to replace, tune, or re-implement
+the model used at each demo step. Read it as an engineering guide, not just a learning checklist.
+
+### Step-by-step implementation recommendations
+
+| Step | Current role | What to understand before replacing it | What breaks if you change it carelessly |
+|---|---|---|---|
+| 1. Frame extraction | Establishes the timeline and sampling rate | ffmpeg decode, FPS sampling, timestamp stability | ASR/OCR/detection alignment drifts; retrieval and segmentation become inconsistent |
+| 2. Vector indexing | Creates reusable frame memory | embedding normalization, vector dimensions, store schema | search, comparison, and retrieval tests become incomparable |
+| 3. Gemma analysis | Adds multimodal semantic priors | image-text embedding space, multimodal prompt formatting, batch reuse | wrong scene priors contaminate Florence, Qwen, and the final audit |
+| 4. Florence captioning | Produces canonical per-frame scene text | task prompting, caption segmentation, domain hints | later steps lose the baseline textual scene description |
+| 5. ASR | Adds aligned audio evidence | timestamped ASR, subtitle-window alignment | Qwen receives wrong audio context and hallucinates causal explanations |
+| 6. OCR | Adds visible-text evidence | scene-text OCR, prompt formatting for VLM OCR, prescreen logic | named entities, signs, and UI text disappear or become wrong context |
+| 7. Depth | Adds lightweight geometry | relative vs metric depth, aggregation, failure under low texture | later prompts use misleading near/far reasoning |
+| 8. Detection | Adds explicit object structure | detector calibration, open-vocabulary labels, small-object recall | entity lists become noisy and poison downstream prompts |
+| 9. World model | Adds clip-level temporal features | clip sampling, temporal embeddings, runtime fallback behavior | temporal context becomes uninterpretable or inconsistent |
+| 10. Qwen reasoning | Fuses all prior evidence per frame | prompt packing, evidence precedence, state carry-over | one wrong upstream cue propagates across multiple frames |
+| 11/15. Retrieval tests | Quantify representation quality | controlled query selection, top-k comparison | adaptation results become untrustworthy |
+| 12. SSL fine-tuning | Tightens domain-specific embeddings | positive-pair design, freeze schedule, collapse avoidance | adapted model overfits or improves only numerically |
+| 13. Distillation | Compresses teacher structure | teacher quality, relational loss, anchor losses | student inherits teacher bugs or loses retrieval geometry |
+| 14. ONNX export | Creates deployable runtime | export correctness, operator coverage, embedding parity | edge model diverges silently from training model |
+| 16. Video description | Produces coarse text hypothesis | prompt-bank design, CLIP text/image alignment | top-level description becomes prompt-biased |
+| 17. 3D mapping | Produces spatial world structure | SfM assumptions, pose quality, splat generation | geometry looks plausible but is physically wrong |
+| 18. Video synthesis | Produces user-facing summary | schema-first generation, evidence selection, contradiction handling | report sounds confident but hides disagreement |
+| 19. Agentic audit | Produces system-facing reasoning trace | compact provenance prompts, timeout budgeting, risk framing | audit step falls back too often or repeats unsupported claims |
+
+### How to think about model selection per step
+
+Use these questions before swapping any model:
+
+1. Is this step producing a **representation**, a **fact**, or a **report**?
+2. Does the next step consume raw output directly, or only a compact summary?
+3. Is latency dominated by repeated per-frame calls or a single final reasoning call?
+4. Is the model used for **visual similarity**, **semantic grounding**, or **long-form reasoning**?
+
+That leads to the practical pattern used in this repo:
+
+- use lighter repeated models for high-frequency frame work
+- use heavier reasoning models only for low-frequency synthesis/audit steps
+- preserve stable dimensions and schemas where later steps depend on them
+- prefer explicit prompt templates for multimodal models instead of implicit defaults
+
+### Per-step implementation advice
+
+#### Steps 1-2: data and memory first
+
+Before changing any model, prove the data path is stable. If timestamps, frame order, or vector dimensions shift, the rest of the pipeline may still run but its outputs stop being comparable.
+
+#### Step 3: Gemma analysis
+
+Treat Gemma as two systems:
+
+- a local embedder for reusable image/text space
+- a sidecar generative model for descriptive analysis
+
+If you replace the local embedder, preserve:
+
+- embedding dimension contract via `image_dim()` and `text_dim()`
+- L2 normalization
+- multimodal prompt formatting with explicit image placeholders
+- caching when the same frames are embedded repeatedly
+
+If you replace the sidecar model, preserve:
+
+- OpenAI-compatible endpoint behavior
+- concise frame-level prompting
+- predictable timeout and unload behavior under Ollama
+
+#### Steps 4-10: evidence layering
+
+These steps are not independent once `VideoKnowledge` is in play. Any replacement should be judged by how well it improves the accumulated context, not just its isolated output quality.
+
+For example:
+
+- a better OCR model is only useful if Qwen can consume its output without increasing false context
+- a better detector is only useful if its labels remain stable enough to become prompt context
+- a better captioner is only useful if segment analysis remains meaningful
+
+#### Steps 12-14: adaptation and deployment
+
+Never treat a lower loss as sufficient. For this stack, adaptation quality means:
+
+- retrieval neighborhoods improve
+- export preserves embedding behavior
+- the smaller model remains useful for the actual query types the pipeline supports
+
+That is why the repo keeps:
+
+- before/after retrieval tests
+- distillation metrics
+- ONNX export plus gallery build
+
+#### Steps 18-19: synthesis versus audit
+
+Use different models or at least different prompts for these two steps:
+
+- Step 18 should optimize for coherent user-facing summarization
+- Step 19 should optimize for provenance, risk analysis, and context-flow inspection
+
+Do not collapse them into one generic “LLM summary” step. That removes the distinction between
+"what the video means" and "why the pipeline thinks so."
+
+### Best way to study implementation deeply
+
+For each step:
+
+1. Read the wrapper in `pipeline/` or `models/`.
+2. Identify input contract, output contract, and runtime fallback path.
+3. Run the demo on a short clip and inspect the artifact produced by that step.
+4. Replace just one model or prompt variable and rerun.
+5. Compare not only the local artifact, but also the later steps that consumed it.
+
+That last part is the main advanced lesson of this repo: each model matters partly because of
+its own output quality, and partly because of how its output conditions later reasoning.
+
+---
+
+## Gemma 4 Findings Across the Pipeline
+
+These are the experimentally observed and analytically derived findings from running this
+pipeline with `google/gemma-4-it-2b` and `gemma4:e4b` (Ollama).  Full analysis:
+`docs/design/gemma4-video-analysis-ssl-distillation.md`.
+
+### Embedding space behaviour (Step 3)
+
+| Observation | Implication |
+|---|---|
+| Gemma mean pairwise cosine ≈ 0.00 on 30 fps video | Language backbone forces even near-duplicate frames apart — highly discriminative but unstable for dense optical-flow-style similarity |
+| DINOv3 mean pairwise cosine ≈ 0.94 on same frames | DINOv3 clusters near-duplicate frames tightly — stable for frame-to-frame similarity, less useful for semantic diversity |
+| MNN@3 Gemma vs DINOv3 = 100 % on small samples | Despite different cosine magnitudes, both models agree on which frames are neighbours — Gemma can substitute DINOv3 for Qdrant retrieval |
+| MNN@3 Gemma vs CLIP = 100 % on small samples | Gemma and CLIP agree on visual structure — Gemma can serve both image-to-image and text-to-image queries from a single index |
+
+### Caption quality (Steps 3, 4, 10)
+
+- Florence-2 (Step 4) and Qwen (Step 10) produce **identical or near-identical captions for
+  consecutive 30 fps frames** because they process each frame independently.
+- Gemma 4 **multi-image reasoning** (multiple frames in one prompt) is the correct fix: send
+  `[frame_A][frame_B]` with prompt "what changed?" to get transition descriptions instead of
+  repeated static descriptions.
+- The `_analyze_caption_sequence()` function in `demo_runner.py` uses token-Jaccard similarity
+  to group frames into segments and only shows a caption change when Jaccard < 0.45.
+
+### What Gemma 4 can do that no other model in the pipeline can
+
+1. **Multi-frame temporal reasoning**: "Is the vehicle slowing down between these 4 frames?"
+2. **Native audio + vision grounding**: processes Whisper audio tokens natively, not as injected text
+3. **Structured extraction without sidecar**: replaces Qwen (10–12 GB Ollama process) with a
+   local 4 GB call
+4. **Anomaly explanation**: "Is this frame consistent with the mission baseline? If not, why?"
+5. **Language-grounded embeddings**: text query and image query directly comparable in one space
+
+### SSL fine-tuning feasibility (Step 12)
+
+- **Strategy A (recommended)**: freeze LM backbone, fine-tune top 4 of 24 SigLIP ViT-L blocks.
+  ~60 M trainable params.  Reuses existing `TemporalPairDataset` and NT-Xent loss unchanged.
+  Needs 16 GB VRAM, ~8 min per mission on RTX 3090.
+- **Strategy B**: LoRA adapters on full model (2–8 M trainable params), 24 GB VRAM with
+  gradient checkpointing.  Best fidelity but higher compute.
+- Both strategies are fully unsupervised — no labels required.
+
+### Maximum-hydration distillation chain (Step 13)
+
+```
+Gemma 4 SigLIP ViT-L/16   300 M params  dim=1152   (teacher)
+        ↓  RKD-DA + KoLeo + caption anchor
+DINOv2 ViT-S/14             22 M params  dim=384    (stage 1 student)
+        ↓  RKD-D + KoLeo
+EfficientViT-S1              6.6 M params  dim=384  (stage 2 student, edge)
+        ↓  INT8 ONNX export
+Edge model: 7 MB, 8 ms/frame on CPU
+```
+
+- Caption anchor loss (λ=0.5): CLIP text embeddings of Florence captions pull the student toward
+  language-grounded targets → zero-shot text-query generalisation for free.
+- Estimated Recall@1: 0.92 after stage 1, 0.85 after stage 2 (vs 0.78 direct pretrain).
+- Total compression from teacher to edge model: ~60×.
 
 ---
 
@@ -527,7 +1049,7 @@ WORLD_MODEL=MCG-NJU/videomae-base
 
 Recommended order for a human learner:
 
-1. Learn representation learning first: CLIP and DINO.
+1. Learn representation learning first: CLIP, DINO, and Gemma open-weight.
 2. Add language grounding: Florence, Whisper, OCR, Qwen.
 3. Add geometry: depth, detection, SfM, Gaussian splats.
 4. Add adaptation: SSL fine-tuning and distillation.
@@ -536,7 +1058,8 @@ Recommended order for a human learner:
 
 If you only have one weekend:
 
-1. Read CLIP, DINOv2, Florence-2, Whisper.
-2. Run the demo on one short video.
-3. Inspect `base_search.md`, `scene_captions.md`, `asr_subtitles.md`, `comparison.md`, and `video_synthesis.md`.
+1. Read CLIP, DINOv2, Florence-2, Whisper, and the Gemma open-weight blog.
+2. Run the demo on one short video with `HF_TOKEN` set (for Gemma) or `GEMMA_API_URL` set (for sidecar).
+3. Inspect `gemma_analysis.md`, `gemma_captions.md`, `base_search.md`, `scene_captions.md`, `asr_subtitles.md`,
+   `comparison.md`, and `video_synthesis.md`.
 4. Then study depth/detection/3D only after you understand the retrieval-and-caption core.

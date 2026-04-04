@@ -17,7 +17,15 @@ validate_settings()
 if settings.MAX_IMAGE_PIXELS > 0:
     Image.MAX_IMAGE_PIXELS = settings.MAX_IMAGE_PIXELS
 
-clip_model = OpenCLIPEmbedder()
+if settings.MODEL_NAME == "gemma":
+    from models.gemma_model import GemmaEmbedder  # noqa: E402
+    clip_model = GemmaEmbedder(  # type: ignore[assignment]
+        model_id=settings.GEMMA_MODEL_ID,
+        device=settings.DEVICE,
+        use_bf16=settings.GEMMA_USE_BF16,
+    )
+else:
+    clip_model = OpenCLIPEmbedder()
 
 # ── Single authoritative DINOv3 checkpoint source ────────────────────────────
 # Resolution order (most-to-least authoritative):

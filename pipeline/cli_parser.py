@@ -190,5 +190,19 @@ def build_parser() -> argparse.ArgumentParser:
                         help="[demo] Qwen model ID; empty = use QWEN_MODEL env var default")
     parser.add_argument("--qwen-backend", default="", choices=["", "vllm", "ollama"],
                         help="[demo] Qwen backend type. Empty = auto-detect")
+    parser.add_argument("--gemma-api-url", default="",
+                        help="[demo] Gemma vLLM/ollama endpoint (e.g. http://localhost:11434/v1)")
+    parser.add_argument("--gemma-api-model", default="",
+                        help="[demo] Gemma model ID; empty = use GEMMA_API_MODEL env var default")
+    parser.add_argument("--gemma-api-backend", default="", choices=["", "vllm", "ollama"],
+                        help="[demo] Gemma backend type. Empty = auto-detect")
+    parser.add_argument("--reasoning-api-url", default="",
+                        help="[demo] Reasoning endpoint for the final agentic audit step; "
+                             "empty = reuse Gemma endpoint, then Qwen endpoint")
+    parser.add_argument("--reasoning-model", default="",
+                        help="[demo] Reasoning model ID for the final agentic audit step; "
+                             "empty = auto-select from detected hardware")
+    parser.add_argument("--reasoning-backend", default="", choices=["", "vllm", "ollama"],
+                        help="[demo] Reasoning backend type. Empty = auto-detect")
 
     return parser

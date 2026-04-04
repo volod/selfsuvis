@@ -10,6 +10,11 @@ Usage
     python scripts/prepare_models.py --clip         # OpenCLIP only
     python scripts/prepare_models.py --dino         # DINOv2/v3 hub archive + weights only
 
+    # Gemma open-weight (downloads weights from HuggingFace — requires HF_TOKEN):
+    python scripts/prepare_models.py --gemma        # Step J: google/gemma-3-4b-it (default, multimodal)
+    python scripts/prepare_models.py --gemma --gemma-model google/gemma-3-1b-it   # text-only, ~2 GiB
+    python scripts/prepare_models.py --gemma --gemma-model google/gemma-3-12b-it  # 12B, ~24 GiB
+
     # Step-specific optional models:
     python scripts/prepare_models.py --flash-attn   # Install flash-attn (CUDA required)
     python scripts/prepare_models.py --whisper      # Step M: Whisper ASR
@@ -55,8 +60,9 @@ Environment
                          (default: dinov2_vitb14,dinov3_vitb14)
     OPENCLIP_MODEL       OpenCLIP model name        (default from pipeline.config)
     OPENCLIP_PRETRAINED  OpenCLIP pretrained tag     (default from pipeline.config)
+    GEMMA_MODEL_ID       Gemma model repo ID (default: google/gemma-3-4b-it)
     DEVICE               torch device for loading    (default: cpu)
-    HF_TOKEN             HuggingFace token for gated / private model access
+    HF_TOKEN             HuggingFace token for gated / private model access (required for Gemma)
 """
 
 import argparse
@@ -77,6 +83,13 @@ warnings.filterwarnings("ignore", message="copying from a non-meta parameter", c
 
 # Allow running from repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Load .env so HF_TOKEN / GEMMA_MODEL_ID etc. are visible to os.getenv() calls below.
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv()
+except ImportError:
+    pass
 
 os.environ.setdefault("DEVICE", "auto")
 os.environ.setdefault("ALLOWED_INDEX_PATHS", "")
@@ -553,6 +566,55 @@ def _run_dummy(model, device: str) -> None:
         model(dummy)
 
 
+# ── Gemma open-weight model download ─────────────────────────────────────────
+
+def _download_gemma(model_id: str) -> None:
+    """Download Gemma weights from HuggingFace and warm up the processor/tokenizer.
+
+    Gemma is a gated model — requires accepting the license on HuggingFace
+    and setting HF_TOKEN in .env (or running ``huggingface-cli login``).
+
+    Setup (one-time):
+      1. Accept the license at https://huggingface.co/google/gemma-3-4b-it
+      2. Add HF_TOKEN=hf_... to your .env file
+      3. Run: python scripts/prepare_models.py --gemma
+
+    The function uses :func:`_with_auth_retry` so it prints interactive
+    authentication instructions and retries on access errors.
+    """
+    from pipeline.config import mask_secret
+    token = os.environ.get("HUGGING_FACE_HUB_TOKEN") or os.environ.get("HF_TOKEN") or None
+    log.info("Gemma — downloading %s  (token: %s) …", model_id, mask_secret(token or ""))
+
+    def _do_download() -> None:
+        from transformers import AutoProcessor, AutoModelForCausalLM, AutoTokenizer
+        import torch as _torch
+        # Try multimodal processor first; fall back to text-only tokenizer.
+        log.info("  Downloading processor/tokenizer …")
+        try:
+            AutoProcessor.from_pretrained(model_id, trust_remote_code=True, token=token)
+            log.info("  AutoProcessor loaded (multimodal model)")
+        except OSError:
+            AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, token=token)
+            log.info("  AutoTokenizer loaded (text-only model — no vision support)")
+        log.info("  Downloading model weights (this may take a while) …")
+        AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=_torch.bfloat16,
+            device_map="cpu",   # download to cache only; no GPU needed for prep
+            trust_remote_code=True,
+            token=token,
+        )
+        log.info("  ✓ Gemma %s cached", model_id)
+
+    _with_auth_retry(f"Gemma ({model_id})", model_id, _do_download)
+
+
+def _is_gemma_cached(model_id: str) -> bool:
+    """Return True if Gemma weights are in the local HuggingFace cache."""
+    return _is_hf_cached(model_id)
+
+
 # ── verify ────────────────────────────────────────────────────────────────────
 
 def _is_hf_cached(model_id: str) -> bool:
@@ -625,10 +687,21 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--clip", action="store_true", help="Download OpenCLIP weights")
     p.add_argument("--dino", action="store_true", help="Download DINOv2/v3 hub weights")
+    p.add_argument("--gemma", action="store_true",
+                   help="Download Gemma open-weight model (step J; requires HF_TOKEN for gated access)")
+    _default_gemma = os.getenv("GEMMA_MODEL_ID", "google/gemma-3-4b-it")
+    p.add_argument("--gemma-model", default=_default_gemma, metavar="MODEL_ID",
+                   help=(
+                       "Gemma model repo ID to cache (requires HF_TOKEN in .env and license accepted). "
+                       "Multimodal (vision+text): google/gemma-3-4b-it (~8 GiB, default), "
+                       "google/gemma-3-12b-it (~24 GiB). "
+                       "Text-only: google/gemma-3-1b-it (~2 GiB, no image encoding). "
+                       "Ollama sidecar: gemma4:e4b (set GEMMA_API_URL=http://localhost:11434/v1)."
+                   ))
     p.add_argument("--flash-attn", action="store_true",
                    help="Install flash-attn (CUDA required; uses prebuilt wheel or compiles)")
     p.add_argument("--all",  action="store_true",
-                   help="Download everything (flash-attn + clip + dino + florence + whisper + ocr + depth + detection + world-model)")
+                   help="Download/verify everything (flash-attn + clip + dino + gemma + florence + whisper + ocr + depth + detection + world-model)")
     p.add_argument("--verify", action="store_true",
                    help="Check cache status for all requested models without downloading")
 
@@ -705,10 +778,17 @@ def _resolve_hf_model(task: str, override: str) -> str:
 def main() -> None:
     args = _build_parser().parse_args()
 
-    _any_flag = (args.clip or args.dino or args.flash_attn or args.whisper or args.florence
-                 or args.ocr or args.depth or args.detection or args.world_model)
+    _any_flag = (args.clip or args.dino or args.gemma or args.flash_attn or args.whisper
+                 or args.florence or args.ocr or args.depth or args.detection or args.world_model)
+    # Auto-include Gemma in the default run when HF_TOKEN + GEMMA_MODEL_ID are configured,
+    # so `python scripts/prepare_models.py` caches everything needed out of the box.
+    _gemma_env_ready = bool(
+        (os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN"))
+        and os.getenv("GEMMA_MODEL_ID")
+    )
     do_clip        = args.clip        or args.all or not _any_flag
     do_dino        = args.dino        or args.all or not _any_flag
+    do_gemma       = args.gemma       or args.all or (not _any_flag and _gemma_env_ready)
     do_flash_attn  = args.flash_attn  or args.all
     do_whisper     = args.whisper     or args.all
     do_florence    = args.florence    or args.all
@@ -746,6 +826,9 @@ def main() -> None:
             for dm in args.dino_model:
                 dm_copy = dm
                 specs.append((f"DINOv2/v3 {dm_copy}", lambda d=dm_copy: _is_dino_hub_cached(d)))
+        if do_gemma:
+            gm = args.gemma_model
+            specs.append((f"Gemma {gm}", lambda m=gm: _is_gemma_cached(m)))
         if do_whisper:
             specs.append((f"Whisper {whisper_id}", lambda m=whisper_id: _is_hf_cached(m)))
         if do_florence:
@@ -804,6 +887,13 @@ def main() -> None:
                     hub_dir,
                 )
                 errors.append((f"DINO:{dino_model}", exc))
+
+    if do_gemma:
+        try:
+            _download_gemma(args.gemma_model)
+        except Exception as exc:
+            log.error("Gemma download failed: %s", exc)
+            errors.append(("Gemma", exc))
 
     if do_whisper:
         try:

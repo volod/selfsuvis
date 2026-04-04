@@ -217,6 +217,19 @@ class WorldModel:
             logger.debug("World model load failure detail: %r", last_exc)
         return None, None
 
+    def release(self) -> None:
+        """Delete the model and flush CUDA cache."""
+        import gc
+        self._model = None
+        self._feature_extractor = None
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
 
 def _sample_indices(n: int, target: int) -> List[int]:
     """Return up to *target* evenly spaced indices from [0, n)."""
