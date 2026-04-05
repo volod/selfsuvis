@@ -1,0 +1,446 @@
+"""Shared logging helpers, constants, and VideoKnowledge for the demo subpackage."""
+
+from __future__ import annotations
+
+import logging
+import time
+import warnings
+from typing import Any, Dict, List, Optional, Tuple
+
+from PIL import Image
+
+# ── Logging helpers ────────────────────────────────────────────────────────────
+
+_LOG_FMT  = "%(asctime)s  %(levelname)-7s  %(message)s"
+_DATE_FMT = "%H:%M:%S"
+
+_NOISY_LOGGERS = ("urllib3", "PIL", "filelock", "torch", "timm")
+
+
+def _configure_logging() -> None:
+    logging.basicConfig(level=logging.INFO, format=_LOG_FMT, datefmt=_DATE_FMT)
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def _configure_warnings() -> None:
+    warnings.filterwarnings("ignore", message="xFormers is available",          category=UserWarning)
+    warnings.filterwarnings("ignore", message="xFormers is not available",       category=UserWarning)
+    warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
+                            category=FutureWarning)
+    warnings.filterwarnings("ignore", message="The image_processor_class argument is deprecated",
+                            category=FutureWarning)
+
+
+_log = logging.getLogger("demo")
+
+
+def _banner(msg: str) -> None:
+    width = 72
+    _log.info("=" * width)
+    _log.info("  %s", msg)
+    _log.info("=" * width)
+
+
+def _step(n: int, total: int, name: str) -> None:
+    _log.info("─── Step %d/%d: %s", n, total, name)
+
+
+class _Timer:
+    """Context manager that records elapsed seconds into a dict under *key*."""
+    def __init__(self, store: Dict[str, float], key: str) -> None:
+        self._store = store
+        self._key   = key
+        self._t0    = 0.0
+
+    def __enter__(self) -> "_Timer":
+        self._t0 = time.time()
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        self._store[self._key] = time.time() - self._t0
+
+
+def _open_frame_image(frame_path: str) -> Image.Image:
+    try:
+        return Image.open(frame_path).convert("RGB")
+    except Exception:
+        return Image.new("RGB", (224, 224))
+
+
+def _open_frame_batch(batch: List[Tuple[str, float]]) -> List[Image.Image]:
+    return [_open_frame_image(fp) for fp, _t in batch]
+
+
+def _run_batched_frame_inference(
+    frame_list: List[Tuple[str, float]],
+    *,
+    batch_size: int,
+    batch_fn,
+    warning_label: str,
+    error_result: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    for batch_start in range(0, len(frame_list), batch_size):
+        batch = frame_list[batch_start : batch_start + batch_size]
+        imgs = _open_frame_batch(batch)
+        try:
+            batch_out = batch_fn(batch, imgs)
+        except Exception as exc:
+            _log.warning("  %s batch %d failed: %s", warning_label, batch_start, exc)
+            batch_out = [dict(error_result) for _ in batch]
+        if len(batch_out) != len(batch):
+            _log.warning(
+                "  %s batch %d returned %d results for %d frames; padding/truncating",
+                warning_label,
+                batch_start,
+                len(batch_out),
+                len(batch),
+            )
+            padded = list(batch_out[: len(batch)])
+            while len(padded) < len(batch):
+                padded.append(dict(error_result))
+            batch_out = padded
+        for (fp, t_sec), r in zip(batch, batch_out):
+            results.append({"frame_path": fp, "t_sec": t_sec, **r})
+    return results
+
+
+# ── Text prompts for CLIP video-to-text description ───────────────────────────
+
+_TEXT_PROMPTS: List[str] = [
+    "aerial footage of a road or highway",
+    "outdoor terrain with green vegetation",
+    "urban environment with buildings and streets",
+    "industrial site or construction area",
+    "rural landscape viewed from above",
+    "dense forest or woodland area",
+    "coastal area or water body",
+    "agricultural field or farmland",
+    "mountain or rocky terrain",
+    "open desert or arid landscape",
+    "parking lot or vehicle depot",
+    "residential neighbourhood from above",
+    "radar antenna or rotating radar dish on a rooftop or tower",
+    "military radar installation in open terrain",
+    "phased array radar or sensor array on a vehicle or structure",
+    "surveillance radar dome or radome on a building",
+    "weather radar tower in a field",
+    "radar site with large parabolic antenna",
+    "electronic warfare sensor mast on a ship or vehicle",
+    "panoramic wide-angle view of vehicles on a road",
+    "multiple cars and trucks visible in a wide scene",
+    "convoy of military vehicles on a road viewed from above",
+    "vehicles moving along a highway in a panoramic shot",
+    "armoured vehicles or tanks in an open field",
+    "trucks and heavy transport vehicles at an industrial site",
+    "emergency vehicles with lights visible from aerial view",
+    "vehicles parked in an open area viewed from a drone",
+    "mobile radar unit mounted on a truck in a field",
+    "radar vehicle or electronic warfare truck in a convoy",
+    "surveillance vehicle with antenna array on a road",
+    "small vehicles weaving in a serpentine pattern along a road",
+    "tiny cars following a zigzag slalom course on a wide road",
+    "overhead view of vehicles navigating obstacles in a serpentine layout",
+    "small objects moving in curved paths on a straight road from above",
+    "miniature vehicles visible as small dots arranged in a winding line",
+    "drone view of traffic slowing and weaving around road obstacles",
+    "serpentine convoy of small vehicles on an open road from altitude",
+    "simple portable radar unit on a tripod in a field",
+    "small ground surveillance radar deployed on the roadside",
+    "handheld or man-portable radar device in open terrain",
+    "compact radar sensor on a pole or mast near a road",
+    "short-range radar unit with small dish antenna on the ground",
+    "mobile radar system on a lightweight trailer or cart",
+    "radar detector or traffic speed radar on a road",
+]
+
+# ── Gemma analysis constants ──────────────────────────────────────────────────
+
+_GEMMA_ANALYSIS_SAMPLE_N = 30    # max frames sampled per video for Gemma analysis
+_SCENE_CHANGE_THRESH     = 0.25  # cosine distance threshold for scene change detection
+
+# Text probes for cross-modal search and zero-shot classification
+_GEMMA_TEXT_PROBES: List[str] = [
+    "aerial view of open terrain",
+    "military vehicle or equipment",
+    "road or highway from above",
+    "buildings and urban infrastructure",
+    "natural landscape or vegetation",
+    "radar or surveillance equipment",
+    "convoy or vehicle formation",
+    "industrial or construction site",
+    "open field or farmland",
+    "coastal or water feature",
+]
+
+# ── Runner label ──────────────────────────────────────────────────────────────
+
+_RUNNER_LABEL = "demo pipeline (`main.py --mode demo`)"
+
+# ── VideoKnowledge — agentic knowledge accumulator ────────────────────────────
+
+
+def _analyze_caption_sequence(
+    caption_results: List[Dict[str, Any]],
+    new_segment_threshold: float = 0.45,
+) -> List[Dict[str, Any]]:
+    """Annotate caption results with temporal segment info.
+
+    Adds to each result:
+        segment_id       — integer, increments when caption content changes
+        is_new_segment   — True for first frame of each segment
+        similarity       — Jaccard similarity to previous frame's caption (None for first)
+        segment_start_t  — t_sec of the first frame in this segment
+    """
+    enriched: List[Dict[str, Any]] = []
+    seg_id = 0
+    prev_caption = ""
+    seg_start_t = 0.0
+
+    for i, r in enumerate(caption_results):
+        cap = (r.get("caption") or "").strip()
+        if i == 0:
+            sim = None
+            is_new = True
+            seg_start_t = r.get("t_sec", 0.0)
+        else:
+            sim = _jaccard(prev_caption, cap)
+            if sim < new_segment_threshold:
+                seg_id += 1
+                is_new = True
+                seg_start_t = r.get("t_sec", 0.0)
+            else:
+                is_new = False
+
+        enriched.append({
+            **r,
+            "segment_id": seg_id,
+            "is_new_segment": is_new,
+            "similarity": sim,
+            "segment_start_t": seg_start_t,
+        })
+        if cap:
+            prev_caption = cap
+
+    return enriched
+
+
+def _jaccard(a: str, b: str) -> float:
+    """Token-overlap similarity between two caption strings (0=different, 1=identical)."""
+    ta = set(a.lower().split())
+    tb = set(b.lower().split())
+    if not ta and not tb:
+        return 1.0
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+class VideoKnowledge:
+    """Accumulates structured observations across pipeline steps.
+
+    Each step deposits its output here via ``add_*`` methods.  Later steps
+    query ``context_for_frame(t_sec)`` or ``domain_hint()`` to receive all
+    prior knowledge relevant to that moment in the video.
+
+    Design goals:
+    - Per-frame context: Florence caption + depth profile + detections +
+      ASR + OCR + scene segment — all aligned by timestamp.
+    - Domain summary: Gemma scene type + entity inventory → enriches Qwen
+      system prompt and Florence domain hint.
+    - Continuity: previous Qwen structured results feed back as "prior state"
+      for the next Qwen call, letting the model track what changed.
+    """
+
+    def __init__(self, video_name: str, duration_sec: float, frame_count: int) -> None:
+        self.video_name   = video_name
+        self.duration_sec = duration_sec
+        self.frame_count  = frame_count
+
+        # Gemma-derived domain knowledge (step J)
+        self.scene_type: str       = ""   # dominant zero-shot category
+        self.n_transitions: int    = 0
+        self.n_clusters: int       = 0
+        self.gemma_mnn_dino: float = 0.0
+
+        # Per-frame outputs keyed by t_sec (steps L, M, N, O, P)
+        self._captions:   Dict[float, str]        = {}  # Florence caption text
+        self._asr:        Dict[float, str]         = {}  # ASR subtitle text
+        self._ocr:        Dict[float, str]         = {}  # OCR visible text
+        self._depth:      Dict[float, Dict]        = {}  # depth summary dict
+        self._detections: Dict[float, List[str]]  = {}  # detected labels at t
+
+        # Sorted timestamp index for nearest-frame lookups
+        self._ts_captions:   List[float] = []
+        self._ts_depth:      List[float] = []
+        self._ts_detections: List[float] = []
+
+        # Scene segments from caption analysis (step L enrichment)
+        self._segments: List[Dict[str, Any]] = []
+
+        # Entity inventory: all distinct labels seen across all frames
+        self.known_entities: List[str] = []
+
+        # Last Qwen result: feeds into next Qwen call as "previous state"
+        self._last_qwen: Dict[str, Any] = {}
+
+    # ── Deposit methods ───────────────────────────────────────────────────────
+
+    def add_gemma(self, task_results: Dict[str, Any], mnn_dino: float = 0.0) -> None:
+        """Deposit Gemma analysis results (step J)."""
+        clf = task_results.get("scene_classification", {})
+        if clf.get("category_distribution"):
+            self.scene_type = next(iter(clf["category_distribution"]), "")
+        sc = task_results.get("scene_change_detection", {})
+        self.n_transitions = sc.get("n_changes", 0)
+        cl = task_results.get("scene_clustering", {})
+        self.n_clusters   = cl.get("n_clusters", 0)
+        self.gemma_mnn_dino = mnn_dino
+
+    def add_captions(self, caption_results: List[Dict[str, Any]]) -> None:
+        """Deposit Florence per-frame captions (step L) and derive segments."""
+        self._captions   = {r["t_sec"]: r.get("caption") or "" for r in caption_results if "t_sec" in r}
+        self._ts_captions = sorted(self._captions)
+        # Re-use existing segment analysis
+        enriched = _analyze_caption_sequence(caption_results)
+        seg_map: Dict[int, Dict[str, Any]] = {}
+        for r in enriched:
+            sid = r["segment_id"]
+            if sid not in seg_map:
+                seg_map[sid] = {"segment_id": sid, "start_t": r["t_sec"],
+                                "end_t": r["t_sec"], "caption": r.get("caption") or ""}
+            else:
+                seg_map[sid]["end_t"] = r["t_sec"]
+        self._segments = [seg_map[k] for k in sorted(seg_map)]
+
+    def add_asr(self, subtitle_map: Dict[float, str]) -> None:
+        """Deposit ASR subtitle map (step M)."""
+        self._asr = {float(k): v for k, v in subtitle_map.items() if v}
+
+    def add_ocr(self, ocr_results: List[Dict[str, Any]]) -> None:
+        """Deposit OCR per-frame results (step N)."""
+        self._ocr = {r["t_sec"]: r["ocr_text"] for r in ocr_results
+                     if r.get("ocr_text") and "t_sec" in r}
+
+    def add_depth(self, depth_results: List[Dict[str, Any]]) -> None:
+        """Deposit depth estimation per-frame results (step O)."""
+        self._depth = {r["t_sec"]: r for r in depth_results if "t_sec" in r}
+        self._ts_depth = sorted(self._depth)
+
+    def add_detections(self, detection_results: List[Dict[str, Any]]) -> None:
+        """Deposit object detection per-frame results (step P)."""
+        entity_set: set = set()
+        for r in detection_results:
+            t = r.get("t_sec")
+            if t is None:
+                continue
+            labels = [d["label"] for d in r.get("detections", []) if d.get("label")]
+            self._detections[float(t)] = labels
+            entity_set.update(labels)
+        self._ts_detections = sorted(self._detections)
+        # Keep top entities by frequency
+        counts: Dict[str, int] = {}
+        for labels in self._detections.values():
+            for lbl in labels:
+                counts[lbl] = counts.get(lbl, 0) + 1
+        self.known_entities = [k for k, _ in sorted(counts.items(), key=lambda x: -x[1])[:15]]
+
+    def update_qwen_state(self, result: Dict[str, Any]) -> None:
+        """Record the most recent Qwen output for use as prior state context."""
+        if not result.get("service_unavailable") and not result.get("parse_error"):
+            self._last_qwen = result
+
+    # ── Query methods ─────────────────────────────────────────────────────────
+
+    def domain_hint(self) -> str:
+        """Short domain summary for use as a model prompt prefix."""
+        parts: List[str] = []
+        if self.scene_type:
+            parts.append(f"Dominant scene: {self.scene_type}")
+        if self.known_entities:
+            parts.append(f"Known objects: {', '.join(self.known_entities[:6])}")
+        if self.n_transitions:
+            parts.append(f"Visual transitions: {self.n_transitions}")
+        return " | ".join(parts)
+
+    def context_for_frame(self, t_sec: float, asr_window: float = 2.0) -> str:
+        """Build a multi-line context string for *t_sec* from all deposited knowledge.
+
+        Returned string is injected into Qwen's user prompt so it can
+        reason with full situational awareness, not just the raw image.
+        """
+        lines: List[str] = []
+
+        # Florence caption for this frame
+        cap = self._nearest(self._ts_captions, self._captions, t_sec, max_gap=2.0)
+        if cap:
+            lines.append(f"[Prior scene description]: {cap[:150]}")
+
+        # Current scene segment
+        seg = self._segment_at(t_sec)
+        if seg and seg.get("caption"):
+            lines.append(
+                f"[Scene segment {seg['segment_id']+1}, "
+                f"{seg['start_t']:.1f}s–{seg['end_t']:.1f}s]: "
+                f"{seg['caption'][:120]}"
+            )
+
+        # ASR in window
+        asr_parts = [txt for ts, txt in self._asr.items()
+                     if abs(ts - t_sec) <= asr_window]
+        if asr_parts:
+            lines.append(f"[Audio context]: {' '.join(asr_parts)[:120]}")
+
+        # OCR exact or ±1 s
+        ocr_parts = [txt for ts, txt in self._ocr.items() if abs(ts - t_sec) <= 1.0]
+        if ocr_parts:
+            lines.append(f"[Visible text]: {' '.join(ocr_parts)[:100]}")
+
+        # Depth profile
+        dep = self._nearest(self._ts_depth, self._depth, t_sec, max_gap=2.0)
+        if dep:
+            nr  = dep.get("near_ratio",  dep.get("near_frac",  0.0))
+            mn  = dep.get("mean_depth",  dep.get("median",     0.0))
+            if nr or mn:
+                lines.append(f"[Depth profile]: near_ratio={nr:.2f}  mean={mn:.2f}")
+
+        # Detected objects at this timestamp
+        dets = self._nearest(self._ts_detections, self._detections, t_sec, max_gap=2.0)
+        if dets:
+            lines.append(f"[Detected objects]: {', '.join(dets[:8])}")
+
+        # Prior Qwen state (what the model extracted from the previous frame)
+        if self._last_qwen:
+            prev_vg = self._last_qwen.get("vehicle_groups", [])
+            prev_road = self._last_qwen.get("road_surface", "")
+            prev_cond = self._last_qwen.get("road_condition", "")
+            if prev_vg or prev_road:
+                vg_str = "; ".join(
+                    f"{g.get('count', 1)}×{g.get('type', '?')}" for g in prev_vg
+                ) if prev_vg else "none"
+                lines.append(
+                    f"[Prior frame state]: vehicles={vg_str}  "
+                    f"road={prev_road}  condition={prev_cond}"
+                )
+
+        return "\n".join(lines)
+
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _nearest(ts_index: List[float], data: Dict, t: float, max_gap: float = 5.0):
+        """Return the value in *data* whose key is closest to *t*, within *max_gap*."""
+        if not ts_index:
+            return None
+        idx = min(range(len(ts_index)), key=lambda i: abs(ts_index[i] - t))
+        if abs(ts_index[idx] - t) <= max_gap:
+            return data.get(ts_index[idx])
+        return None
+
+    def _segment_at(self, t: float) -> Optional[Dict[str, Any]]:
+        """Return the scene segment that contains timestamp *t*."""
+        for seg in self._segments:
+            if seg["start_t"] <= t <= seg["end_t"] + 0.5:
+                return seg
+        return self._segments[-1] if self._segments else None

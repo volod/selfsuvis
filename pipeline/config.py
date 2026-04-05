@@ -312,6 +312,7 @@ class Settings:
     DETECTION_MODEL = _env("DETECTION_MODEL", "auto")
     DETECTION_CONFIDENCE = _env_float("DETECTION_CONFIDENCE", 0.5)
     DETECTION_LABELS = _env("DETECTION_LABELS", "")
+    DETECTION_BATCH_SIZE = _env_int("DETECTION_BATCH_SIZE", 8)
 
     # ── World model ───────────────────────────────────────────────────────────
     # Produces video clip embeddings for temporal scene understanding.

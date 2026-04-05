@@ -502,7 +502,9 @@ class VideoIndexer:
             try:
                 img = Image.open(rec["frame_path"]).convert("RGB")
             except Exception:
-                rec["frame_facts_json"] = {"file_error": True}
+                fj = rec.get("frame_facts_json") or {}
+                fj["file_error"] = True
+                rec["frame_facts_json"] = fj
                 continue
             subtitle = rec.get("subtitle_text")
             ocr = rec.get("ocr_text")
@@ -534,8 +536,8 @@ class VideoIndexer:
     def _run_detection_pass(self, frame_records: List[Dict[str, Any]]) -> None:
         """Run object detection and store bounding boxes in frame_facts_json."""
         self.logger.info("Detection pass: %d frames", len(frame_records))
-        for batch_start in range(0, len(frame_records), 8):
-            batch = frame_records[batch_start: batch_start + 8]
+        for batch_start in range(0, len(frame_records), settings.DETECTION_BATCH_SIZE):
+            batch = frame_records[batch_start: batch_start + settings.DETECTION_BATCH_SIZE]
             images = []
             for rec in batch:
                 try:
