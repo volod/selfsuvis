@@ -1,10 +1,15 @@
-"""Thin HTTP client for Qwen2.5-VL-7B structured scene extraction via vLLM/ollama sidecar.
+"""Thin HTTP client for Gemma-4 structured scene extraction via vLLM/ollama sidecar.
 
 Phase 2 of the selfsuvis scene captioning system. This module provides
-`QwenModel`, which calls an OpenAI-compatible vision endpoint and returns
-structured `frame_facts_json` dicts for vehicle/road scene understanding.
+`QwenModel`, which calls an OpenAI-compatible vision endpoint (now backed by
+Gemma-4 via ``GEMMA_API_URL``) and returns structured ``frame_facts_json``
+dicts for vehicle/road scene understanding.
 
-The contract: `extract_frame_facts` never returns None.
+The class retains the name ``QwenModel`` and exposes an identical public
+interface to preserve backward compatibility with callers in ``indexer.py``,
+``steps_caption.py``, and test mocks.
+
+The contract: ``extract_frame_facts`` never returns None.
 """
 from __future__ import annotations
 
@@ -20,7 +25,12 @@ from pipeline.config import settings
 from pipeline.logging_utils import get_logger
 
 logger = get_logger(__name__)
-_EFFECTIVE_QWEN_TIMEOUT_SEC = max(settings.QWEN_TIMEOUT_SEC, 90)
+# Use Gemma API timeout if configured; fall back to legacy QWEN_TIMEOUT_SEC.
+# Minimum 90s to accommodate multimodal inference on large frames.
+_EFFECTIVE_QWEN_TIMEOUT_SEC = max(
+    settings.GEMMA_API_TIMEOUT_SEC if settings.GEMMA_API_URL else settings.QWEN_TIMEOUT_SEC,
+    90,
+)
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
@@ -187,7 +197,11 @@ def _parse_qwen_response(raw_text: str) -> Dict[str, Any]:
 
 
 class QwenModel:
-    """HTTP client for Qwen2.5-VL structured scene extraction.
+    """HTTP client for Gemma-4 structured scene extraction (OpenAI-compatible API).
+
+    Previously backed by Qwen2.5-VL; now uses ``GEMMA_API_URL`` /
+    ``GEMMA_API_MODEL`` when set, falling back to ``QWEN_API_URL`` /
+    ``QWEN_MODEL`` for legacy deployments that have not yet migrated.
 
     Parameters
     ----------
@@ -207,8 +221,8 @@ class QwenModel:
     # ── Public interface ──────────────────────────────────────────────────────
 
     def is_enabled(self) -> bool:
-        """Return True when QWEN_API_URL is configured (non-empty)."""
-        return bool(settings.QWEN_API_URL)
+        """Return True when GEMMA_API_URL or QWEN_API_URL is configured (non-empty)."""
+        return bool(settings.GEMMA_API_URL or settings.QWEN_API_URL)
 
     def is_healthy(self) -> bool:
         """Return True when the configured sidecar is reachable.
@@ -284,19 +298,22 @@ class QwenModel:
         # Build the user message content, including optional audio/OCR context.
         user_content = _build_user_content(image, subtitle_text, ocr_text)
 
-        # Call the Qwen sidecar via OpenAI-compatible API.
+        # Call the Gemma sidecar via OpenAI-compatible API (falls back to Qwen settings
+        # for deployments that have not yet migrated to GEMMA_API_URL).
+        _api_url   = settings.GEMMA_API_URL or settings.QWEN_API_URL
+        _api_model = settings.GEMMA_API_MODEL if settings.GEMMA_API_URL else settings.QWEN_MODEL
         try:
             from openai import OpenAI, APITimeoutError
 
             client = OpenAI(
                 api_key="EMPTY",  # vLLM/ollama do not require a real key
-                base_url=settings.QWEN_API_URL,
+                base_url=_api_url,
                 timeout=_EFFECTIVE_QWEN_TIMEOUT_SEC,
                 max_retries=0,
             )
 
             response = client.chat.completions.create(
-                model=settings.QWEN_MODEL,
+                model=_api_model,
                 messages=[
                     {"role": "system", "content": _QWEN_SYSTEM_PROMPT},
                     {"role": "user", "content": user_content},
@@ -312,19 +329,19 @@ class QwenModel:
             # Check for timeout specifically (openai >= 1.0 raises APITimeoutError)
             exc_type = type(exc).__name__
             if exc_type == "APITimeoutError" or "timeout" in exc_type.lower():
-                logger.warning("Qwen timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
+                logger.warning("Gemma extraction timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
                 return {"timeout": True, "timeout_sec": _EFFECTIVE_QWEN_TIMEOUT_SEC}
 
             # Try to import and check the proper class if available
             try:
                 from openai import APITimeoutError as _APITimeoutError
                 if isinstance(exc, _APITimeoutError):
-                    logger.warning("Qwen timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
+                    logger.warning("Gemma extraction timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
                     return {"timeout": True, "timeout_sec": _EFFECTIVE_QWEN_TIMEOUT_SEC}
             except ImportError:
                 pass
 
-            logger.warning("Qwen extraction failed: %s", exc, exc_info=True)
+            logger.warning("Gemma extraction failed: %s", exc, exc_info=True)
             return {"service_unavailable": True}
 
     def extract_batch(
@@ -407,18 +424,20 @@ class QwenModel:
         if domain_hint and domain_hint.strip():
             system_prompt = f"[Scene domain: {domain_hint.strip()}]\n" + system_prompt
 
+        _api_url   = settings.GEMMA_API_URL or settings.QWEN_API_URL
+        _api_model = settings.GEMMA_API_MODEL if settings.GEMMA_API_URL else settings.QWEN_MODEL
         try:
             from openai import OpenAI, APITimeoutError
 
             client = OpenAI(
                 api_key="EMPTY",
-                base_url=settings.QWEN_API_URL,
+                base_url=_api_url,
                 timeout=_EFFECTIVE_QWEN_TIMEOUT_SEC,
                 max_retries=0,
             )
 
             response = client.chat.completions.create(
-                model=settings.QWEN_MODEL,
+                model=_api_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content},
@@ -433,49 +452,55 @@ class QwenModel:
         except Exception as exc:
             exc_type = type(exc).__name__
             if exc_type == "APITimeoutError" or "timeout" in exc_type.lower():
-                logger.warning("Qwen timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
+                logger.warning("Gemma extraction timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
                 return {"timeout": True, "timeout_sec": _EFFECTIVE_QWEN_TIMEOUT_SEC}
 
             try:
                 from openai import APITimeoutError as _APITimeoutError
                 if isinstance(exc, _APITimeoutError):
-                    logger.warning("Qwen timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
+                    logger.warning("Gemma extraction timeout after %ds", _EFFECTIVE_QWEN_TIMEOUT_SEC)
                     return {"timeout": True, "timeout_sec": _EFFECTIVE_QWEN_TIMEOUT_SEC}
             except ImportError:
                 pass
 
-            logger.warning("Qwen extraction failed: %s", exc, exc_info=True)
+            logger.warning("Gemma extraction failed: %s", exc, exc_info=True)
             return {"service_unavailable": True}
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _check_health(self) -> None:
-        """Check sidecar health and cache the result in self._healthy."""
-        backend = settings.QWEN_BACKEND.lower()
-        timeout = min(settings.QWEN_TIMEOUT_SEC, 10)  # quick health check
+        """Check sidecar health and cache the result in self._healthy.
+
+        Prefers GEMMA_API_URL / GEMMA_API_BACKEND; falls back to legacy
+        QWEN_API_URL / QWEN_BACKEND for deployments that have not migrated.
+        """
+        _api_url = settings.GEMMA_API_URL or settings.QWEN_API_URL
+        backend  = (settings.GEMMA_API_BACKEND if settings.GEMMA_API_URL else settings.QWEN_BACKEND).lower()
+        timeout  = min(settings.GEMMA_API_TIMEOUT_SEC if settings.GEMMA_API_URL else settings.QWEN_TIMEOUT_SEC, 10)
+
         # Auto-detect ollama from the default port (11434) when backend is not
         # explicitly set to "ollama" — the vllm health endpoint (/health) returns
         # 404 on ollama servers, which only expose /api/tags.
-        if backend != "ollama" and ":11434" in settings.QWEN_API_URL:
+        if backend != "ollama" and ":11434" in _api_url:
             backend = "ollama"
         if backend == "ollama":
-            self._healthy = _health_check_ollama(settings.QWEN_API_URL, timeout)
+            self._healthy = _health_check_ollama(_api_url, timeout)
         else:
             # default: vllm
-            self._healthy = _health_check_vllm(settings.QWEN_API_URL, timeout)
+            self._healthy = _health_check_vllm(_api_url, timeout)
             # Fallback: if vllm check fails, try ollama (covers non-standard ports)
             if not self._healthy:
-                self._healthy = _health_check_ollama(settings.QWEN_API_URL, timeout)
+                self._healthy = _health_check_ollama(_api_url, timeout)
                 if self._healthy:
                     backend = "ollama"
 
+        sidecar = "Gemma" if settings.GEMMA_API_URL else "Qwen"
         if self._healthy:
-            logger.info("Qwen sidecar healthy (backend=%s url=%s)", backend, settings.QWEN_API_URL)
+            logger.info("%s sidecar healthy (backend=%s url=%s)", sidecar, backend, _api_url)
         else:
             logger.warning(
-                "Qwen sidecar unreachable (backend=%s url=%s); Phase 2 will be skipped",
-                backend,
-                settings.QWEN_API_URL,
+                "%s sidecar unreachable (backend=%s url=%s); Phase 2 will be skipped",
+                sidecar, backend, _api_url,
             )
 
     def _lazy_tagger(self):

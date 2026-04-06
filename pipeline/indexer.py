@@ -384,11 +384,16 @@ class VideoIndexer:
         if frame_records and self.asr_model and self.asr_model.is_enabled():
             self._run_asr_pass(dst_path, frame_records)
 
-        # ── Florence captioning pass (post-loop) ──────────────────────────────
-        # Runs after all Qdrant upserts are complete. Re-loads frames from disk
-        # to avoid keeping ~250MB of PIL images in RAM during the main loop.
+        # ── Captioning pass (post-loop) ───────────────────────────────────────
+        # When GEMMA_API_URL is set, the top-N highest-quality frames (ranked by
+        # histogram-diff score) are captioned via Gemma in async chunks; the
+        # remainder fall back to Florence.  Without GEMMA_API_URL, all frames
+        # use Florence.
         if frame_records:
-            self._run_florence_pass(frame_records)
+            if settings.GEMMA_API_URL:
+                self._run_gemma_caption_pass(frame_records)
+            else:
+                self._run_florence_pass(frame_records)
 
         # ── OCR pass — visible text extraction ───────────────────────────────
         if frame_records and self.ocr_model and self.ocr_model.is_enabled():
@@ -627,6 +632,145 @@ class VideoIndexer:
 
         # Push captions to Qdrant in 128-frame batches
         self._set_caption_payload(frame_records)
+
+    # ------------------------------------------------------------------
+    # Gemma caption pass (production captioner when GEMMA_API_URL is set)
+    # ------------------------------------------------------------------
+
+    def _run_gemma_caption_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Caption frames via the Gemma sidecar API with Florence fallback.
+
+        Strategy:
+        - Rank all frames by absolute histogram-diff score (higher = more
+          informative / more diverse).  Take the top GEMMA_MAX_CAPTION_FRAMES
+          for Gemma; caption the rest with Florence.
+        - Gemma frames are sent in chunks of GEMMA_CAPTION_CHUNK_SIZE with a
+          50-second timeout and GEMMA_CAPTION_RETRIES retry.  On second failure
+          the chunk falls back to Florence.
+        - Every frame record gets caption, caption_confidence, caption_model set.
+        """
+        import asyncio as _asyncio
+        import httpx as _httpx
+
+        max_gemma = settings.GEMMA_MAX_CAPTION_FRAMES
+        chunk_size = settings.GEMMA_CAPTION_CHUNK_SIZE
+        retries = settings.GEMMA_CAPTION_RETRIES
+        timeout = 50.0
+        api_url = settings.GEMMA_API_URL.rstrip("/")
+        model = settings.GEMMA_API_MODEL
+        endpoint = f"{api_url}/chat/completions"
+        florence_tag = self.florence_model.model_tag
+        gemma_tag = f"gemma-api:{model}"
+
+        total = len(frame_records)
+        # Rank by histogram-diff quality score stored during frame extraction.
+        # Fall back to positional index when score is unavailable.
+        scored = sorted(
+            enumerate(frame_records),
+            key=lambda iv: float(iv[1].get("hist_diff", 0.0) or 0.0),
+            reverse=True,
+        )
+        gemma_indices = {idx for idx, _ in scored[:max_gemma]} if max_gemma > 0 else set(range(total))
+        gemma_recs = [r for i, r in enumerate(frame_records) if i in gemma_indices]
+        florence_recs = [r for i, r in enumerate(frame_records) if i not in gemma_indices]
+
+        self.logger.info(
+            "Gemma captioning pass: %d frames via Gemma API, %d via Florence fallback",
+            len(gemma_recs), len(florence_recs),
+        )
+
+        def _caption_image_gemma(frame_path: str) -> tuple:
+            """Return (caption, confidence) for one frame via Gemma API, or raise."""
+            import base64 as _b64
+            try:
+                with open(frame_path, "rb") as _f:
+                    img_b64 = _b64.b64encode(_f.read()).decode()
+            except OSError:
+                raise
+
+            prompt = (
+                "Describe this image in one concise sentence suitable for outdoor "
+                "robotics scene understanding. Focus on terrain, objects, and activities."
+            )
+            payload = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+                        ],
+                    }
+                ],
+                "max_tokens": 128,
+                "temperature": 0.2,
+            }
+            resp = _httpx.post(endpoint, json=payload, timeout=timeout)
+            resp.raise_for_status()
+            text = resp.json()["choices"][0]["message"]["content"].strip()
+            return text, 0.85  # Gemma has no explicit confidence; use a fixed prior
+
+        def _caption_chunk_with_retry(chunk: List[Dict[str, Any]]) -> None:
+            """Caption a chunk of records in-place, retrying once then falling back to Florence."""
+            for attempt in range(retries + 1):
+                try:
+                    for rec in chunk:
+                        caption, conf = _caption_image_gemma(rec["frame_path"])
+                        rec["caption"] = caption
+                        rec["caption_confidence"] = conf
+                        rec["caption_model"] = gemma_tag
+                    return  # success
+                except Exception as exc:
+                    if attempt < retries:
+                        self.logger.debug(
+                            "Gemma caption chunk attempt %d failed (%s) — retrying",
+                            attempt + 1, exc,
+                        )
+                    else:
+                        self.logger.warning(
+                            "Gemma caption chunk failed after %d attempt(s) (%s) — falling back to Florence",
+                            retries + 1, exc,
+                        )
+                        self._caption_records_with_florence(chunk, florence_tag)
+
+        # Process Gemma frames in chunks
+        for chunk_start in range(0, len(gemma_recs), chunk_size):
+            chunk = gemma_recs[chunk_start : chunk_start + chunk_size]
+            _caption_chunk_with_retry(chunk)
+
+        # Caption remaining frames with Florence
+        if florence_recs:
+            self._caption_records_with_florence(florence_recs, florence_tag)
+
+        self._set_caption_payload(frame_records)
+
+    def _caption_records_with_florence(
+        self, records: List[Dict[str, Any]], model_tag: str
+    ) -> None:
+        """Caption the given records in-place using the Florence model."""
+        for batch_start in range(0, len(records), settings.FLORENCE_BATCH_SIZE):
+            batch = records[batch_start : batch_start + settings.FLORENCE_BATCH_SIZE]
+            pil_images: List = []
+            for rec in batch:
+                try:
+                    pil_images.append(Image.open(rec["frame_path"]).convert("RGB"))
+                except Exception:
+                    pil_images.append(Image.new("RGB", (224, 224)))
+            try:
+                captions_and_confs = self.florence_model.caption_batch(
+                    pil_images, batch_size=settings.FLORENCE_BATCH_SIZE
+                )
+            except Exception:
+                self.logger.warning(
+                    "Florence fallback batch failed for %d frames; using empty captions",
+                    len(batch), exc_info=True,
+                )
+                captions_and_confs = [("", 0.5)] * len(batch)
+            for rec, (caption, confidence) in zip(batch, captions_and_confs):
+                rec["caption"] = caption
+                rec["caption_confidence"] = confidence
+                rec["caption_model"] = model_tag
 
     def _set_caption_payload(self, frame_records: List[Dict[str, Any]]) -> None:
         """Write caption into Qdrant point payloads (display-only in Phase 1).

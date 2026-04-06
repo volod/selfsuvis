@@ -808,7 +808,7 @@ Phase ordering: Phase 1 (no gate) → Phase 2 (no gate, parallel) → Phase 3 (S
 
 ---
 
-### [P1][S] Refactor `pipeline/demo_runner.py` into `pipeline/demo/` subpackage
+### ✅ DONE — [P1][S] Refactor `pipeline/demo_runner.py` into `pipeline/demo/` subpackage
 **What:** Split the 5667-line `demo_runner.py` into a proper subpackage:
 - `pipeline/demo/steps_embed.py` — embedding steps
 - `pipeline/demo/steps_caption.py` — captioning steps
@@ -829,7 +829,7 @@ Async-parallel demo steps: embed + caption can run concurrently; SSL runs after 
 
 ---
 
-### [P1][S] Wire `GEMMA_API_URL` as production captioner in `pipeline/indexer.py`
+### ✅ DONE — [P1][S] Wire `GEMMA_API_URL` as production captioner in `pipeline/indexer.py`
 **What:** In `_caption_batch()`, prefer `GEMMA_API_URL` when set; fall back to Florence.
 Chunked async batch: N=3 frames/chunk, 50s timeout, 1 retry per chunk, Florence fallback on 2nd failure. If Florence also fails: store `""` and `caption_confidence=0.5` (never NULL — existing convention).
 
@@ -848,7 +848,7 @@ No schema changes — uses existing `caption`, `caption_confidence`, `caption_mo
 
 ---
 
-### [P1][S] `docs/runbooks/gemma-api.md` — Gemma API operations runbook
+### ✅ DONE — [P1][S] `docs/runbooks/gemma-api.md` — Gemma API operations runbook
 **What:** Write a runbook covering: ollama health check, model restart, quality validation procedure, Florence fallback activation, exponential backoff guidance (implement if >10% timeout rate observed).
 **Why:** Production operators need documented procedures; the async chunk retry logic needs a matching ops procedure.
 **Effort:** S (human: 1h / CC: ~15min)
@@ -857,7 +857,7 @@ No schema changes — uses existing `caption`, `caption_confidence`, `caption_mo
 
 ---
 
-### [P2][M] `models/efficientvit_model.py` + DINOv3→EfficientViT-S1 baseline distillation
+### ✅ [P2][M] `models/efficientvit_model.py` + DINOv3→EfficientViT-S1 baseline distillation — DONE
 **What:** Two deliverables:
 
 1. `models/efficientvit_model.py` — EfficientViT-S1 loader via `timm`:
@@ -879,7 +879,7 @@ No schema changes — uses existing `caption`, `caption_confidence`, `caption_mo
 
 ---
 
-### [P2][S] Qwen → Gemma structured extraction replacement in `pipeline/qwen_model.py`
+### ✅ [P2][S] Qwen → Gemma structured extraction replacement in `pipeline/qwen_model.py` — DONE
 **What:** Replace `pipeline/qwen_model.py` HTTP calls with Gemma API equivalents.
 
 Gate (must pass before implementing): ≥50 test frames, JSON validity ≥ 0.82, vehicle count accuracy ≥ 0.70. If gate fails (<0.82 or <0.70): keep Qwen; no gray zone.
@@ -892,7 +892,7 @@ Use `scripts/validate_qwen_serving.py` as the template for the 50-frame validati
 
 ---
 
-### [P3][S] `scripts/validate_ssl_improvement.py` — multi-video SSL eval harness (gate for Phase 3)
+### ✅ [P3][S] `scripts/validate_ssl_improvement.py` — multi-video SSL eval harness (gate for Phase 3) — DONE
 **What:** SSL validation script that measures ΔR@1 pre/post SSL fine-tuning across ≥3 diverse videos.
 
 Diversity requirements (all required, no substitutions):
@@ -909,7 +909,7 @@ Methodology: 3 seeds per video; median ΔR@1 used. Gate: ΔR@1 > +0.02 on at lea
 
 ---
 
-### [P3][M] `pipeline/ssl_finetune.py`: `GemmaSSLFinetuner` class
+### ✅ [P3][M] `pipeline/ssl_finetune.py`: `GemmaSSLFinetuner` class — DONE
 **What:** Add `GemmaSSLFinetuner` to `pipeline/ssl_finetune.py`. Uses Gemma vision encoder embeddings as SSL targets for DINOv3 fine-tuning.
 
 **Acceptance criteria:**
@@ -922,7 +922,7 @@ Methodology: 3 seeds per video; median ΔR@1 used. Gate: ΔR@1 > +0.02 on at lea
 
 ---
 
-### [P3][M] `pipeline/distill.py`: `GemmaVisionTeacher` + Stage 0→1 distillation
+### ✅ [P3][M] `pipeline/distill.py`: `GemmaVisionTeacher` + Stage 0→1 distillation — DONE
 **What:** Add `GemmaVisionTeacher` to `pipeline/distill.py`:
 - `nn.Module` wrapper around GemmaEmbedder vision encoder
 - Projection head: `Linear(384→1152)` — student (384-dim ViT-S/14) projected to match Gemma vision encoder output (1152-dim SigLIP ViT-L)
@@ -947,7 +947,7 @@ Deferred work from the 2026-03-27 CEO review. Phases 1–2 are ✅ DONE. Phases 
 
 ---
 
-### [P2][M] Phase 3: `app/routers/scene.py` — `POST /query/scene` endpoint
+### ✅ [P2][M] Phase 3: `app/routers/scene.py` — `POST /query/scene` endpoint — DONE
 **What:** New endpoint `POST /query/scene` with JSONB filter params. Allows structured queries over `frame_facts_json` — e.g., filter by vehicle count range, road condition keyword, GPS bbox, and temporal window simultaneously.
 
 Query parameters: text query (optional), JSONB filter predicates (vehicle_count_min/max, road_condition, gps_bbox, time_range), top_k.
@@ -960,7 +960,7 @@ Returns: ranked frame results with caption, frame_facts_json excerpt, GPS coordi
 
 ---
 
-### [P2][M] Phase 4: Semantic change detection — `semantic_diff_json` + `change_explanation`
+### ✅ [P2][M] Phase 4: Semantic change detection — `semantic_diff_json` + `change_explanation` — DONE
 **What:** Add two columns to `change_detections` table:
 - `semantic_diff_json JSONB` — structured diff of `frame_facts_json` between missions at same GPS location (e.g., `{"vehicle_count": {"before": 2, "after": 5}, "road_condition": {"before": "dry", "after": "wet"}}`)
 - `change_explanation TEXT` — Gemma-generated natural language explanation of the change
@@ -973,7 +973,7 @@ Extend `pipeline/change_detection.py` to compute semantic diff when both frames 
 
 ---
 
-### [P3][M] Phase 5: `scene_timeline` PostgreSQL table + `POST /query/pose` extension
+### ✅ [P3][M] Phase 5: `scene_timeline` PostgreSQL table + `POST /query/pose` extension — DONE
 **What:**
 1. New `scene_timeline` table: `(mission_id, frame_id, gps_lat, gps_lon, gps_alt, t_sec, facts_json JSONB, embedding vector)` — one row per keyframe with GPS + facts
 2. Extend `POST /query/pose` to return not just "similar frames" but "last 3 visits to this GPS waypoint had [conditions], current caption: [...]"
@@ -999,7 +999,7 @@ CREATE TABLE IF NOT EXISTS scene_timeline (
 
 ---
 
-### [P3][M] Phase 6: `pipeline/rtsp_captioner.py` — streaming caption pipeline
+### ✅ [P3][M] Phase 6: `pipeline/rtsp_captioner.py` — streaming caption pipeline — DONE
 **What:** New `pipeline/rtsp_captioner.py` that consumes frames from a MediaMTX RTSP stream in real time, runs Gemma captioning on each frame (or every N frames), and writes captions + facts to the `scene_timeline` table in near-real-time.
 
 Key design: non-blocking frame consumer (skip frames if captioner is behind); configurable sampling rate (`RTSP_CAPTION_FPS`, default 0.5); Florence fallback on Gemma timeout.
@@ -1010,7 +1010,7 @@ Key design: non-blocking frame consumer (skip frames if captioner is behind); co
 
 ---
 
-### [P3][S] Admin: `caption_null_rate` metric + `/admin/caption-eval` page
+### ✅ [P3][S] Admin: `caption_null_rate` metric + `/admin/caption-eval` page — DONE
 **What:**
 - `GET /admin/caption-eval` page (or JSON endpoint) reporting: `caption_null_rate` (fraction of frames with `caption IS NULL` excluding `caption_skip_reason IS NOT NULL`), mean/p95 `caption_confidence`, Precision@5 on the last eval run (from `scripts/eval_captions.py` output), per-model breakdown (`caption_model` distribution).
 - Add `caption_null_rate` to the existing `GET /admin/automation-roi` response as an additional metric.

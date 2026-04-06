@@ -6,6 +6,8 @@ GET /admin/robots             — list distinct robot_ids contributing to the ma
 GET /admin/global-maps        — list all global map sites (one entry per geographic site).
 GET /admin/export/map-cache   — download NPZ cache of all indexed frames for onboard use.
 GET /admin/automation-roi     — annotation frequency, finetune trigger rate, ops time saved.
+                                Includes caption_null_rate as a captioner health indicator.
+GET /admin/caption-eval       — captioner health: null rate, confidence stats, model breakdown.
 POST /admin/reload-model      — hot-swap DINOv3 backbone weights from a checkpoint file.
 POST /admin/reembed-all       — enqueue a full re-embedding sweep (all frames → new dino vectors).
 
@@ -242,6 +244,27 @@ async def admin_stats(request: Request) -> Dict[str, Any]:
 _MANUAL_RESTART_MINUTES = 3  # estimated time per manual `docker restart api`
 
 
+async def _compute_caption_null_rate(conn) -> Optional[float]:
+    """Fraction of captionable frames with no caption.
+
+    Excludes frames where caption_skip_reason IS NOT NULL (intentionally skipped).
+    Returns None if no captionable frames exist.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT
+            COUNT(*) FILTER (WHERE caption IS NULL AND caption_skip_reason IS NULL)
+                AS null_count,
+            COUNT(*) FILTER (WHERE caption_skip_reason IS NULL)
+                AS captionable_total
+        FROM frames
+        """
+    )
+    if row is None or row["captionable_total"] == 0:
+        return None
+    return row["null_count"] / row["captionable_total"]
+
+
 @router.get("/automation-roi", summary="Annotation frequency, finetune trigger rate, ops time saved")
 async def automation_roi(request: Request) -> Dict[str, Any]:
     """Measure whether the auto-trigger pipeline is paying its maintenance cost.
@@ -367,6 +390,15 @@ async def automation_roi(request: Request) -> Dict[str, Any]:
             "Automation is clearly valuable — the compounding improvement loop is active."
         )
 
+    # caption_null_rate: fraction of captionable frames missing a caption
+    caption_null_rate: Optional[float] = None
+    try:
+        pool = get_db_pool(request)
+        async with pool.acquire() as conn:
+            caption_null_rate = await _compute_caption_null_rate(conn)
+    except Exception:
+        pass
+
     return {
         "total_annotated_frames": d["total_annotated"],
         "annotation_campaigns": d["campaigns"],
@@ -382,6 +414,84 @@ async def automation_roi(request: Request) -> Dict[str, Any]:
         "annotation_frequency_per_week": round(freq_per_week, 2) if freq_per_week is not None else None,
         "verdict": verdict,
         "verdict_detail": verdict_detail,
+        "caption_null_rate": round(caption_null_rate, 4) if caption_null_rate is not None else None,
+    }
+
+
+# ── Caption eval endpoint ────────────────────────────────────────────────────
+
+@router.get("/caption-eval", summary="Captioner health: null rate, confidence stats, model breakdown")
+async def caption_eval(request: Request) -> Dict[str, Any]:
+    """Captioner health metrics derived from the frames table.
+
+    Returns:
+        caption_null_rate:    Fraction of captionable frames with caption IS NULL.
+                              Excludes frames with caption_skip_reason (intentional skips).
+                              0.0 = all frames captioned; 1.0 = none captioned.
+        mean_confidence:      Mean caption_confidence across all captioned frames (null if none).
+        p95_confidence:       95th-percentile caption_confidence (null if <20 frames).
+        total_frames:         Total indexed frames.
+        captioned_frames:     Frames with a non-null caption.
+        skipped_frames:       Frames with caption_skip_reason IS NOT NULL.
+        null_caption_frames:  Frames with caption IS NULL and no skip reason.
+        model_breakdown:      Dict of caption_model → frame count (top captioners).
+    """
+    try:
+        pool = get_db_pool(request)
+        async with pool.acquire() as conn:
+            # Aggregate stats in one query
+            agg = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(*)                                         AS total_frames,
+                    COUNT(*) FILTER (WHERE caption IS NOT NULL)     AS captioned_frames,
+                    COUNT(*) FILTER (WHERE caption_skip_reason IS NOT NULL) AS skipped_frames,
+                    COUNT(*) FILTER (
+                        WHERE caption IS NULL AND caption_skip_reason IS NULL
+                    )                                               AS null_caption_frames,
+                    AVG(caption_confidence)
+                        FILTER (WHERE caption_confidence IS NOT NULL) AS mean_confidence,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (
+                        ORDER BY caption_confidence
+                    ) FILTER (WHERE caption_confidence IS NOT NULL)  AS p95_confidence
+                FROM frames
+                """
+            )
+
+            # Per-model breakdown
+            model_rows = await conn.fetch(
+                """
+                SELECT caption_model, COUNT(*) AS cnt
+                FROM frames
+                WHERE caption_model IS NOT NULL
+                GROUP BY caption_model
+                ORDER BY cnt DESC
+                LIMIT 20
+                """
+            )
+            model_breakdown = {r["caption_model"]: r["cnt"] for r in model_rows}
+
+            captionable_total = (agg["total_frames"] or 0) - (agg["skipped_frames"] or 0)
+            null_count = agg["null_caption_frames"] or 0
+            caption_null_rate = (null_count / captionable_total) if captionable_total > 0 else None
+
+    except Exception as exc:
+        return {"error": f"DB query failed: {exc}"}
+
+    total = agg["total_frames"] or 0
+    captioned = agg["captioned_frames"] or 0
+    mean_conf = agg["mean_confidence"]
+    p95_conf = agg["p95_confidence"]
+
+    return {
+        "caption_null_rate": round(caption_null_rate, 4) if caption_null_rate is not None else None,
+        "mean_confidence": round(float(mean_conf), 4) if mean_conf is not None else None,
+        "p95_confidence": round(float(p95_conf), 4) if p95_conf is not None else None,
+        "total_frames": total,
+        "captioned_frames": captioned,
+        "skipped_frames": agg["skipped_frames"] or 0,
+        "null_caption_frames": null_count,
+        "model_breakdown": model_breakdown,
     }
 
 

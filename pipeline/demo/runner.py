@@ -51,6 +51,10 @@ from ._common import (
 _TOTAL_STEPS = 19
 _VIDEO_EXTS  = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 
+# Phase 3 SSL gate: skip distillation / ONNX / search comparison when the
+# SSL fine-tune best loss is ≥ this threshold (indicates a failed run).
+_SSL_GATE_MAX_LOSS = 10.0
+
 
 # ── Device resolution ──────────────────────────────────────────────────────────
 
@@ -729,6 +733,8 @@ def run_video_pipeline(
     from .steps_map import step_create_3d_map
     from .steps_report import write_multimodal_md, write_final_stats_md, print_run_stats
 
+    import concurrent.futures as _cf
+
     video_name = video_path.stem
     video_id   = video_name.replace(" ", "_").lower()
     video_dir  = output_dir / video_name
@@ -751,6 +757,9 @@ def run_video_pipeline(
 
     # Tracks whether CLIP+DINO backbones are on GPU (relevant only when device=="cuda").
     clip_dino_on_gpu = (device == "cuda" and _models_on_device(models, "cuda"))
+
+    # ── Phase 1: Foundational ingestion (no gate) ─────────────────────────────
+    _banner("Phase 1 — Foundational ingestion")
 
     # A: Extract frames
     _step(1, _TOTAL_STEPS, "Frame extraction")
@@ -822,6 +831,15 @@ def run_video_pipeline(
         ],
         artifacts=[],
     )
+
+    # ── Phase 2: Multimodal analysis (no gate, parallel where feasible) ───────
+    # The 3D-map step (I) is CPU-bound (pycolmap SfM) and is submitted to a
+    # background thread after step L offloads CLIP+DINO to CPU.  All GPU steps
+    # remain serialised on the main thread.  The background result is collected
+    # at step 12, before CLIP+DINO are restored for the base search (step 11).
+    _banner("Phase 2 — Multimodal analysis (parallel)")
+    _map_executor = _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="sfm-bg")
+    _map_future: Optional[_cf.Future] = None
 
     # J: Gemma open-weight multimodal analysis
     _step(3, _TOTAL_STEPS, "Gemma multimodal analysis → gemma_analysis.md")
@@ -911,6 +929,19 @@ def run_video_pipeline(
             "wrong segment boundaries can contaminate later frame context",
         ],
         artifacts=["scene_captions.md"] if caption_results else [],
+    )
+
+    # Submit 3D-map (step I) to the background executor now that CLIP+DINO have
+    # been offloaded to CPU by Florence.  The SfM reconstruction (pycolmap) is
+    # purely CPU-bound and will overlap with steps M–R on the main thread.
+    # The result is collected at step 12, before CLIP+DINO are restored to GPU.
+    _log.info("  ▷ Submitting 3D-map step I to background thread (SfM+Splat) …")
+    _map_future = _map_executor.submit(
+        step_create_3d_map,
+        video_path, video_id, video_dir, frame_list, models,
+        run_sfm_flag=not args.no_sfm,
+        run_gsplat_flag=not getattr(args, "no_gsplat", False),
+        device=device,
     )
 
     # M: ASR — no CLIP/DINO needed; Whisper manages its own VRAM
@@ -1127,10 +1158,10 @@ def run_video_pipeline(
         write_multimodal_md(_mm_md, video_name, asr_result, ocr_result,
                             depth_result, det_result, world_result, qwen_result)
 
-    # C: Base model search — restore CLIP+DINO to GPU if needed
+    # C: Base model search — restore CLIP+DINO to GPU before joining 3D-map thread
+    # (I must be joined first so the background thread no longer accesses models).
+    # Evict Ollama (reloaded during step R) before restoring CLIP+DINO.
     if device == "cuda" and not clip_dino_on_gpu:
-        # Evict Ollama (reloaded during step R) before restoring CLIP+DINO.
-        # After step R Ollama holds ~13 GiB; without eviction DINO restore OOMs.
         if getattr(args, "qwen", False):
             _qwen_url   = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
             _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
@@ -1163,20 +1194,83 @@ def run_video_pipeline(
         artifacts=["base_search.md"],
     )
 
+    # I: 3D map + Gaussian Splat — collect background-thread result (Phase 2 close)
+    _step(12, _TOTAL_STEPS, "3D map + Gaussian Splat → 3d_map/ (joining background thread)")
+    with _Timer(T, "I_3dmap"):
+        if _map_future is not None:
+            try:
+                h = _map_future.result(timeout=600)  # up to 10 min for SfM
+            except Exception as _map_exc:
+                _log.warning("  3D-map background thread raised: %s", _map_exc, exc_info=True)
+                h = {
+                    "sfm_poses": 0, "method": "failed",
+                    "points": None, "gsplat_method": "failed", "splat_ply": None,
+                    "viewer_html": "",
+                }
+            finally:
+                _map_executor.shutdown(wait=False)
+        else:
+            _map_executor.shutdown(wait=False)
+            h = {
+                "sfm_poses": 0, "method": "skipped",
+                "points": None, "gsplat_method": "skipped", "splat_ply": None,
+                "viewer_html": "",
+            }
+    stats["sfm_poses"]     = h["sfm_poses"]
+    stats["map_method"]    = h["method"]
+    stats["map_points"]    = int(h["points"].shape[0]) if h.get("points") is not None else 0
+    stats["gsplat_method"] = h.get("gsplat_method", "skipped")
+    stats["splat_ply"]     = h.get("splat_ply")
+    if h.get("splat_ply"):
+        _log.info("  ✓ Gaussian Splat → %s", h["splat_ply"])
+        _log.info("  ✓ Interactive viewer → %s", h.get("viewer_html", ""))
+    video_context["map"] = {
+        "method":        h["method"],
+        "points":        stats["map_points"],
+        "sfm_poses":     h["sfm_poses"],
+        "gsplat_method": stats["gsplat_method"],
+        "splat_ply":     stats["splat_ply"],
+    }
+    _append_agentic_step(
+        agentic_trace,
+        step_id="I",
+        title="3D map creation",
+        description="Recover scene geometry and export sparse-map or splat artifacts for spatial interpretation (ran concurrently with steps M–R).",
+        status="ok" if h["method"] not in ("failed", "skipped") else h["method"],
+        context_inputs=["video frames", "camera-motion consistency"],
+        context_outputs=[
+            f"{stats['map_points']} map points",
+            f"{stats['sfm_poses']} SfM poses",
+            f"map method {stats['map_method']}",
+        ],
+        risks=[
+            "geometry failure can create confident but wrong spatial context",
+            "SfM fallback outputs may look valid while lacking metric truth",
+            "map artifacts can be overinterpreted as semantic evidence",
+        ],
+        artifacts=["3d_map/sparse_map.npz", "3d_map/map_stats.json"],
+    )
+
+    # ── Phase 3: SSL-gated adaptation (SSL gate required) ─────────────────────
+    # Step D (SSL fine-tuning) always runs to evaluate the gate.
+    # Steps E, F, G, H only proceed when D produces a valid checkpoint with
+    # best_loss < _SSL_GATE_MAX_LOSS.  Z and AA always run as finalization.
+    _banner("Phase 3 — SSL-gated adaptation")
+
     # D: SSL fine-tuning — DINOFineTuner loads its own separate DINO; offload ours first.
     # Skipped when using an API-based embedder — no local backbone to fine-tune.
     checkpoint_path = ""
     if models.get("uses_api_embedder"):
         T["D_finetune"] = 0.0
         T["E_distill"] = 0.0
-        _step(12, _TOTAL_STEPS, "SSL DINOv3 fine-tuning (skipped — API embedder)")
-        _step(13, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
+        _step(13, _TOTAL_STEPS, "SSL DINOv3 fine-tuning (skipped — API embedder)")
+        _step(14, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
         student_backbone = None; student_dim = 768
     else:
         if device == "cuda" and clip_dino_on_gpu:
             _offload_models_to_cpu(models)
             clip_dino_on_gpu = False
-        _step(12, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
+        _step(13, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
         with _Timer(T, "D_finetune"):
             d = step_ssl_finetune(video_id, video_name, video_dir, frame_list, device,
                                   epochs=args.epochs, batch_size=args.batch_size)
@@ -1201,9 +1295,30 @@ def run_video_pipeline(
             artifacts=["finetune_stats.md", "checkpoints/dino_ssl_best.pt"],
         )
 
+        # ── SSL gate: only proceed to E/F/G/H if D produced a usable checkpoint ──
+        import os as _os
+        _ssl_best_loss = stats.get("best_loss", float("inf"))
+        ssl_gate_passed = (
+            bool(checkpoint_path)
+            and _os.path.exists(checkpoint_path)
+            and _ssl_best_loss < _SSL_GATE_MAX_LOSS
+        )
+        if ssl_gate_passed:
+            _log.info(
+                "  ✓ SSL gate passed (best_loss=%.4f < %.1f) — proceeding to distillation, "
+                "ONNX export, and search comparison",
+                _ssl_best_loss, _SSL_GATE_MAX_LOSS,
+            )
+        else:
+            _log.warning(
+                "  ✗ SSL gate did not pass (checkpoint=%r, best_loss=%.4f, threshold=%.1f) — "
+                "skipping steps E/F/G/H (distillation, ONNX export, search comparison)",
+                checkpoint_path, _ssl_best_loss, _SSL_GATE_MAX_LOSS,
+            )
+
         # E: Distillation — maximum-hydration chain (Gemma teacher + caption anchor when available)
         student_backbone = None; student_dim = 768
-        if not args.no_distill:
+        if ssl_gate_passed and not args.no_distill:
             # Build caption anchor embeddings from Florence captions via CLIP text encoder
             _cap_anchor_embs: Optional[np.ndarray] = None
             _scene_captions = caption_results  # set by step_scene_captioning (step L)
@@ -1229,7 +1344,7 @@ def run_video_pipeline(
                 _gemma_teacher = models["clip"]
                 _log.info("  Using GemmaVisionTeacher for distillation (max hydration)")
 
-            _step(13, _TOTAL_STEPS, "Knowledge distillation (max hydration) → ViT-S/14 student")
+            _step(14, _TOTAL_STEPS, "Knowledge distillation (max hydration) → ViT-S/14 student")
             with _Timer(T, "E_distill"):
                 e_distill = step_distill(
                     checkpoint_path, frame_list, video_name, video_dir, device,
@@ -1269,7 +1384,8 @@ def run_video_pipeline(
             )
         else:
             T["E_distill"] = 0.0
-            _step(13, _TOTAL_STEPS, "Knowledge distillation (skipped — --no-distill)")
+            _gate_reason = "SSL gate did not pass" if not ssl_gate_passed else "--no-distill"
+            _step(14, _TOTAL_STEPS, f"Knowledge distillation (skipped — {_gate_reason})")
             _append_agentic_step(
                 agentic_trace,
                 step_id="E",
@@ -1285,6 +1401,8 @@ def run_video_pipeline(
                 artifacts=[],
             )
     if models.get("uses_api_embedder"):
+        ssl_gate_passed = False
+        student_backbone = None; student_dim = 768
         _append_agentic_step(
             agentic_trace,
             step_id="D",
@@ -1313,134 +1431,140 @@ def run_video_pipeline(
         )
 
     # F: ONNX export + gallery — restore CLIP+DINO (export uses models["dino"])
-    if device == "cuda" and not clip_dino_on_gpu:
-        _restore_models_to_gpu(models, device)
-        clip_dino_on_gpu = _models_on_device(models, device)
-    _step(14, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
-    with _Timer(T, "F_export"):
-        e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
-                              no_onnx=args.no_onnx,
-                              student_backbone=student_backbone, student_dim=student_dim)
-    stats["onnx_mb"] = e.get("onnx_mb", 0.0); stats["onnx_exported"] = e.get("exported", False)
-    _append_agentic_step(
-        agentic_trace,
-        step_id="F",
-        title="ONNX export",
-        description="Package the best available backbone and gallery into deployment artifacts.",
-        status="ok",
-        context_inputs=["teacher or student backbone", "retrieval gallery frames"],
-        context_outputs=[
-            f"onnx exported={e.get('exported', False)}",
-            "gallery.npz for edge classification",
-        ],
-        risks=[
-            "export mismatches can change runtime behavior versus training",
-            "gallery coverage can be too narrow for field use",
-            "deployment artifacts can hide upstream semantic errors behind good latency",
-        ],
-        artifacts=["edge_models/dino_demo.onnx", "edge_models/gallery.npz"],
-    )
-
-    # G: Fine-tuned search — CLIP+DINO already on GPU
-    _step(15, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
-    with _Timer(T, "G_ft_search"):
-        f = step_finetuned_model_search_test(frame_list, store, is_qdrant, models,
-                                             query_frame, query_t_sec, video_id, video_name,
-                                             video_dir, top_k=args.top_k)
-    ft_results = f["results"]; stats["ft_top_score"] = ft_results[0]["score"] if ft_results else 0.0
-    _append_agentic_step(
-        agentic_trace,
-        step_id="G",
-        title="Fine-tuned search test",
-        description="Re-run retrieval after adaptation to quantify search-space changes.",
-        status="ok",
-        context_inputs=["fine-tuned or distilled backbone", "same query frame as baseline"],
-        context_outputs=[
-            f"top-{len(ft_results)} adapted matches",
-            f"top score {stats['ft_top_score']:.4f}",
-        ],
-        risks=[
-            "score improvements can hide semantic regressions",
-            "query reuse can overstate adaptation gains",
-            "retrieval differences may reflect memorization rather than better context",
-        ],
-        artifacts=["finetuned_search.md"],
-    )
-
-    # H: Comparison + description — CLIP+DINO on GPU; populates top_descriptions context
-    _step(16, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
-    with _Timer(T, "H_compare"):
-        g = step_compare_and_describe(frame_list, store, is_qdrant, base_results, ft_results,
-                                      models, video_id, video_name, video_dir,
-                                      stats["ckpt_mb"], stats["onnx_mb"])
-    if g:
-        stats["base_infer_ms"]   = g.get("base_infer_ms", 0.0)
-        stats["ft_infer_ms"]     = g.get("ft_infer_ms", 0.0)
-        stats["top_description"] = g.get("top_description", "")
-        video_context["top_descriptions"] = g.get("text_descriptions", [])
-    _append_agentic_step(
-        agentic_trace,
-        step_id="H",
-        title="Comparison and description",
-        description="Summarize retrieval changes and derive a CLIP-based coarse natural-language description of the video.",
-        status="ok",
-        context_inputs=["baseline and adapted retrieval outputs", "sampled frame embeddings"],
-        context_outputs=[
-            f"top description: {stats.get('top_description', 'unknown')}",
-            "comparison summary across model variants",
-        ],
-        risks=[
-            "top text prompt may sound plausible but be too coarse or wrong",
-            "comparison metrics can privilege ranking stability over semantics",
-            "narrative labels can bias the final synthesis context",
-        ],
-        artifacts=["comparison.md", "description.md"],
-    )
-
-    # I: 3D map + Gaussian Splat
-    _step(17, _TOTAL_STEPS, "3D map + Gaussian Splat → 3d_map/")
-    with _Timer(T, "I_3dmap"):
-        h = step_create_3d_map(
-            video_path, video_id, video_dir, frame_list, models,
-            run_sfm_flag=not args.no_sfm,
-            run_gsplat_flag=not getattr(args, "no_gsplat", False),
-            device=device,
+    # Skipped when SSL gate did not pass (no valid checkpoint to package).
+    if ssl_gate_passed:
+        if device == "cuda" and not clip_dino_on_gpu:
+            _restore_models_to_gpu(models, device)
+            clip_dino_on_gpu = _models_on_device(models, device)
+        _step(15, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
+        with _Timer(T, "F_export"):
+            e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
+                                  no_onnx=args.no_onnx,
+                                  student_backbone=student_backbone, student_dim=student_dim)
+        stats["onnx_mb"] = e.get("onnx_mb", 0.0); stats["onnx_exported"] = e.get("exported", False)
+        _append_agentic_step(
+            agentic_trace,
+            step_id="F",
+            title="ONNX export",
+            description="Package the best available backbone and gallery into deployment artifacts.",
+            status="ok",
+            context_inputs=["teacher or student backbone", "retrieval gallery frames"],
+            context_outputs=[
+                f"onnx exported={e.get('exported', False)}",
+                "gallery.npz for edge classification",
+            ],
+            risks=[
+                "export mismatches can change runtime behavior versus training",
+                "gallery coverage can be too narrow for field use",
+                "deployment artifacts can hide upstream semantic errors behind good latency",
+            ],
+            artifacts=["edge_models/dino_demo.onnx", "edge_models/gallery.npz"],
         )
-    stats["sfm_poses"]     = h["sfm_poses"]
-    stats["map_method"]    = h["method"]
-    stats["map_points"]    = int(h["points"].shape[0]) if h.get("points") is not None else 0
-    stats["gsplat_method"] = h.get("gsplat_method", "skipped")
-    stats["splat_ply"]     = h.get("splat_ply")
-    if h.get("splat_ply"):
-        _log.info("  ✓ Gaussian Splat → %s", h["splat_ply"])
-        _log.info("  ✓ Interactive viewer → %s", h.get("viewer_html", ""))
-    video_context["map"] = {
-        "method":        h["method"],
-        "points":        stats["map_points"],
-        "sfm_poses":     h["sfm_poses"],
-        "gsplat_method": stats["gsplat_method"],
-        "splat_ply":     stats["splat_ply"],
-    }
-    _append_agentic_step(
-        agentic_trace,
-        step_id="I",
-        title="3D map creation",
-        description="Recover scene geometry and export sparse-map or splat artifacts for spatial interpretation.",
-        status="ok",
-        context_inputs=["video frames", "camera-motion consistency"],
-        context_outputs=[
-            f"{stats['map_points']} map points",
-            f"{stats['sfm_poses']} SfM poses",
-            f"map method {stats['map_method']}",
-        ],
-        risks=[
-            "geometry failure can create confident but wrong spatial context",
-            "SfM fallback outputs may look valid while lacking metric truth",
-            "map artifacts can be overinterpreted as semantic evidence",
-        ],
-        artifacts=["3d_map/sparse_map.npz", "3d_map/map_stats.json"],
-    )
+    else:
+        T["F_export"] = 0.0
+        stats.setdefault("onnx_mb", 0.0); stats.setdefault("onnx_exported", False)
+        _step(15, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
+        _append_agentic_step(
+            agentic_trace,
+            step_id="F",
+            title="ONNX export",
+            description="Package the best available backbone and gallery into deployment artifacts.",
+            status="skipped",
+            context_inputs=["SSL gate did not pass"],
+            context_outputs=["no deployment artifacts"],
+            risks=["no edge deployment artifacts produced"],
+            artifacts=[],
+        )
 
+    # G: Fine-tuned search — only if SSL gate passed (needs fine-tuned or distilled backbone)
+    ft_results: List[Dict] = []
+    if ssl_gate_passed:
+        _step(16, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
+        with _Timer(T, "G_ft_search"):
+            f = step_finetuned_model_search_test(frame_list, store, is_qdrant, models,
+                                                 query_frame, query_t_sec, video_id, video_name,
+                                                 video_dir, top_k=args.top_k)
+        ft_results = f["results"]; stats["ft_top_score"] = ft_results[0]["score"] if ft_results else 0.0
+        _append_agentic_step(
+            agentic_trace,
+            step_id="G",
+            title="Fine-tuned search test",
+            description="Re-run retrieval after adaptation to quantify search-space changes.",
+            status="ok",
+            context_inputs=["fine-tuned or distilled backbone", "same query frame as baseline"],
+            context_outputs=[
+                f"top-{len(ft_results)} adapted matches",
+                f"top score {stats['ft_top_score']:.4f}",
+            ],
+            risks=[
+                "score improvements can hide semantic regressions",
+                "query reuse can overstate adaptation gains",
+                "retrieval differences may reflect memorization rather than better context",
+            ],
+            artifacts=["finetuned_search.md"],
+        )
+    else:
+        T["G_ft_search"] = 0.0
+        stats.setdefault("ft_top_score", 0.0)
+        _step(16, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
+        _append_agentic_step(
+            agentic_trace,
+            step_id="G",
+            title="Fine-tuned search test",
+            description="Re-run retrieval after adaptation to quantify search-space changes.",
+            status="skipped",
+            context_inputs=["SSL gate did not pass"],
+            context_outputs=["no fine-tuned retrieval results"],
+            risks=["no before/after retrieval comparison available"],
+            artifacts=[],
+        )
+
+    # H: Comparison + description — only runs when ssl_gate_passed (needs ft_results)
+    if ssl_gate_passed:
+        _step(17, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
+        with _Timer(T, "H_compare"):
+            g = step_compare_and_describe(frame_list, store, is_qdrant, base_results, ft_results,
+                                          models, video_id, video_name, video_dir,
+                                          stats.get("ckpt_mb", 0.0), stats.get("onnx_mb", 0.0))
+        if g:
+            stats["base_infer_ms"]   = g.get("base_infer_ms", 0.0)
+            stats["ft_infer_ms"]     = g.get("ft_infer_ms", 0.0)
+            stats["top_description"] = g.get("top_description", "")
+            video_context["top_descriptions"] = g.get("text_descriptions", [])
+        _append_agentic_step(
+            agentic_trace,
+            step_id="H",
+            title="Comparison and description",
+            description="Summarize retrieval changes and derive a CLIP-based coarse natural-language description of the video.",
+            status="ok",
+            context_inputs=["baseline and adapted retrieval outputs", "sampled frame embeddings"],
+            context_outputs=[
+                f"top description: {stats.get('top_description', 'unknown')}",
+                "comparison summary across model variants",
+            ],
+            risks=[
+                "top text prompt may sound plausible but be too coarse or wrong",
+                "comparison metrics can privilege ranking stability over semantics",
+                "narrative labels can bias the final synthesis context",
+            ],
+            artifacts=["comparison.md", "description.md"],
+        )
+    else:
+        T["H_compare"] = 0.0
+        _step(17, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
+        _append_agentic_step(
+            agentic_trace,
+            step_id="H",
+            title="Comparison and description",
+            description="Summarize retrieval changes and derive a CLIP-based coarse natural-language description of the video.",
+            status="skipped",
+            context_inputs=["SSL gate did not pass"],
+            context_outputs=["no comparison or description artifacts"],
+            risks=["no adaptation quality signal produced"],
+            artifacts=[],
+        )
+
+    # ── Finalization (always runs regardless of SSL gate) ──────────────────────
     # Z: Video synthesis — offload CLIP+DINO; Ollama API call only (no local model)
     if device == "cuda" and clip_dino_on_gpu:
         _offload_models_to_cpu(models)

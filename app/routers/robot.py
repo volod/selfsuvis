@@ -14,15 +14,20 @@ ENU path (v2):
   - Uses enu.tx / enu.ty Qdrant payload filter + Python 3D ENU distance post-filter.
   - GPS coordinates are not required in this path.
 
+Phase 5 extension: when a DB pool is available and the scene_timeline table is
+populated, the response includes a ``last_visits`` summary — the last 3 visits
+to the nearest GPS waypoint, with their captions and scene facts.
+
 Auth: X-API-Key header required.
 Latency target: p99 < 200ms (advisory use only — does not block robot motion).
 """
 import math
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 
+from app.db import get_db_pool_optional
 from app.deps import rate_limit, require_api_key
 from app.state import clip_model, qdrant_store
 from pipeline.change_detection import latlon_bbox
@@ -98,6 +103,19 @@ class PoseMatch(BaseModel):
     global_pose_json: Optional[Dict[str, Any]]
 
 
+class TimelineVisit(BaseModel):
+    """One historical visit entry from the scene_timeline table."""
+    mission_id: str
+    frame_id: str
+    t_sec: Optional[float]
+    lat: Optional[float]
+    lon: Optional[float]
+    caption: Optional[str]
+    road_condition: Optional[str]
+    vehicle_count: Optional[int]
+    created_at: Optional[str]   # ISO-8601 string
+
+
 class PoseQueryResponse(BaseModel):
     results: List[PoseMatch]
     query_lat: Optional[float]
@@ -108,6 +126,7 @@ class PoseQueryResponse(BaseModel):
     radius_m: float
     filter_strategy: str   # "2d", "1d+python", or "enu+python"
     global_map_id: Optional[int]
+    last_visits: Optional[List[TimelineVisit]] = None  # Phase 5: last 3 visits near query point
 
 
 def _gps_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -122,12 +141,68 @@ def _enu_distance_m(tx1: float, ty1: float, tz1: float, tx2: float, ty2: float, 
     return math.sqrt((tx2 - tx1) ** 2 + (ty2 - ty1) ** 2 + (tz2 - tz1) ** 2)
 
 
+async def _get_last_visits(
+    db_pool,
+    lat: float,
+    lon: float,
+    radius_m: float,
+    limit: int = 3,
+) -> List[TimelineVisit]:
+    """Query scene_timeline for the last N visits near a GPS point.
+
+    Returns visits sorted by created_at DESC (most recent first).
+    Returns empty list if the table is empty or DB unavailable.
+    """
+    from pipeline.change_detection import latlon_bbox as _bbox
+
+    min_lat, max_lat, min_lon, max_lon = _bbox(lat, lon, radius_m)
+    try:
+        rows = await db_pool.fetch(
+            """
+            SELECT mission_id, frame_id, t_sec, gps_lat, gps_lon,
+                   caption, facts_json, created_at
+            FROM scene_timeline
+            WHERE gps_lat BETWEEN $1 AND $2
+              AND gps_lon BETWEEN $3 AND $4
+            ORDER BY created_at DESC
+            LIMIT $5
+            """,
+            min_lat, max_lat, min_lon, max_lon, limit,
+        )
+    except Exception as exc:
+        logger.debug("scene_timeline query failed (table may not exist yet): %s", exc)
+        return []
+
+    visits: List[TimelineVisit] = []
+    for row in rows:
+        facts = row["facts_json"] or {}
+        # Count vehicles
+        vehicle_count: Optional[int] = None
+        groups = facts.get("vehicle_groups") if isinstance(facts, dict) else None
+        if isinstance(groups, list):
+            vehicle_count = sum(int(g.get("count", 0)) for g in groups if isinstance(g, dict))
+        visits.append(
+            TimelineVisit(
+                mission_id=row["mission_id"],
+                frame_id=row["frame_id"],
+                t_sec=row["t_sec"],
+                lat=row["gps_lat"],
+                lon=row["gps_lon"],
+                caption=row["caption"],
+                road_condition=facts.get("road_condition") if isinstance(facts, dict) else None,
+                vehicle_count=vehicle_count,
+                created_at=str(row["created_at"]) if row["created_at"] else None,
+            )
+        )
+    return visits
+
+
 @router.post(
     "/pose",
     response_model=PoseQueryResponse,
     summary="Robot advisory pose query — find nearest indexed frames by GPS or ENU position",
 )
-def query_pose(body: PoseQuery) -> PoseQueryResponse:
+async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
     """Find the top-K indexed frames nearest to the robot's position.
 
     Supports two query modes:
@@ -267,6 +342,15 @@ def query_pose(body: PoseQuery) -> PoseQueryResponse:
             body.tx, body.ty, body.tz, radius_m, filter_strategy, len(matches),
         )
 
+    # Phase 5: fetch last-3-visits summary from scene_timeline (GPS queries only)
+    last_visits: Optional[List[TimelineVisit]] = None
+    if has_gps:
+        db_pool = get_db_pool_optional(request)
+        if db_pool is not None:
+            last_visits = await _get_last_visits(
+                db_pool, body.lat, body.lon, radius_m, limit=3  # type: ignore[arg-type]
+            )
+
     return PoseQueryResponse(
         results=matches,
         query_lat=body.lat,
@@ -277,4 +361,5 @@ def query_pose(body: PoseQuery) -> PoseQueryResponse:
         radius_m=radius_m,
         filter_strategy=filter_strategy,
         global_map_id=body.global_map_id,
+        last_visits=last_visits,
     )

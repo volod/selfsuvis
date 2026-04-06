@@ -448,6 +448,189 @@ def run_finetune(cfg: FinetuneConfig) -> str:
 
 # ── Config from environment ───────────────────────────────────────────────────
 
+# ── SkipStep sentinel ─────────────────────────────────────────────────────────
+
+class SkipStep(RuntimeError):
+    """Raised by GemmaSSLFinetuner when a required pre-condition is not met.
+
+    Callers (demo_runner, worker) should catch this and log the reason without
+    treating it as a hard failure — the pipeline continues with the DINOv3
+    baseline instead.
+    """
+
+
+# ── GemmaSSLFinetuner ─────────────────────────────────────────────────────────
+
+class GemmaSSLFinetuner:
+    """Fine-tunes DINOv3 using Gemma vision encoder embeddings as SSL targets.
+
+    Instead of NT-Xent contrastive pairs, this trainer uses a regression target:
+    for each frame, the Gemma vision encoder produces a language-grounded
+    embedding, and the DINOv3 student is trained to predict it via cosine loss.
+    This grounds DINOv3 in language concepts, improving text-query retrieval.
+
+    **Pre-condition:** CUDA must be available. Raises :exc:`SkipStep` on CPU-only
+    machines — Gemma vision encoder requires ≥8 GB VRAM for batched inference.
+
+    Args:
+        gemma_embedder: A model with an ``encode_images(List[PIL.Image])``
+            method returning ``(N, dim)`` float32 numpy arrays (L2-normalised).
+            Typically an instance of ``models.gemma_model.GemmaEmbedder``.
+        dino_model_name: DINOv3/DINOv2 hub model name for the student backbone.
+        device:          Torch device string (``"cuda"`` is required; ``"auto"``
+            will resolve to CUDA or raise SkipStep if unavailable).
+        freeze_blocks:   Number of ViT transformer blocks to freeze (default 10).
+        embed_dim:       Student backbone output dimension (768 for ViT-B).
+        proj_out_dim:    Projection head output dimension — must match the Gemma
+            embedding dimension so the cosine loss is well-defined.
+
+    Raises:
+        SkipStep: If ``torch.cuda.is_available()`` is False.
+    """
+
+    def __init__(
+        self,
+        gemma_embedder,
+        dino_model_name: str = "dinov3_vitb14",
+        device: str = "auto",
+        freeze_blocks: int = 10,
+        embed_dim: int = 768,
+        proj_out_dim: int = 1152,  # Gemma-4 vision encoder dim
+    ) -> None:
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        if not torch.cuda.is_available():
+            raise SkipStep(
+                "GemmaSSL requires CUDA — CPU not supported. "
+                "Falling back to DINOv3→EfficientViT-S1 baseline."
+            )
+
+        self._gemma = gemma_embedder
+        self._device = device
+        self._dino_model_name = dino_model_name
+        self._freeze_blocks = freeze_blocks
+        self._embed_dim = embed_dim
+        self._proj_out_dim = proj_out_dim
+
+        self._tuner = DINOFineTuner(
+            model_name=dino_model_name,
+            freeze_blocks=freeze_blocks,
+            device=device,
+            embed_dim=embed_dim,
+            proj_out_dim=proj_out_dim,
+        )
+
+    def train(
+        self,
+        frame_paths: List[str],
+        output_dir: str,
+        epochs: int = 5,
+        batch_size: int = 16,
+        lr: float = 1e-5,
+        weight_decay: float = 0.04,
+        seed: int = 42,
+    ) -> str:
+        """Fine-tune DINOv3 toward Gemma embedding targets.
+
+        For each mini-batch of frames:
+          1. Embed with Gemma (frozen) → teacher targets T.
+          2. Embed with DINOv3 student → student embeddings S.
+          3. Minimise 1 − cosine_similarity(linear(S), T) for each frame.
+
+        The linear projection aligns the student's 768-dim space with the
+        teacher's ``proj_out_dim``-dim space.  It is discarded after training.
+
+        Args:
+            frame_paths: Absolute paths to training frames.
+            output_dir:  Directory for student checkpoints.
+            epochs:      Training epochs.
+            batch_size:  Mini-batch size (reduce if OOM).
+            lr:          AdamW learning rate.
+            weight_decay: AdamW weight decay.
+            seed:        Random seed for reproducibility.
+
+        Returns:
+            Path to the best checkpoint (lowest cosine loss).
+        """
+        import os as _os
+
+        random.seed(seed)
+        torch.manual_seed(seed)
+        _os.makedirs(output_dir, exist_ok=True)
+
+        eval_transform = build_eval_transform()
+        best_loss = float("inf")
+        best_path = _os.path.join(output_dir, "gemma_ssl_best.pt")
+        optimizer = torch.optim.AdamW(
+            self._tuner.trainable_params(), lr=lr, weight_decay=weight_decay
+        )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+        for epoch in range(1, epochs + 1):
+            epoch_losses: List[float] = []
+            # Process frame_paths in batches
+            indices = list(range(len(frame_paths)))
+            random.shuffle(indices)
+            for start in range(0, len(indices), batch_size):
+                batch_indices = indices[start : start + batch_size]
+                batch_paths = [frame_paths[i] for i in batch_indices]
+
+                # Load PIL images
+                from PIL import Image as _PIL_Image
+                pil_images = []
+                tensors = []
+                for p in batch_paths:
+                    try:
+                        img = _PIL_Image.open(p).convert("RGB")
+                        pil_images.append(img)
+                        tensors.append(eval_transform(img))
+                    except Exception:
+                        logger.warning("GemmaSSL: skipping unreadable frame %s", p)
+
+                if not tensors:
+                    continue
+
+                # Gemma teacher embeddings (frozen, no grad)
+                with torch.no_grad():
+                    teacher_np = self._gemma.encode_images(pil_images)
+                    teacher = torch.from_numpy(teacher_np).to(self._device)  # (B, gemma_dim)
+                    teacher = torch.nan_to_num(teacher, nan=0.0)
+
+                # Student forward
+                self._tuner.train()
+                batch_tensor = torch.stack(tensors).to(self._device)
+                student = self._tuner.forward(batch_tensor)  # (B, proj_out_dim) normalised
+
+                # Cosine loss: 1 − cos(student, teacher)
+                teacher_norm = torch.nn.functional.normalize(teacher, dim=-1)
+                loss = (1.0 - (student * teacher_norm).sum(dim=-1)).mean()
+
+                optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    list(self._tuner.trainable_params()), max_norm=1.0
+                )
+                optimizer.step()
+                epoch_losses.append(loss.item())
+
+            scheduler.step()
+            avg_loss = float(np.mean(epoch_losses)) if epoch_losses else float("inf")
+            logger.info("GemmaSSL epoch %d/%d  loss=%.4f", epoch, epochs, avg_loss)
+
+            if avg_loss < best_loss:
+                best_loss = avg_loss
+                self._tuner.save_checkpoint(best_path)
+                logger.info("GemmaSSL new best: loss=%.4f → %s", best_loss, best_path)
+
+        logger.info("GemmaSSL fine-tuning complete. best_loss=%.4f ckpt=%s", best_loss, best_path)
+        return best_path
+
+    def student_backbone(self) -> torch.nn.Module:
+        """Return the fine-tuned student backbone (projection head discarded)."""
+        self._tuner.eval()
+        return self._tuner.backbone
+
+
 def config_from_settings() -> FinetuneConfig:
     """Build FinetuneConfig from pipeline.config.settings."""
     from pipeline.config import settings

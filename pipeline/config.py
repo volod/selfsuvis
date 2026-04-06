@@ -129,6 +129,12 @@ class Settings:
     )
     GEMMA_API_MODEL = _env("GEMMA_API_MODEL", _gemma_api_model_default)
     GEMMA_API_TIMEOUT_SEC = _env_int("GEMMA_API_TIMEOUT_SEC", 60)
+    # Max frames captioned per mission via Gemma; ranked by histogram-diff quality score.
+    # Remaining frames fall back to Florence.  0 = caption all frames via Gemma.
+    GEMMA_MAX_CAPTION_FRAMES = _env_int("GEMMA_MAX_CAPTION_FRAMES", 200)
+    # Chunk size and retry for async Gemma captioning.
+    GEMMA_CAPTION_CHUNK_SIZE = _env_int("GEMMA_CAPTION_CHUNK_SIZE", 3)
+    GEMMA_CAPTION_RETRIES = _env_int("GEMMA_CAPTION_RETRIES", 1)
     # Final reasoning/audit sidecar. Defaults to the same endpoint as Gemma
     # analysis, but can use a larger long-thinking model for the last step.
     REASONING_API_URL = _env("REASONING_API_URL", GEMMA_API_URL)
@@ -414,6 +420,9 @@ class Settings:
     FFMPEG_TIMEOUT_SEC = _env_int("FFMPEG_TIMEOUT_SEC", 3600)  # 1 hour for long videos
     # Maximum RTSP recording duration in seconds (caps duration_sec in POST /index/rtsp)
     RTSP_MAX_DURATION_SEC = _env_int("RTSP_MAX_DURATION_SEC", 3600)
+    # RTSP live captioner (Phase 6): frames-per-second to sample from the stream.
+    # Default 0.5 = one caption every 2 seconds. Higher values increase VRAM pressure.
+    RTSP_CAPTION_FPS = _env_float("RTSP_CAPTION_FPS", 0.5)
 
     # Video extensions (indexing)
     VIDEO_EXTS = frozenset({".mp4", ".mov", ".mkv", ".avi"})

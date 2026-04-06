@@ -169,18 +169,24 @@ _SCHEMA = [
 
     """
     CREATE TABLE IF NOT EXISTS change_detections (
-        id             SERIAL PRIMARY KEY,
-        frame_id       TEXT NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
-        mission_id     TEXT NOT NULL,
-        ref_frame_id   TEXT NOT NULL,
-        ref_mission_id TEXT NOT NULL,
-        change_score   DOUBLE PRECISION NOT NULL,
-        threshold      DOUBLE PRECISION NOT NULL,
-        detected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        id                  SERIAL PRIMARY KEY,
+        frame_id            TEXT NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
+        mission_id          TEXT NOT NULL,
+        ref_frame_id        TEXT NOT NULL,
+        ref_mission_id      TEXT NOT NULL,
+        change_score        DOUBLE PRECISION NOT NULL,
+        threshold           DOUBLE PRECISION NOT NULL,
+        semantic_diff_json  JSONB,
+        change_explanation  TEXT,
+        detected_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
+    # Phase 4: add semantic diff columns to existing tables (idempotent via IF NOT EXISTS)
+    "ALTER TABLE change_detections ADD COLUMN IF NOT EXISTS semantic_diff_json JSONB",
+    "ALTER TABLE change_detections ADD COLUMN IF NOT EXISTS change_explanation TEXT",
     "CREATE INDEX IF NOT EXISTS idx_change_detections_mission_id ON change_detections (mission_id)",
     "CREATE INDEX IF NOT EXISTS idx_change_detections_score ON change_detections (change_score)",
+    "CREATE INDEX IF NOT EXISTS idx_change_detections_semantic_diff ON change_detections USING gin(semantic_diff_json) WHERE semantic_diff_json IS NOT NULL",
 
     """
     CREATE TABLE IF NOT EXISTS global_map (
@@ -248,6 +254,28 @@ _SCHEMA = [
         started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
+
+    # Phase 5 — scene_timeline: one row per GPS-tagged keyframe across all missions.
+    # Enables "last N visits" reasoning in POST /query/pose.
+    """
+    CREATE TABLE IF NOT EXISTS scene_timeline (
+        id          BIGSERIAL PRIMARY KEY,
+        mission_id  TEXT NOT NULL,
+        frame_id    TEXT NOT NULL,
+        gps_lat     DOUBLE PRECISION,
+        gps_lon     DOUBLE PRECISION,
+        gps_alt     DOUBLE PRECISION,
+        t_sec       DOUBLE PRECISION,
+        caption     TEXT,
+        facts_json  JSONB,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_scene_timeline_mission_id ON scene_timeline (mission_id)",
+    "CREATE INDEX IF NOT EXISTS idx_scene_timeline_gps_lat ON scene_timeline (gps_lat)",
+    "CREATE INDEX IF NOT EXISTS idx_scene_timeline_frame_id ON scene_timeline (frame_id)",
+    "CREATE INDEX IF NOT EXISTS idx_scene_timeline_created_at ON scene_timeline (created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_scene_timeline_facts ON scene_timeline USING gin(facts_json) WHERE facts_json IS NOT NULL",
 ]
 
 

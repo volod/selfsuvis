@@ -235,14 +235,20 @@ class KnowledgeDistiller:
         return model.to(self.device).train()
 
     def _forward_teacher(self, batch: torch.Tensor) -> torch.Tensor:
-        """Run teacher with AMP on CUDA; returns normalised float32 embeddings."""
+        """Run teacher with AMP on CUDA; returns normalised float32 embeddings.
+
+        NaN values in the teacher output (e.g. from Gemma vision encoder on
+        edge-case inputs) are replaced with 0.0 before L2 normalisation so that
+        the RKD loss remains finite throughout training.
+        """
         with torch.no_grad():
             if self.config.device == "cuda":
                 with torch.amp.autocast('cuda'):
                     t = self.teacher(batch)
             else:
                 t = self.teacher(batch)
-        return F.normalize(t.float(), dim=-1)   # (B, t_dim)
+        t = torch.nan_to_num(t.float(), nan=0.0)  # guard against Gemma NaN outputs
+        return F.normalize(t, dim=-1)             # (B, t_dim)
 
     def _forward_student(self, batch: torch.Tensor) -> tuple[Tensor, Tensor]:
         """Run student + projection head with AMP; returns normalised embeddings."""
@@ -543,3 +549,130 @@ def run_distillation(
     distiller = KnowledgeDistiller(teacher_backbone, config)
     stats = distiller.distill(frame_paths, checkpoint_dir)
     return {**stats, "distiller": distiller}
+
+
+def run_distillation_efficientvit(
+    teacher_backbone: torch.nn.Module,
+    frame_paths: List[str],
+    checkpoint_dir: Path,
+    config: Optional[DistillConfig] = None,
+) -> Dict[str, Any]:
+    """Stage 1→2 distillation: DINOv3 teacher → EfficientViT-B1 student.
+
+    Uses RKD-D loss only (no RKD-A) because the 384-dim EfficientViT student
+    has the same output dimension as DINOv2 ViT-S/14 — angle-triplet loss
+    gives no additional benefit at equal dimensionality.
+
+    The ``student_model`` field in *config* is ignored; EfficientViT-B1 via
+    timm is always loaded as the student.
+
+    Args:
+        teacher_backbone: Frozen teacher (e.g. fine-tuned DINOv3 ViT-B/14).
+        frame_paths:      Absolute paths to frames for training.
+        checkpoint_dir:   Directory for student checkpoints.
+        config:           Optional DistillConfig override.  Defaults to
+                          RKD-D only (lambda_rkd_a=0.0, lambda_koleo=0.1).
+
+    Returns:
+        Same dict as :func:`run_distillation`, plus ``student_model="efficientvit_b1"``.
+
+    Raises:
+        RuntimeError: If CUDA OOM is detected during model load or training,
+            with a message indicating the VRAM requirement.
+    """
+    import torch as _torch
+
+    if config is None:
+        config = DistillConfig(
+            student_model="efficientvit_b1",
+            lambda_rkd_d=25.0,
+            lambda_rkd_a=0.0,   # RKD-D only for Stage 1→2
+            lambda_kd=1.0,
+            lambda_koleo=0.1,
+        )
+    else:
+        # Force RKD-A off regardless of what caller passed
+        config = DistillConfig(
+            **{
+                **config.__dict__,
+                "student_model": "efficientvit_b1",
+                "lambda_rkd_a": 0.0,
+            }
+        )
+
+    # ── Load EfficientViT-B1 student via timm ─────────────────────────────────
+    try:
+        import timm  # noqa: PLC0415
+    except ImportError as exc:
+        raise ImportError(
+            "timm is required for EfficientViT distillation: pip install timm"
+        ) from exc
+
+    try:
+        _student_timm = timm.create_model(
+            "efficientvit_b1", pretrained=True, num_classes=0
+        )
+    except RuntimeError as exc:
+        _oom_msg = str(exc).lower()
+        if "out of memory" in _oom_msg or "cuda out of memory" in _oom_msg:
+            _free_gb = 0.0
+            try:
+                _free_gb = _torch.cuda.mem_get_info()[0] / 1e9
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"EfficientViT Stage 1→2 requires ≥8GB VRAM; "
+                f"detected {_free_gb:.1f}GB free. "
+                "Try: device='cpu', or free VRAM before loading."
+            ) from exc
+        raise
+
+    # Wrap the timm model as an nn.Module the distiller can use as the student.
+    # KnowledgeDistiller expects student to be replaceable — we inject it by
+    # subclassing and overriding __init__ so the distiller's projection head
+    # is built against the correct 384-dim output.
+    _student_timm = _student_timm.to(config.device)
+
+    class _EfficientViTStudent(nn.Module):
+        """Thin wrapper so KnowledgeDistiller can treat EfficientViT as a student."""
+
+        def __init__(self, backbone: nn.Module) -> None:
+            super().__init__()
+            self.backbone = backbone
+
+        def forward(self, x: _torch.Tensor) -> _torch.Tensor:
+            return self.backbone(x)
+
+    _student = _EfficientViTStudent(_student_timm)
+
+    # Patch the distiller to use our student instead of dinov2_vits14
+    distiller = KnowledgeDistiller(teacher_backbone, config)
+    distiller.student = _student.to(config.device)
+
+    # Rebuild projection head for the actual student dim (may differ from default)
+    with _torch.no_grad():
+        _dummy = _torch.zeros(
+            1, 3, config.image_size, config.image_size, device=config.device
+        )
+        _s_dim = int(distiller.student(_dummy).shape[-1])
+        _t_dim = int(distiller.teacher(_dummy).shape[-1])
+    distiller.proj = nn.Linear(_s_dim, _t_dim, bias=False).to(config.device)
+    nn.init.orthogonal_(distiller.proj.weight)
+
+    try:
+        stats = distiller.distill(frame_paths, checkpoint_dir)
+    except RuntimeError as exc:
+        _oom_msg = str(exc).lower()
+        if "out of memory" in _oom_msg:
+            _free_gb = 0.0
+            try:
+                _free_gb = _torch.cuda.mem_get_info()[0] / 1e9
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"EfficientViT Stage 1→2 requires ≥8GB VRAM; "
+                f"detected {_free_gb:.1f}GB free."
+            ) from exc
+        raise
+
+    return {**stats, "distiller": distiller, "student_model": "efficientvit_b1"}
