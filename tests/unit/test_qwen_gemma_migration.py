@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
-import pipeline.qwen_model as qm
+import pipeline.vision.qwen as qm
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

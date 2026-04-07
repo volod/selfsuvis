@@ -83,7 +83,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Build config from settings, then overlay CLI overrides
-    from pipeline.ssl_finetune import config_from_settings, run_finetune
+    from pipeline.training.ssl import config_from_settings, run_finetune
 
     cfg = config_from_settings()
 

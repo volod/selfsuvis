@@ -1,6 +1,6 @@
 """Unit tests for pipeline/model_registry.py — no GPU or network required."""
 import pytest
-from pipeline.model_registry import (
+from pipeline.vision.registry import (
     CATALOGS,
     ModelEntry,
     auto_select,

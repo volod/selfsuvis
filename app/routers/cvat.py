@@ -28,8 +28,7 @@ from pydantic import BaseModel
 
 from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
-from pipeline.config import settings
-from pipeline.logging_utils import get_logger
+from pipeline.core import get_logger, settings
 
 logger = get_logger(__name__)
 
@@ -84,8 +83,8 @@ async def _maybe_trigger_finetune(pool: asyncpg.Pool) -> None:
     """
     import uuid
 
-    from pipeline.config import settings
-    from pipeline.job_db_pg import create_job
+    from pipeline.core.config import settings
+    from pipeline.storage.jobs import create_job
 
     if not settings.SUP_AUTO_TRIGGER:
         return

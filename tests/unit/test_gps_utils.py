@@ -5,7 +5,7 @@ from unittest import mock
 
 import pytest
 
-from pipeline.gps_extractor import (
+from pipeline.media.gps import (
     _extract_from_ffprobe_atoms,
     _interpolate_gps,
     _parse_srt_file,
@@ -202,7 +202,7 @@ def test_extract_gps_uses_srt_when_present(tmp_path, monkeypatch):
     video = tmp_path / "video.mp4"
     video.write_text("")
 
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_SIDECAR_PATH", "")
 
     result = extract_gps(str(video), [1000.0, 2000.0])
@@ -216,7 +216,7 @@ def test_extract_gps_falls_back_to_ffprobe_atoms(tmp_path, monkeypatch):
     video = tmp_path / "video.mp4"
     video.write_text("")
 
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_SIDECAR_PATH", "")
 
     ffprobe_out = json.dumps(
@@ -235,7 +235,7 @@ def test_extract_gps_null_fallback(tmp_path, monkeypatch):
     video = tmp_path / "video.mp4"
     video.write_text("")
 
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_SIDECAR_PATH", "")
 
     with mock.patch("pipeline.gps_extractor._run_ffprobe", return_value=None):
@@ -251,7 +251,7 @@ def test_extract_gps_sidecar_path_override(tmp_path, monkeypatch):
     video = tmp_path / "othervideo.mp4"
     video.write_text("")
 
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_SIDECAR_PATH", str(custom_srt))
 
     result = extract_gps(str(video), [1000.0])
@@ -264,7 +264,7 @@ def test_extract_gps_returns_same_length(tmp_path, monkeypatch):
     video = tmp_path / "video.mp4"
     video.write_text("")
 
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_SIDECAR_PATH", "")
 
     with mock.patch("pipeline.gps_extractor._run_ffprobe", return_value=None):

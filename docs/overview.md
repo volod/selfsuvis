@@ -1,42 +1,32 @@
 # Overview
 
-**Outdoor autonomy perception stack** — spatial memory engine for robotics. Ingest mission video from drones, rovers, or ground vehicles → extract frames → estimate camera poses (pycolmap SfM) → build dense 3D maps (nerfstudio 3DGS) → embed with OpenCLIP + DINOv3 → caption with Florence-2 → store in PostgreSQL + Qdrant → search by text or image.
+`selfsuvis` is a video indexing and retrieval stack for outdoor robotics workflows. It ingests mission video, extracts searchable keyframes and tiles, stores embeddings in Qdrant, stores mission/frame state in PostgreSQL, and exposes search, admin, robot-query, and annotation endpoints through FastAPI.
 
-Each new mission auto-registers against a persistent global 3D map. The system detects environmental change over time across missions. Robots can query the world model during flight via a REST API.
+## What is implemented
 
-## Features
+- Video ingestion from upload, allowed local paths, directories, and URLs
+- Keyframe extraction, tile extraction, deduplication, and vector indexing
+- OpenCLIP retrieval with optional DINO vectors
+- Florence captioning during indexing
+- Optional multimodal enrichments: Gemma, Qwen, ASR, OCR, depth, detection, YOLO, SAM, world-model steps
+- YOLO SSG semantic environment graphs built from detection output plus ENU/SfM/PCA frame anchors
+- pycolmap pose estimation and optional nerfstudio/mapper 3D outputs
+- Mission reports, change detection, robot pose queries, and scene queries
+- Active-learning tagging plus CVAT webhook-driven supervised fine-tune triggers
 
-**Search and retrieval**
-- Text-to-video and image-to-video retrieval (OpenCLIP shared embedding space)
-- "Find more like this" — similarity search on DINOv3 embeddings (fallback: CLIP)
-- Optional DINOv3 reranking for image queries (70/30 CLIP/DINO blend)
+## Main runtime pieces
 
-**3D mapping and pose**
-- Camera pose estimation via pycolmap Structure-from-Motion (CPU)
-- 3D Gaussian Splatting reconstruction via nerfstudio splatfacto (GPU, optional)
-- Embedded 3DGS viewer in Streamlit (SuperSplat iframe)
+- `api`: FastAPI routes for indexing, querying, admin, CVAT, and health
+- `worker`: background job processor for indexing, re-embedding, and model operations
+- `ui`: Streamlit UI with indexing, image/text search, admin stats, and 3DGS viewer
+- `postgres`: primary SQL store for jobs, missions, frames, caption/facts metadata, and automation state
+- `qdrant`: vector store for frame and tile retrieval
 
-**Multi-mission intelligence**
-- Multi-mission change detection using GPS-bbox Qdrant filter + embedding distance
-- Persistent global map: Phase 1 GPS point cloud in ENU frame (~50km radius)
-- Robot advisory API (`POST /query/pose`) — p99 < 200ms, GPS-based, advisory use only
+## Primary workflows
 
-**Active learning loop**
-- Per-frame uncertainty scoring: `0.6×DINOv3_dist + 0.4×(1−caption_confidence)`
-- Auto-tags top-K frames as `needs_annotation`; novel frames (DINOv3 dist > 0.5) as `novel`
-- Mission summary HTML report auto-generated at end of each mission
-
-**Ingestion**
-- Upload local files, index by path/directory, or submit URL
-- Video streaming via MediaMTX (RTSP/RTMP/WebRTC/HLS)
-- Adaptive sampling + stabilization-aware change detection
-- Full-frame and tile embeddings with dedup heuristics
-
-**Infrastructure**
-- PostgreSQL 16 as primary SQL store (missions, frames, jobs, active learning, global map)
-- Qdrant vector DB (named vectors: `clip`, optional `dino`)
-- Async-native worker with `SELECT FOR UPDATE SKIP LOCKED` for safe concurrent job claiming
-- Docker stack runs as current user; data and cache owned by you
+- Operator workflow: start the stack, run `scripts/migrate_postgres.py`, index missions, then query by text, image, scene facts, or robot pose
+- Model workflow: prefetch models with `scripts/prepare_models.py`, fine-tune DINO with `scripts/finetune_dino.py` or `scripts/supervised_finetune_dino.py`, export ONNX with `scripts/export_onnx.py`, build an edge gallery with `scripts/build_gallery.py`
+- Annotation workflow: pull candidate frames from `/admin/cvat/frames`, register task mappings, and let the CVAT webhook mark frames annotated and optionally enqueue fine-tuning
 
 ---
 [← README](../README.md) | [Setup →](setup.md)

@@ -109,14 +109,14 @@ class MockConn:
 
 class TestGetOrCreateGlobalMap:
     def test_creates_new_when_empty(self):
-        from pipeline.global_map_db import get_or_create_global_map
+        from pipeline.storage.global_maps import get_or_create_global_map
         conn = MockConn()
         gm_id = asyncio.run(get_or_create_global_map(conn, 48.0, 11.0, 100.0))
         assert gm_id == 1
         assert len(conn._global_maps) == 1
 
     def test_returns_existing_for_nearby_origin(self):
-        from pipeline.global_map_db import get_or_create_global_map
+        from pipeline.storage.global_maps import get_or_create_global_map
         conn = MockConn()
         id1 = asyncio.run(get_or_create_global_map(conn, 48.0, 11.0, 100.0))
         # 0.001 deg ≈ 111m — within 5km proximity threshold
@@ -125,7 +125,7 @@ class TestGetOrCreateGlobalMap:
         assert len(conn._global_maps) == 1
 
     def test_creates_new_for_distant_origin(self):
-        from pipeline.global_map_db import get_or_create_global_map
+        from pipeline.storage.global_maps import get_or_create_global_map
         conn = MockConn()
         id1 = asyncio.run(get_or_create_global_map(conn, 48.0, 11.0, 100.0))
         # 0.1 deg ≈ 11km — beyond 5km threshold
@@ -136,14 +136,14 @@ class TestGetOrCreateGlobalMap:
 
 class TestGetGlobalMapSplats:
     def test_empty_when_no_missions_registered(self):
-        from pipeline.global_map_db import get_global_map_splats
+        from pipeline.storage.global_maps import get_global_map_splats
         conn = MockConn()
         conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0))
         paths = asyncio.run(get_global_map_splats(conn, 1))
         assert paths == []
 
     def test_returns_splat_paths_for_registered_missions(self):
-        from pipeline.global_map_db import get_global_map_splats
+        from pipeline.storage.global_maps import get_global_map_splats
         conn = MockConn()
         conn._missions = [
             {"id": "m1", "splat_path": "/data/maps/m1/splat.ply"},
@@ -161,7 +161,7 @@ class TestGetGlobalMapSplats:
 
 class TestRegisterMission:
     def test_inserts_new_registration(self):
-        from pipeline.global_map_db import register_mission
+        from pipeline.storage.global_maps import register_mission
         conn = MockConn()
         transform = [[1,0,0,7],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
         asyncio.run(register_mission(conn, 1, "mission-abc", transform, 0.042))
@@ -173,7 +173,7 @@ class TestRegisterMission:
         assert abs(row["registration_error"] - 0.042) < 1e-6
 
     def test_upserts_on_conflict(self):
-        from pipeline.global_map_db import register_mission
+        from pipeline.storage.global_maps import register_mission
         conn = MockConn()
         t1 = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
         t2 = [[1,0,0,7],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
@@ -184,7 +184,7 @@ class TestRegisterMission:
         assert abs(conn._gmm[0]["registration_error"] - 0.05) < 1e-6
 
     def test_phase1_allows_none_error(self):
-        from pipeline.global_map_db import register_mission
+        from pipeline.storage.global_maps import register_mission
         conn = MockConn()
         asyncio.run(register_mission(conn, 1, "mission-abc", [[1,0,0,0]]*4, None))
         assert conn._gmm[0]["registration_error"] is None
@@ -192,7 +192,7 @@ class TestRegisterMission:
 
 class TestUpdateGlobalMapSplat:
     def test_sets_splat_path(self):
-        from pipeline.global_map_db import update_global_map_splat
+        from pipeline.storage.global_maps import update_global_map_splat
         conn = MockConn()
         conn._global_maps.append(_Row(id=1, splat_path=None, updated_at=0.0))
         asyncio.run(update_global_map_splat(conn, 1, "/data/maps/fused.ply"))
@@ -201,7 +201,7 @@ class TestUpdateGlobalMapSplat:
 
 class TestGetGlobalMapById:
     def test_returns_row(self):
-        from pipeline.global_map_db import get_global_map_by_id
+        from pipeline.storage.global_maps import get_global_map_by_id
         conn = MockConn()
         conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0))
         row = asyncio.run(get_global_map_by_id(conn, 1))
@@ -209,7 +209,7 @@ class TestGetGlobalMapById:
         assert row["origin_lat"] == 48.0
 
     def test_returns_none_when_missing(self):
-        from pipeline.global_map_db import get_global_map_by_id
+        from pipeline.storage.global_maps import get_global_map_by_id
         conn = MockConn()
         row = asyncio.run(get_global_map_by_id(conn, 999))
         assert row is None
@@ -219,7 +219,7 @@ class TestGetGlobalMapById:
 
 class TestCallIcpFuse:
     def test_returns_dict_on_success(self):
-        from pipeline.mapper import _call_icp_fuse
+        from pipeline.mapping.mapper import _call_icp_fuse
         mock_resp = {
             "status": "ok",
             "transform_4x4": [[1,0,0,7],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
@@ -238,14 +238,14 @@ class TestCallIcpFuse:
 
     def test_returns_none_on_connection_error(self):
         import requests as req_lib
-        from pipeline.mapper import _call_icp_fuse
+        from pipeline.mapping.mapper import _call_icp_fuse
         with patch("pipeline.mapper.requests.post",
                    side_effect=req_lib.exceptions.ConnectionError("refused")):
             result = _call_icp_fuse("/src.ply", "/tgt.ply")
         assert result is None
 
     def test_passes_source_and_target_path(self):
-        from pipeline.mapper import _call_icp_fuse
+        from pipeline.mapping.mapper import _call_icp_fuse
         with patch("pipeline.mapper.requests.post") as mock_post:
             mock_post.return_value.json.return_value = {"status": "no_overlap", "converged": False, "message": ""}
             mock_post.return_value.raise_for_status = MagicMock()
@@ -256,7 +256,7 @@ class TestCallIcpFuse:
         assert payload["target_path"] == "/tgt.ply"
 
     def test_passes_optional_meta(self):
-        from pipeline.mapper import _call_icp_fuse
+        from pipeline.mapping.mapper import _call_icp_fuse
         src_meta = {"origin_lat": 48.0, "origin_lon": 11.0, "origin_alt": 100.0}
         with patch("pipeline.mapper.requests.post") as mock_post:
             mock_post.return_value.json.return_value = {"status": "ok", "converged": True, "message": ""}
@@ -278,7 +278,7 @@ def _make_sfm_results(n: int = 35) -> List[Dict[str, Any]]:
 
 class TestRunMapperIcpIntegration:
     def test_icp_results_empty_when_no_targets(self):
-        from pipeline.mapper import run_mapper
+        from pipeline.mapping.mapper import run_mapper
         with patch("pipeline.mapper._train_scene") as mock_train:
             mock_train.return_value = {
                 "map_status": "success",
@@ -289,7 +289,7 @@ class TestRunMapperIcpIntegration:
         assert result["icp_results"] == []
 
     def test_icp_results_populated_when_target_provided(self):
-        from pipeline.mapper import run_mapper
+        from pipeline.mapping.mapper import run_mapper
         fuse_resp = {
             "status": "ok",
             "transform_4x4": [[1,0,0,0]]*4,
@@ -318,7 +318,7 @@ class TestRunMapperIcpIntegration:
         assert abs(icp["rmse"] - 0.03) < 1e-6
 
     def test_icp_not_called_on_failed_scene(self):
-        from pipeline.mapper import run_mapper
+        from pipeline.mapping.mapper import run_mapper
         with patch("pipeline.mapper._train_scene") as mock_train, \
              patch("pipeline.mapper._call_icp_fuse") as mock_fuse:
             mock_train.return_value = {
@@ -336,7 +336,7 @@ class TestRunMapperIcpIntegration:
 
     def test_icp_mapper_unavailable_does_not_fail(self):
         """ConnectionError from mapper service is a soft skip — run_mapper still succeeds."""
-        from pipeline.mapper import run_mapper
+        from pipeline.mapping.mapper import run_mapper
         with patch("pipeline.mapper._train_scene") as mock_train, \
              patch("pipeline.mapper._call_icp_fuse") as mock_fuse:
             mock_train.return_value = {
@@ -353,7 +353,7 @@ class TestRunMapperIcpIntegration:
         assert result["icp_results"] == []  # None entries are filtered out
 
     def test_multiple_targets_produce_multiple_icp_results(self):
-        from pipeline.mapper import run_mapper
+        from pipeline.mapping.mapper import run_mapper
         fuse_resp = {
             "status": "ok", "transform_4x4": [[1,0,0,0]]*4,
             "rmse": 0.02, "fitness": 0.95, "converged": True, "message": "",
@@ -373,7 +373,7 @@ class TestRunMapperIcpIntegration:
         assert len(result["icp_results"]) == 2
 
     def test_skipped_mission_has_empty_icp_results(self):
-        from pipeline.mapper import run_mapper
+        from pipeline.mapping.mapper import run_mapper
         # Only 5 frames — below MIN_FRAMES_FOR_3DGS
         result = run_mapper("m1", _make_sfm_results(5),
                             target_splat_paths=["/maps/m0/splat.ply"])
@@ -382,6 +382,6 @@ class TestRunMapperIcpIntegration:
 
     def test_result_always_has_icp_results_key(self):
         """Callers should not need to .get("icp_results", []) — key is always present."""
-        from pipeline.mapper import run_mapper
+        from pipeline.mapping.mapper import run_mapper
         result = run_mapper("m1", _make_sfm_results(5))
         assert "icp_results" in result

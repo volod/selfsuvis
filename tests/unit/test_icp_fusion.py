@@ -34,28 +34,28 @@ _META_C: Dict[str, Any] = {"origin_lat": 48.05, "origin_lon": 11.05, "origin_alt
 # ── check_overlap ─────────────────────────────────────────────────────────────
 
 def test_overlap_nearby_scenes():
-    from pipeline.icp_fusion import check_overlap
+    from pipeline.mapping.icp import check_overlap
     overlaps, dist = check_overlap(_META_A, _META_B, radius_a_m=10.0, radius_b_m=10.0)
     assert overlaps is True
     assert dist < 20.0  # ~7m apart, well within combined 20m radius
 
 
 def test_overlap_distant_scenes():
-    from pipeline.icp_fusion import check_overlap
+    from pipeline.mapping.icp import check_overlap
     overlaps, dist = check_overlap(_META_A, _META_C, radius_a_m=10.0, radius_b_m=10.0)
     assert overlaps is False
     assert dist > 5_000.0
 
 
 def test_overlap_same_scene():
-    from pipeline.icp_fusion import check_overlap
+    from pipeline.mapping.icp import check_overlap
     overlaps, dist = check_overlap(_META_A, _META_A)
     assert overlaps is True
     assert dist == pytest.approx(0.0, abs=1e-3)
 
 
 def test_overlap_distance_is_symmetric():
-    from pipeline.icp_fusion import check_overlap
+    from pipeline.mapping.icp import check_overlap
     _, d1 = check_overlap(_META_A, _META_B)
     _, d2 = check_overlap(_META_B, _META_A)
     assert abs(d1 - d2) < 0.01
@@ -63,7 +63,7 @@ def test_overlap_distance_is_symmetric():
 
 def test_overlap_distance_matches_gps_calculation():
     """GPS distance between scene_a and scene_b should be ~7m."""
-    from pipeline.icp_fusion import check_overlap
+    from pipeline.mapping.icp import check_overlap
     _, dist = check_overlap(_META_A, _META_B)
     # 48.00005 - 48.0 = 5e-5 deg lat = 5.57m; lon similarly ~3.7m → total ~6.7m
     assert 5.0 < dist < 10.0
@@ -72,14 +72,14 @@ def test_overlap_distance_matches_gps_calculation():
 # ── _initial_transform_from_gps ──────────────────────────────────────────────
 
 def test_initial_transform_identity_same_origin():
-    from pipeline.icp_fusion import _initial_transform_from_gps
+    from pipeline.mapping.icp import _initial_transform_from_gps
     T = _initial_transform_from_gps(_META_A, _META_A)
     np.testing.assert_allclose(T[:3, 3], [0, 0, 0], atol=1e-3)
     np.testing.assert_allclose(T[:3, :3], np.eye(3), atol=1e-6)
 
 
 def test_initial_transform_nonzero_for_offset():
-    from pipeline.icp_fusion import _initial_transform_from_gps
+    from pipeline.mapping.icp import _initial_transform_from_gps
     T = _initial_transform_from_gps(_META_B, _META_A)
     # source_b is ~7m NE of target_a
     translation = T[:3, 3]
@@ -88,7 +88,7 @@ def test_initial_transform_nonzero_for_offset():
 
 
 def test_initial_transform_is_4x4():
-    from pipeline.icp_fusion import _initial_transform_from_gps
+    from pipeline.mapping.icp import _initial_transform_from_gps
     T = _initial_transform_from_gps(_META_A, _META_B)
     assert T.shape == (4, 4)
     assert T[3, 3] == pytest.approx(1.0)
@@ -96,7 +96,7 @@ def test_initial_transform_is_4x4():
 
 def test_initial_transform_rotation_is_identity():
     """Phase 1 = pure translation; rotation block must be identity."""
-    from pipeline.icp_fusion import _initial_transform_from_gps
+    from pipeline.mapping.icp import _initial_transform_from_gps
     T = _initial_transform_from_gps(_META_A, _META_B)
     np.testing.assert_allclose(T[:3, :3], np.eye(3), atol=1e-6)
 
@@ -104,19 +104,19 @@ def test_initial_transform_rotation_is_identity():
 # ── _voxel_size_for ───────────────────────────────────────────────────────────
 
 def test_voxel_size_zero_for_small_clouds():
-    from pipeline.icp_fusion import _voxel_size_for
+    from pipeline.mapping.icp import _voxel_size_for
     assert _voxel_size_for(100) == 0.0
     assert _voxel_size_for(5_000) == 0.0
 
 
 def test_voxel_size_positive_for_large_clouds():
-    from pipeline.icp_fusion import _voxel_size_for
+    from pipeline.mapping.icp import _voxel_size_for
     v = _voxel_size_for(100_000)
     assert v > 0.0
 
 
 def test_voxel_size_minimum_is_5cm():
-    from pipeline.icp_fusion import _voxel_size_for
+    from pipeline.mapping.icp import _voxel_size_for
     v = _voxel_size_for(10_000)
     assert v >= 0.05
 
@@ -126,8 +126,8 @@ def test_voxel_size_minimum_is_5cm():
 @skip_no_open3d
 def test_register_overlapping_scenes_converges():
     """scene_a and scene_b overlap (~7m offset) — ICP should converge."""
-    from pipeline.icp_fusion import register_splats
-    from pipeline.splat_io import read_splat_metadata
+    from pipeline.mapping.icp import register_splats
+    from pipeline.mapping.splat_io import read_splat_metadata
 
     src = str(_ASSETS / "scene_b.ply")
     tgt = str(_ASSETS / "scene_a.ply")
@@ -152,8 +152,8 @@ def test_register_overlapping_scenes_converges():
 @skip_no_open3d
 def test_register_returns_valid_se3():
     """Transform matrix should have det ≈ 1 (rotation part is proper rotation)."""
-    from pipeline.icp_fusion import register_splats
-    from pipeline.splat_io import read_splat_metadata
+    from pipeline.mapping.icp import register_splats
+    from pipeline.mapping.splat_io import read_splat_metadata
 
     result = register_splats(
         source_path=str(_ASSETS / "scene_b.ply"),
@@ -171,8 +171,8 @@ def test_register_returns_valid_se3():
 @skip_no_open3d
 def test_register_nonoverlapping_low_fitness():
     """scene_a and scene_c don't overlap — fitness should be low."""
-    from pipeline.icp_fusion import register_splats
-    from pipeline.splat_io import read_splat_metadata
+    from pipeline.mapping.icp import register_splats
+    from pipeline.mapping.splat_io import read_splat_metadata
 
     result = register_splats(
         source_path=str(_ASSETS / "scene_c.ply"),
@@ -187,7 +187,7 @@ def test_register_nonoverlapping_low_fitness():
 
 @skip_no_open3d
 def test_register_missing_source_raises():
-    from pipeline.icp_fusion import register_splats
+    from pipeline.mapping.icp import register_splats
     with pytest.raises(FileNotFoundError):
         register_splats("/nonexistent/source.ply", str(_ASSETS / "scene_a.ply"))
 
@@ -195,7 +195,7 @@ def test_register_missing_source_raises():
 @skip_no_open3d
 def test_register_no_meta_uses_identity_init():
     """Without metadata, should still run (identity initial alignment)."""
-    from pipeline.icp_fusion import register_splats
+    from pipeline.mapping.icp import register_splats
     result = register_splats(
         source_path=str(_ASSETS / "scene_b.ply"),
         target_path=str(_ASSETS / "scene_a.ply"),
@@ -211,7 +211,7 @@ def test_register_no_meta_uses_identity_init():
 # ── IcpResult dataclass ───────────────────────────────────────────────────────
 
 def test_icp_result_fields():
-    from pipeline.icp_fusion import IcpResult
+    from pipeline.mapping.icp import IcpResult
     r = IcpResult(
         transform_4x4=[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
         rmse=0.05,

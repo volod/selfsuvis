@@ -12,13 +12,6 @@ python scripts/prepare_models.py
 DOWNLOAD_DINO=true DINO_MODEL=dinov2_vitb14 python scripts/prepare_models.py
 ```
 
-## Sample API flow (index + query)
-
-Scripts use `API_URL` (default `http://localhost:8000`). When `API_KEY` is set, add `-H "X-API-Key: $API_KEY"` to curl calls.
-```bash
-./scripts/sample_requests.sh /path/to/video.mp4 /path/to/image.jpg
-```
-
 ## Batch index a directory
 ```bash
 ./scripts/index_dir.sh /path/to/video_dir true
@@ -47,31 +40,10 @@ Scripts use `API_URL` (default `http://localhost:8000`). When `API_KEY` is set, 
 ./scripts/precheck_dir.sh /path/to/video_dir true true
 ```
 
-## Clean frames/tiles cache
-```bash
-./scripts/clean_data.sh ./data
-```
-
 ## Reset Qdrant collection
 ```bash
 ./scripts/reset_qdrant.sh
 ```
-
-## List processed registry
-```bash
-python scripts/list_processed.py
-```
-
-## Hash a video
-```bash
-python scripts/hash_video.py /path/to/video.mp4
-```
-
-## Test CLI (end-to-end)
-```bash
-./scripts/test_cli.sh
-```
-Requires `make up` running. Indexes test assets and runs text/image queries.
 
 ---
 [← UI](ui.md) | [Configuration →](configuration.md)

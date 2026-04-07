@@ -6,7 +6,7 @@ import pytest
 pytest.importorskip("cv2", reason="cv2 required for heuristics")
 pytest.importorskip("skimage.metrics", reason="skimage required for heuristics")
 
-from pipeline.heuristics import (
+from pipeline.media.heuristics import (
     downsample_gray,
     edge_density,
     histogram_diff,

@@ -1,4 +1,4 @@
-"""Unit tests for pipeline.downloader."""
+"""Unit tests for pipeline.media.download."""
 
 import tempfile
 from pathlib import Path
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests as requests_lib
 
-from pipeline.downloader import download_url
+from pipeline.media.download import download_url
 
 
 def _make_response(headers=None, iter_content=None):
@@ -25,7 +25,7 @@ def test_download_url_content_length_exceeds_max():
     """When Content-Length exceeds max_bytes, raises ValueError before writing."""
     mock_response = _make_response(headers={"Content-Length": "200"})
 
-    with patch("pipeline.downloader.safe_request", return_value=mock_response):
+    with patch("pipeline.media.download.safe_request", return_value=mock_response):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             dest = f.name
         try:
@@ -41,7 +41,7 @@ def test_download_url_stream_exceeds_max():
     """When streamed bytes exceed max_bytes, raises ValueError and cleans up partial file."""
     mock_response = _make_response(iter_content=lambda **kw: iter([b"x" * 5, b"y" * 10]))
 
-    with patch("pipeline.downloader.safe_request", return_value=mock_response):
+    with patch("pipeline.media.download.safe_request", return_value=mock_response):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             dest = f.name
         with pytest.raises(ValueError) as exc_info:
@@ -59,7 +59,7 @@ def test_download_url_within_limit():
         iter_content=lambda **kw: iter([content]),
     )
 
-    with patch("pipeline.downloader.safe_request", return_value=mock_response):
+    with patch("pipeline.media.download.safe_request", return_value=mock_response):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             dest = f.name
         try:
@@ -78,7 +78,7 @@ def test_download_url_cleanup_on_http_error():
 
     mock_response = _make_response(iter_content=_raising_iter)
 
-    with patch("pipeline.downloader.safe_request", return_value=mock_response):
+    with patch("pipeline.media.download.safe_request", return_value=mock_response):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             dest = f.name
         with pytest.raises(requests_lib.RequestException):

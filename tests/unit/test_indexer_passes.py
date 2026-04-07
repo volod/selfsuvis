@@ -48,7 +48,7 @@ def _make_records(n: int, tmp_path, *, base_t: float = 0.0) -> List[Dict[str, An
 
 def _make_indexer() -> Any:
     """Build a VideoIndexer shell without calling __init__ (no GPU/model loads)."""
-    from pipeline import indexer as idx_module
+    import pipeline.workflows.indexer as idx_module
     obj = object.__new__(idx_module.VideoIndexer)
     obj.logger = MagicMock()
     obj.store = MagicMock()
@@ -62,6 +62,8 @@ def _make_indexer() -> Any:
     obj.depth_model = None
     obj.detection_model = None
     obj.world_model = None
+    obj.yolo_detector = None
+    obj.sam_predictor = None
     obj.enable_tiles = False
     obj.phash_lru = MagicMock()
     obj.recent_index = MagicMock()
@@ -72,7 +74,7 @@ def _make_indexer() -> Any:
 
 class TestRunASRPass:
     def test_asr_subtitles_written_to_matching_frames(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "ASR_AUDIO_DIR", str(tmp_path))
 
@@ -86,10 +88,10 @@ class TestRunASRPass:
         records = _make_records(3, tmp_path)  # t_sec = 0, 1, 2
         wav = str(tmp_path / "audio.wav")
 
-        with patch("pipeline.indexer.extract_audio", return_value=wav), \
-             patch("pipeline.indexer.map_subtitles_to_frames",
+        with patch("pipeline.workflows.indexer.extract_audio", return_value=wav), \
+             patch("pipeline.workflows.indexer.map_subtitles_to_frames",
                    return_value={1.0: "target spotted", 2.0: "target spotted"}), \
-             patch("pipeline.indexer.ensure_dir"):
+             patch("pipeline.workflows.indexer.ensure_dir"):
             indexer._run_asr_pass("/fake/video.mp4", records)
 
         assert records[0]["subtitle_text"] is None
@@ -97,7 +99,7 @@ class TestRunASRPass:
         assert records[2]["subtitle_text"] == "target spotted"
 
     def test_asr_skips_when_no_audio_track(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "ASR_AUDIO_DIR", str(tmp_path))
 
@@ -107,15 +109,15 @@ class TestRunASRPass:
 
         records = _make_records(2, tmp_path)
 
-        with patch("pipeline.indexer.extract_audio", return_value=None), \
-             patch("pipeline.indexer.ensure_dir"):
+        with patch("pipeline.workflows.indexer.extract_audio", return_value=None), \
+             patch("pipeline.workflows.indexer.ensure_dir"):
             indexer._run_asr_pass("/fake/video.mp4", records)
 
         fake_asr.transcribe.assert_not_called()
         assert all(r["subtitle_text"] is None for r in records)
 
     def test_asr_skips_when_transcribe_returns_empty(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "ASR_AUDIO_DIR", str(tmp_path))
 
@@ -127,8 +129,8 @@ class TestRunASRPass:
         records = _make_records(2, tmp_path)
         wav = str(tmp_path / "audio.wav")
 
-        with patch("pipeline.indexer.extract_audio", return_value=wav), \
-             patch("pipeline.indexer.ensure_dir"):
+        with patch("pipeline.workflows.indexer.extract_audio", return_value=wav), \
+             patch("pipeline.workflows.indexer.ensure_dir"):
             indexer._run_asr_pass("/fake/video.mp4", records)
 
         assert all(r["subtitle_text"] is None for r in records)
@@ -145,7 +147,7 @@ class TestRunFlorencePass:
         return m
 
     def test_caption_and_confidence_written_to_records(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
         indexer._florence_model = self._make_florence_model([
@@ -163,7 +165,7 @@ class TestRunFlorencePass:
 
     def test_oom_batch_failure_falls_back_to_empty_caption(self, tmp_path, monkeypatch):
         """If caption_batch raises (OOM), every frame in that batch gets ("", 0.5)."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
         indexer._florence_model = MagicMock()
@@ -179,7 +181,7 @@ class TestRunFlorencePass:
 
     def test_bad_frame_path_uses_blank_image(self, tmp_path, monkeypatch):
         """Unreadable frame_path triggers blank PIL Image; captioning still runs."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
 
@@ -202,7 +204,7 @@ class TestRunFlorencePass:
 
     def test_florence_respects_batch_size(self, tmp_path, monkeypatch):
         """With FLORENCE_BATCH_SIZE=2 and 5 frames, caption_batch called 3 times."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 2)
 
@@ -223,7 +225,7 @@ class TestRunFlorencePass:
 
     def test_set_payload_called_per_frame(self, tmp_path, monkeypatch):
         """_set_caption_payload must call store.client.set_payload once per frame."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
         indexer._florence_model = self._make_florence_model([
@@ -237,7 +239,7 @@ class TestRunFlorencePass:
 
     def test_set_payload_failure_does_not_raise(self, tmp_path, monkeypatch):
         """set_payload exception must be caught and logged — never propagated."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
         indexer._florence_model = self._make_florence_model([("cap", 0.9)])
@@ -251,7 +253,7 @@ class TestRunFlorencePass:
 
     def test_set_payload_skips_record_with_no_qdrant_id(self, tmp_path, monkeypatch):
         """A record without qdrant_id must not trigger a set_payload call."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
         indexer._florence_model = self._make_florence_model([("cap", 0.9)])
@@ -268,7 +270,7 @@ class TestRunFlorencePass:
 
 class TestRunOCRPass:
     def test_ocr_text_written_to_records(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -284,7 +286,7 @@ class TestRunOCRPass:
         assert records[1]["ocr_text"] == "CONVOY"
 
     def test_ocr_empty_text_stored_as_none(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -296,7 +298,7 @@ class TestRunOCRPass:
         assert records[0]["ocr_text"] is None
 
     def test_ocr_merges_into_frame_facts_json(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -313,7 +315,7 @@ class TestRunOCRPass:
 
     def test_ocr_respects_batch_size(self, tmp_path, monkeypatch):
         """With batch_size=2 and 5 records, extract_text_batch must be called 3 times."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 2)
 
@@ -333,7 +335,7 @@ class TestRunOCRPass:
 
     def test_ocr_bad_image_falls_back_to_blank(self, tmp_path, monkeypatch):
         """A frame with an unreadable path should not crash the pass."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -485,7 +487,7 @@ class TestRunDepthPass:
 
 class TestRunDetectionPass:
     def test_detections_merged_into_frame_facts_json(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 8)
         indexer.detection_model = MagicMock()
@@ -500,7 +502,7 @@ class TestRunDetectionPass:
 
     def test_detection_batch_size_from_settings(self, tmp_path, monkeypatch):
         """detect_batch should be called with at most DETECTION_BATCH_SIZE images."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 4)
 
@@ -519,7 +521,7 @@ class TestRunDetectionPass:
         assert call_sizes == [4, 4, 2]
 
     def test_detection_preserves_existing_depth_key(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 8)
         indexer.detection_model = MagicMock()
@@ -534,7 +536,7 @@ class TestRunDetectionPass:
 
     def test_detection_bad_frame_uses_blank_image(self, tmp_path, monkeypatch):
         """Unreadable frame_path must not crash; blank image is passed instead."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 8)
 
@@ -566,7 +568,7 @@ class TestRunWorldModelPass:
 
     def test_world_model_result_assigned_to_middle_frame_odd(self, tmp_path, monkeypatch):
         """clip_size=5 → middle index is 2."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 5)
         indexer.world_model = self._make_world_model({"world_model": {"embedding_dim": 768}})
@@ -580,7 +582,7 @@ class TestRunWorldModelPass:
 
     def test_world_model_result_assigned_to_middle_frame_even(self, tmp_path, monkeypatch):
         """clip_size=4 → middle index is 2 (len//2)."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 4)
         indexer.world_model = self._make_world_model({"world_model": {"embedding_dim": 768}})
@@ -592,7 +594,7 @@ class TestRunWorldModelPass:
 
     def test_world_model_windows_are_non_overlapping(self, tmp_path, monkeypatch):
         """With clip_size=3 and 9 frames → 3 windows; process_clip called 3 times."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 3)
         wm = self._make_world_model({"world_model": {}})
@@ -605,7 +607,7 @@ class TestRunWorldModelPass:
 
     def test_world_model_partial_last_window(self, tmp_path, monkeypatch):
         """With clip_size=4 and 6 frames → windows of size 4 then 2; both get a middle frame."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 4)
         wm = self._make_world_model({"world_model": {}})
@@ -620,7 +622,7 @@ class TestRunWorldModelPass:
         assert "world_model" in records[5]["frame_facts_json"]
 
     def test_world_model_preserves_existing_depth(self, tmp_path, monkeypatch):
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 3)
         indexer.world_model = self._make_world_model({"world_model": {}})
@@ -636,7 +638,7 @@ class TestRunWorldModelPass:
 
     def test_world_model_bad_frame_uses_blank_image(self, tmp_path, monkeypatch):
         """Unreadable frame_path must not crash the world model pass."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 3)
         wm = self._make_world_model({"world_model": {}})
@@ -661,7 +663,7 @@ class TestPassIsolation:
         DepthModel.estimate() absorbs its own exceptions and returns {"depth_error": True}
         rather than raising. The merged frame_facts_json must contain both keys.
         """
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
 
@@ -681,7 +683,7 @@ class TestPassIsolation:
 
     def test_ocr_pass_does_not_overwrite_prior_frame_facts_keys(self, tmp_path, monkeypatch):
         """OCR only sets frame_facts_json['ocr_text']; other keys are left alone."""
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -724,7 +726,7 @@ class TestPassIsolation:
         Regression: indexer.py:505 previously overwrote frame_facts_json wholesale
         with {"file_error": True}, silently destroying any data written by prior passes.
         """
-        from pipeline import indexer as idx_module
+        import pipeline.workflows.indexer as idx_module
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
 
@@ -748,3 +750,52 @@ class TestPassIsolation:
         fj = records[0]["frame_facts_json"]
         assert fj["ocr_text"] == "GRID 44N", "OCR data was erased by Qwen file_error"
         assert fj["file_error"] is True
+
+
+class TestRunYoloSsgPass:
+    def test_ssg_builds_graph_and_attaches_node_ids(self, tmp_path, monkeypatch):
+        import pipeline.workflows.indexer as idx_module
+
+        indexer = _make_indexer()
+        monkeypatch.setattr(idx_module.settings, "MAPS_DIR", str(tmp_path))
+
+        records = _make_records(2, tmp_path)
+        records[0]["global_pose_json"] = {"tx": 0.0, "ty": 0.0, "tz": 0.0}
+        records[1]["global_pose_json"] = {"tx": 1.0, "ty": 0.0, "tz": 0.0}
+        records[0]["frame_facts_json"] = {
+            "yolo_detections": [
+                {
+                    "label": "truck",
+                    "confidence": 0.91,
+                    "bbox_norm": [0.1, 0.1, 0.4, 0.5],
+                    "priority": 2,
+                    "priority_label": "vehicle",
+                    "mask_area_norm": 0.08,
+                }
+            ]
+        }
+        records[1]["frame_facts_json"] = {
+            "yolo_detections": [
+                {
+                    "label": "truck",
+                    "confidence": 0.88,
+                    "bbox_norm": [0.12, 0.1, 0.42, 0.48],
+                    "priority": 2,
+                    "priority_label": "vehicle",
+                    "mask_area_norm": 0.07,
+                }
+            ]
+        }
+
+        summary = indexer._run_yolo_ssg_pass(
+            video_id="video-a",
+            mission_id="mission-a",
+            frame_records=records,
+        )
+
+        assert summary["node_count"] == 1
+        assert summary["edge_count"] == 0
+        assert summary["anchor_source"] == "enu"
+        assert records[0]["frame_facts_json"]["semantic_graph_node_ids"]
+        assert records[1]["frame_facts_json"]["semantic_graph_node_ids"] == records[0]["frame_facts_json"]["semantic_graph_node_ids"]
+        assert (tmp_path / "mission-a" / "semantic_environment_graph.json").exists()

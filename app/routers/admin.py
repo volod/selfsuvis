@@ -26,7 +26,7 @@ from pydantic import BaseModel
 
 from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
-from pipeline.config import settings
+from pipeline.core import settings
 
 router = APIRouter(
     prefix="/admin",
@@ -150,7 +150,7 @@ async def admin_global_maps(request: Request) -> List[Dict[str, Any]]:
     Returns an empty list if DATABASE_URL is not configured or the table does not exist.
     """
     try:
-        from pipeline.global_map_db import list_global_maps
+        from pipeline.storage.global_maps import list_global_maps
 
         pool = get_db_pool(request)
         async with pool.acquire() as conn:
@@ -190,7 +190,7 @@ def export_map_cache(
         lat_min / lat_max / lon_min / lon_max — GPS bbox (all four required for bbox filter)
     """
     from app.state import qdrant_store
-    from pipeline.map_cache import build_map_cache
+    from pipeline.storage.map_cache import build_map_cache
 
     parsed_mission_ids = [m.strip() for m in mission_ids.split(",") if m.strip()] if mission_ids else None
 
@@ -559,7 +559,7 @@ async def reembed_all(request: Request) -> Dict[str, Any]:
     Returns the job_id immediately. Monitor progress via GET /jobs/{job_id}.
     Each batch of 256 frames checkpoints last_offset so the sweep is resumable.
     """
-    from pipeline.job_db_pg import create_job
+    from pipeline.storage.jobs import create_job
 
     job_id = uuid.uuid4().hex
     pool = get_db_pool(request)

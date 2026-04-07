@@ -1,127 +1,127 @@
 # Configuration
 
-Defaults are in `env/dev.env`, `env/test.env`, and `env/prod.env`. Set `APP_ENV` (dev|test|prod) to select; env vars override file values. See `env/README.md`.
+Defaults live in `env/dev.env`, `env/test.env`, and `env/prod.env`. Set `APP_ENV=dev|test|prod` to pick one, then override individual values with environment variables. The authoritative source is [`pipeline/core/config.py`](/home/vola/src/selfsuvis/pipeline/core/config.py).
 
-## Database
+## Core storage and paths
 
-| Variable | Default | Notes |
+| Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis` | PostgreSQL connection string. SQLite is no longer used. |
+| `DATA_DIR` | `./data` | Root for videos, frames, tiles, reports, maps, checkpoints, and edge assets |
+| `VIDEOS_DIR` | `./data/videos` | Stored indexed video copies |
+| `FRAMES_DIR` | `./data/frames` | Extracted frames |
+| `TILES_DIR` | `./data/tiles` | Extracted tiles |
+| `REPORTS_DIR` | `./data/reports` | Mission report output |
+| `MAPS_DIR` | `./data/maps` | SfM, splat, and semantic graph outputs |
+| `DATABASE_URL` | env-specific | PostgreSQL DSN |
+| `QDRANT_HOST` / `QDRANT_PORT` | `qdrant` / `6333` | Qdrant connection |
+| `QDRANT_COLLECTION` | `video_semantic` | Main vector collection |
 
-Run `python scripts/migrate_postgres.py` after first `docker compose up postgres` to create the current schema.
+Initialize PostgreSQL after first startup:
 
-## Models and embeddings
+```bash
+python scripts/migrate_postgres.py
+```
 
-| Variable | Default | Notes |
+## Retrieval and indexing
+
+| Variable | Default | Purpose |
 |---|---|---|
-| `MODEL_NAME` | `openclip` | `openclip` \| `dinov2` \| `dinov3`. Use `dinov3` for active learning scoring. |
-| `OPENCLIP_MODEL` | `ViT-B-16` | OpenCLIP model name |
-| `OPENCLIP_PRETRAINED` | `openai` | OpenCLIP pretrained weights |
-| `DEVICE` | `auto` | `auto` (prefers CUDA) \| `cpu` \| `cuda` |
-| `USE_FP16` | `true` | FP16 on CUDA (reduces VRAM ~2x) |
-| `FLORENCE_BATCH_SIZE` | `16` | Florence-2 inference batch size. Auto-falls back to `1` on OOM. |
-| `SAM_CHECKPOINT` | *(empty)* | Path to SAM checkpoint. Required to enable SAM segmentation in the agentic system. |
-| `SAM_MODEL_TYPE` | `vit_h` | SAM model type |
-| `LABELS_FILE` | *(built-in)* | Path to newline-separated label vocab for zero-shot CLIP tagging |
+| `MODEL_NAME` | `openclip` | `openclip`, `dinov2`, `dinov3`, or `gemma` |
+| `OPENCLIP_MODEL` | `ViT-B-16` | Text/image retrieval backbone |
+| `OPENCLIP_PRETRAINED` | `openai` | OpenCLIP weights tag |
+| `DEVICE` | `auto` | Local inference device |
+| `USE_FP16` | `true` | Half precision on CUDA |
+| `SAMPLE_FPS_BASE` / `MIN` / `MAX` | `2 / 0.5 / 5` | Adaptive keyframe sampling |
+| `HIST_THRESH` | `0.25` | Histogram/SSIM keep threshold |
+| `EMBED_DRIFT_THRESH` | `0.15` | Embedding drift keep threshold |
+| `MAX_GAP_SEC` | `10` | Force-keep interval |
+| `TILE_SIZE` / `STRIDE` | `384 / 256` | Tile extraction geometry |
+| `MAX_TILES_PER_SEGMENT` | `200` | Hard tile cap |
+| `DEDUP_COS_SIM_THRESH` | `0.95` | Tile dedup cosine threshold |
+| `PHASH_HAMMING_MAX` | `6` | Tile dedup perceptual-hash threshold |
 
-## Pipeline sampling
+## Captioning and multimodal enrichments
 
-| Variable | Default | Notes |
+| Variable | Default | Purpose |
 |---|---|---|
-| `SAMPLE_FPS_BASE` | `2` | Starting adaptive frame rate for search keyframes |
-| `SAMPLE_FPS_MIN` | `0.5` | Minimum adaptive frame rate |
-| `SAMPLE_FPS_MAX` | `5` | Maximum decode rate (ffmpeg) |
-| `SFM_FPS` | `2` | Dense frame extraction rate for pycolmap SfM. Separate from search keyframes. |
-| `HIST_THRESH` | `0.25` | Histogram / SSIM keep threshold |
-| `EMBED_DRIFT_THRESH` | `0.15` | CLIP drift keep threshold |
-| `MAX_GAP_SEC` | `10` | Force-keep interval (seconds) |
+| `FLORENCE_BATCH_SIZE` | `16` | Local Florence batch size |
+| `FLORENCE_API_URL` | empty | Use remote Florence endpoint instead of local model |
+| `FLORENCE_MODEL` | `microsoft/Florence-2-large` | Remote Florence model ID |
+| `QWEN_API_URL` | empty | Enables structured scene extraction sidecar |
+| `QWEN_BACKEND` | `vllm` | `vllm` or `ollama` |
+| `QWEN_MODEL` | backend-dependent | Qwen sidecar model |
+| `GEMMA_MODEL_ID` | `google/gemma-3-4b-it` | Local Gemma embedder |
+| `GEMMA_API_URL` | empty | Gemma sidecar endpoint |
+| `GEMMA_API_MODEL` | backend-dependent | Gemma sidecar model |
+| `REASONING_API_URL` | Gemma default | Final demo reasoning endpoint |
+| `ASR_ENABLED` / `ASR_MODEL` | `false` / `auto` | Whisper transcription |
+| `OCR_ENABLED` / `OCR_MODEL` | `false` / `auto` | OCR extraction |
+| `DEPTH_ENABLED` / `DEPTH_MODEL` | `false` / `auto` | Depth estimation |
+| `DETECTION_ENABLED` / `DETECTION_MODEL` | `false` / `auto` | HF detection stage |
+| `YOLO_ENABLED` / `YOLO_MODEL` | `true` / `yolo11l` | YOLO detection path |
+| `YOLO_SSG_ENABLED` | `true` | Build YOLO semantic scene graphs from 3D frame anchors |
+| `YOLO_SSG_MIN_OBSERVATIONS` | `1` | Minimum observations before a semantic node is kept |
+| `YOLO_SSG_CLUSTER_RADIUS_METERS` | `12` | Merge radius for production ENU anchors |
+| `YOLO_SSG_NEAR_EDGE_RADIUS_METERS` | `20` | `near` edge radius for production ENU anchors |
+| `YOLO_SSG_CLUSTER_RADIUS_PCA` | `0.85` | Merge radius for demo PCA/SfM anchors |
+| `YOLO_SSG_NEAR_EDGE_RADIUS_PCA` | `1.5` | `near` edge radius for demo PCA/SfM anchors |
+| `SAM_ENABLED` / `SAM_MODEL` | `true` / `auto` | SAM mask refinement |
+| `WORLD_MODEL_ENABLED` / `WORLD_MODEL` | `false` / `nvidia/Cosmos-1.0-Autoregressive-4B` | Clip-level world-model embeddings |
 
-## SfM and 3DGS
+## Mapping and spatial queries
 
-| Variable | Default | Notes |
+| Variable | Default | Purpose |
 |---|---|---|
-| `PYCOLMAP_CAMERA_MODEL` | `SIMPLE_RADIAL` | `SIMPLE_RADIAL` \| `PINHOLE` \| `RADIAL`. Provide the correct model for your drone/camera hardware (DJI, GoPro, etc.) for best pose accuracy. |
-| `NERFSTUDIO_API_URL` | `http://nerfstudio:8000` | URL of the nerfstudio FastAPI wrapper. Only used when the nerfstudio container is running (`docker-compose.override.yml`). |
+| `SFM_FPS` | `2` | Dense frame extraction for SfM |
+| `PYCOLMAP_CAMERA_MODEL` | `SIMPLE_RADIAL` | Camera model for pycolmap |
+| `NERFSTUDIO_API_URL` | `http://nerfstudio:8000` | Nerfstudio wrapper |
+| `MAPPER_API_URL` | `http://mapper:8000` | ICP/mapper service |
+| `GPS_SIDECAR_PATH` | empty | Override GPS sidecar autodetection |
+| `GPS_FILTER_2D` | `false` | Use 2D Qdrant GPS filter instead of 1D+Python fallback |
+| `STATIC_SERVER_URL` | `http://localhost:8080` | Static map hosting |
+| `SUPERSPLAT_SERVER_URL` | `http://localhost:8090` | Viewer base URL |
 
-## GPS extraction
+## Active learning and training
 
-| Variable | Default | Notes |
+| Variable | Default | Purpose |
 |---|---|---|
-| `GPS_SIDECAR_PATH` | *(auto)* | Override GPS sidecar file path. Auto-detection order: ffprobe atoms → SRT sidecar → GPMF → null. |
-| `GPS_FILTER_2D` | `false` | When `false` (default), uses lat-only Qdrant filter + Python lon post-filter. Set `true` only after validating 2D Qdrant payload index performance (P1 blocker — see TODOS.md). |
+| `AL_TAG_K` | `50` | Top-K frames marked `needs_annotation` |
+| `KMEANS_BATCH_THRESHOLD` | `25000` | Switch to MiniBatchKMeans above this size |
+| `CHANGE_DETECTION_THRESHOLD_CLIP` | `0.35` | CLIP change threshold |
+| `CHANGE_DETECTION_THRESHOLD_DINO` | `0.25` | DINO change threshold |
+| `DINO_CHECKPOINT` | empty | Override pretrained DINO weights |
+| `SSL_CHECKPOINT_DIR` | `./data/checkpoints` | Self-supervised checkpoint output |
+| `SUP_CHECKPOINT_DIR` | `./data/checkpoints/supervised` | Supervised checkpoint output |
+| `SUP_AUTO_TRIGGER` | `true` | Allow CVAT webhook to enqueue finetune jobs |
+| `MIN_ANNOTATED_FRAMES` | `50` | Minimum annotations before training starts |
+| `MIN_NEW_ANNOTATED_SINCE_RETRAIN` | `100` | New-label delta required for retraining |
+| `MODEL_VERSION_ID` | `base` | Provenance tag stored with frame payloads |
 
-## Active learning
+## Security and request limits
 
-| Variable | Default | Notes |
+| Variable | Default | Purpose |
 |---|---|---|
-| `AL_TAG_K` | `50` | Top-K frames per mission tagged `needs_annotation`. |
-| `CHANGE_DETECTION_THRESHOLD` | `0.35` | Cosine distance threshold for change detection. Default `0.35` for CLIP, `0.25` for DINOv3. |
-
-## Tiles
-
-| Variable | Default | Notes |
-|---|---|---|
-| `TILE_SIZE` | `384` | Tile crop size in pixels |
-| `STRIDE` | `256` | Tile step in pixels |
-| `MAX_TILES_PER_SEGMENT` | `200` | Hard cap per frame |
-| `DEDUP_COS_SIM_THRESH` | `0.95` | Cosine similarity dedup threshold |
-| `PHASH_HAMMING_MAX` | `6` | Perceptual hash Hamming distance threshold |
-
-## UI and static serving
-
-| Variable | Default | Notes |
-|---|---|---|
-| `STATIC_SERVER_URL` | `http://localhost:8080` | nginx base URL for `.ply` file fetch by SuperSplat iframe |
-| `SUPERSPLAT_SERVER_URL` | `http://localhost:8090` | SuperSplat viewer URL for 3DGS Streamlit embed |
-
-## Security and limits
-
-| Variable | Default | Notes |
-|---|---|---|
-| `API_KEY` | *(empty)* | **Strongly recommended for production.** When unset the API is unauthenticated; a startup warning is logged. |
-| `ALLOWED_INDEX_PATHS` | *(empty)* | Comma-separated base directories for path-based indexing. **When empty, all path-based endpoints are disabled** (`/index/video path=`, `/index/dir`, etc.). A startup warning is logged. |
-| `MAX_UPLOAD_BYTES` | 2 GB | Maximum size of a single video upload |
-| `MAX_DOWNLOAD_BYTES` | 2 GB | Maximum size of a URL download |
-| `MAX_REDIRECTS` | 5 | Maximum HTTP redirects followed |
-| `ALLOW_PRIVATE_URLS` | `false` | Allow private/loopback IPs in URL downloads (dev only) |
-| `PRECHECK_URL_TIMEOUT` | 20 s | Timeout for HEAD request during URL precheck |
-| `FFMPEG_TIMEOUT_SEC` | 3600 s | Hard timeout for ffmpeg per video |
-| `WORKER_POLL_INTERVAL` | 2.0 s | How often the worker polls for new jobs |
-| `TRUST_PROXY_HEADERS` | `false` | Trust `X-Forwarded-For` for rate-limit key (enable only behind a trusted reverse proxy) |
-| `RATE_LIMIT_PER_MIN` | 120 | Max requests per client per minute (0 = disabled) |
-| `RATE_LIMIT_BURST` | 60 | Initial token-bucket burst size |
-| `MAX_IMAGE_PIXELS` | 80 000 000 | Pixel limit for image query uploads |
-| `MAX_DIR_FILES` | 5 000 | Maximum files scanned per directory index |
-| `MAX_DIR_BYTES` | 50 GB | Maximum total size scanned per directory index |
-| `MAX_DIR_DEPTH` | 10 | Maximum directory recursion depth |
-
-### Security headers
-
-The API adds these headers to every response:
-
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: DENY`
-- `Cache-Control: no-store`
-
-### UI API key
-
-The Streamlit UI reads `API_KEY` from the environment and forwards it as `X-API-Key` on every request. Set the same value in both the API and UI containers.
+| `API_KEY` | empty | API auth key when set |
+| `ALLOWED_INDEX_PATHS` | empty | Enables path-based indexing when non-empty |
+| `MAX_UPLOAD_BYTES` | `2 GiB` | Upload limit |
+| `MAX_DOWNLOAD_BYTES` | `2 GiB` | URL download limit |
+| `PRECHECK_URL_TIMEOUT` | `20` | URL precheck timeout in seconds |
+| `MAX_REDIRECTS` | `5` | URL download redirect cap |
+| `ALLOW_PRIVATE_URLS` | `false` | Private-network URL access |
+| `RATE_LIMIT_PER_MIN` | `120` | Request rate limit |
+| `RATE_LIMIT_BURST` | `60` | Token-bucket burst |
+| `MAX_DIR_FILES` | `5000` | Directory scan file limit |
+| `MAX_DIR_BYTES` | `50 GiB` | Directory scan byte limit |
+| `MAX_DIR_DEPTH` | `10` | Directory recursion limit |
 
 ## Notes
 
-- `MODEL_NAME=dinov3` is required for active learning scoring (`active_learning_score`). If `MODEL_NAME=openclip`, score uses CLIP embedding distance only.
-- Duplicate videos are tracked in PostgreSQL `processed_files` table (SHA-256).
-- Qdrant point IDs use SHA-256 (`stable_point_id`). **Upgrading from SHA-1 requires wiping Qdrant and re-indexing** — run `scripts/reset_qdrant.sh`.
-- nerfstudio 3DGS runs in a separate GPU container (`docker-compose.override.yml`). The main worker container does not need nerfstudio dependencies.
-
-### PostgreSQL bootstrap procedure
-
-First-time setup or after wiping the database:
-
-1. `docker compose up postgres` (or `make up`)
-2. `python scripts/migrate_postgres.py`
-3. Restart API + worker
-4. Optionally: `scripts/reset_qdrant.sh` (required when switching `MODEL_NAME` or after SHA-1→SHA-256 upgrade)
+- If `ALLOWED_INDEX_PATHS` is empty, path-based indexing endpoints are disabled by design.
+- The UI forwards `API_KEY` automatically when it is set in the UI container environment.
+- Qdrant IDs and dedup hashes are SHA-256 based; changing embedding strategy may require a wipe and re-index.
+- Production indexing writes mission-scoped semantic graph JSON to `MAPS_DIR/<mission_id>/semantic_environment_graph.json`.
+- Demo runs write semantic graph artifacts under `3d_map/semantic_environment_graph.{json,md}`.
+- For a full variable list, use [`pipeline/core/config.py`](/home/vola/src/selfsuvis/pipeline/core/config.py) as the source of truth.
 
 ---
 [← Helpers](helpers.md) | [Architecture →](architecture.md)

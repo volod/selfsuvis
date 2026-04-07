@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from pipeline.supervised_finetune import _normalize_labels
+from pipeline.training.supervised import _normalize_labels
 
 
 class TestNormalizeLabels:

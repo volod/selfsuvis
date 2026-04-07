@@ -11,7 +11,7 @@ import pytest
 
 cv2 = pytest.importorskip("cv2", reason="cv2 not available (NumPy 2.x incompatibility)")
 
-from pipeline.frame_extractor import extract_frames_fixed  # noqa: E402
+from pipeline.media.frames import extract_frames_fixed  # noqa: E402
 
 
 def test_extract_frames_fixed_from_video_test(tmp_path):

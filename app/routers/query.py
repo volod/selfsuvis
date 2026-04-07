@@ -10,7 +10,7 @@ from app.schemas import QueryResponse, TextQuery
 from app.services.search import search_vectors
 from app.services.upload_utils import read_upload_limited
 from app.state import clip_model, dino_model
-from pipeline.config import settings
+from pipeline.core import settings
 
 router = APIRouter(tags=["query"], dependencies=[Depends(require_api_key), Depends(rate_limit)])
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from pipeline.label_vocab import DEFAULT_LABELS, load_labels
+from pipeline.vision.labels import DEFAULT_LABELS, load_labels
 
 
 # --- DEFAULT_LABELS ---

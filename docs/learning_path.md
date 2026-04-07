@@ -9,7 +9,7 @@ It explains, step by step:
 - which paper to read first
 - how a human should study the topic behind that step
 
-The current demo has 19 ordered steps per video:
+The current demo has 20 ordered steps per video:
 
 1. Frame extraction
 2. Vector store indexing
@@ -18,18 +18,19 @@ The current demo has 19 ordered steps per video:
 5. ASR transcription
 6. OCR text extraction
 7. Depth estimation
-8. Object detection
-9. World model video embeddings
-10. Qwen detailed captioning
-11. Base model search test
-12. SSL DINO fine-tuning
-13. Knowledge distillation
-14. ONNX export + gallery build
-15. Fine-tuned search test
-16. Model comparison + video description
-17. 3D map + Gaussian Splat
-18. Video synthesis
-19. Agentic flow audit
+8. Object detection (HuggingFace RT-DETR / Grounding DINO)
+9. **YOLO11 + SAM2/3 detection and segmentation** *(new)*
+10. World model video embeddings
+11. Qwen detailed captioning
+12. Base model search test
+13. 3D map + Gaussian Splat
+14. SSL DINO fine-tuning
+15. Knowledge distillation
+16. ONNX export + gallery build
+17. Fine-tuned search test
+18. Model comparison + video description
+19. Video synthesis
+20. Agentic flow audit
 
 ## Before You Start
 
@@ -40,17 +41,20 @@ Minimum practical setup:
 3. Put `.mp4` or `.mov` files in `data_test/videos/`
 4. Optionally run Qdrant on `localhost:6333`
 5. Optionally prefetch large models with `python scripts/prepare_models.py --all`
+6. For YOLO+SAM: `pip install ultralytics sam-2`
 
 Useful mental model:
 
 - Steps 1-2 build the raw visual memory.
 - Step 3 analyses that memory with Gemma open-weight across all multimodal use-cases.
-- Steps 4-10 attach language, text, geometry, and temporal structure — and feed results forward
+- Steps 4-11 attach language, text, geometry, and temporal structure — and feed results forward
   into a shared `VideoKnowledge` accumulator so each step benefits from all earlier steps.
-- Steps 11-16 evaluate and adapt the representation.
-- Steps 17-19 build 3D scene structure, a narrative summary, and a final reasoning audit.
+- Step 9 adds YOLO11+SAM2/3 detection with explicit priority ordering (human > vehicle > artificial).
+- Steps 12-18 evaluate and adapt the representation.
+- Steps 19-20 build a narrative summary and a final reasoning audit.
+- The 3D map (step 13) runs concurrently with steps 5-11 in a background thread.
 
-The agentic flow (Steps 3 → 4 → 5–8 → 10 → 18 → 19): see the
+The agentic flow (Steps 3 → 4 → 5–9 → 11 → 19 → 20): see the
 **Agentic Knowledge Flow** section below for a full data-flow diagram.
 
 ## Step-By-Step Learning Path
@@ -242,7 +246,7 @@ The pipeline extracts audio from the video, runs speech recognition, and aligns 
 
 **Model used**
 
-- Wrapper: [pipeline/asr_model.py](../pipeline/asr_model.py)
+- Wrapper: [pipeline/vision/asr.py](../pipeline/vision/asr.py)
 - Practical default in this repo: `openai/whisper-large-v3-turbo`
 - Important repo behavior: if `ASR_MODEL=auto` selects a non-Whisper model that cannot provide native timestamps in this pipeline, the wrapper falls back to Whisper
 
@@ -268,7 +272,7 @@ The pipeline looks for visible text inside each frame. That text can come from r
 
 **Models used**
 
-- Wrapper: [pipeline/ocr_model.py](../pipeline/ocr_model.py)
+- Wrapper: [pipeline/vision/ocr.py](../pipeline/vision/ocr.py)
 - `OCR_MODEL=auto` is GPU-aware and can choose TrOCR, GOT-OCR2, Florence, Qwen, Phi-3.5 Vision, or DeepSeek OCR depending on setup
 - In recent demo runs, `auto` selected `microsoft/Phi-3.5-vision-instruct`
 - When a Qwen/Ollama sidecar is already active, the repo can route OCR through that sidecar instead of loading another heavy local VLM
@@ -323,7 +327,7 @@ The pipeline predicts object instances and normalized bounding boxes for each fr
 
 **Model used**
 
-- Wrapper: [pipeline/detection_model.py](../pipeline/detection_model.py)
+- Wrapper: [pipeline/vision/detection.py](../pipeline/vision/detection.py)
 - `DETECTION_MODEL=auto` is registry-driven
 - In recent demo runs, `auto` selected `SenseTime/deformable-detr`
 - Open-vocabulary alternatives are also supported via `DETECTION_LABELS`
@@ -342,7 +346,88 @@ Learn the difference between classification, detection, and segmentation. Then s
 
 ---
 
-### Step 9. World model video embeddings
+### Step 9. YOLO11 + SAM2/3 detection and segmentation *(new)*
+
+**What the demo does**
+
+The pipeline runs YOLO11 on each sampled frame to detect object instances, assigns every detection a priority label (human → vehicle → artificial → other), and optionally refines each detection with a SAM2/3 segmentation mask. Those detections are then reused by the 3D map stage to build a lightweight semantic scene graph (YOLO SSG). The step writes:
+
+- `yolo_sam/frame_{t:.3f}_annotated.jpg` — color-coded bounding boxes + SAM mask overlays per frame
+- `yolo_sam_results.json` — full per-frame detection JSON with label, confidence, normalised bbox, priority, and mask area fraction
+- `detection_comparison.md` — side-by-side table comparing YOLO11 vs the HF detector (step 8) by object count, priority bucket, and per-frame speed
+- `3d_map/semantic_environment_graph.json` — graph nodes and edges once the map step has anchor positions
+- `3d_map/semantic_environment_graph.md` — compact human-readable SSG summary
+
+**CLI flags**
+
+```bash
+python main.py --mode demo                                # YOLO + SSG on by default
+python main.py --mode demo --no-sam                       # YOLO detection only
+python main.py --mode demo --yolo-model yolo11m           # larger model
+python main.py --mode demo --sam-model sam2               # force SAM2
+python main.py --mode demo --no-yolo                      # disable YOLO + SSG entirely
+```
+
+**Model used**
+
+| Component | Default (`auto`) | Notes |
+|-----------|-----------------|-------|
+| YOLO11 detector | `yolo11n.pt` (~6 MB) | Downloaded automatically by ultralytics on first run |
+| Segmentation | SAM3 → SAM2 → SAM1 fallback | Requires `pip install sam-2` or `pip install sam3` |
+
+YOLO tiers (set with `--yolo-model` or `YOLO_MODEL=`):
+
+| Model | Size | COCO mAP50-95 | Best for |
+|-------|------|--------------|---------|
+| `yolo11n` | 6 MB | 39.5 | edge / fast demo |
+| `yolo11s` | 18 MB | 47.0 | balanced |
+| `yolo11m` | 38 MB | 51.5 | higher accuracy |
+| `yolo11l` | 48 MB | 53.4 | server |
+| `yolo11x` | 109 MB | 54.7 | max quality |
+
+**Priority taxonomy**
+
+Detections are sorted and color-coded by safety-relevant priority:
+
+| Priority | Color | Trigger labels |
+|----------|-------|----------------|
+| 1 — **Human** | 🔴 Red | `person`, any label containing "pedestrian" / "rider" |
+| 2 — **Vehicle** | 🔵 Blue | `car`, `truck`, `bus`, `motorcycle`, `bicycle`, `boat`, `train`, `airplane`, … |
+| 3 — **Artificial** | 🟢 Green | `traffic light`, `stop sign`, `pole`, `fence`, `building`, `barrier`, … |
+| 4 — **Other** | ⚫ Grey | natural objects, uncategorized |
+
+The priority ordering exists because outdoor autonomous systems must react to humans first, then dynamic vehicles, then static infrastructure.  All downstream steps (VideoKnowledge, Qwen prompt context) see detections in this sorted order.
+
+**Why it matters**
+
+Step 8 (HF detector) uses a transformer-based model suited to open-vocabulary queries. YOLO11 trades vocabulary flexibility for raw inference speed (YOLO11n runs at ~100 FPS on a T4) and a model architecture with explicit instance segmentation via SAM.  Together they give the pipeline:
+
+1. A fast coverage pass at all frames (YOLO)
+2. Pixel-level object masks for spatial reasoning (SAM)
+3. A detector comparison artifact that exposes where the two models agree or diverge
+
+**Essential reading**
+
+- YOLOv8/YOLO11 architecture overview: https://docs.ultralytics.com/models/yolo11/
+- Ultralytics paper: https://arxiv.org/abs/2304.00501
+- Segment Anything (SAM): https://arxiv.org/abs/2304.02643
+- SAM 2 — real-time video segmentation: https://arxiv.org/abs/2408.00714
+- SAM 3 (repository): https://github.com/facebookresearch/sam3
+
+**How a human should learn this topic**
+
+Start with the anchor detectors:
+
+1. Understand how YOLO frames detection as a single-pass regression (grid cells, anchor boxes, class probability × objectness). Run `yolo11n predict` on a test image and inspect the raw output tensors.
+2. Learn the transformer-DETR family (step 8) to appreciate the accuracy–speed tradeoff: DETR uses attention to reason about the whole image; YOLO uses local regression and non-maximum suppression.
+3. Study Segment Anything: prompting a foundation model with a bounding box to get a pixel mask. Compare the result to a threshold on the depth map (step 7) — they capture different aspects of "where is the object".
+4. Run the demo with `--yolo --detection` together and look at `detection_comparison.md`. Note which categories each detector misses and why.
+5. Build a simple scene graph from detections: merge recurring `truck` observations across nearby frames, add `near` edges to co-visible `person` and `truck` nodes, and inspect where this approximation is helpful versus geometrically wrong.
+6. Design your own priority function: consider what `priority=1` should mean for indoor versus outdoor versus underwater scenes.
+
+---
+
+### Step 10. World model video embeddings
 
 **What the demo does**
 
@@ -370,7 +455,7 @@ First learn why image encoders are not enough for temporal understanding. Then s
 
 ---
 
-### Step 10. Qwen detailed captioning
+### Step 11. Qwen detailed captioning
 
 **What the demo does**
 
@@ -401,7 +486,7 @@ Each Qwen result is fed back into `VideoKnowledge` via `update_qwen_state()` so 
 
 **Model used**
 
-- Wrapper: [pipeline/qwen_model.py](../pipeline/qwen_model.py)
+- Wrapper: [pipeline/vision/qwen.py](../pipeline/vision/qwen.py)
 - Typical local sidecar in this repo: `qwen2.5vl:7b` via Ollama
 - Alternative: OpenAI-compatible vLLM endpoint
 
@@ -419,7 +504,7 @@ Study multimodal prompting, context packing, and grounding failures. Then learn 
 
 ---
 
-### Step 11. Base model search test
+### Step 12. Base model search test
 
 **What the demo does**
 
@@ -446,7 +531,7 @@ Learn embedding evaluation through nearest-neighbour retrieval, not just classif
 
 ---
 
-### Step 12. SSL DINO fine-tuning
+### Step 13. SSL DINO fine-tuning
 
 **What the demo does**
 
@@ -465,7 +550,7 @@ analysis, and per-epoch interpretation.
 **Models used**
 
 - Backbone: `dinov3_vitb14` (DINOv2 ViT-B/14 register tokens from `facebookresearch/dinov2`)
-- Loss: NT-Xent (InfoNCE, SimCLR formulation) — `pipeline/ssl_finetune.py`
+- Loss: NT-Xent (InfoNCE, SimCLR formulation) — `pipeline/training/ssl.py`
 - Optimiser: AdamW + cosine annealing LR schedule
 
 **Why it matters**
@@ -498,7 +583,7 @@ more tightly.
 
 ---
 
-### Step 13. Knowledge distillation — maximum hydration chain
+### Step 14. Knowledge distillation — maximum hydration chain
 
 **What the demo does**
 
@@ -565,7 +650,7 @@ before and after distillation and observe how each loss term contributes.
 
 ---
 
-### Step 14. ONNX export + gallery build
+### Step 15. ONNX export + gallery build
 
 **What the demo does**
 
@@ -591,7 +676,7 @@ Learn model export, operator compatibility, dynamic versus static shapes, and ru
 
 ---
 
-### Step 15. Fine-tuned search test
+### Step 16. Fine-tuned search test
 
 **What the demo does**
 
@@ -615,7 +700,7 @@ Learn to evaluate representation changes with controlled before/after comparison
 
 ---
 
-### Step 16. Model comparison + video description
+### Step 17. Model comparison + video description
 
 **What the demo does**
 
@@ -640,22 +725,23 @@ Study prompt-set design, prompt leakage, and dataset bias in text-image similari
 
 ---
 
-### Step 17. 3D map + Gaussian Splat
+### Step 18. 3D map + Gaussian Splat
 
 **What the demo does**
 
-The pipeline first tries classical Structure-from-Motion with pycolmap to recover poses and sparse geometry. If SfM fails or is partial, it falls back to a PCA point cloud. It then builds a Gaussian Splat representation for interactive viewing.
+The pipeline first tries classical Structure-from-Motion with pycolmap to recover poses and sparse geometry. If SfM fails or is partial, it falls back to a PCA point cloud. It then reuses the frame anchors from that map to attach YOLO detections into a semantic scene graph, and optionally builds a Gaussian Splat representation for interactive viewing.
 
 **Models and tools used**
 
 - SfM toolchain: `pycolmap` / COLMAP-style incremental mapping
 - Sparse-map fallback: PCA over frame embeddings
+- Semantic scene graph builder: YOLO SSG over ENU/SfM/PCA frame anchors
 - Gaussian Splat builder: repo `gsplat` integration
 - Output directory: `3d_map/`
 
 **Why it matters**
 
-This step converts representation learning into explicit scene structure. It is the bridge from semantic understanding to geometry and rendering.
+This step converts representation learning into explicit scene structure. It is the bridge from semantic understanding to geometry and rendering, and it is where the pipeline upgrades 2D detections into a reusable 3D semantic environment graph.
 
 **Essential reading**
 
@@ -664,11 +750,11 @@ This step converts representation learning into explicit scene structure. It is 
 
 **How a human should learn this topic**
 
-Learn camera geometry, epipolar constraints, feature matching, bundle adjustment, and failure modes like low parallax or repeated texture. Then study why Gaussian splatting is useful after pose recovery. The key conceptual shift is from “which object is in the frame” to “where is the camera in a consistent 3D world.”
+Learn camera geometry, epipolar constraints, feature matching, bundle adjustment, and failure modes like low parallax or repeated texture. Then study why Gaussian splatting is useful after pose recovery. After that, inspect how the YOLO SSG attaches detections to those anchors: it is an observation graph, not perfect object localization. The key conceptual shift is from “which object is in the frame” to “where is the camera in a consistent 3D world, and where are semantic observations concentrated inside that world.”
 
 ---
 
-### Step 18. Video synthesis
+### Step 19. Video synthesis
 
 **What the demo does**
 
@@ -694,7 +780,7 @@ Study ontology design, schema-first prompting, and evidence-backed summarization
 
 ---
 
-### Step 19. Agentic flow audit
+### Step 20. Agentic flow audit
 
 **What the demo does**
 
@@ -739,7 +825,7 @@ accumulator, Step 10 (Qwen) knows only what it can see in the raw image, a subti
 an OCR string. It cannot ask "was a barrier detected 2 seconds ago?" or "does this scene belong
 to the same segment as the last 8 frames?"
 
-The `VideoKnowledge` accumulator (in `pipeline/demo_runner.py`) solves this: each step
+The `VideoKnowledge` accumulator (in `pipeline/workflows/demo/runner.py`) solves this: each step
 *deposits* structured results into a shared object and later steps *query* it per frame.  The
 accumulator is never serialised to disk; it lives for the lifetime of one video pass.
 
@@ -818,11 +904,11 @@ Frame N+1 sees this in its prompt; Qwen can now reason:
 
 | Component | File | Function / class |
 |---|---|---|
-| Accumulator | [pipeline/demo_runner.py](../pipeline/demo_runner.py) | `VideoKnowledge` |
-| Per-frame context | [pipeline/demo_runner.py](../pipeline/demo_runner.py) | `VideoKnowledge.context_for_frame()` |
-| Domain hint | [pipeline/demo_runner.py](../pipeline/demo_runner.py) | `VideoKnowledge.domain_hint()` |
-| Qwen batch with context | [pipeline/qwen_model.py](../pipeline/qwen_model.py) | `QwenModel.extract_batch()` |
-| Pipeline wiring | [pipeline/demo_runner.py](../pipeline/demo_runner.py) | `_run_video_pipeline()` |
+| Accumulator | [pipeline/workflows/demo/runner.py](../pipeline/workflows/demo/runner.py) | `VideoKnowledge` |
+| Per-frame context | [pipeline/workflows/demo/runner.py](../pipeline/workflows/demo/runner.py) | `VideoKnowledge.context_for_frame()` |
+| Domain hint | [pipeline/workflows/demo/runner.py](../pipeline/workflows/demo/runner.py) | `VideoKnowledge.domain_hint()` |
+| Qwen batch with context | [pipeline/vision/qwen.py](../pipeline/vision/qwen.py) | `QwenModel.extract_batch()` |
+| Pipeline wiring | [pipeline/workflows/demo/runner.py](../pipeline/workflows/demo/runner.py) | `_run_video_pipeline()` |
 
 ### How a human should study this pattern
 

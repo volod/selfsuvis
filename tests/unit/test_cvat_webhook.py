@@ -20,9 +20,10 @@ from app.routers.cvat import (
 
 
 class _Request:
-    def __init__(self, body: bytes):
+    def __init__(self, body: bytes = b"", db_pool: Any = None):
         self._body = body
         self.client = SimpleNamespace(host="test")
+        self.app = SimpleNamespace(state=SimpleNamespace(db_pool=db_pool))
 
     async def body(self) -> bytes:
         return self._body
@@ -75,14 +76,15 @@ def test_webhook_job_completed_marks_frames(mock_settings, mock_trigger, mock_fr
     mock_settings.CVAT_WEBHOOK_SECRET = ""
     mock_frames.return_value = ["f1", "f2", "f3"]
     mock_mark.return_value = 3
+    db_pool = object()
 
     body = json.dumps(_webhook_payload("update:job", "completed", task_id=5)).encode()
-    data = run(cvat_webhook(_Request(body), x_hook_secret=""))
+    data = run(cvat_webhook(_Request(body, db_pool=db_pool), x_hook_secret=""))
 
     assert data["annotated"] == 3
-    mock_frames.assert_awaited_once_with(5)
-    mock_mark.assert_awaited_once_with(["f1", "f2", "f3"])
-    mock_trigger.assert_awaited_once()
+    mock_frames.assert_awaited_once_with(5, db_pool)
+    mock_mark.assert_awaited_once_with(["f1", "f2", "f3"], db_pool)
+    mock_trigger.assert_awaited_once_with(db_pool)
 
 
 @patch("app.routers.cvat._mark_frames_annotated", new_callable=AsyncMock)
@@ -93,13 +95,14 @@ def test_webhook_task_completed_marks_frames(mock_settings, mock_trigger, mock_f
     mock_settings.CVAT_WEBHOOK_SECRET = ""
     mock_frames.return_value = ["fa", "fb"]
     mock_mark.return_value = 2
+    db_pool = object()
 
     body = json.dumps(_webhook_payload("update:task", "completed", task_id=7)).encode()
-    data = run(cvat_webhook(_Request(body), x_hook_secret=""))
+    data = run(cvat_webhook(_Request(body, db_pool=db_pool), x_hook_secret=""))
 
     assert data["annotated"] == 2
-    mock_frames.assert_awaited_once_with(7)
-    mock_trigger.assert_awaited_once()
+    mock_frames.assert_awaited_once_with(7, db_pool)
+    mock_trigger.assert_awaited_once_with(db_pool)
 
 
 @patch("app.routers.cvat._frames_for_cvat_task", new_callable=AsyncMock)
@@ -141,10 +144,11 @@ def test_webhook_valid_signature_passes(mock_settings, mock_trigger, mock_frames
     mock_settings.CVAT_WEBHOOK_SECRET = secret
     mock_frames.return_value = ["f1"]
     mock_mark.return_value = 1
+    db_pool = object()
 
     body = json.dumps(_webhook_payload("update:job", "completed", task_id=2)).encode()
     sig = _sign(body, secret)
-    data = run(cvat_webhook(_Request(body), x_hook_secret=sig))
+    data = run(cvat_webhook(_Request(body, db_pool=db_pool), x_hook_secret=sig))
 
     assert data["annotated"] == 1
     mock_trigger.assert_awaited_once()
@@ -163,9 +167,10 @@ def test_webhook_invalid_json_returns_400(mock_settings):
 def test_webhook_no_mapping_returns_zero(mock_settings, mock_frames):
     mock_settings.CVAT_WEBHOOK_SECRET = ""
     mock_frames.return_value = []
+    db_pool = object()
 
     body = json.dumps(_webhook_payload("update:job", "completed", task_id=99)).encode()
-    data = run(cvat_webhook(_Request(body), x_hook_secret=""))
+    data = run(cvat_webhook(_Request(body, db_pool=db_pool), x_hook_secret=""))
     assert data["annotated"] == 0
 
 
@@ -173,7 +178,7 @@ def test_webhook_no_mapping_returns_zero(mock_settings, mock_frames):
 def test_register_task_empty_frame_ids_returns_422(mock_settings):
     mock_settings.CVAT_WEBHOOK_SECRET = ""
     with pytest.raises(HTTPException) as exc:
-        run(register_cvat_task(CvatTaskRegistration(cvat_task_id=1, frame_ids=[])))
+        run(register_cvat_task(CvatTaskRegistration(cvat_task_id=1, frame_ids=[]), _Request()))
     assert exc.value.status_code == 422
 
 
@@ -181,7 +186,7 @@ def test_register_task_empty_frame_ids_returns_422(mock_settings):
 def test_register_task_too_many_frames_returns_422(mock_settings):
     mock_settings.CVAT_WEBHOOK_SECRET = ""
     with pytest.raises(HTTPException) as exc:
-        run(register_cvat_task(CvatTaskRegistration(cvat_task_id=1, frame_ids=[f"f{i}" for i in range(5001)])))
+        run(register_cvat_task(CvatTaskRegistration(cvat_task_id=1, frame_ids=[f"f{i}" for i in range(5001)]), _Request()))
     assert exc.value.status_code == 422
 
 
@@ -191,7 +196,7 @@ def test_register_task_no_db_returns_503(mock_settings):
     mock_settings.API_KEY = ""
     mock_settings.DATABASE_URL = ""
     with pytest.raises(HTTPException) as exc:
-        run(register_cvat_task(CvatTaskRegistration(cvat_task_id=1, frame_ids=["f1", "f2"])))
+        run(register_cvat_task(CvatTaskRegistration(cvat_task_id=1, frame_ids=["f1", "f2"]), _Request()))
     assert exc.value.status_code == 503
 
 
@@ -200,9 +205,9 @@ def test_frames_no_db_returns_empty(mock_settings):
     mock_settings.CVAT_WEBHOOK_SECRET = ""
     mock_settings.API_KEY = ""
     mock_settings.DATABASE_URL = ""
-    data = run(cvat_annotation_frames())
-    assert data.total == 0
-    assert data.frames == []
+    with pytest.raises(HTTPException) as exc:
+        run(cvat_annotation_frames(_Request()))
+    assert exc.value.status_code == 503
 
 
 @patch("app.routers.cvat.settings")
@@ -211,7 +216,7 @@ def test_frames_invalid_al_tag_returns_422(mock_settings):
     mock_settings.API_KEY = ""
     mock_settings.DATABASE_URL = "postgresql://x"
     with pytest.raises(HTTPException) as exc:
-        run(cvat_annotation_frames(al_tag="invalid"))
+        run(cvat_annotation_frames(_Request(), al_tag="invalid"))
     assert exc.value.status_code == 422
 
 
@@ -221,5 +226,5 @@ def test_frames_invalid_limit_returns_422(mock_settings):
     mock_settings.API_KEY = ""
     mock_settings.DATABASE_URL = "postgresql://x"
     with pytest.raises(HTTPException) as exc:
-        run(cvat_annotation_frames(limit=0))
+        run(cvat_annotation_frames(_Request(), limit=0))
     assert exc.value.status_code == 422

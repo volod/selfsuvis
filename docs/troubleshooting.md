@@ -1,39 +1,64 @@
 # Troubleshooting
 
-## Docker permission denied
-- Add your user to the docker group: `sudo usermod -aG docker $USER`
-- Log out and back in, or run `newgrp docker`
+## Docker permission errors
 
-## Qdrant not reachable
-- Ensure `docker compose -f docker/docker-compose.yml ps` shows `qdrant` up
-- Check `QDRANT_HOST` and `QDRANT_PORT` (default `qdrant:6333`)
+- Add your user to the `docker` group: `sudo usermod -aG docker $USER`
+- Re-login or run `newgrp docker`
 
-## No GPU / "could not select device driver with capabilities: [[gpu]]"
-- Install NVIDIA Container Toolkit: `sudo ./scripts/install_nvidia_docker.sh`
-- Or run without GPU: `make test-no-gpu` for tests; for `make up`, use a compose override that removes GPU from api/worker
+## PostgreSQL schema missing
 
-## Root-owned data or cache / Qdrant "Permission denied" on Snapshots
-- Ensure `make up` ran (it runs `data-dirs` first)
-- Fix existing data: `make fix-data` or `sudo chown -R $(id -u):$(id -g) data cache`
-- Then run `make up` again
+If the API or worker starts but job/frame queries fail, run:
 
-## Unable to open database file (tests)
-- `make test` runs `test-dirs` to create `data_test` and `cache_test` with correct ownership
-- If it still fails: `sudo chown -R $(id -u):$(id -g) data_test cache_test`
+```bash
+python scripts/migrate_postgres.py
+```
 
-## Low recall / too many duplicates
-- Increase `EMBED_DRIFT_THRESH` and `HIST_THRESH`
-- Reduce `MAX_GAP_SEC`
-- Tighten `DEDUP_COS_SIM_THRESH`
+## Qdrant unavailable
 
-## Indexing too slow
-- Increase `SAMPLE_FPS_MIN` and reduce `SAMPLE_FPS_MAX`
-- Reduce `MAX_TILES_PER_SEGMENT`
-- Disable DINO (`MODEL_NAME=openclip`)
+- Confirm the `qdrant` service is running
+- Check `QDRANT_HOST`, `QDRANT_PORT`, and network reachability
+- `GET /health` will return 503 when Qdrant is not usable
 
-## Empty UI thumbnails
-- Ensure `./data` volume is mounted into UI container (default in `make up`)
-- Validate file paths are accessible from UI
+## Path indexing is rejected
+
+If `/index/video path=...` or `/index/dir` returns path errors, set `ALLOWED_INDEX_PATHS` to a comma-separated allowlist. When it is empty, path-based indexing is disabled intentionally.
+
+## GPU container start failures
+
+- Install NVIDIA Container Toolkit with `sudo ./scripts/install_nvidia_docker.sh`
+- Use CPU-only or reduced-model workflows if GPU access is not available
+
+## Model download or load failures
+
+- Pre-fetch required assets with `python scripts/prepare_models.py`
+- Set `HF_TOKEN` for gated Hugging Face models
+- Lower batch sizes or disable optional multimodal stages if VRAM is insufficient
+
+## Root-owned runtime data
+
+If services fail with permissions under `data/` or `cache/`:
+
+```bash
+make fix-data
+```
+
+For test directories:
+
+```bash
+sudo chown -R "$(id -u):$(id -g)" data_test cache_test
+```
+
+## UI shows no thumbnails or maps
+
+- Ensure the UI container can see the same `data/` mount as the API/worker
+- Check `STATIC_SERVER_URL` and `SUPERSPLAT_SERVER_URL`
+- Confirm `/admin/missions` returns `splat_paths` for completed map outputs
+
+## Slow indexing
+
+- Lower sampling and tile counts
+- Disable stages you do not need
+- Use smaller sidecar models or disable remote caption/facts stages
 
 ---
 [← Performance](performance.md) | [Licensing →](licensing.md)

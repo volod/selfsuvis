@@ -1,4 +1,4 @@
-"""Mapper service — thin FastAPI wrapper around pipeline.icp_fusion.
+"""Mapper service — thin FastAPI wrapper around pipeline.mapping.icp.
 
 Exposes:
   GET  /health          — liveness probe.
@@ -23,8 +23,8 @@ from pydantic import BaseModel, Field
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline.icp_fusion import IcpResult, check_overlap, register_splats
-from pipeline.splat_io import read_splat_metadata
+from pipeline.mapping.icp import IcpResult, check_overlap, register_splats
+from pipeline.mapping.splat_io import read_splat_metadata
 
 app = FastAPI(title="selfsuvis-mapper", version="1.0.0")
 

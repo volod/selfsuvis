@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from pipeline.change_detection import (
+from pipeline.analysis.change_detection import (
     compute_semantic_diff,
     detect_changes,
     generate_change_explanation,
@@ -99,21 +99,21 @@ def test_semantic_diff_invalid_vehicle_groups_type():
 # ── generate_change_explanation ───────────────────────────────────────────────
 
 def test_generate_change_explanation_returns_none_when_no_gemma_url(monkeypatch):
-    import pipeline.change_detection as cd
+    import pipeline.analysis.change_detection as cd
     monkeypatch.setattr(cd.settings, "GEMMA_API_URL", "")
     result = generate_change_explanation({"vehicle_count": {"before": 2, "after": 5, "delta": 3}}, 0.4)
     assert result is None
 
 
 def test_generate_change_explanation_returns_none_for_empty_diff(monkeypatch):
-    import pipeline.change_detection as cd
+    import pipeline.analysis.change_detection as cd
     monkeypatch.setattr(cd.settings, "GEMMA_API_URL", "http://gemma:11434/v1")
     result = generate_change_explanation({}, 0.3)
     assert result is None
 
 
 def test_generate_change_explanation_calls_gemma_api(monkeypatch):
-    import pipeline.change_detection as cd
+    import pipeline.analysis.change_detection as cd
     monkeypatch.setattr(cd.settings, "GEMMA_API_URL", "http://gemma:11434/v1")
     monkeypatch.setattr(cd.settings, "GEMMA_API_MODEL", "gemma4:e4b")
 
@@ -136,7 +136,7 @@ def test_generate_change_explanation_calls_gemma_api(monkeypatch):
 
 
 def test_generate_change_explanation_truncates_at_first_sentence(monkeypatch):
-    import pipeline.change_detection as cd
+    import pipeline.analysis.change_detection as cd
     monkeypatch.setattr(cd.settings, "GEMMA_API_URL", "http://gemma:11434/v1")
     monkeypatch.setattr(cd.settings, "GEMMA_API_MODEL", "gemma4:e4b")
 
@@ -159,7 +159,7 @@ def test_generate_change_explanation_truncates_at_first_sentence(monkeypatch):
 
 
 def test_generate_change_explanation_returns_none_on_api_error(monkeypatch):
-    import pipeline.change_detection as cd
+    import pipeline.analysis.change_detection as cd
     monkeypatch.setattr(cd.settings, "GEMMA_API_URL", "http://gemma:11434/v1")
     monkeypatch.setattr(cd.settings, "GEMMA_API_MODEL", "gemma4:e4b")
 

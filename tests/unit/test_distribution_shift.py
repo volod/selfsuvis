@@ -11,7 +11,7 @@ import torch.nn as nn
 from PIL import Image
 from torchvision import transforms
 
-from pipeline.supervised_finetune import _eval_distribution_shift
+from pipeline.training.supervised import _eval_distribution_shift
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -156,12 +156,12 @@ class TestEvalDistributionShift:
     def test_distribution_shift_key_in_run_result(self, tmp_path, monkeypatch):
         """run_supervised_finetune result dict always contains 'distribution_shift' key."""
         import os
-        from pipeline.supervised_finetune import (
+        from pipeline.training.supervised import (
             run_supervised_finetune,
             SupervisedFinetuneConfig,
             SupervisedFineTuner,
         )
-        import pipeline.supervised_finetune as sf_mod
+        import pipeline.training.supervised as sf_mod
         from xml.etree import ElementTree as ET
 
         frames_dir = str(tmp_path / "frames")

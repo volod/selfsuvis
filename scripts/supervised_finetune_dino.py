@@ -5,8 +5,7 @@ Uses the Supervised Contrastive Loss (SupCon, Khosla et al. NeurIPS 2020) to
 specialise the DINOv3 backbone on annotated mission footage.
 
 Workflow:
-  1. Run `python scripts/make_test_cvat_archive.py` to generate test fixtures,
-     or export real annotations from CVAT as "CVAT 1.1" format.
+  1. Export annotations from CVAT as "CVAT 1.1" format.
   2. Run this script:
 
      python scripts/supervised_finetune_dino.py \\
@@ -32,7 +31,7 @@ from pathlib import Path
 # Allow running from repo root without installing the package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline.supervised_finetune import SupervisedFinetuneConfig, run_supervised_finetune
+from pipeline.training.supervised import SupervisedFinetuneConfig, run_supervised_finetune
 
 logging.basicConfig(
     level=logging.INFO,

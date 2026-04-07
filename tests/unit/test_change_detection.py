@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from pipeline.change_detection import (
+from pipeline.analysis.change_detection import (
     cosine_distance,
     detect_changes,
     latlon_bbox,
@@ -80,21 +80,21 @@ def test_cosine_distance_zero_vector():
 # ── threshold_for_model ───────────────────────────────────────────────────────
 
 def test_threshold_for_model_dino(monkeypatch):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "MODEL_NAME", "dinov3")
     monkeypatch.setattr(config.settings, "CHANGE_DETECTION_THRESHOLD_DINO", 0.25)
     assert threshold_for_model() == pytest.approx(0.25)
 
 
 def test_threshold_for_model_dinov2(monkeypatch):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "MODEL_NAME", "dinov2")
     monkeypatch.setattr(config.settings, "CHANGE_DETECTION_THRESHOLD_DINO", 0.25)
     assert threshold_for_model() == pytest.approx(0.25)
 
 
 def test_threshold_for_model_clip(monkeypatch):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "MODEL_NAME", "openclip")
     monkeypatch.setattr(config.settings, "CHANGE_DETECTION_THRESHOLD_CLIP", 0.35)
     assert threshold_for_model() == pytest.approx(0.35)

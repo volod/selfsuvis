@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request
 from app.api_utils import ERROR_RESPONSES, error_response
 from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
-from pipeline.job_db_pg import fetch_job
+from pipeline.storage import fetch_job
 
 router = APIRouter(tags=["jobs"], dependencies=[Depends(require_api_key), Depends(rate_limit)])
 

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from pipeline.map_cache import build_map_cache, _PAGE_SIZE
+from pipeline.storage.map_cache import build_map_cache, _PAGE_SIZE
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

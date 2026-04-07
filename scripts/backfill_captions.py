@@ -37,9 +37,9 @@ if _env_file.exists():
 else:
     load_dotenv()
 
-from pipeline.config import settings
-from pipeline.florence_model import FlorenceModel
-from pipeline.logging_utils import get_logger
+from pipeline.core.config import settings
+from pipeline.vision.florence import FlorenceModel
+from pipeline.core.logging import get_logger
 
 logger = get_logger(__name__)
 

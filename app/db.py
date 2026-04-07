@@ -8,8 +8,7 @@ import asyncpg
 from fastapi import HTTPException, Request
 from fastapi import FastAPI
 
-from pipeline.config import settings
-from pipeline.logging_utils import get_logger
+from pipeline.core import get_logger, settings
 
 logger = get_logger(__name__)
 

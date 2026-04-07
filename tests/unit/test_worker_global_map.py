@@ -42,7 +42,7 @@ def _write_synthetic_splat(path: str, n: int = 100) -> str:
     Uses random positions in a 10 m cube; identity quaternions; unit scales;
     zero SH.  Matches the 59-property format in pipeline/splat_io.py.
     """
-    from pipeline.splat_io import write_splat_from_arrays
+    from pipeline.mapping.splat_io import write_splat_from_arrays
 
     rng = np.random.RandomState(42)
     positions = rng.uniform(-5, 5, (n, 3)).astype(np.float32)
@@ -164,7 +164,7 @@ async def _simulate_db_and_map(
     mapper_result: Dict[str, Any],
 ) -> None:
     """Execute the _db_and_map logic against a MockConn."""
-    from pipeline.global_map_db import (
+    from pipeline.storage.global_maps import (
         get_global_map_splats,
         register_mission,
         update_global_map_splat,
@@ -231,14 +231,14 @@ def _icp_not_converged(src: str, tgt: str) -> dict:
 
 class TestUpdateMissionSplatPath:
     def test_sets_splat_path_on_matching_mission(self):
-        from pipeline.global_map_db import update_mission_splat_path
+        from pipeline.storage.global_maps import update_mission_splat_path
         conn = MockConn()
         conn._missions = [{"id": "m1", "splat_path": None, "updated_at": 0.0}]
         _run(update_mission_splat_path(conn, "m1", "/maps/m1/splat.ply"))
         assert conn._missions[0]["splat_path"] == "/maps/m1/splat.ply"
 
     def test_execute_called_with_correct_args(self):
-        from pipeline.global_map_db import update_mission_splat_path
+        from pipeline.storage.global_maps import update_mission_splat_path
         conn = MockConn()
         conn._missions = [{"id": "m1", "splat_path": None, "updated_at": 0.0}]
         _run(update_mission_splat_path(conn, "m1", "/maps/m1/splat.ply"))
@@ -250,7 +250,7 @@ class TestUpdateMissionSplatPath:
 
     def test_updated_at_is_recent(self):
         from datetime import datetime, timezone
-        from pipeline.global_map_db import update_mission_splat_path
+        from pipeline.storage.global_maps import update_mission_splat_path
         conn = MockConn()
         conn._missions = [{"id": "m1", "splat_path": None, "updated_at": 0.0}]
         before = datetime.now(timezone.utc)
@@ -266,7 +266,7 @@ class TestGetGlobalMapSplatsAfterUpdate:
     """update_mission_splat_path → register_mission → get_global_map_splats returns it."""
 
     def test_splat_discoverable_after_mission_update(self):
-        from pipeline.global_map_db import (
+        from pipeline.storage.global_maps import (
             get_global_map_splats,
             register_mission,
             update_mission_splat_path,
@@ -283,7 +283,7 @@ class TestGetGlobalMapSplatsAfterUpdate:
         assert splats == ["/maps/m1/splat.ply"]
 
     def test_splat_not_visible_before_update(self):
-        from pipeline.global_map_db import get_global_map_splats, register_mission
+        from pipeline.storage.global_maps import get_global_map_splats, register_mission
         conn = MockConn()
         conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0))
         conn._missions.append({"id": "m1", "splat_path": None, "updated_at": 0.0})
@@ -294,7 +294,7 @@ class TestGetGlobalMapSplatsAfterUpdate:
         assert splats == []
 
     def test_two_missions_both_discoverable(self):
-        from pipeline.global_map_db import (
+        from pipeline.storage.global_maps import (
             get_global_map_splats,
             register_mission,
             update_mission_splat_path,
@@ -355,7 +355,7 @@ class TestDbAndMapFirstMission:
         assert conn._global_maps[0]["splat_path"] is None
 
     def test_splat_discoverable_after_first_mission(self):
-        from pipeline.global_map_db import get_global_map_splats
+        from pipeline.storage.global_maps import get_global_map_splats
         conn = self._setup()
         splats = _run(get_global_map_splats(conn, 1))
         assert splats == ["/maps/m1/splat.ply"]
@@ -438,7 +438,7 @@ class TestDbAndMapIcpNotConverged:
         assert conn._global_maps[0]["splat_path"] is None
 
     def test_splat_still_discoverable_for_next_mission(self):
-        from pipeline.global_map_db import get_global_map_splats
+        from pipeline.storage.global_maps import get_global_map_splats
         conn = self._setup()
         splats = _run(get_global_map_splats(conn, 1))
         assert splats == ["/maps/m2/splat.ply"]
@@ -467,7 +467,7 @@ class TestDbAndMapMapperSkipped:
         assert conn.execute_calls == []
 
     def test_splat_not_discoverable(self):
-        from pipeline.global_map_db import get_global_map_splats
+        from pipeline.storage.global_maps import get_global_map_splats
         conn = self._setup()
         splats = _run(get_global_map_splats(conn, 1))
         assert splats == []
@@ -537,7 +537,7 @@ class TestSyntheticSplatFiles:
     """Verify the synthetic splat helper produces valid 3DGS PLY files."""
 
     def test_write_and_read_roundtrip(self):
-        from pipeline.splat_io import read_splat, splat_count
+        from pipeline.mapping.splat_io import read_splat, splat_count
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "test.ply"), n=200)
             assert splat_count(path) == 200
@@ -545,7 +545,7 @@ class TestSyntheticSplatFiles:
             assert len(data) == 200
 
     def test_all_59_properties_present(self):
-        from pipeline.splat_io import ALL_PROPERTIES, read_splat
+        from pipeline.mapping.splat_io import ALL_PROPERTIES, read_splat
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "test.ply"), n=50)
             data = read_splat(path)
@@ -553,7 +553,7 @@ class TestSyntheticSplatFiles:
                 assert prop in data.dtype.names, f"Missing: {prop}"
 
     def test_rotations_are_unit_quaternions(self):
-        from pipeline.splat_io import read_splat
+        from pipeline.mapping.splat_io import read_splat
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "test.ply"), n=50)
             data = read_splat(path)
@@ -563,7 +563,7 @@ class TestSyntheticSplatFiles:
             np.testing.assert_allclose(norms, 1.0, atol=1e-5)
 
     def test_merge_produces_correct_count(self):
-        from pipeline.splat_io import merge_splats, splat_count
+        from pipeline.mapping.splat_io import merge_splats, splat_count
         with tempfile.TemporaryDirectory() as tmp:
             a = _write_synthetic_splat(os.path.join(tmp, "a.ply"), n=100)
             b = _write_synthetic_splat(os.path.join(tmp, "b.ply"), n=150)
@@ -572,14 +572,14 @@ class TestSyntheticSplatFiles:
             assert splat_count(os.path.join(tmp, "fused.ply")) == 250
 
     def test_is_splat_ply_recognises_synthetic(self):
-        from pipeline.splat_io import is_splat_ply
+        from pipeline.mapping.splat_io import is_splat_ply
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "test.ply"), n=10)
             assert is_splat_ply(path) is True
 
     def test_typical_small_mission_size(self):
         """Confirm we can create a small-mission-sized splat (50K Gaussians)."""
-        from pipeline.splat_io import splat_count
+        from pipeline.mapping.splat_io import splat_count
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "medium.ply"), n=50_000)
             assert splat_count(path) == 50_000

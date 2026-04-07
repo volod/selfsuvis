@@ -17,7 +17,7 @@ Usage:
         --calibration-samples 500
 
     # Use the ONNX model on robot:
-    from pipeline.edge_inference import EdgeClassifier
+    from pipeline.training.edge_inference import EdgeClassifier
     clf = EdgeClassifier("data/models/dino_edge_int8.onnx", "data/gallery/mission_objects.npz")
     results = clf.classify(frame_pil)   # [(label, score), ...]
 """
@@ -138,7 +138,7 @@ def _quantize_static(onnx_path: str, output_path: str, calibration_paths: list, 
     import numpy as np
     from PIL import Image
 
-    from pipeline.edge_inference import _preprocess_image
+    from pipeline.training.edge_inference import _preprocess_image
 
     class _CalibReader(CalibrationDataReader):
         def __init__(self, paths: list, input_name: str, size: int):
@@ -272,7 +272,7 @@ def main() -> None:
     print(f"\nDone. ONNX model: {args.output}")
     print(
         f"To classify on robot:\n"
-        f"  from pipeline.edge_inference import EdgeClassifier\n"
+        f"  from pipeline.training.edge_inference import EdgeClassifier\n"
         f"  clf = EdgeClassifier('{args.output}', 'data/gallery/mission_objects.npz')\n"
         f"  labels = clf.classify(frame_pil)"
     )

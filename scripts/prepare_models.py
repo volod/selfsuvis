@@ -23,12 +23,16 @@ Usage
     python scripts/prepare_models.py --depth        # Step O: Depth estimation
     python scripts/prepare_models.py --detection    # Step P: Object detection
     python scripts/prepare_models.py --world-model  # Step Q: World model video embeddings
+    python scripts/prepare_models.py --yolo         # Step P2: YOLO11l detection (~48 MB)
+    python scripts/prepare_models.py --sam          # Step P2: SAM3/SAM2 segmentation (tries sam3 first)
 
     # Override auto-selected model for any step:
     python scripts/prepare_models.py --ocr       --ocr-model       microsoft/trocr-base-printed
     python scripts/prepare_models.py --depth     --depth-model     depth-anything/Depth-Anything-V2-Large-hf
     python scripts/prepare_models.py --detection --detection-model IDEA-Research/grounding-dino-base
     python scripts/prepare_models.py --world-model --world-model-id MCG-NJU/videomae-base
+    python scripts/prepare_models.py --yolo        --yolo-model yolo11x
+    python scripts/prepare_models.py --sam         --sam-model facebook/sam2-hiera-large
 
     # Download everything (including flash-attn and gated models):
     python scripts/prepare_models.py --all
@@ -58,8 +62,8 @@ Environment
 -----------
     DINO_MODEL           Comma-separated model names to warm up
                          (default: dinov2_vitb14,dinov3_vitb14)
-    OPENCLIP_MODEL       OpenCLIP model name        (default from pipeline.config)
-    OPENCLIP_PRETRAINED  OpenCLIP pretrained tag     (default from pipeline.config)
+    OPENCLIP_MODEL       OpenCLIP model name        (default from pipeline.core.config)
+    OPENCLIP_PRETRAINED  OpenCLIP pretrained tag     (default from pipeline.core.config)
     GEMMA_MODEL_ID       Gemma model repo ID (default: google/gemma-3-4b-it)
     DEVICE               torch device for loading    (default: cpu)
     HF_TOKEN             HuggingFace token for gated / private model access (required for Gemma)
@@ -411,6 +415,91 @@ def _download_detection(model_id: str) -> None:
         raise
 
 
+def _download_yolo(model_id: str) -> None:
+    """Download YOLO11 weights via ultralytics auto-download.
+
+    ultralytics downloads weights to ``~/.cache/ultralytics/`` on first use.
+    Triggering a dummy load here pre-populates that cache so the demo can
+    start without network access.
+    """
+    model_file = model_id if model_id.endswith(".pt") else f"{model_id}.pt"
+    log.info("YOLO11 — model=%s", model_file)
+
+    # Check ultralytics cache: ~/.cache/ultralytics/<model_file>
+    ult_cache = Path.home() / ".cache" / "ultralytics" / model_file
+    if ult_cache.exists():
+        log.info("  ✓ YOLO11 already cached at %s — skipping download", ult_cache)
+        return
+
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        log.warning("  ultralytics not installed — skipping YOLO download (pip install ultralytics)")
+        return
+
+    t0 = time.monotonic()
+    try:
+        model = YOLO(model_file)  # triggers download if not cached
+        # Run a tiny inference to verify weights are valid.
+        import numpy as np
+        dummy = np.zeros((64, 64, 3), dtype=np.uint8)
+        model(dummy, verbose=False)
+        log.info("  ✓ YOLO11 ready  (%.1fs)  file=%s", time.monotonic() - t0, model_file)
+    except Exception as exc:
+        log.warning("  YOLO11 download/verification failed: %s", exc)
+        raise
+
+
+def _is_yolo_cached(model_id: str) -> bool:
+    model_file = model_id if model_id.endswith(".pt") else f"{model_id}.pt"
+    return (Path.home() / ".cache" / "ultralytics" / model_file).exists()
+
+
+def _download_sam(model_id: str) -> None:
+    """Download SAM3 (or SAM2 fallback) weights from HuggingFace Hub.
+
+    Tries the requested model_id; if that fails due to SAM3 not being
+    available yet, falls back to SAM2.
+    """
+    log.info("SAM — model=%s", model_id)
+    if _is_hf_cached(model_id):
+        log.info("  ✓ SAM already cached — skipping load")
+        return
+    t0 = time.monotonic()
+    try:
+        from huggingface_hub import snapshot_download
+        local_dir = snapshot_download(
+            repo_id=model_id,
+            ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
+        )
+        log.info("  ✓ SAM ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
+    except Exception as exc:
+        # SAM3 may not be publicly available yet; fall back to SAM2.
+        if "sam3" in model_id.lower():
+            fallback = "facebook/sam2-hiera-large"
+            log.warning(
+                "  SAM3 download failed (%s) — falling back to %s", exc, fallback
+            )
+            if _is_hf_cached(fallback):
+                log.info("  ✓ SAM2 fallback already cached — skipping download")
+                return
+            try:
+                from huggingface_hub import snapshot_download as _sd
+                local_dir = _sd(
+                    repo_id=fallback,
+                    ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
+                )
+                log.info(
+                    "  ✓ SAM2 fallback ready  (%.1fs)  cache=%s",
+                    time.monotonic() - t0, local_dir,
+                )
+                return
+            except Exception as exc2:
+                log.warning("  SAM2 fallback also failed: %s", exc2)
+                raise exc2 from exc
+        raise
+
+
 def _download_world_model(model_id: str) -> None:
     """Download world-model weights.
 
@@ -582,7 +671,7 @@ def _download_gemma(model_id: str) -> None:
     The function uses :func:`_with_auth_retry` so it prints interactive
     authentication instructions and retries on access errors.
     """
-    from pipeline.config import mask_secret
+    from pipeline.core.config import mask_secret
     token = os.environ.get("HUGGING_FACE_HUB_TOKEN") or os.environ.get("HF_TOKEN") or None
     log.info("Gemma — downloading %s  (token: %s) …", model_id, mask_secret(token or ""))
 
@@ -760,6 +849,26 @@ def _build_parser() -> argparse.ArgumentParser:
                        "Examples: MCG-NJU/videomae-base, facebook/vjepa2-vitl-fpc64-256"
                    ))
 
+    p.add_argument("--yolo", action="store_true",
+                   help="Download YOLO11 detection model (step P2; default model: yolo11l.pt ~48 MB)")
+    p.add_argument("--yolo-model", default="yolo11l", metavar="MODEL",
+                   help=(
+                       "YOLO model filename to cache (without .pt extension). "
+                       "Default: yolo11l (~48 MB, 25.3 M params). "
+                       "Options: yolo11n (6 MB) | yolo11s (18 MB) | yolo11m (38 MB) "
+                       "| yolo11l (48 MB) | yolo11x (109 MB)"
+                   ))
+
+    p.add_argument("--sam", action="store_true",
+                   help="Download SAM3/SAM2 segmentation model (step P2; tries sam3 then sam2 fallback)")
+    p.add_argument("--sam-model", default="facebook/sam3-hiera-large", metavar="MODEL_ID",
+                   help=(
+                       "SAM model repo ID to cache. "
+                       "Default: facebook/sam3-hiera-large (falls back to facebook/sam2-hiera-large). "
+                       "Options: facebook/sam3-hiera-large | facebook/sam2-hiera-large | "
+                       "facebook/sam2-hiera-base-plus"
+                   ))
+
     return p
 
 
@@ -768,7 +877,7 @@ def _resolve_hf_model(task: str, override: str) -> str:
     mid = override.strip()
     if mid:
         return mid
-    from pipeline.model_registry import auto_select, detect_resources
+    from pipeline.vision.registry import auto_select, detect_resources
     selected = auto_select(task, detect_resources())
     if selected:
         log.info("%s auto-selected model: %s", task, selected)
@@ -779,7 +888,8 @@ def main() -> None:
     args = _build_parser().parse_args()
 
     _any_flag = (args.clip or args.dino or args.gemma or args.flash_attn or args.whisper
-                 or args.florence or args.ocr or args.depth or args.detection or args.world_model)
+                 or args.florence or args.ocr or args.depth or args.detection or args.world_model
+                 or args.yolo or args.sam)
     # Auto-include Gemma in the default run when HF_TOKEN + GEMMA_MODEL_ID are configured,
     # so `python scripts/prepare_models.py` caches everything needed out of the box.
     _gemma_env_ready = bool(
@@ -796,6 +906,8 @@ def main() -> None:
     do_depth       = args.depth       or args.all
     do_detection   = args.detection   or args.all
     do_world_model = args.world_model or args.all
+    do_yolo        = args.yolo        or args.all
+    do_sam         = args.sam         or args.all
 
     device = args.device
     if device == "auto":
@@ -803,7 +915,7 @@ def main() -> None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         log.info("Auto device → %s", device)
 
-    from pipeline.config import settings
+    from pipeline.core.config import settings
 
     # ── Resolve all HF model IDs up front ────────────────────────────────────
     whisper_id    = args.whisper_model
@@ -841,6 +953,12 @@ def main() -> None:
             specs.append((f"Detection {detection_id}", lambda m=detection_id: _is_hf_cached(m)))
         if do_world_model and world_id:
             specs.append((f"WorldModel {world_id}", lambda m=world_id: _is_hf_cached(m)))
+        if do_yolo:
+            ym = args.yolo_model
+            specs.append((f"YOLO11 {ym}", lambda m=ym: _is_yolo_cached(m)))
+        if do_sam:
+            sm = args.sam_model
+            specs.append((f"SAM {sm}", lambda m=sm: _is_hf_cached(m)))
 
         ok, missing = _verify_models(specs)
         for label in ok:
@@ -954,6 +1072,22 @@ def main() -> None:
             except Exception as exc:
                 log.error("World model [%s] download failed: %s", world_id, exc)
                 errors.append(("WorldModel", exc))
+
+    if do_yolo:
+        yolo_id = args.yolo_model
+        try:
+            _download_yolo(yolo_id)
+        except Exception as exc:
+            log.error("YOLO11 [%s] download failed: %s", yolo_id, exc)
+            errors.append(("YOLO11", exc))
+
+    if do_sam:
+        sam_id = args.sam_model
+        try:
+            _with_auth_retry(f"SAM ({sam_id})", sam_id, lambda: _download_sam(sam_id))
+        except Exception as exc:
+            log.error("SAM [%s] download failed: %s", sam_id, exc)
+            errors.append(("SAM", exc))
 
     if errors:
         log.error("%d download(s) failed — see above.", len(errors))

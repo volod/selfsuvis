@@ -7,21 +7,19 @@ from typing import Optional
 
 import asyncpg
 
-from pipeline.config import get_dino_model_name, settings, validate_settings
-from pipeline.indexer import VideoIndexer
-from pipeline.job_db_pg import create_job, fetch_and_claim_next_pending, update_job
-from pipeline.logging_utils import get_logger
-import pipeline.processed_db as processed_db_mod
-from pipeline.processed_db import init_db as init_processed_db, get_by_hash
-from pipeline.downloader import download_url
-from pipeline.mission_db import (
+from pipeline.core import datetime_to_ts, file_sha256, get_dino_model_name, get_logger, settings, utcnow, validate_settings
+from pipeline.storage import create_job, fetch_and_claim_next_pending, update_job
+from pipeline.workflows import VideoIndexer
+import pipeline.storage.processed as processed_db_mod
+from pipeline.storage.processed import init_db as init_processed_db, get_by_hash
+from pipeline.media import download_url
+from pipeline.storage.missions import (
     apply_gps_registration,
     list_frames_after,
     mark_mission_finished,
     replace_frames,
     upsert_mission,
 )
-from pipeline.utils import datetime_to_ts, file_sha256, utcnow
 
 
 def _resolve_site_origin(video_path: str, logger) -> tuple:
@@ -35,7 +33,7 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
     mission's own local first-frame origin.
     """
     try:
-        from pipeline.gps_extractor import extract_gps
+        from pipeline.media.gps import extract_gps
         # Request GPS at t=1s; extract_gps will return the nearest available fix
         gps_list = extract_gps(video_path, [1_000.0])
         first_gps = next((g for g in gps_list if g is not None), None)
@@ -47,7 +45,7 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
         return None, None
 
     try:
-        from pipeline.global_map_db import get_or_create_global_map, get_global_map_origin
+        from pipeline.storage.global_maps import get_global_map_origin, get_or_create_global_map
 
         async def _lookup():
             conn = await asyncpg.connect(settings.DATABASE_URL)
@@ -82,7 +80,7 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
     unreachable containers (nerfstudio, mapper, postgres) are logged and skipped.
     """
     try:
-        from pipeline.sfm import run_sfm
+        from pipeline.mapping.sfm import run_sfm
     except ImportError:
         logger.debug("Pass A: pycolmap not installed — skipping SfM")
         return
@@ -102,7 +100,7 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
     )
 
     try:
-        from pipeline.gps_registration import register_mission_gps
+        from pipeline.mapping.gps_registration import register_mission_gps
         keyed_frames = sfm_results
         if index_result.get("frame_records"):
             keyed_frames = []
@@ -125,8 +123,8 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
 
     # 3DGS mapper (requires nerfstudio container — soft skip on ConnectionError)
     try:
-        from pipeline.mapper import run_mapper
-        from pipeline.global_map_db import (
+        from pipeline.mapping.mapper import run_mapper
+        from pipeline.storage.global_maps import (
             get_or_create_global_map,
             get_global_map_splats,
             register_mission,
@@ -304,7 +302,7 @@ def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logg
     calls POST /admin/reload-model via HTTP.
     """
     import httpx
-    from pipeline.supervised_finetune import config_from_settings, run_supervised_finetune
+    from pipeline.training.supervised import config_from_settings, run_supervised_finetune
 
     def _pg_run(coro):
         return asyncio.run(coro)
@@ -431,7 +429,7 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
     Processes frames in batches of REEMBED_BATCH_SIZE (default 256).
     Checkpoints last_offset after each batch so the sweep is resumable.
     """
-    from pipeline.qdrant_utils import QdrantStore
+    from pipeline.storage.qdrant import QdrantStore
 
     batch_size = settings.REEMBED_BATCH_SIZE
 
@@ -682,7 +680,7 @@ def main() -> None:
                 if url and not video_path:
                     video_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}.mp4")
                     if payload.get("ingest_mode") == "rtsp":
-                        from pipeline.rtsp_ingest import record_rtsp
+                        from pipeline.media.rtsp_ingest import record_rtsp
 
                         record_rtsp(
                             url,

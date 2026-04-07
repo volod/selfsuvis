@@ -5,7 +5,7 @@ from typing import Dict
 
 from fastapi import Header, HTTPException, Request
 
-from pipeline.config import settings
+from pipeline.core import settings
 
 
 def _get_client_key(request: Request) -> str:

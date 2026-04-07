@@ -22,7 +22,7 @@ def _make_fake_db_pool():
 
 def test_rtsp_captioner_uses_config_fps(monkeypatch):
     """RtspCaptioner reads RTSP_CAPTION_FPS from settings when not overridden."""
-    import pipeline.rtsp_captioner as rc
+    import pipeline.media.rtsp_captioner as rc
     monkeypatch.setattr(rc.settings, "RTSP_CAPTION_FPS", 1.0)
 
     captioner = rc.RtspCaptioner(
@@ -36,7 +36,7 @@ def test_rtsp_captioner_uses_config_fps(monkeypatch):
 
 def test_rtsp_captioner_override_fps():
     """caption_fps kwarg overrides settings."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
 
     captioner = RtspCaptioner(
         rtsp_url="rtsp://localhost:8554/test",
@@ -52,7 +52,7 @@ def test_rtsp_captioner_override_fps():
 
 def test_caption_frame_uses_gemma_when_enabled():
     """_caption_frame returns Gemma facts when QwenModel is enabled and healthy."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
     from PIL import Image
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool())
@@ -77,7 +77,7 @@ def test_caption_frame_uses_gemma_when_enabled():
 
 def test_caption_frame_falls_back_to_florence_on_gemma_timeout():
     """_caption_frame falls back to Florence when Gemma times out."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
     from PIL import Image
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool(), florence_fallback=True)
@@ -102,7 +102,7 @@ def test_caption_frame_falls_back_to_florence_on_gemma_timeout():
 
 def test_caption_frame_falls_back_to_florence_when_gemma_disabled():
     """_caption_frame uses Florence when Gemma is not enabled."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
     from PIL import Image
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool(), florence_fallback=True)
@@ -123,7 +123,7 @@ def test_caption_frame_falls_back_to_florence_when_gemma_disabled():
 
 def test_caption_frame_returns_none_when_both_fail():
     """_caption_frame returns null caption when both Gemma and Florence fail."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
     from PIL import Image
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool(), florence_fallback=True)
@@ -147,7 +147,7 @@ def test_caption_frame_returns_none_when_both_fail():
 @pytest.mark.anyio
 async def test_write_to_timeline_calls_db_execute():
     """_write_to_timeline calls pool.execute with the correct SQL parameters."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
 
     pool = _make_fake_db_pool()
     captioner = RtspCaptioner("rtsp://x", "m1", pool)
@@ -172,7 +172,7 @@ async def test_write_to_timeline_calls_db_execute():
 @pytest.mark.anyio
 async def test_write_to_timeline_is_non_fatal_on_error():
     """_write_to_timeline swallows DB errors (non-blocking pipeline)."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
 
     pool = _make_fake_db_pool()
     pool.execute = AsyncMock(side_effect=Exception("db down"))
@@ -190,7 +190,7 @@ async def test_write_to_timeline_is_non_fatal_on_error():
 @pytest.mark.anyio
 async def test_run_stops_on_stop_event():
     """run() exits promptly when stop_event is set before it opens the stream."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool())
 
@@ -213,7 +213,7 @@ async def test_run_stops_on_stop_event():
 @pytest.mark.anyio
 async def test_run_handles_missing_cv2():
     """run() raises ImportError with helpful message when cv2 is missing."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
     import sys
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool())
@@ -226,7 +226,7 @@ async def test_run_handles_missing_cv2():
 @pytest.mark.anyio
 async def test_run_logs_warning_on_stream_open_failure():
     """run() returns without error when RTSP stream cannot be opened."""
-    from pipeline.rtsp_captioner import RtspCaptioner
+    from pipeline.media.rtsp_captioner import RtspCaptioner
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool())
 

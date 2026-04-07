@@ -23,7 +23,7 @@ from app.api_utils import ERROR_RESPONSES
 from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
 from app.state import clip_model
-from pipeline.logging_utils import get_logger
+from pipeline.core import get_logger
 
 logger = get_logger(__name__)
 

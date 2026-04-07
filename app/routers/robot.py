@@ -30,9 +30,8 @@ from pydantic import BaseModel, Field, model_validator
 from app.db import get_db_pool_optional
 from app.deps import rate_limit, require_api_key
 from app.state import clip_model, qdrant_store
-from pipeline.change_detection import latlon_bbox
-from pipeline.config import settings
-from pipeline.logging_utils import get_logger
+from pipeline.core import get_logger, settings
+from pipeline.workflows import latlon_bbox
 
 logger = get_logger(__name__)
 
@@ -153,7 +152,7 @@ async def _get_last_visits(
     Returns visits sorted by created_at DESC (most recent first).
     Returns empty list if the table is empty or DB unavailable.
     """
-    from pipeline.change_detection import latlon_bbox as _bbox
+    from pipeline.analysis.change_detection import latlon_bbox as _bbox
 
     min_lat, max_lat, min_lon, max_lon = _bbox(lat, lon, radius_m)
     try:

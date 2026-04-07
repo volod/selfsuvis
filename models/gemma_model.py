@@ -78,7 +78,7 @@ class GemmaEmbedder:
 
         # Resolve token: explicit arg > env var HUGGING_FACE_HUB_TOKEN > HF_TOKEN
         import os as _os
-        from pipeline.config import mask_secret as _mask_secret  # noqa: PLC0415
+        from pipeline.core.config import mask_secret as _mask_secret  # noqa: PLC0415
         token = hf_token or _os.getenv("HUGGING_FACE_HUB_TOKEN") or _os.getenv("HF_TOKEN") or None
         _log.info(
             "GemmaEmbedder: HF token %s",

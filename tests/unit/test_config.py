@@ -2,7 +2,7 @@
 
 import pytest
 
-from pipeline import config
+from pipeline.core import config
 
 
 def test_validate_settings_success(monkeypatch):

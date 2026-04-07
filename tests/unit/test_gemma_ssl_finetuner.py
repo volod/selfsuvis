@@ -8,7 +8,7 @@ import pytest
 
 def test_cpu_only_raises_skip_step():
     """GemmaSSLFinetuner raises SkipStep when CUDA is unavailable."""
-    from pipeline.ssl_finetune import GemmaSSLFinetuner, SkipStep
+    from pipeline.training.ssl import GemmaSSLFinetuner, SkipStep
 
     fake_embedder = MagicMock()
     fake_embedder.encode_images.return_value = __import__("numpy").zeros((1, 1152), dtype="float32")
@@ -20,7 +20,7 @@ def test_cpu_only_raises_skip_step():
 
 def test_skip_step_is_runtime_error():
     """SkipStep is a subclass of RuntimeError so callers can catch it broadly."""
-    from pipeline.ssl_finetune import SkipStep
+    from pipeline.training.ssl import SkipStep
 
     exc = SkipStep("reason")
     assert isinstance(exc, RuntimeError)

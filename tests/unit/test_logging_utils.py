@@ -4,8 +4,8 @@ import logging
 
 import pytest
 
-import pipeline.logging_utils as logging_utils_mod
-from pipeline.logging_utils import configure_logging, get_logger
+import pipeline.core.logging as logging_utils_mod
+from pipeline.core.logging import configure_logging, get_logger
 
 
 @pytest.fixture(autouse=True)

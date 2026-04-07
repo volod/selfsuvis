@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from pipeline.job_db_pg import (
+from pipeline.storage.jobs import (
     _UPDATE_JOB_COLUMNS,
     create_job,
     fetch_and_claim_next_pending,

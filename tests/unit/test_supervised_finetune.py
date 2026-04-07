@@ -18,7 +18,7 @@ import torch.nn as nn
 
 # ── Module under test ─────────────────────────────────────────────────────────
 
-from pipeline.supervised_finetune import (
+from pipeline.training.supervised import (
     AnnotatedFrameDataset,
     CvatAnnotationParser,
     SupConLoss,
@@ -486,7 +486,7 @@ class TestRunSupervisedFinetune:
                 nn.Linear(embed_dim, proj_out_dim),
             )
 
-        import pipeline.supervised_finetune as sf_mod
+        import pipeline.training.supervised as sf_mod
         monkeypatch.setattr(sf_mod.SupervisedFineTuner, "__init__", _stub_init)
 
         # Patch save_checkpoint to avoid writing to disk
@@ -531,7 +531,7 @@ class TestRunSupervisedFinetune:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             torch.save({}, path)
 
-        import pipeline.supervised_finetune as sf_mod
+        import pipeline.training.supervised as sf_mod
         monkeypatch.setattr(sf_mod.SupervisedFineTuner, "__init__", _stub_init)
         monkeypatch.setattr(sf_mod.SupervisedFineTuner, "save_checkpoint", _stub_save)
 
@@ -576,7 +576,7 @@ class TestRunSupervisedFinetune:
         ET.SubElement(seg, "stop").text = "0"
         ET.ElementTree(root).write(xml_path)
 
-        import pipeline.supervised_finetune as sf_mod
+        import pipeline.training.supervised as sf_mod
         monkeypatch.setattr(
             sf_mod, "run_supervised_finetune",
             lambda cfg: (_ for _ in ()).throw(ValueError("No labels")),

@@ -188,7 +188,7 @@ def main() -> None:
     print(f"  total frames   : {total_frames}")
     print()
 
-    from pipeline.edge_inference import build_gallery
+    from pipeline.training.edge_inference import build_gallery
 
     if args.onnx:
         build_gallery(
@@ -200,7 +200,7 @@ def main() -> None:
     else:
         # Load PyTorch backbone
         import torch
-        from pipeline.ssl_finetune import DINOFineTuner
+        from pipeline.training.ssl import DINOFineTuner
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         from models.dino_model import hub_load_dino
@@ -225,7 +225,7 @@ def main() -> None:
     print(f"\nDone. Gallery saved to: {args.output}")
     print(
         f"To use on robot:\n"
-        f"  from pipeline.edge_inference import EdgeClassifier\n"
+        f"  from pipeline.training.edge_inference import EdgeClassifier\n"
         f"  clf = EdgeClassifier('dino_edge.onnx', '{args.output}')\n"
         f"  labels = clf.classify(frame_pil)"
     )

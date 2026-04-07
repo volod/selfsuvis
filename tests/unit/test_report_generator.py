@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from pipeline.report_generator import generate_summary_html, write_mission_report
+from pipeline.workflows.reporting import generate_summary_html, write_mission_report
 
 
 @pytest.fixture
@@ -131,7 +131,7 @@ def test_generate_html_none_al_tag_no_badge():
 # ── write_mission_report ──────────────────────────────────────────────────────
 
 def test_write_mission_report_creates_file(sample_frames, monkeypatch, tmp_path):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "DATA_DIR", str(tmp_path))
     path = write_mission_report("test-mission", sample_frames)
     assert os.path.isfile(path)
@@ -139,14 +139,14 @@ def test_write_mission_report_creates_file(sample_frames, monkeypatch, tmp_path)
 
 
 def test_write_mission_report_returns_absolute_path(sample_frames, monkeypatch, tmp_path):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "DATA_DIR", str(tmp_path))
     path = write_mission_report("m1", sample_frames)
     assert os.path.isabs(path)
 
 
 def test_write_mission_report_content(sample_frames, monkeypatch, tmp_path):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "DATA_DIR", str(tmp_path))
     path = write_mission_report("m99", sample_frames)
     content = open(path).read()
@@ -156,7 +156,7 @@ def test_write_mission_report_content(sample_frames, monkeypatch, tmp_path):
 
 def test_write_mission_report_creates_nested_dirs(monkeypatch, tmp_path):
     """write_mission_report creates reports/{mission_id}/ if it doesn't exist."""
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "DATA_DIR", str(tmp_path))
     path = write_mission_report("brand-new-mission", [])
     assert os.path.isdir(os.path.dirname(path))

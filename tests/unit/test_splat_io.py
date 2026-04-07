@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pipeline.splat_io import (
+from pipeline.mapping.splat_io import (
     ALL_PROPERTIES,
     _SPLAT_DTYPE,
     is_splat_ply,

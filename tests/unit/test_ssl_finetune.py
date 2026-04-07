@@ -57,7 +57,7 @@ def _frames_dir_with_videos(tmp: str, videos: dict) -> str:
 class TestNTXentLoss(unittest.TestCase):
 
     def _loss(self, B: int = 4, D: int = 8):
-        from pipeline.ssl_finetune import NTXentLoss
+        from pipeline.training.ssl import NTXentLoss
         loss_fn = NTXentLoss(temperature=0.07)
         z1 = torch.randn(B, D)
         z1 = torch.nn.functional.normalize(z1, dim=-1)
@@ -79,7 +79,7 @@ class TestNTXentLoss(unittest.TestCase):
 
     def test_identical_embeddings_gives_lower_loss(self):
         """Identical z1==z2 should give lower loss than random pairs."""
-        from pipeline.ssl_finetune import NTXentLoss
+        from pipeline.training.ssl import NTXentLoss
         loss_fn = NTXentLoss(temperature=0.07)
         z = torch.nn.functional.normalize(torch.randn(8, 16), dim=-1)
         loss_identical = loss_fn(z, z).item()
@@ -88,7 +88,7 @@ class TestNTXentLoss(unittest.TestCase):
         self.assertLess(loss_identical, loss_random)
 
     def test_gradient_flows(self):
-        from pipeline.ssl_finetune import NTXentLoss
+        from pipeline.training.ssl import NTXentLoss
         loss_fn = NTXentLoss()
         raw = torch.randn(4, 8, requires_grad=True)
         z1 = torch.nn.functional.normalize(raw, dim=-1)
@@ -99,7 +99,7 @@ class TestNTXentLoss(unittest.TestCase):
 
     def test_temperature_scaling(self):
         """Higher temperature → softer distribution → lower loss magnitude on average."""
-        from pipeline.ssl_finetune import NTXentLoss
+        from pipeline.training.ssl import NTXentLoss
         z = torch.nn.functional.normalize(torch.randn(8, 16), dim=-1)
         z2 = torch.nn.functional.normalize(torch.randn(8, 16), dim=-1)
         loss_hot = NTXentLoss(temperature=1.0)(z, z2).item()
@@ -110,7 +110,7 @@ class TestNTXentLoss(unittest.TestCase):
 
     def test_batch_size_1_raises(self):
         """Batch of 1 makes no valid negatives — cross_entropy will still run but result may be degenerate."""
-        from pipeline.ssl_finetune import NTXentLoss
+        from pipeline.training.ssl import NTXentLoss
         loss_fn = NTXentLoss()
         z = torch.nn.functional.normalize(torch.randn(1, 8), dim=-1)
         # Should not crash (even if numerically degenerate)
@@ -125,14 +125,14 @@ class TestNTXentLoss(unittest.TestCase):
 class TestProjectionHead(unittest.TestCase):
 
     def test_output_shape(self):
-        from pipeline.ssl_finetune import ProjectionHead
+        from pipeline.training.ssl import ProjectionHead
         head = ProjectionHead(in_dim=768, hidden_dim=256, out_dim=64)
         x = torch.randn(4, 768)
         out = head(x)
         self.assertEqual(out.shape, (4, 64))
 
     def test_output_is_l2_normalised(self):
-        from pipeline.ssl_finetune import ProjectionHead
+        from pipeline.training.ssl import ProjectionHead
         head = ProjectionHead(in_dim=64, out_dim=32)
         x = torch.randn(8, 64)
         out = head(x)
@@ -147,7 +147,7 @@ class TestProjectionHead(unittest.TestCase):
 class TestAugmentTransform(unittest.TestCase):
 
     def test_output_tensor_shape(self):
-        from pipeline.ssl_finetune import build_augment_transform
+        from pipeline.training.ssl import build_augment_transform
         t = build_augment_transform(image_size=224)
         img = Image.new("RGB", (512, 384))
         out = t(img)
@@ -155,7 +155,7 @@ class TestAugmentTransform(unittest.TestCase):
 
     def test_two_views_differ(self):
         """Stochastic augmentation → two calls on same image should rarely be identical."""
-        from pipeline.ssl_finetune import build_augment_transform
+        from pipeline.training.ssl import build_augment_transform
         t = build_augment_transform()
         img = Image.new("RGB", (256, 256), color=(128, 64, 32))
         # Run 5 times; at least one pair should differ
@@ -174,13 +174,13 @@ class TestAugmentPairDataset(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
 
     def test_discovers_frames(self):
-        from pipeline.ssl_finetune import AugmentPairDataset, build_augment_transform
+        from pipeline.training.ssl import AugmentPairDataset, build_augment_transform
         fdir = _frames_dir_with_videos(self.tmp, {"vid1": 4, "vid2": 3})
         ds = AugmentPairDataset(fdir, build_augment_transform(32))
         self.assertEqual(len(ds), 7)
 
     def test_item_is_two_tensors(self):
-        from pipeline.ssl_finetune import AugmentPairDataset, build_augment_transform
+        from pipeline.training.ssl import AugmentPairDataset, build_augment_transform
         fdir = _frames_dir_with_videos(self.tmp, {"vid1": 2})
         ds = AugmentPairDataset(fdir, build_augment_transform(32))
         v1, v2 = ds[0]
@@ -188,14 +188,14 @@ class TestAugmentPairDataset(unittest.TestCase):
         self.assertEqual(v2.shape, (3, 32, 32))
 
     def test_empty_dir_raises(self):
-        from pipeline.ssl_finetune import AugmentPairDataset, build_augment_transform
+        from pipeline.training.ssl import AugmentPairDataset, build_augment_transform
         empty = os.path.join(self.tmp, "empty")
         os.makedirs(empty)
         with self.assertRaises(ValueError):
             AugmentPairDataset(empty, build_augment_transform(32))
 
     def test_finds_jpg_and_png(self):
-        from pipeline.ssl_finetune import AugmentPairDataset, build_augment_transform
+        from pipeline.training.ssl import AugmentPairDataset, build_augment_transform
         fdir = os.path.join(self.tmp, "mixed")
         _make_rgb_jpg(os.path.join(fdir, "a.jpg"))
         # write a PNG
@@ -215,7 +215,7 @@ class TestTemporalPairDataset(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
 
     def test_pairs_from_two_videos(self):
-        from pipeline.ssl_finetune import TemporalPairDataset, build_augment_transform
+        from pipeline.training.ssl import TemporalPairDataset, build_augment_transform
         fdir = _frames_dir_with_videos(self.tmp, {"vid1": 5, "vid2": 4})
         ds = TemporalPairDataset(fdir, build_augment_transform(32), max_gap=1)
         # vid1: 5 frames → 4 pairs (frames 0..3 each pair with next)
@@ -223,19 +223,19 @@ class TestTemporalPairDataset(unittest.TestCase):
         self.assertEqual(len(ds), 7)
 
     def test_single_frame_dir_skipped(self):
-        from pipeline.ssl_finetune import TemporalPairDataset, build_augment_transform
+        from pipeline.training.ssl import TemporalPairDataset, build_augment_transform
         fdir = _frames_dir_with_videos(self.tmp, {"solo": 1, "multi": 3})
         ds = TemporalPairDataset(fdir, build_augment_transform(32), max_gap=1)
         self.assertEqual(len(ds), 2)  # multi: 3 frames → 2 pairs; solo skipped
 
     def test_all_single_frame_raises(self):
-        from pipeline.ssl_finetune import TemporalPairDataset, build_augment_transform
+        from pipeline.training.ssl import TemporalPairDataset, build_augment_transform
         fdir = _frames_dir_with_videos(self.tmp, {"a": 1, "b": 1})
         with self.assertRaises(ValueError):
             TemporalPairDataset(fdir, build_augment_transform(32))
 
     def test_item_shape(self):
-        from pipeline.ssl_finetune import TemporalPairDataset, build_augment_transform
+        from pipeline.training.ssl import TemporalPairDataset, build_augment_transform
         fdir = _frames_dir_with_videos(self.tmp, {"vid": 3})
         ds = TemporalPairDataset(fdir, build_augment_transform(32))
         v1, v2 = ds[0]
@@ -244,7 +244,7 @@ class TestTemporalPairDataset(unittest.TestCase):
 
     def test_max_gap_respected(self):
         """With max_gap=1 every pair must be adjacent (gap exactly 1)."""
-        from pipeline.ssl_finetune import TemporalPairDataset, build_augment_transform
+        from pipeline.training.ssl import TemporalPairDataset, build_augment_transform
         fdir = _frames_dir_with_videos(self.tmp, {"vid": 6})
         ds = TemporalPairDataset(fdir, build_augment_transform(32), max_gap=1)
         # All pairs should be (frame[i], frame[i+1]) — filenames differ by 1
@@ -254,7 +254,7 @@ class TestTemporalPairDataset(unittest.TestCase):
             self.assertEqual(i2 - i1, 1)
 
     def test_empty_dir_raises(self):
-        from pipeline.ssl_finetune import TemporalPairDataset, build_augment_transform
+        from pipeline.training.ssl import TemporalPairDataset, build_augment_transform
         empty = os.path.join(self.tmp, "empty")
         os.makedirs(empty)
         with self.assertRaises(ValueError):
@@ -298,7 +298,7 @@ class _FakeBackbone(nn.Module):
 class TestDINOFineTuner(unittest.TestCase):
 
     def _make_tuner(self, freeze_blocks: int = 10, embed_dim: int = 4):
-        from pipeline.ssl_finetune import DINOFineTuner
+        from pipeline.training.ssl import DINOFineTuner
         backbone = _FakeBackbone()
 
         with patch("torch.hub.load", return_value=backbone):
@@ -347,7 +347,7 @@ class TestDINOFineTuner(unittest.TestCase):
             # Reload into a fresh backbone
             fresh = _FakeBackbone()
             with patch("torch.hub.load", return_value=fresh):
-                from pipeline.ssl_finetune import DINOFineTuner
+                from pipeline.training.ssl import DINOFineTuner
                 DINOFineTuner.load_backbone_weights(fresh, ckpt, "cpu")
             # Weights should match
             orig_sd = backbone.state_dict()
@@ -366,7 +366,7 @@ class TestRunFinetune(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
 
     def test_augment_approach_produces_checkpoint(self):
-        from pipeline.ssl_finetune import FinetuneConfig, run_finetune
+        from pipeline.training.ssl import FinetuneConfig, run_finetune
 
         fdir = _frames_dir_with_videos(self.tmp, {"vid1": 4})
         out = os.path.join(self.tmp, "ckpts")
@@ -389,7 +389,7 @@ class TestRunFinetune(unittest.TestCase):
         self.assertTrue(os.path.isfile(best))
 
     def test_temporal_approach_produces_checkpoint(self):
-        from pipeline.ssl_finetune import FinetuneConfig, run_finetune
+        from pipeline.training.ssl import FinetuneConfig, run_finetune
 
         fdir = _frames_dir_with_videos(self.tmp, {"vid1": 4, "vid2": 3})
         out = os.path.join(self.tmp, "ckpts2")
@@ -412,7 +412,7 @@ class TestRunFinetune(unittest.TestCase):
         self.assertTrue(os.path.isfile(best))
 
     def test_per_epoch_checkpoints_written(self):
-        from pipeline.ssl_finetune import FinetuneConfig, run_finetune
+        from pipeline.training.ssl import FinetuneConfig, run_finetune
 
         fdir = _frames_dir_with_videos(self.tmp, {"vid": 4})
         out = os.path.join(self.tmp, "ckpts3")
@@ -436,7 +436,7 @@ class TestRunFinetune(unittest.TestCase):
         self.assertEqual(len(ckpts), 2)  # epoch 001 and 002
 
     def test_returns_best_path_string(self):
-        from pipeline.ssl_finetune import FinetuneConfig, run_finetune
+        from pipeline.training.ssl import FinetuneConfig, run_finetune
 
         fdir = _frames_dir_with_videos(self.tmp, {"vid": 4})
         out = os.path.join(self.tmp, "ckpts4")
@@ -459,7 +459,7 @@ class TestRunFinetune(unittest.TestCase):
 class TestConfigFromSettings(unittest.TestCase):
 
     def test_defaults_populated(self):
-        from pipeline.ssl_finetune import config_from_settings
+        from pipeline.training.ssl import config_from_settings
         cfg = config_from_settings()
         self.assertIsInstance(cfg.epochs, int)
         self.assertGreater(cfg.epochs, 0)
@@ -469,11 +469,11 @@ class TestConfigFromSettings(unittest.TestCase):
 
     def test_env_override_respected(self):
         import importlib
-        import pipeline.config as pc
+        import pipeline.core.config as pc
         original = pc.settings.SSL_FINETUNE_EPOCHS
         try:
             pc.settings.SSL_FINETUNE_EPOCHS = 99
-            from pipeline.ssl_finetune import config_from_settings
+            from pipeline.training.ssl import config_from_settings
             cfg = config_from_settings()
             self.assertEqual(cfg.epochs, 99)
         finally:

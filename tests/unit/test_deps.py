@@ -14,7 +14,7 @@ from app.deps import (
     rate_limit,
     require_api_key,
 )
-from pipeline import config
+from pipeline.core import config
 
 
 # ---------------------------------------------------------------------------

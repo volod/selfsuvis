@@ -13,13 +13,13 @@ def _make_image(w=64, h=64) -> Image.Image:
 # ── _resolve_model_id ─────────────────────────────────────────────────────────
 
 def test_resolve_explicit_model(monkeypatch):
-    from pipeline import ocr_model
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_MODEL", "microsoft/trocr-base-printed")
     assert ocr_model._resolve_model_id() == "microsoft/trocr-base-printed"
 
 
 def test_resolve_auto_delegates_to_registry(monkeypatch):
-    from pipeline import ocr_model
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_MODEL", "auto")
     with patch.object(ocr_model, "auto_select", return_value="ucaslcl/GOT-OCR2_0") as mock_sel, \
          patch.object(ocr_model, "detect_resources", return_value={"vram_gb": 8.0, "ram_gb": 32.0}):
@@ -29,7 +29,7 @@ def test_resolve_auto_delegates_to_registry(monkeypatch):
 
 
 def test_resolve_auto_fallback_when_none(monkeypatch):
-    from pipeline import ocr_model
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_MODEL", "auto")
     with patch.object(ocr_model, "auto_select", return_value=None), \
          patch.object(ocr_model, "detect_resources", return_value={"vram_gb": 0.0, "ram_gb": 8.0}):
@@ -40,15 +40,15 @@ def test_resolve_auto_fallback_when_none(monkeypatch):
 # ── OCRModel.is_enabled ───────────────────────────────────────────────────────
 
 def test_is_enabled_true(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_ENABLED", True)
     assert OCRModel().is_enabled() is True
 
 
 def test_is_enabled_false(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_ENABLED", False)
     assert OCRModel().is_enabled() is False
 
@@ -56,8 +56,8 @@ def test_is_enabled_false(monkeypatch):
 # ── OCRModel.extract_text — disabled ─────────────────────────────────────────
 
 def test_extract_text_disabled_returns_none_text(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_ENABLED", False)
     result = OCRModel().extract_text(_make_image())
     assert result["ocr_text"] is None
@@ -65,8 +65,8 @@ def test_extract_text_disabled_returns_none_text(monkeypatch):
 
 
 def test_extract_text_batch_disabled_all_disabled(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_ENABLED", False)
     imgs = [_make_image() for _ in range(3)]
     results = OCRModel().extract_text_batch(imgs)
@@ -77,8 +77,8 @@ def test_extract_text_batch_disabled_all_disabled(monkeypatch):
 # ── OCRModel backend selection ────────────────────────────────────────────────
 
 def test_backend_is_vllm_when_api_url_set(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "http://localhost:8010/v1")
     monkeypatch.setattr(ocr_model.settings, "OCR_MODEL", "auto")
     model = OCRModel()
@@ -87,8 +87,8 @@ def test_backend_is_vllm_when_api_url_set(monkeypatch):
 
 
 def test_backend_is_got_for_got_model_id(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()
     model._model_id = "ucaslcl/GOT-OCR2_0"
@@ -96,8 +96,8 @@ def test_backend_is_got_for_got_model_id(monkeypatch):
 
 
 def test_backend_is_florence_for_florence_model(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()
     model._model_id = "microsoft/Florence-2-base"
@@ -105,8 +105,8 @@ def test_backend_is_florence_for_florence_model(monkeypatch):
 
 
 def test_backend_is_trocr_for_trocr_model(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()
     model._model_id = "microsoft/trocr-base-printed"
@@ -115,8 +115,8 @@ def test_backend_is_trocr_for_trocr_model(monkeypatch):
 
 def test_backend_is_vlm_for_deepseek_ocr(monkeypatch):
     """DeepSeek-OCR-2 uses the vlm backend (AutoProcessor + AutoModelForCausalLM)."""
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()
     model._model_id = "deepseek-ai/DeepSeek-OCR-2"
@@ -124,8 +124,8 @@ def test_backend_is_vlm_for_deepseek_ocr(monkeypatch):
 
 
 def test_backend_cached_on_second_call(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()
     model._model_id = "microsoft/trocr-base-printed"
@@ -137,8 +137,8 @@ def test_backend_cached_on_second_call(monkeypatch):
 # ── OCRModel._extract_one — success and error paths ──────────────────────────
 
 def test_extract_one_returns_ocr_text_on_success(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_ENABLED", True)
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()
@@ -156,8 +156,8 @@ def test_extract_one_returns_ocr_text_on_success(monkeypatch):
 
 
 def test_extract_one_returns_error_dict_on_exception(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_ENABLED", True)
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()
@@ -172,8 +172,8 @@ def test_extract_one_returns_error_dict_on_exception(monkeypatch):
 
 
 def test_extract_one_strips_whitespace(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()
     model._model_id = "microsoft/trocr-base-printed"
@@ -187,7 +187,7 @@ def test_extract_one_strips_whitespace(monkeypatch):
 # ── _encode_b64 ───────────────────────────────────────────────────────────────
 
 def test_encode_b64_produces_valid_jpeg():
-    from pipeline.ocr_model import _encode_b64
+    from pipeline.vision.ocr import _encode_b64
     img = _make_image(32, 32)
     b64str = _encode_b64(img)
     raw = base64.b64decode(b64str)
@@ -196,7 +196,7 @@ def test_encode_b64_produces_valid_jpeg():
 
 
 def test_encode_b64_is_ascii_string():
-    from pipeline.ocr_model import _encode_b64
+    from pipeline.vision.ocr import _encode_b64
     result = _encode_b64(_make_image())
     assert isinstance(result, str)
     result.encode("ascii")  # should not raise
@@ -205,8 +205,8 @@ def test_encode_b64_is_ascii_string():
 # ── extract_text_batch — batch size matches input ─────────────────────────────
 
 def test_extract_text_batch_length_matches_input(monkeypatch):
-    from pipeline.ocr_model import OCRModel
-    from pipeline import ocr_model
+    from pipeline.vision.ocr import OCRModel
+    import pipeline.vision.ocr as ocr_model
     monkeypatch.setattr(ocr_model.settings, "OCR_ENABLED", True)
     monkeypatch.setattr(ocr_model.settings, "OCR_API_URL", "")
     model = OCRModel()

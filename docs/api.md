@@ -1,77 +1,166 @@
 # API
 
-All index, jobs, and query endpoints require `X-API-Key` when `API_KEY` is set. Rate limiting applies.
+All API routes honor `API_KEY` when configured and are subject to rate limiting. `GET /health` and `GET /index/form` are the only public endpoints by default.
 
-## GET /index/form
-- Simple HTML form to upload a local video file or submit a URL for indexing. Renders a page with file input, URL input, enable_tiles checkbox, and optional API key. No auth required to view.
+## Public routes
 
-## GET /health
-- Health check. Verifies Qdrant connectivity.
-- Returns `{ status: "ok", qdrant: "connected" }` or 503 on failure.
-- No auth required.
+### `GET /health`
 
-## POST /index/video
-- Form: `file` (upload) or `path` (path within ALLOWED_INDEX_PATHS), `enable_tiles` (default true)
-- Returns `{ video_id, job_id }`
-- 403 if path not allowed; 413 if upload exceeds MAX_UPLOAD_BYTES
+Returns service health and Qdrant connectivity.
 
-## POST /index/url
-- Form: `url`, `enable_tiles` (default true)
-- Returns `{ video_id, job_id }`
-- 400 if URL invalid (scheme, hostname, private IP blocked unless ALLOW_PRIVATE_URLS)
+### `GET /index/form`
 
-## POST /index/dir
-- Form: `path` (directory within ALLOWED_INDEX_PATHS), `enable_tiles` (default true)
-- Returns `{ jobs: [{ video_id, job_id }, ...] }`
-- 403 if path not allowed
+Minimal HTML upload form for manual indexing tests.
 
-## POST /index/precheck
-- Form: `file` or `path` or `url` (one required)
-- Returns `{ status, reason, ... }` — duplicate/new/maybe/unknown
+## Indexing routes
 
-## POST /index/precheck_dir
-- Form: `path`, `enqueue` (default false), `enable_tiles` (default true)
-- Returns `{ results: [...], jobs: [...] }` — per-file precheck; jobs if enqueue=true
+### `POST /index/video`
 
-## GET /jobs/{job_id}
-- Returns `{ status, progress, started_at, finished_at, error }`
-- 400 if job_id invalid (must be 1–64 hex chars)
-- 404 if job not found
+Index a single video from:
 
-## POST /query/image
-- Form: `file` (image upload), `top_k` (1–100, default 20), `search_type` (both|frame|tile), `vector_space` (clip|dino), `enable_rerank` (default true)
-- Returns `{ results: [...] }`
+- uploaded `file`
+- allowed local `path`
 
-## POST /query/text
-- Body: `{ "text": "query string" }` (max 1000 chars)
-- Query params: `top_k`, `search_type`, `enable_rerank`
-- Returns `{ results: [...] }`
+Form fields:
 
-## GET /missions
-- Returns list of missions with metadata (mission_id, video_id, pose_status, map_status, frame_count, al_tag distribution)
+- `enable_tiles=true|false`
 
-## GET /missions/{mission_id}
-- Returns full mission metadata including report_path
+Returns `{"video_id", "job_id"}`.
 
-## GET /missions/{mission_id}/changes
-- Returns change detections for this mission vs. prior missions (frame pairs with embedding_distance, change_score)
+### `POST /index/url`
 
-## GET /missions/{mission_id}/export
-- **Annotation queue export.** Auth: `X-API-Key` required.
-- Query params: `al_tag` (needs_annotation|novel|all, default needs_annotation), `limit` (1–500, default 200)
-- Returns: ZIP download (`Content-Type: application/zip`) containing:
-  - `manifest.json` — export_version, exported_at, frames array per DESIGN.md export format spec
-  - `{frame_id}.jpg` — JPEG for each frame in the export
-- Uses `StreamingResponse` — does not buffer full ZIP in memory
-- 404 if mission not found; 400 if `al_tag` value is invalid
-- Export format is the v2 CVAT import contract; do not rename fields without a version bump (see DESIGN.md)
+Index a remote video by URL. Returns `{"video_id", "job_id"}`.
 
-## POST /query/pose
-- **Robot advisory API.** Auth: `X-API-Key` required.
-- Body: `{ "lat": float, "lon": float, "alt": float|null, "heading_deg": float, "radius_m": 50, "top_k": 5 }`
-- GPS coordinates required (tx/ty/tz-only path returns 400 in v1)
-- Returns `{ frames: [...], query_ms: int }` — frames near the given GPS position with captions, al_tag, pose, gps
-- Latency target: p99 < 200ms (advisory use only; hard real-time obstacle avoidance is out of scope)
+### `POST /index/dir`
+
+Index all allowed video files under a directory. Returns a list of enqueued jobs.
+
+### `POST /index/precheck`
+
+Deduplication check for one `file`, `path`, or `url` before enqueueing.
+
+### `POST /index/precheck_dir`
+
+Directory-wide precheck. Can optionally enqueue new items with `enqueue=true`.
+
+## Job route
+
+### `GET /jobs/{job_id}`
+
+Returns job `status`, `type`, `progress`, timestamps, and `error`.
+
+## Search routes
+
+### `POST /query/text`
+
+OpenCLIP text search across frames and/or tiles.
+
+Query params:
+
+- `top_k`
+- `search_type=both|frame|tile`
+- `enable_rerank=true|false`
+
+Body:
+
+```json
+{"text": "query string"}
+```
+
+### `POST /query/image`
+
+Image-to-frame/tile search.
+
+Form fields:
+
+- `file`
+- `top_k`
+- `search_type=both|frame|tile`
+- `vector_space=clip|dino`
+- `enable_rerank=true|false`
+
+### `POST /query/scene`
+
+Structured scene query over `frames.frame_facts_json`.
+
+Supported filters:
+
+- `text`
+- `vehicle_count_min`, `vehicle_count_max`
+- `road_condition`
+- `gps_bbox`
+- `time_range`
+- `top_k`
+
+### `POST /query/pose`
+
+Robot advisory query against indexed frame locations.
+
+Supports either:
+
+- GPS query: `lat`, `lon`, optional `alt`
+- ENU query: `tx`, `ty`, `tz`
+
+Optional filters:
+
+- `robot_ids`
+- `global_map_id`
+- `radius_m`
+- `top_k`
+
+## Admin routes
+
+All `/admin/*` routes require the API key.
+
+### `GET /admin/stats`
+
+Queue depth, worker state, and active-learning tag counts.
+
+### `GET /admin/missions`
+
+Recent missions with map status and discovered splat paths.
+
+### `GET /admin/robots`
+
+Distinct `robot_id` values seen in missions.
+
+### `GET /admin/global-maps`
+
+Current `global_map` rows.
+
+### `GET /admin/export/map-cache`
+
+Exports a compressed NPZ cache for robot-side lookup. Supports mission and GPS filtering.
+
+### `GET /admin/automation-roi`
+
+Automation metrics for annotation and fine-tuning loops.
+
+### `GET /admin/caption-eval`
+
+Captioner health summary, including null rate and model breakdown.
+
+### `POST /admin/reload-model`
+
+Hot-swaps DINO weights from a checkpoint path.
+
+### `POST /admin/reembed-all`
+
+Enqueues a full DINO re-embedding sweep.
+
+## CVAT integration routes
+
+### `GET /admin/cvat/frames`
+
+Returns frames pending annotation, filtered by `al_tag`.
+
+### `POST /admin/cvat/task`
+
+Registers a CVAT task ID to selfsuvis frame IDs.
+
+### `POST /webhook/cvat`
+
+Consumes CVAT webhook events, marks mapped frames annotated, and may enqueue supervised fine-tuning.
 
 ---
 [← Develop](develop.md) | [UI →](ui.md)

@@ -91,7 +91,7 @@ def _make_gallery_npz(tmp: str, embed_dim: int = 8) -> tuple:
 class TestPreprocessImage(unittest.TestCase):
 
     def test_output_shape(self):
-        from pipeline.edge_inference import _preprocess_image
+        from pipeline.training.edge_inference import _preprocess_image
         img = _make_rgb_image(256)
         out = _preprocess_image(img, image_size=224)
         self.assertEqual(out.shape, (1, 3, 224, 224))
@@ -99,14 +99,14 @@ class TestPreprocessImage(unittest.TestCase):
 
     def test_output_shape_small_input(self):
         """Input smaller than image_size should still produce correct shape."""
-        from pipeline.edge_inference import _preprocess_image
+        from pipeline.training.edge_inference import _preprocess_image
         img = _make_rgb_image(64)
         out = _preprocess_image(img, image_size=224)
         self.assertEqual(out.shape, (1, 3, 224, 224))
 
     def test_imagenet_normalisation_applied(self):
         """A solid-grey image should have values close to (0.5-mean)/std after normalisation."""
-        from pipeline.edge_inference import _preprocess_image
+        from pipeline.training.edge_inference import _preprocess_image
         # Solid grey (128, 128, 128) ≈ 0.502 in [0,1]
         img = Image.new("RGB", (256, 256), color=(128, 128, 128))
         out = _preprocess_image(img, image_size=224)
@@ -116,13 +116,13 @@ class TestPreprocessImage(unittest.TestCase):
         self.assertAlmostEqual(actual_c0, expected_c0, places=2)
 
     def test_values_are_float32(self):
-        from pipeline.edge_inference import _preprocess_image
+        from pipeline.training.edge_inference import _preprocess_image
         img = _make_rgb_image(128)
         out = _preprocess_image(img, image_size=224)
         self.assertEqual(out.dtype, np.float32)
 
     def test_custom_image_size(self):
-        from pipeline.edge_inference import _preprocess_image
+        from pipeline.training.edge_inference import _preprocess_image
         img = _make_rgb_image(512)
         out = _preprocess_image(img, image_size=112)
         self.assertEqual(out.shape, (1, 3, 112, 112))
@@ -159,7 +159,7 @@ class TestBuildGallery(unittest.TestCase):
         return _FakeBackbone(self.embed_dim)
 
     def test_npz_has_correct_keys(self):
-        from pipeline.edge_inference import build_gallery
+        from pipeline.training.edge_inference import build_gallery
         labels_map, _ = _make_gallery_npz(self.tmp)
         out = os.path.join(self.tmp, "gallery.npz")
         backbone = self._fake_backbone()
@@ -170,7 +170,7 @@ class TestBuildGallery(unittest.TestCase):
         self.assertIn("label_names", data)
 
     def test_embeddings_shape(self):
-        from pipeline.edge_inference import build_gallery
+        from pipeline.training.edge_inference import build_gallery
         labels_map, _ = _make_gallery_npz(self.tmp)
         out = os.path.join(self.tmp, "gallery.npz")
         total_frames = sum(len(v) for v in labels_map.values())  # 4
@@ -181,7 +181,7 @@ class TestBuildGallery(unittest.TestCase):
         self.assertEqual(data["embeddings"].shape[1], self.embed_dim)
 
     def test_labels_array_length(self):
-        from pipeline.edge_inference import build_gallery
+        from pipeline.training.edge_inference import build_gallery
         labels_map, _ = _make_gallery_npz(self.tmp)
         out = os.path.join(self.tmp, "gallery.npz")
         total_frames = sum(len(v) for v in labels_map.values())
@@ -192,7 +192,7 @@ class TestBuildGallery(unittest.TestCase):
 
     def test_labels_repeat_correctly(self):
         """Each frame for a label should have that label in the labels array."""
-        from pipeline.edge_inference import build_gallery
+        from pipeline.training.edge_inference import build_gallery
         labels_map, _ = _make_gallery_npz(self.tmp)
         out = os.path.join(self.tmp, "gallery.npz")
         backbone = self._fake_backbone()
@@ -206,7 +206,7 @@ class TestBuildGallery(unittest.TestCase):
             self.assertEqual(actual_count, expected_count, f"label={label}")
 
     def test_label_names_sorted(self):
-        from pipeline.edge_inference import build_gallery
+        from pipeline.training.edge_inference import build_gallery
         labels_map, _ = _make_gallery_npz(self.tmp)
         out = os.path.join(self.tmp, "gallery.npz")
         backbone = self._fake_backbone()
@@ -217,7 +217,7 @@ class TestBuildGallery(unittest.TestCase):
         self.assertEqual(actual, expected)
 
     def test_embeddings_are_l2_normalised(self):
-        from pipeline.edge_inference import build_gallery
+        from pipeline.training.edge_inference import build_gallery
         labels_map, _ = _make_gallery_npz(self.tmp)
         out = os.path.join(self.tmp, "gallery.npz")
         backbone = self._fake_backbone()
@@ -227,14 +227,14 @@ class TestBuildGallery(unittest.TestCase):
         np.testing.assert_allclose(norms, np.ones(len(norms)), atol=1e-5)
 
     def test_raises_on_empty_labels_map(self):
-        from pipeline.edge_inference import build_gallery
+        from pipeline.training.edge_inference import build_gallery
         out = os.path.join(self.tmp, "empty.npz")
         backbone = self._fake_backbone()
         with self.assertRaises(ValueError):
             build_gallery(labels_map={}, output_path=out, backbone=backbone)
 
     def test_raises_on_missing_frame(self):
-        from pipeline.edge_inference import build_gallery
+        from pipeline.training.edge_inference import build_gallery
         labels_map = {"vehicle": ["/nonexistent/path/frame.jpg"]}
         out = os.path.join(self.tmp, "missing.npz")
         backbone = self._fake_backbone()
@@ -242,7 +242,7 @@ class TestBuildGallery(unittest.TestCase):
             build_gallery(labels_map=labels_map, output_path=out, backbone=backbone)
 
     def test_single_label_single_frame(self):
-        from pipeline.edge_inference import build_gallery
+        from pipeline.training.edge_inference import build_gallery
         p = os.path.join(self.tmp, "frames", "cat", "frame_000.jpg")
         _make_rgb_jpg(p)
         labels_map = {"cat": [p]}
@@ -320,7 +320,7 @@ class TestEdgeClassifier(unittest.TestCase):
         ort_mock.InferenceSession.return_value = mock_session
 
         with patch.dict("sys.modules", {"onnxruntime": ort_mock}):
-            from pipeline.edge_inference import EdgeClassifier
+            from pipeline.training.edge_inference import EdgeClassifier
             clf = EdgeClassifier(
                 onnx_path="fake.onnx",
                 gallery_path=self.gallery_path,
@@ -377,7 +377,7 @@ class TestEdgeClassifier(unittest.TestCase):
         ort_mock.InferenceSession.return_value = mock_session
 
         with patch.dict("sys.modules", {"onnxruntime": ort_mock}):
-            from pipeline.edge_inference import EdgeClassifier
+            from pipeline.training.edge_inference import EdgeClassifier
             clf = EdgeClassifier("fake.onnx", gallery_path, top_k=1)
 
         img = _make_rgb_image()
@@ -410,7 +410,7 @@ class TestEdgeClassifier(unittest.TestCase):
 
         try:
             with patch.dict("sys.modules", {"onnxruntime": None}):
-                from pipeline.edge_inference import EdgeClassifier
+                from pipeline.training.edge_inference import EdgeClassifier
                 with self.assertRaises(ImportError):
                     EdgeClassifier("fake.onnx", self.gallery_path)
         finally:
@@ -450,13 +450,13 @@ class TestEdgeClassifierFromTorch(unittest.TestCase):
         return _FakeBackbone(self.embed_dim)
 
     def test_from_torch_creates_classifier(self):
-        from pipeline.edge_inference import EdgeClassifier
+        from pipeline.training.edge_inference import EdgeClassifier
         backbone = self._fake_backbone()
         clf = EdgeClassifier.from_torch(backbone, self.gallery_path, top_k=2)
         self.assertIsNotNone(clf)
 
     def test_from_torch_classify_returns_tuples(self):
-        from pipeline.edge_inference import EdgeClassifier
+        from pipeline.training.edge_inference import EdgeClassifier
         backbone = self._fake_backbone()
         clf = EdgeClassifier.from_torch(backbone, self.gallery_path, top_k=2)
         img = _make_rgb_image()
@@ -468,7 +468,7 @@ class TestEdgeClassifierFromTorch(unittest.TestCase):
             self.assertIsInstance(item[1], float)
 
     def test_from_torch_embed_shape(self):
-        from pipeline.edge_inference import EdgeClassifier
+        from pipeline.training.edge_inference import EdgeClassifier
         backbone = self._fake_backbone()
         clf = EdgeClassifier.from_torch(backbone, self.gallery_path)
         img = _make_rgb_image()
@@ -476,7 +476,7 @@ class TestEdgeClassifierFromTorch(unittest.TestCase):
         self.assertEqual(emb.shape, (self.embed_dim,))
 
     def test_from_torch_embed_is_normalised(self):
-        from pipeline.edge_inference import EdgeClassifier
+        from pipeline.training.edge_inference import EdgeClassifier
         backbone = self._fake_backbone()
         clf = EdgeClassifier.from_torch(backbone, self.gallery_path)
         img = _make_rgb_image()
@@ -486,7 +486,7 @@ class TestEdgeClassifierFromTorch(unittest.TestCase):
 
     def test_from_torch_no_onnx_file_needed(self):
         """from_torch must not require an ONNX file to exist."""
-        from pipeline.edge_inference import EdgeClassifier
+        from pipeline.training.edge_inference import EdgeClassifier
         backbone = self._fake_backbone()
         # Pass a non-existent ONNX path — should not be opened
         clf = EdgeClassifier.from_torch(
@@ -537,7 +537,7 @@ class TestBuildGalleryIntegration(unittest.TestCase):
     def test_exact_gallery_frame_scores_near_one(self):
         """Classifying a gallery image should return that image's label with high score."""
         import torch
-        from pipeline.edge_inference import EdgeClassifier, build_gallery
+        from pipeline.training.edge_inference import EdgeClassifier, build_gallery
 
         colors = {
             "vehicle": (220, 80, 30),
@@ -571,7 +571,7 @@ class TestBuildGalleryIntegration(unittest.TestCase):
 
     def test_npz_loadable_by_edge_classifier_from_torch(self):
         """NPZ saved by build_gallery must be loadable by EdgeClassifier.from_torch."""
-        from pipeline.edge_inference import EdgeClassifier, build_gallery
+        from pipeline.training.edge_inference import EdgeClassifier, build_gallery
 
         p1 = os.path.join(self.tmp, "frames", "cat", "frame_000.jpg")
         p2 = os.path.join(self.tmp, "frames", "dog", "frame_000.jpg")

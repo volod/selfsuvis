@@ -7,10 +7,8 @@
 4. Run text query (e.g. "green field")
 5. Run image query with a reference crop
 
-## CLI flow (index + query)
-```bash
-./scripts/sample_requests.sh /path/to/video.mp4 /path/to/image.jpg
-```
+## CLI flow
+Use the retained helpers from [`docs/helpers.md`](./helpers.md) to precheck and index local paths or URLs from the command line.
 
 ## Directory precheck + enqueue
 ```bash

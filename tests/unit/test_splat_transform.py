@@ -51,7 +51,7 @@ def _rotation_y_4x4(angle_deg: float):
 
 class TestRotToQuat:
     def test_identity_gives_w1(self):
-        from pipeline.splat_io import _rot_matrix_to_quat_wxyz
+        from pipeline.mapping.splat_io import _rot_matrix_to_quat_wxyz
         R = np.eye(3)
         q = _rot_matrix_to_quat_wxyz(R)
         assert abs(q[0] - 1.0) < 1e-5   # w ≈ 1
@@ -60,7 +60,7 @@ class TestRotToQuat:
         assert abs(q[3]) < 1e-5
 
     def test_unit_norm(self):
-        from pipeline.splat_io import _rot_matrix_to_quat_wxyz
+        from pipeline.mapping.splat_io import _rot_matrix_to_quat_wxyz
         for angle in [0, 30, 90, 180, 270]:
             a = math.radians(angle)
             R = np.array([[math.cos(a), -math.sin(a), 0],
@@ -70,7 +70,7 @@ class TestRotToQuat:
             assert abs(np.linalg.norm(q) - 1.0) < 1e-5
 
     def test_180_degree_rotation_around_z(self):
-        from pipeline.splat_io import _rot_matrix_to_quat_wxyz
+        from pipeline.mapping.splat_io import _rot_matrix_to_quat_wxyz
         R = np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]], dtype=np.float64)
         q = _rot_matrix_to_quat_wxyz(R)
         # 180° around Z: w≈0, z≈1 (or -1)
@@ -82,21 +82,21 @@ class TestRotToQuat:
 
 class TestQuatMultiply:
     def test_identity_times_identity(self):
-        from pipeline.splat_io import _quat_multiply_wxyz
+        from pipeline.mapping.splat_io import _quat_multiply_wxyz
         q_id = np.array([1, 0, 0, 0], dtype=np.float32)
         q_batch = np.array([[1, 0, 0, 0], [1, 0, 0, 0]], dtype=np.float32)
         result = _quat_multiply_wxyz(q_id, q_batch)
         np.testing.assert_allclose(result, q_batch, atol=1e-6)
 
     def test_identity_times_arbitrary(self):
-        from pipeline.splat_io import _quat_multiply_wxyz
+        from pipeline.mapping.splat_io import _quat_multiply_wxyz
         q_id = np.array([1, 0, 0, 0], dtype=np.float32)
         q = np.array([[0.5, 0.5, 0.5, 0.5]], dtype=np.float32)
         result = _quat_multiply_wxyz(q_id, q)
         np.testing.assert_allclose(result, q, atol=1e-6)
 
     def test_result_unit_norm(self):
-        from pipeline.splat_io import _quat_multiply_wxyz
+        from pipeline.mapping.splat_io import _quat_multiply_wxyz
         rng = np.random.default_rng(42)
         q1 = rng.standard_normal(4).astype(np.float32)
         q1 /= np.linalg.norm(q1)
@@ -109,7 +109,7 @@ class TestQuatMultiply:
 
     def test_180_twice_is_identity(self):
         """Rotating 180° around Z twice should give identity."""
-        from pipeline.splat_io import _rot_matrix_to_quat_wxyz, _quat_multiply_wxyz
+        from pipeline.mapping.splat_io import _rot_matrix_to_quat_wxyz, _quat_multiply_wxyz
         R_180z = np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]], dtype=np.float64)
         q_180 = _rot_matrix_to_quat_wxyz(R_180z)
         q_id = np.array([[1, 0, 0, 0]], dtype=np.float32)
@@ -125,7 +125,7 @@ class TestQuatMultiply:
 
 class TestApplyTransform:
     def test_identity_transform_leaves_positions_unchanged(self):
-        from pipeline.splat_io import apply_transform_to_splat, splat_positions
+        from pipeline.mapping.splat_io import apply_transform_to_splat, splat_positions
         src = str(_ASSETS / "scene_a.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -138,7 +138,7 @@ class TestApplyTransform:
             os.unlink(out)
 
     def test_pure_translation_shifts_positions(self):
-        from pipeline.splat_io import apply_transform_to_splat, splat_positions
+        from pipeline.mapping.splat_io import apply_transform_to_splat, splat_positions
         src = str(_ASSETS / "scene_a.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -155,7 +155,7 @@ class TestApplyTransform:
             os.unlink(out)
 
     def test_returns_gaussian_count(self):
-        from pipeline.splat_io import apply_transform_to_splat, splat_count
+        from pipeline.mapping.splat_io import apply_transform_to_splat, splat_count
         src = str(_ASSETS / "scene_a.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -166,7 +166,7 @@ class TestApplyTransform:
             os.unlink(out)
 
     def test_rotation_rotates_positions(self):
-        from pipeline.splat_io import apply_transform_to_splat, splat_positions
+        from pipeline.mapping.splat_io import apply_transform_to_splat, splat_positions
         src = str(_ASSETS / "scene_a.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -183,7 +183,7 @@ class TestApplyTransform:
             os.unlink(out)
 
     def test_rotation_updates_quaternions(self):
-        from pipeline.splat_io import apply_transform_to_splat, read_splat
+        from pipeline.mapping.splat_io import apply_transform_to_splat, read_splat
         src = str(_ASSETS / "scene_a.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -205,7 +205,7 @@ class TestApplyTransform:
             os.unlink(out)
 
     def test_opacity_and_scales_unchanged(self):
-        from pipeline.splat_io import apply_transform_to_splat, read_splat
+        from pipeline.mapping.splat_io import apply_transform_to_splat, read_splat
         src = str(_ASSETS / "scene_a.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -222,7 +222,7 @@ class TestApplyTransform:
             os.unlink(out)
 
     def test_sh_dc_unchanged(self):
-        from pipeline.splat_io import apply_transform_to_splat, read_splat
+        from pipeline.mapping.splat_io import apply_transform_to_splat, read_splat
         src = str(_ASSETS / "scene_a.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -238,7 +238,7 @@ class TestApplyTransform:
 
     def test_double_transform_is_additive(self):
         """Applying T1 then T2 should equal applying T1@T2 directly."""
-        from pipeline.splat_io import apply_transform_to_splat, splat_positions
+        from pipeline.mapping.splat_io import apply_transform_to_splat, splat_positions
         src = str(_ASSETS / "scene_a.ply")
         with (tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f1,
               tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f2,
@@ -264,12 +264,12 @@ class TestApplyTransform:
                     pass
 
     def test_missing_source_raises(self):
-        from pipeline.splat_io import apply_transform_to_splat
+        from pipeline.mapping.splat_io import apply_transform_to_splat
         with pytest.raises(FileNotFoundError):
             apply_transform_to_splat("/nonexistent/source.ply", _identity_4x4(), "/tmp/out.ply")
 
     def test_output_is_valid_splat(self):
-        from pipeline.splat_io import apply_transform_to_splat, is_splat_ply
+        from pipeline.mapping.splat_io import apply_transform_to_splat, is_splat_ply
         src = str(_ASSETS / "scene_a.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -284,7 +284,7 @@ class TestApplyTransform:
 
 class TestMergeSplats:
     def test_merged_count_is_sum(self):
-        from pipeline.splat_io import merge_splats, splat_count
+        from pipeline.mapping.splat_io import merge_splats, splat_count
         a = str(_ASSETS / "scene_a.ply")
         b = str(_ASSETS / "scene_b.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
@@ -296,7 +296,7 @@ class TestMergeSplats:
             os.unlink(out)
 
     def test_single_path_roundtrip(self):
-        from pipeline.splat_io import merge_splats, splat_count
+        from pipeline.mapping.splat_io import merge_splats, splat_count
         a = str(_ASSETS / "scene_a.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -307,7 +307,7 @@ class TestMergeSplats:
             os.unlink(out)
 
     def test_three_way_merge(self):
-        from pipeline.splat_io import merge_splats, splat_count
+        from pipeline.mapping.splat_io import merge_splats, splat_count
         paths = [str(_ASSETS / f"scene_{s}.ply") for s in ["a", "b", "c"]]
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
             out = f.name
@@ -318,7 +318,7 @@ class TestMergeSplats:
             os.unlink(out)
 
     def test_positions_are_concatenated(self):
-        from pipeline.splat_io import merge_splats, read_splat, splat_positions
+        from pipeline.mapping.splat_io import merge_splats, read_splat, splat_positions
         a = str(_ASSETS / "scene_a.ply")
         b = str(_ASSETS / "scene_b.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
@@ -334,7 +334,7 @@ class TestMergeSplats:
             os.unlink(out)
 
     def test_merged_is_valid_splat(self):
-        from pipeline.splat_io import merge_splats, is_splat_ply
+        from pipeline.mapping.splat_io import merge_splats, is_splat_ply
         a = str(_ASSETS / "scene_a.ply")
         b = str(_ASSETS / "scene_b.ply")
         with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as f:
@@ -346,12 +346,12 @@ class TestMergeSplats:
             os.unlink(out)
 
     def test_empty_paths_raises(self):
-        from pipeline.splat_io import merge_splats
+        from pipeline.mapping.splat_io import merge_splats
         with pytest.raises(ValueError, match="empty"):
             merge_splats([], "/tmp/out.ply")
 
     def test_missing_path_raises(self):
-        from pipeline.splat_io import merge_splats
+        from pipeline.mapping.splat_io import merge_splats
         with pytest.raises(FileNotFoundError):
             merge_splats(["/nonexistent.ply"], "/tmp/out.ply")
 
@@ -360,8 +360,8 @@ class TestMergeSplats:
 
 class TestFuseSplatFiles:
     def test_produces_fused_ply_on_success(self):
-        from pipeline.mapper import _fuse_splat_files
-        from pipeline.splat_io import is_splat_ply, splat_count
+        from pipeline.mapping.mapper import _fuse_splat_files
+        from pipeline.mapping.splat_io import is_splat_ply, splat_count
         a = str(_ASSETS / "scene_a.ply")
         b = str(_ASSETS / "scene_b.ply")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -376,13 +376,13 @@ class TestFuseSplatFiles:
             assert splat_count(fused_path) == splat_count(a) + splat_count(b)
 
     def test_returns_none_on_bad_source(self):
-        from pipeline.mapper import _fuse_splat_files
+        from pipeline.mapping.mapper import _fuse_splat_files
         a = str(_ASSETS / "scene_a.ply")
         result = _fuse_splat_files("/nonexistent.ply", a, _identity_4x4(), "m1", "main")
         assert result is None
 
     def test_temp_file_cleaned_up(self):
-        from pipeline.mapper import _fuse_splat_files
+        from pipeline.mapping.mapper import _fuse_splat_files
         import shutil
         a = str(_ASSETS / "scene_a.ply")
         b = str(_ASSETS / "scene_b.ply")

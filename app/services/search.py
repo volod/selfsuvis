@@ -7,7 +7,7 @@ from PIL import Image
 from qdrant_client.http import models as qmodels
 
 from app.state import dino_model, store
-from pipeline.config import settings
+from pipeline.core import settings
 
 logger = logging.getLogger(__name__)
 

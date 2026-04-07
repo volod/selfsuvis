@@ -20,7 +20,7 @@ _HAS_CUDA = torch.cuda.is_available()
 
 def test_compute_confidences_basic():
     """Mean token probability is computed correctly for a 1-sequence, 2-step case."""
-    from pipeline.florence_model import _compute_confidences
+    from pipeline.vision.florence import _compute_confidences
 
     # batch=1, vocab=10, 2 steps
     step0 = torch.zeros(1, 10)
@@ -39,7 +39,7 @@ def test_compute_confidences_basic():
 
 def test_compute_confidences_empty_scores():
     """Falls back to 0.5 when scores tuple is empty."""
-    from pipeline.florence_model import _compute_confidences
+    from pipeline.vision.florence import _compute_confidences
 
     generated_ids = torch.tensor([[3, 5]])
     confs = _compute_confidences((), generated_ids)
@@ -48,7 +48,7 @@ def test_compute_confidences_empty_scores():
 
 def test_compute_confidences_none_scores():
     """Falls back to 0.5 when scores is None."""
-    from pipeline.florence_model import _compute_confidences
+    from pipeline.vision.florence import _compute_confidences
 
     generated_ids = torch.tensor([[3, 5]])
     confs = _compute_confidences(None, generated_ids)
@@ -57,7 +57,7 @@ def test_compute_confidences_none_scores():
 
 def test_compute_confidences_empty_sequence():
     """Falls back to 0.5 when generated_ids has seq_len=0."""
-    from pipeline.florence_model import _compute_confidences
+    from pipeline.vision.florence import _compute_confidences
 
     step0 = torch.zeros(1, 10)
     step0[0, 3] = 10.0
@@ -69,7 +69,7 @@ def test_compute_confidences_empty_sequence():
 
 def test_compute_confidences_clamped():
     """Result is always in [0.0, 1.0] even with unusual inputs."""
-    from pipeline.florence_model import _compute_confidences
+    from pipeline.vision.florence import _compute_confidences
 
     # Uniform logits → softmax probability = 1/vocab ≈ 0.1 for vocab=10
     step0 = torch.zeros(1, 10)
@@ -81,7 +81,7 @@ def test_compute_confidences_clamped():
 
 def test_compute_confidences_batch():
     """Handles batch_size > 1 correctly."""
-    from pipeline.florence_model import _compute_confidences
+    from pipeline.vision.florence import _compute_confidences
 
     # batch=2, vocab=10, 1 step
     step0 = torch.zeros(2, 10)
@@ -98,7 +98,7 @@ def test_compute_confidences_batch():
 
 def test_compute_confidences_padding_skipped():
     """Token id=1 (padding/EOS) is skipped; count stays 0 → falls back to 0.5."""
-    from pipeline.florence_model import _compute_confidences
+    from pipeline.vision.florence import _compute_confidences
 
     step0 = torch.zeros(1, 10)
     step0[0, 1] = 10.0   # token 1 = padding — should be skipped
@@ -117,7 +117,7 @@ def test_compute_confidences_padding_skipped():
 def test_caption_batch_returns_correct_length():
     """caption_batch returns exactly one result per input image."""
     from PIL import Image
-    from pipeline.florence_model import FlorenceModel
+    from pipeline.vision.florence import FlorenceModel
 
     model = FlorenceModel()
     images = [Image.new("RGB", (224, 224))] * 3
@@ -131,7 +131,7 @@ def test_caption_batch_returns_correct_length():
 def test_caption_batch_confidence_is_float_in_range():
     """confidence is a float in [0.0, 1.0] — validates output_scores wiring."""
     from PIL import Image
-    from pipeline.florence_model import FlorenceModel
+    from pipeline.vision.florence import FlorenceModel
 
     model = FlorenceModel()
     images = [Image.new("RGB", (32, 32))]
@@ -148,7 +148,7 @@ def test_caption_batch_confidence_is_float_in_range():
 @pytest.mark.skipif(not _HAS_CUDA, reason="CUDA GPU required for Florence-2 inference")
 def test_caption_batch_empty_input():
     """Empty input list returns empty output."""
-    from pipeline.florence_model import FlorenceModel
+    from pipeline.vision.florence import FlorenceModel
 
     model = FlorenceModel()
     results = model.caption_batch([])
@@ -160,7 +160,7 @@ def test_caption_batch_empty_input():
 def test_caption_batch_caption_non_null():
     """Non-empty image produces a non-NULL caption (may be empty string but not None)."""
     from PIL import Image
-    from pipeline.florence_model import FlorenceModel
+    from pipeline.vision.florence import FlorenceModel
 
     model = FlorenceModel()
     # Use a random noise image — more interesting than solid black
@@ -180,7 +180,7 @@ def test_caption_batch_caption_non_null():
 @pytest.mark.skipif(not _HAS_CUDA, reason="CUDA GPU required for Florence-2 inference")
 def test_model_tag():
     """model_tag has the structured provenance format model:version:precision."""
-    from pipeline.florence_model import FlorenceModel
+    from pipeline.vision.florence import FlorenceModel
 
     model = FlorenceModel()
     tag = model.model_tag

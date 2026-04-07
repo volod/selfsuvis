@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.rtsp_ingest import validate_rtsp_url, record_rtsp
+from pipeline.media.rtsp_ingest import validate_rtsp_url, record_rtsp
 
 
 # ── validate_rtsp_url ─────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ def test_loopback_ip_rejected():
 
 
 def test_private_ip_allowed_with_flag(monkeypatch):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "ALLOW_PRIVATE_URLS", True)
     with patch("pipeline.rtsp_ingest.socket.getaddrinfo") as mock_dns:
         mock_dns.return_value = [(None, None, None, None, ("192.168.1.100", 0))]
@@ -101,7 +101,7 @@ def test_record_rtsp_no_duration_omits_t_flag(mock_run):
 
 @patch("pipeline.rtsp_ingest.subprocess.run")
 def test_record_rtsp_caps_duration_at_max(mock_run, monkeypatch):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "RTSP_MAX_DURATION_SEC", 300)
     record_rtsp("rtsp://cam/stream", "/tmp/out.mp4", duration_sec=9999)
     cmd = mock_run.call_args[0][0]

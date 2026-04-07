@@ -4,10 +4,9 @@ from PIL import Image
 
 from models.dino_model import DINOEmbedder
 from models.openclip_model import OpenCLIPEmbedder
-from pipeline.config import get_dino_model_name, settings, validate_settings
-from pipeline.logging_utils import get_logger
-from pipeline.processed_db import init_db as init_processed_db
-from pipeline.qdrant_utils import QdrantStore
+from pipeline.core import get_dino_model_name, get_logger, settings, validate_settings
+from pipeline.storage.processed import init_db as init_processed_db
+from pipeline.storage import QdrantStore
 
 logger = get_logger(__name__)
 

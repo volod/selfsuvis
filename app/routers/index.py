@@ -11,12 +11,10 @@ from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
 from app.services.upload_utils import hash_upload_limited, write_upload_to_path
 from app.state import logger
-from pipeline.config import settings
-
-from pipeline.net_utils import safe_request, validate_url
-from pipeline.processed_db import aget_by_hash, aget_by_size, aget_by_url
-from pipeline.utils import ensure_dir, file_sha256, resolve_allowed_path
-from pipeline.job_db_pg import create_job
+from pipeline.core import ensure_dir, file_sha256, resolve_allowed_path, settings
+from pipeline.media import safe_request, validate_url
+from pipeline.storage.processed import aget_by_hash, aget_by_size, aget_by_url
+from pipeline.storage import create_job
 
 router = APIRouter(tags=["index"], dependencies=[Depends(require_api_key), Depends(rate_limit)])
 
@@ -237,7 +235,7 @@ async def index_rtsp(
     - duration_sec: Record at most this many seconds (capped at RTSP_MAX_DURATION_SEC)
     - enable_tiles: Whether to extract and index tiles (default true)
     """
-    from pipeline.rtsp_ingest import validate_rtsp_url
+    from pipeline.media.rtsp_ingest import validate_rtsp_url
     try:
         validate_rtsp_url(stream_url)
     except ValueError as exc:

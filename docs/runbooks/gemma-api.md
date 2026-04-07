@@ -83,22 +83,15 @@ docker logs --tail=50 vllm | grep "Model loaded"
 
 ## 4. Quality validation procedure
 
-Run the existing validation script against the Gemma endpoint:
+Validate the Gemma endpoint with a representative frame sample from a recent mission:
 
 ```bash
-QWEN_API_URL=http://localhost:11434/v1 \
-QWEN_MODEL=gemma4:e4b \
-python scripts/validate_qwen_serving.py \
-    --frames-dir data/frames/<mission_id> \
-    --count 50
-
-# Exit codes:
-#   0 — all targets met (JSON validity ≥ 0.82, vehicle accuracy ≥ 0.70, p95 ≤ 30s)
-#   1 — one or more targets missed
-#   2 — service unreachable
+curl -s -H "Content-Type: application/json" \
+  -d '{"text":"describe vehicles and road condition"}' \
+  http://localhost:8000/query/text?top_k=5&search_type=frame
 ```
 
-**Gate (from TODOS.md):** JSON validity ≥ 0.82 AND vehicle count accuracy ≥ 0.70 across ≥50 frames.
+Use API logs and sampled outputs to verify response quality, latency, and schema stability before switching production traffic.
 
 If gate fails:
 1. Try a larger quantization level: `ollama pull gemma4:12b` and re-run validation.
@@ -138,7 +131,7 @@ INFO  Florence captioning pass: 247 frames (batch_size=16)
 
 The current chunk retry (1 retry, 50s timeout) is appropriate for <10% timeout rates.
 
-**If timeout rate exceeds 10%** (monitor with `scripts/validate_qwen_serving.py` p95 latency):
+**If timeout rate exceeds 10%** based on API logs or user-facing request timings:
 
 1. **Reduce `GEMMA_CAPTION_CHUNK_SIZE`** from 3 → 1 to serialize image encoding load.
 2. **Increase `GEMMA_API_TIMEOUT_SEC`** to 90 or 120.

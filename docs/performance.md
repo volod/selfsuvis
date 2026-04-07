@@ -1,70 +1,56 @@
-# Performance Tuning
+# Performance
 
-## GPU memory
-- Use `USE_FP16=true` (default)
-- Reduce OpenCLIP model size (e.g., `ViT-B-16`)
-- Reduce batch sizes if you see OOM
+## Primary throughput controls
 
-## Throughput knobs
-- `SAMPLE_FPS_BASE`, `SAMPLE_FPS_MAX` lower for fewer frames
-- `MAX_TILES_PER_SEGMENT` lower for fewer tiles
-- `TILE_SIZE` bigger for fewer tiles
-- `STRIDE` bigger to reduce overlap
+- Lower `SAMPLE_FPS_MAX` and `SAMPLE_FPS_BASE` to decode fewer frames
+- Increase `HIST_THRESH` and `EMBED_DRIFT_THRESH` to keep fewer keyframes
+- Lower `MAX_TILES_PER_SEGMENT` to reduce tile extraction and embedding load
+- Increase `STRIDE` to reduce tile overlap
 
-## Quality vs speed
-- Lower `EMBED_DRIFT_THRESH` to keep more segments
-- Increase `HIST_THRESH` to keep fewer segments
+## Primary memory controls
 
-## Tuning recipes
+- Keep `USE_FP16=true` on CUDA
+- Lower `FLORENCE_BATCH_SIZE` if captioning hits OOM
+- Disable optional stages you do not need: `ASR_ENABLED`, `OCR_ENABLED`, `DEPTH_ENABLED`, `DETECTION_ENABLED`, `WORLD_MODEL_ENABLED`
+- Use smaller sidecar models for Qwen, Gemma, or reasoning when sharing a single GPU
 
-### Fast, lightweight indexing (large datasets)
-Goal: maximize throughput, lower storage.
-```
+## Retrieval-quality controls
+
+- Lower `EMBED_DRIFT_THRESH` to keep more frames
+- Lower `DEDUP_COS_SIM_THRESH` only if you need more near-duplicate tiles retained
+- Switch `MODEL_NAME` to `dinov3` when you want DINO vectors and active-learning scoring
+
+## Example profiles
+
+### Lightweight indexing
+
+```bash
 SAMPLE_FPS_BASE=1
 SAMPLE_FPS_MAX=2
 MAX_GAP_SEC=15
-HIST_THRESH=0.35
-EMBED_DRIFT_THRESH=0.25
 MAX_TILES_PER_SEGMENT=80
 STRIDE=320
-TILE_SIZE=384
-DEDUP_COS_SIM_THRESH=0.97
 ```
 
-### Balanced (default-ish)
-Goal: good coverage without exploding tiles.
-```
+### Balanced default
+
+```bash
 SAMPLE_FPS_BASE=2
 SAMPLE_FPS_MAX=5
-MAX_GAP_SEC=10
 HIST_THRESH=0.25
 EMBED_DRIFT_THRESH=0.15
 MAX_TILES_PER_SEGMENT=200
-STRIDE=256
-TILE_SIZE=384
-DEDUP_COS_SIM_THRESH=0.95
 ```
 
-### High recall (small dataset, best match quality)
-Goal: more segments and tiles for better recall.
-```
+### Higher recall
+
+```bash
 SAMPLE_FPS_BASE=3
 SAMPLE_FPS_MAX=6
 MAX_GAP_SEC=6
-HIST_THRESH=0.18
 EMBED_DRIFT_THRESH=0.10
 MAX_TILES_PER_SEGMENT=300
 STRIDE=192
-TILE_SIZE=320
-DEDUP_COS_SIM_THRESH=0.93
-```
-
-### Strong dedup for repetitive flight video
-Goal: reduce near-duplicate tiles in long smooth flights.
-```
-DEDUP_COS_SIM_THRESH=0.97
-PHASH_HAMMING_MAX=4
-CELL_WINDOW_SEC=8
 ```
 
 ---

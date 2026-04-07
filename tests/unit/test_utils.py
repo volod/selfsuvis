@@ -4,8 +4,8 @@ import hashlib
 import tempfile
 from pathlib import Path
 
-from pipeline import config
-from pipeline.utils import (
+from pipeline.core import config
+from pipeline.core.utils import (
     RateTimer,
     clamp,
     file_sha256,

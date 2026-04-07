@@ -7,8 +7,8 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
-from pipeline.config import settings
-from pipeline.logging_utils import get_logger
+from pipeline.core.config import settings
+from pipeline.core.logging import get_logger
 
 # ---------------------------------------------------------------------------
 # Hub constants — shared by all DINO loaders in this codebase.

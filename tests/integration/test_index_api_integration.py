@@ -49,7 +49,7 @@ def client(tmp_path, monkeypatch):
     app.include_router(router)
 
     # Point VIDEOS_DIR at tmp_path so uploads land somewhere writable
-    import pipeline.config as cfg
+    import pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "VIDEOS_DIR", str(tmp_path))
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(tmp_path))
     monkeypatch.setattr(cfg.settings, "MAX_UPLOAD_BYTES", 10 * 1024 * 1024)
@@ -205,7 +205,7 @@ def test_index_rtsp_mission_id_propagated(client):
 
 def test_index_dir_creates_one_job_per_video(client, tmp_path, monkeypatch):
     """Each video file in the allowed directory gets its own job."""
-    import pipeline.config as cfg
+    import pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(tmp_path))
 
     (tmp_path / "a.mp4").write_bytes(b"\x00" * 16)
@@ -231,7 +231,7 @@ def test_index_dir_creates_one_job_per_video(client, tmp_path, monkeypatch):
 
 def test_index_dir_disallowed_path_returns_403(client, tmp_path, monkeypatch, tmp_path_factory):
     """A path outside ALLOWED_INDEX_PATHS returns 403."""
-    import pipeline.config as cfg
+    import pipeline.core.config as cfg
     allowed = tmp_path_factory.mktemp("allowed")
     forbidden = tmp_path_factory.mktemp("forbidden")
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(allowed))
@@ -272,7 +272,7 @@ def test_precheck_new_file_returns_new(client, tmp_path):
 
 def test_precheck_dir_returns_status_per_file(client, tmp_path, monkeypatch):
     """precheck_dir scans the directory and returns one result per video."""
-    import pipeline.config as cfg
+    import pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(tmp_path))
 
     (tmp_path / "a.mp4").write_bytes(b"\x00" * 32)
@@ -292,7 +292,7 @@ def test_precheck_dir_returns_status_per_file(client, tmp_path, monkeypatch):
 
 def test_precheck_dir_enqueue_creates_jobs_for_new_files(client, tmp_path, monkeypatch):
     """precheck_dir with enqueue=true creates jobs for 'new' files."""
-    import pipeline.config as cfg
+    import pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(tmp_path))
 
     (tmp_path / "new_clip.mp4").write_bytes(b"\x22" * 32)

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 def test_resolve_explicit_model_id(monkeypatch):
     """When ASR_MODEL is a specific model ID, use it directly."""
-    from pipeline import asr_model
+    import pipeline.vision.asr as asr_model
     monkeypatch.setattr(asr_model.settings, "ASR_MODEL", "openai/whisper-small")
     result = asr_model._resolve_model_id()
     assert result == "openai/whisper-small"
@@ -15,7 +15,7 @@ def test_resolve_explicit_model_id(monkeypatch):
 
 def test_resolve_auto_delegates_to_registry(monkeypatch):
     """When ASR_MODEL='auto', should call auto_select and return its result."""
-    from pipeline import asr_model
+    import pipeline.vision.asr as asr_model
     monkeypatch.setattr(asr_model.settings, "ASR_MODEL", "auto")
     with patch.object(asr_model, "auto_select", return_value="openai/whisper-medium") as mock_sel, \
          patch.object(asr_model, "detect_resources", return_value={"vram_gb": 8.0, "ram_gb": 32.0}):
@@ -26,7 +26,7 @@ def test_resolve_auto_delegates_to_registry(monkeypatch):
 
 def test_resolve_auto_fallback_when_registry_returns_none(monkeypatch):
     """If auto_select returns None, fall back to whisper-large-v3-turbo."""
-    from pipeline import asr_model
+    import pipeline.vision.asr as asr_model
     monkeypatch.setattr(asr_model.settings, "ASR_MODEL", "auto")
     with patch.object(asr_model, "auto_select", return_value=None), \
          patch.object(asr_model, "detect_resources", return_value={"vram_gb": 0.0, "ram_gb": 8.0}):
@@ -36,7 +36,7 @@ def test_resolve_auto_fallback_when_registry_returns_none(monkeypatch):
 
 def test_resolve_empty_string_treated_as_auto(monkeypatch):
     """Empty ASR_MODEL string should delegate to auto_select (not empty string)."""
-    from pipeline import asr_model
+    import pipeline.vision.asr as asr_model
     monkeypatch.setattr(asr_model.settings, "ASR_MODEL", "")
     with patch.object(asr_model, "auto_select", return_value="openai/whisper-tiny") as mock_sel, \
          patch.object(asr_model, "detect_resources", return_value={"vram_gb": 2.0, "ram_gb": 16.0}):
@@ -48,15 +48,15 @@ def test_resolve_empty_string_treated_as_auto(monkeypatch):
 # ── ASRModel.is_enabled ───────────────────────────────────────────────────────
 
 def test_is_enabled_when_setting_true(monkeypatch):
-    from pipeline.asr_model import ASRModel
-    from pipeline import asr_model
+    from pipeline.vision.asr import ASRModel
+    import pipeline.vision.asr as asr_model
     monkeypatch.setattr(asr_model.settings, "ASR_ENABLED", True)
     assert ASRModel().is_enabled() is True
 
 
 def test_is_enabled_when_setting_false(monkeypatch):
-    from pipeline.asr_model import ASRModel
-    from pipeline import asr_model
+    from pipeline.vision.asr import ASRModel
+    import pipeline.vision.asr as asr_model
     monkeypatch.setattr(asr_model.settings, "ASR_ENABLED", False)
     assert ASRModel().is_enabled() is False
 
@@ -64,8 +64,8 @@ def test_is_enabled_when_setting_false(monkeypatch):
 # ── ASRModel.transcribe — disabled path ───────────────────────────────────────
 
 def test_transcribe_returns_empty_when_disabled(monkeypatch):
-    from pipeline.asr_model import ASRModel
-    from pipeline import asr_model
+    from pipeline.vision.asr import ASRModel
+    import pipeline.vision.asr as asr_model
     monkeypatch.setattr(asr_model.settings, "ASR_ENABLED", False)
     model = ASRModel()
     result = model.transcribe("/fake/path.wav")
@@ -75,8 +75,8 @@ def test_transcribe_returns_empty_when_disabled(monkeypatch):
 # ── ASRModel.transcribe — enabled, mocked pipeline ───────────────────────────
 
 def test_transcribe_returns_chunks_from_pipe(monkeypatch):
-    from pipeline.asr_model import ASRModel
-    from pipeline import asr_model
+    from pipeline.vision.asr import ASRModel
+    import pipeline.vision.asr as asr_model
 
     monkeypatch.setattr(asr_model.settings, "ASR_ENABLED", True)
     monkeypatch.setattr(asr_model.settings, "ASR_MODEL", "openai/whisper-tiny")
@@ -102,8 +102,8 @@ def test_transcribe_returns_chunks_from_pipe(monkeypatch):
 
 
 def test_transcribe_returns_empty_on_pipe_exception(monkeypatch):
-    from pipeline.asr_model import ASRModel
-    from pipeline import asr_model
+    from pipeline.vision.asr import ASRModel
+    import pipeline.vision.asr as asr_model
 
     monkeypatch.setattr(asr_model.settings, "ASR_ENABLED", True)
 
@@ -117,8 +117,8 @@ def test_transcribe_returns_empty_on_pipe_exception(monkeypatch):
 
 
 def test_transcribe_passes_language_to_generate_kwargs(monkeypatch):
-    from pipeline.asr_model import ASRModel
-    from pipeline import asr_model
+    from pipeline.vision.asr import ASRModel
+    import pipeline.vision.asr as asr_model
 
     monkeypatch.setattr(asr_model.settings, "ASR_ENABLED", True)
     monkeypatch.setattr(asr_model.settings, "ASR_LANGUAGE", "uk")
@@ -136,8 +136,8 @@ def test_transcribe_passes_language_to_generate_kwargs(monkeypatch):
 
 
 def test_transcribe_no_language_when_empty(monkeypatch):
-    from pipeline.asr_model import ASRModel
-    from pipeline import asr_model
+    from pipeline.vision.asr import ASRModel
+    import pipeline.vision.asr as asr_model
 
     monkeypatch.setattr(asr_model.settings, "ASR_ENABLED", True)
     monkeypatch.setattr(asr_model.settings, "ASR_LANGUAGE", "")
@@ -151,14 +151,14 @@ def test_transcribe_no_language_when_empty(monkeypatch):
 
     model.transcribe("/fake/audio.wav")
     call_kwargs = fake_pipe.call_args.kwargs
-    assert call_kwargs.get("generate_kwargs") == {}
+    assert call_kwargs.get("generate_kwargs") == {"task": "transcribe"}
 
 
 # ── ASRModel.model_id property ────────────────────────────────────────────────
 
 def test_model_id_lazy_resolution(monkeypatch):
-    from pipeline.asr_model import ASRModel
-    from pipeline import asr_model
+    from pipeline.vision.asr import ASRModel
+    import pipeline.vision.asr as asr_model
 
     monkeypatch.setattr(asr_model.settings, "ASR_MODEL", "openai/whisper-base")
     model = ASRModel()
@@ -168,8 +168,8 @@ def test_model_id_lazy_resolution(monkeypatch):
 
 
 def test_model_id_resolved_only_once(monkeypatch):
-    from pipeline.asr_model import ASRModel
-    from pipeline import asr_model
+    from pipeline.vision.asr import ASRModel
+    import pipeline.vision.asr as asr_model
 
     monkeypatch.setattr(asr_model.settings, "ASR_MODEL", "openai/whisper-base")
     model = ASRModel()
@@ -182,7 +182,7 @@ def test_model_id_resolved_only_once(monkeypatch):
 
 def test_resolve_device_cpu_when_no_torch(monkeypatch):
     """When torch is missing (ImportError), should always return 'cpu'."""
-    from pipeline import asr_model
+    import pipeline.vision.asr as asr_model
     monkeypatch.setattr(asr_model.settings, "DEVICE", "auto")
 
     original_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
@@ -193,7 +193,7 @@ def test_resolve_device_cpu_when_no_torch(monkeypatch):
 
 
 def test_resolve_device_cpu_on_explicit_cpu_setting(monkeypatch):
-    from pipeline import asr_model
+    import pipeline.vision.asr as asr_model
     monkeypatch.setattr(asr_model.settings, "DEVICE", "cpu")
     result = asr_model._resolve_device()
     assert result == "cpu"

@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline import config
-from pipeline.net_utils import _is_ip_allowed, _peer_ip, safe_request, validate_url
+from pipeline.core import config
+from pipeline.media.network import _is_ip_allowed, _peer_ip, safe_request, validate_url
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ def test_validate_url_rejects_single_label_hostname(monkeypatch):
 
 def test_validate_url_rejects_private_ip(monkeypatch):
     monkeypatch.setattr(config.settings, "ALLOW_PRIVATE_URLS", False)
-    with patch("pipeline.net_utils._iter_resolved_ips", return_value=[ipaddress.ip_address("192.168.1.1")]):
+    with patch("pipeline.media.network._iter_resolved_ips", return_value=[ipaddress.ip_address("192.168.1.1")]):
         with pytest.raises(ValueError, match="not allowed"):
             validate_url("http://example.com/")
 
@@ -80,8 +80,8 @@ def test_post_connect_ip_validation_blocks_private_peer(monkeypatch):
 
     mock_resp = _make_mock_response()
 
-    with patch("pipeline.net_utils.validate_url"):
-        with patch("pipeline.net_utils._peer_ip", return_value=ipaddress.ip_address("192.168.1.1")):
+    with patch("pipeline.media.network.validate_url"):
+        with patch("pipeline.media.network._peer_ip", return_value=ipaddress.ip_address("192.168.1.1")):
             with patch("requests.Session.request", return_value=mock_resp):
                 with pytest.raises(ValueError, match="Post-connect IP validation failed"):
                     safe_request("GET", "http://example.com/", timeout=5)
@@ -94,8 +94,8 @@ def test_post_connect_ip_validation_passes_public_peer(monkeypatch):
 
     mock_resp = _make_mock_response()
 
-    with patch("pipeline.net_utils.validate_url"):
-        with patch("pipeline.net_utils._peer_ip", return_value=ipaddress.ip_address("8.8.8.8")):
+    with patch("pipeline.media.network.validate_url"):
+        with patch("pipeline.media.network._peer_ip", return_value=ipaddress.ip_address("8.8.8.8")):
             with patch("requests.Session.request", return_value=mock_resp):
                 result = safe_request("GET", "http://example.com/", timeout=5)
     assert result is mock_resp
@@ -108,8 +108,8 @@ def test_post_connect_ip_validation_skipped_when_peer_ip_unavailable(monkeypatch
 
     mock_resp = _make_mock_response()
 
-    with patch("pipeline.net_utils.validate_url"):
-        with patch("pipeline.net_utils._peer_ip", return_value=None):
+    with patch("pipeline.media.network.validate_url"):
+        with patch("pipeline.media.network._peer_ip", return_value=None):
             with patch("requests.Session.request", return_value=mock_resp):
                 result = safe_request("GET", "http://example.com/", timeout=5)
     assert result is mock_resp

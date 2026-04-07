@@ -43,11 +43,5 @@ make lint
 ```
 Runs `ruff check` and `ruff format --check`. Install ruff first (e.g. `pip install ruff`).
 
-## CLI test (end-to-end)
-```bash
-./scripts/test_cli.sh
-```
-Requires `make up` running; indexes test assets and runs queries.
-
 ---
 [← Licensing](licensing.md) | [README ↑](../README.md)

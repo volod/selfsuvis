@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pipeline.dedup import PhashLRU, dhash
+from pipeline.media.dedup import PhashLRU, dhash
 
 
 def test_dhash_deterministic():

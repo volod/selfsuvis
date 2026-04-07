@@ -2,8 +2,8 @@
 
 import pytest
 
-from pipeline import config
-from pipeline.utils import resolve_allowed_path, resolve_allowed_paths_for_walk
+from pipeline.core import config
+from pipeline.core.utils import resolve_allowed_path, resolve_allowed_paths_for_walk
 
 
 def test_resolve_allowed_path_must_be_file_rejects_dir(tmp_path, monkeypatch):

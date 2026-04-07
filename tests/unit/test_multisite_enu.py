@@ -44,7 +44,7 @@ _asyncpg_stub = _ensure_stub("asyncpg", connect=AsyncMock())
 
 # Import the REAL pipeline.global_map_db now (while asyncpg stub is in place)
 # so Groups A/B/C test the real code, not a stub.
-import pipeline.global_map_db as _real_global_map_db  # noqa: E402
+import pipeline.storage.global_maps as _real_global_map_db  # noqa: E402
 
 # Stub pipeline.indexer to avoid cv2 import (worker.main imports it)
 _indexer_stub = _make_stub("pipeline.indexer")

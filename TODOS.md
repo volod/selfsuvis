@@ -24,12 +24,12 @@ without requiring the Docker stack (except optional Qdrant for vector search).
 - Attempt Qdrant connection; on failure build `InMemoryStore` backed by numpy cosine search
 
 ### ✅ DONE — [DEMO-03] Per-video Step A: frame extraction + metadata JSON
-- Reuse `pipeline.ffmpeg_utils.extract_frames()`
+- Reuse `pipeline.media.ffmpeg.extract_frames()`
 - Write `{video_dir}/frames_metadata.json` with frame count, fps, duration
 - Log: extracted N frames in T seconds
 
 ### ✅ DONE — [DEMO-04] Per-video Step B: index frames into vector store
-- Reuse `pipeline.indexer.VideoIndexer.index_video()`; progress callback logs to console
+- Reuse `pipeline.workflows.indexer.VideoIndexer.index_video()`; progress callback logs to console
 - Graceful skip if Qdrant unavailable (embeddings stored in InMemoryStore for search steps)
 
 ### ✅ DONE — [DEMO-05] Per-video Step C: base model transformation test → `base_search.md`
@@ -39,7 +39,7 @@ without requiring the Docker stack (except optional Qdrant for vector search).
 - Do NOT overwrite if file already exists
 
 ### ✅ DONE — [DEMO-06] Per-video Step D: SSL DINOv3 fine-tuning → `finetune_stats.md`
-- Reuse `pipeline.ssl_finetune.FinetuneConfig` + `run_finetune()`
+- Reuse `pipeline.training.ssl.FinetuneConfig` + `run_finetune()`
 - `frames_dir = settings.FRAMES_DIR` (parent of per-video subdirs — TemporalPairDataset convention)
 - Fall back to `approach="augment"` when video has < 2*batch_size frames
 - Write `{video_dir}/finetune_stats.md` with loss curve, best epoch, checkpoint path
@@ -47,7 +47,7 @@ without requiring the Docker stack (except optional Qdrant for vector search).
 ### ✅ DONE — [DEMO-07] Per-video Step E: ONNX export + gallery build → `edge_models/`
 - Hot-load fine-tuned checkpoint into `DINOEmbedder.load_backbone_checkpoint()`
 - Reuse `scripts/export_onnx._export_onnx()` for ONNX trace-export
-- Reuse `pipeline.edge_inference.build_gallery()` with frames grouped as one pseudo-class
+- Reuse `pipeline.training.edge_inference.build_gallery()` with frames grouped as one pseudo-class
 - Save `dino_demo.onnx` and `gallery.npz` into `{video_dir}/edge_models/`
 
 ### ✅ DONE — [DEMO-08] Per-video Step F: fine-tuned model transformation test → `finetuned_search.md`
@@ -61,7 +61,7 @@ without requiring the Docker stack (except optional Qdrant for vector search).
 - Write `{video_dir}/comparison.md` and echo summary to console log
 
 ### ✅ DONE — [DEMO-10] Per-video Step H: 3D map creation → `3d_map/`
-- Reuse `pipeline.sfm.run_sfm()` (pycolmap optional)
+- Reuse `pipeline.mapping.sfm.run_sfm()` (pycolmap optional)
 - Fallback when pycolmap absent: PCA(3) of DINO frame embeddings → synthetic point cloud
 - Save `sparse_map.npz` (points + colours) and `map_stats.json`
 
@@ -222,7 +222,7 @@ annotate in CVAT → job completed → webhook fires → al_tag='annotated'.
     to prevent catastrophic forgetting; fine-tunes last 2 blocks + projection head (~14 M params).
   - `run_finetune(cfg)` — training loop with AdamW + CosineAnnealingLR; saves per-epoch checkpoints
     (`dino_ssl_{epoch:03d}.pt`) and best checkpoint (`dino_ssl_best.pt`).
-  - `config_from_settings()` — builds FinetuneConfig from env vars / pipeline.config.
+  - `config_from_settings()` — builds FinetuneConfig from env vars / pipeline.core.config.
 - `scripts/finetune_dino.py` — CLI entry point with all config as flags; `--approach temporal|augment`.
 - `pipeline/config.py`: added `SSL_CHECKPOINT_DIR`, `SSL_FINETUNE_EPOCHS`, `SSL_FINETUNE_LR`,
   `SSL_FINETUNE_BATCH_SIZE`, `SSL_FINETUNE_FREEZE_BLOCKS`, `SSL_FINETUNE_TEMPERATURE`,
@@ -289,7 +289,7 @@ python scripts/build_gallery.py --frames-dir data/frames \
     --output data/gallery/mission_objects.npz
 
 # 4. On robot:
-from pipeline.edge_inference import EdgeClassifier
+from pipeline.training.edge_inference import EdgeClassifier
 clf = EdgeClassifier("dino_edge_int8.onnx", "mission_objects.npz")
 labels = clf.classify(frame_pil)   # [(label, score), ...]
 ```
@@ -320,11 +320,6 @@ boundaries via Supervised Contrastive Loss (SupCon, Khosla et al. NeurIPS 2020).
 **Why:** Hard negative mining with semantic labels and class boundary learning cannot be
 derived from self-supervised objectives alone. Completes the active learning loop.
 **Implemented:**
-- `scripts/make_test_cvat_archive.py` — generates a synthetic 1001-frame annotated CVAT 1.1
-  archive. 6 VisDrone-inspired categories: car (240), truck (180), bus (120), pedestrian (200),
-  bicycle (160), motor (101). Solid-colored drone-view JPEGs + per-frame bounding box annotations.
-  Outputs `data_test/cvat_frames/`, `data_test/cvat_annotations.xml`, `data_test/cvat_test_archive.zip`.
-  Run once after git clone: `python scripts/make_test_cvat_archive.py`
 - `pipeline/supervised_finetune.py`:
   - `SupConLoss` — Supervised Contrastive Loss (eq. 2, Khosla 2020). Pulls together embeddings
     with matching labels, pushes apart embeddings from different classes. Returns 0.0 when no
@@ -349,14 +344,10 @@ derived from self-supervised objectives alone. Completes the active learning loo
 
 **Usage:**
 ```bash
-# 1. Generate test fixture archive (once after git clone)
-python scripts/make_test_cvat_archive.py
-# → data_test/cvat_test_archive.zip  (1001 frames, 6 classes)
-
-# 2. Fine-tune supervised (warm-starts from SSL checkpoint if available)
+# Fine-tune supervised from exported CVAT XML and local frames
 python scripts/supervised_finetune_dino.py \
-    --frames-dir data_test/cvat_frames \
-    --cvat-xml   data_test/cvat_annotations.xml \
+  --frames-dir data_test/cvat_frames \
+  --cvat-xml   data_test/cvat_annotations.xml \
     --output-dir data/checkpoints/supervised \
     --ssl-checkpoint data/checkpoints/dino_ssl_best.pt
 
@@ -701,8 +692,8 @@ Phase 2 code is written. Also validates Docker Compose integration.
 **Pros:** 30-minute CC task. Catches both quality and integration issues before any Phase 2
 code is written. Confirms hardware requirements for CLAUDE.md update.
 **Cons:** Requires ollama + ~4.7GB model download. One-time cost.
-**Context:** See `docs/design/detailed-scene-captioning.md` "Phase 2 Inference Serving"
-section for ollama vs vLLM comparison table and docker-compose.override.yml snippet.
+**Context:** See `docs/pipeline.md` and `docs/runbooks/gemma-api.md` for the current
+sidecar-backed model serving workflow and operational guidance.
 **Effort:** S (human: 4h / CC: 30min)
 **Priority:** P1 — blocks Phase 2 implementation
 **Depends on:** Phase 1 (`pipeline/florence_model.py`) ships and eval set built
@@ -773,9 +764,9 @@ whether Florence adds value at all.
 **Effort:** S (human: 2h / CC: 30min)
 **Priority:** P1 — must complete before building eval set
 **Depends on:** Phase 1 (`pipeline/florence_model.py`) runs on at least one real mission
-**Implemented:**
-- `docs/design/eval-design-spec.md`: full one-page spec — query taxonomy (5 categories × ≥5 queries), annotation protocol (2 annotators / 48h gap), FTS baseline comparison, 100-frame stratified eval set, Agresti-Coull 95% CI, pass/fail gates, confidence calibration methodology.
-- `scripts/eval_captions.py`: eval runner — loads `ground_truth.jsonl`, runs semantic (CLIP → Qdrant) and FTS (Postgres ILIKE) retrieval, computes P@5 per query/category, prints comparison table + 95% CI, optional `--confidence-calibration` Pearson r, writes JSON output.
+**Implemented:** Initial evaluation guidance was captured during development, but the
+standalone eval spec/script were later removed during docs and script cleanup. Use the
+current runtime docs and admin endpoints as the source of truth for caption behavior.
 
 ---
 
@@ -817,7 +808,7 @@ Phase ordering: Phase 1 (no gate) → Phase 2 (no gate, parallel) → Phase 3 (S
 - `pipeline/demo/steps_map.py` — map/SfM steps
 - `pipeline/demo/steps_report.py` — report generation steps
 - `pipeline/demo/runner.py` — orchestrator
-- `pipeline/demo_runner.py` becomes a thin shim: `from pipeline.demo.runner import run_demo`
+- `pipeline/demo_runner.py` becomes a thin shim: `from pipeline.workflows.demo.runner import run_demo`
 
 Async-parallel demo steps: embed + caption can run concurrently; SSL runs after embed completes. Target: <10 min for 58 frames.
 **Why:** 5667 lines is an active maintenance hazard. Adding Phase 2+3 steps will push it to 7K+. Splitting now is easier than splitting a 7K-line file.
@@ -1012,7 +1003,7 @@ Key design: non-blocking frame consumer (skip frames if captioner is behind); co
 
 ### ✅ [P3][S] Admin: `caption_null_rate` metric + `/admin/caption-eval` page — DONE
 **What:**
-- `GET /admin/caption-eval` page (or JSON endpoint) reporting: `caption_null_rate` (fraction of frames with `caption IS NULL` excluding `caption_skip_reason IS NOT NULL`), mean/p95 `caption_confidence`, Precision@5 on the last eval run (from `scripts/eval_captions.py` output), per-model breakdown (`caption_model` distribution).
+- `GET /admin/caption-eval` page (or JSON endpoint) reporting: `caption_null_rate` (fraction of frames with `caption IS NULL` excluding `caption_skip_reason IS NOT NULL`), mean/p95 `caption_confidence`, and per-model breakdown (`caption_model` distribution).
 - Add `caption_null_rate` to the existing `GET /admin/automation-roi` response as an additional metric.
 **Why:** Without a dashboard, operators can't tell if the captioner is silently failing. `caption_null_rate` is the leading indicator of pipeline health.
 **Effort:** S (human: 2h / CC: ~30min)

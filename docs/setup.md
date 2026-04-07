@@ -1,48 +1,56 @@
 # Setup
 
-## Prerequisites
-- Docker + Docker Compose
-- NVIDIA Container Toolkit for GPU access (optional; use `make test-no-gpu` or run without GPU)
+## Docker stack
 
-## Start services
+Prerequisites:
+
+- Docker with Compose support
+- Optional GPU support via NVIDIA Container Toolkit
+
+Start the main stack:
+
 ```bash
 make up
+python scripts/migrate_postgres.py
 ```
 
-`make up` runs `data-dirs` first to create `./data` and `./cache` with correct ownership, then starts qdrant, api, worker, and ui. All containers run as the current host user so files in `data/` and `cache/` are owned by you.
+`make up` creates writable `data/` and `cache/` directories, then starts `postgres`, `qdrant`, `api`, `worker`, `ui`, `nginx`, `mediamtx`, and any default compose services. Run `scripts/migrate_postgres.py` once after PostgreSQL is available to create the schema.
 
-For GPU: install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/) or run `sudo ./scripts/install_nvidia_docker.sh`. Without GPU, use `make test-no-gpu` for tests.
+Optional helpers:
 
-## Local run (no Docker)
+- `make cvat-up` to start CVAT services
+- `make logs` to follow stack logs
+- `make down` to stop the stack
 
-Install system libraries and tools on the Linux host (ffmpeg, OpenCV runtime deps):
+If GPU containers fail to start, install the toolkit with `sudo ./scripts/install_nvidia_docker.sh` or use CPU-only workflows where possible.
 
-```bash
-sudo ./scripts/install_system_deps.sh
-```
+## Local development setup
 
-To also install Python 3 and venv/pip:
+Install host dependencies:
 
 ```bash
 sudo ./scripts/install_system_deps.sh --with-python
+make venv
 ```
 
-Then create a virtualenv and install Python dependencies:
+Then start the services you need. Typical split:
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements/requirements_prod.txt -r requirements/requirements_test.txt
+docker compose -f docker/docker-compose.yml up -d postgres qdrant
+python scripts/migrate_postgres.py
+.venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+.venv/bin/python worker/main.py
+streamlit run ui/app.py --server.address 0.0.0.0 --server.port 8501
 ```
 
-With uv: `make venv` (creates .venv, installs pip and deps). Ensure `uv` is on PATH (e.g. `export PATH="$HOME/.local/bin:$PATH"`).
+## Default URLs
 
-To run the API locally: `uvicorn app.main:app --reload`. You still need Qdrant and the worker. For the full stack, use `make up`.
-
-## URLs
-- Streamlit UI: http://localhost:8501
-- FastAPI: http://localhost:8000
-- Qdrant: http://localhost:6333
+- UI: `http://localhost:8501`
+- API: `http://localhost:8000`
+- Qdrant: `http://localhost:6333`
+- Nginx static server: `http://localhost:8080`
+- SuperSplat viewer: `http://localhost:8090`
+- CVAT when enabled: `http://localhost:8091`
 
 ---
 [← Overview](overview.md) | [Develop →](develop.md)

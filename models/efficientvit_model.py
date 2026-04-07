@@ -15,7 +15,7 @@ Usage::
 
 For distillation (Stage 1→2 — DINOv3 teacher → EfficientViT student)::
 
-    from pipeline.distill import DistillConfig, run_distillation_efficientvit
+    from pipeline.training.distill import DistillConfig, run_distillation_efficientvit
     cfg  = DistillConfig(student_model="efficientvit_b1", lambda_rkd_a=0.0, ...)
     stats = run_distillation_efficientvit(teacher_backbone, frame_paths, ckpt_dir, cfg)
 """

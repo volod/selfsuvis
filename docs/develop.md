@@ -31,14 +31,6 @@ make test-no-gpu   # without GPU
 
 Runs `test-dirs`, then api, worker, qdrant, and tests container. Directory-indexing: `make test-dir`.
 
-### CLI test (end-to-end)
-
-```bash
-./scripts/test_cli.sh
-```
-
-Requires `make up` running.
-
 ## Run lint
 
 ```bash

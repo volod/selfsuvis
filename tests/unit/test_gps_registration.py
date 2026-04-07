@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from pipeline.gps_registration import (
+from pipeline.mapping.gps_registration import (
     _geodetic_to_ecef,
     _ecef_to_enu,
     build_registration_transform,

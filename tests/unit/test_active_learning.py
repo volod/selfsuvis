@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from pipeline.active_learning import (
+from pipeline.analysis.active_learning import (
     assign_al_tags,
     compute_al_score,
     dino_distances_from_centroids,
@@ -94,7 +94,7 @@ def test_assign_al_tags_top_k_zero():
 
 def test_assign_al_tags_uses_settings_default(monkeypatch):
     """assign_al_tags uses settings.AL_TAG_K when top_k is None."""
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "AL_TAG_K", 2)
     dists = [0.9, 0.8, 0.1, 0.1]
     confs = [0.0, 0.1, 0.9, 0.9]
@@ -154,7 +154,7 @@ def test_fit_kmeans_caps_clusters_at_n_samples():
 def test_fit_kmeans_uses_settings_threshold(monkeypatch):
     """fit_kmeans uses settings.KMEANS_BATCH_THRESHOLD when batch_threshold=None."""
     from sklearn.cluster import MiniBatchKMeans
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "KMEANS_BATCH_THRESHOLD", 10)
     emb = _random_embeddings(50)
     model = fit_kmeans(emb, n_clusters=3)  # batch_threshold=None → uses settings

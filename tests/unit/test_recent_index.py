@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from pipeline.recent_index import RecentEmbeddingIndex
+from pipeline.storage.recent_index import RecentEmbeddingIndex
 
 
 DIM = 4  # small dimension for fast tests

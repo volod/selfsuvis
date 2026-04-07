@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
-from pipeline.qwen_model import (
+from pipeline.vision.qwen import (
     _encode_image_base64,
     _health_check_ollama,
     _health_check_vllm,
@@ -26,8 +26,9 @@ from pipeline.qwen_model import (
 
 @pytest.fixture
 def disabled_settings(monkeypatch):
-    import pipeline.qwen_model as qm
+    import pipeline.vision.qwen as qm
 
+    monkeypatch.setattr(qm.settings, "GEMMA_API_URL", "")
     monkeypatch.setattr(qm.settings, "QWEN_API_URL", "")
     monkeypatch.setattr(qm.settings, "QWEN_CLIP_THRESHOLD", 0.25)
     yield

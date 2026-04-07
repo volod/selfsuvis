@@ -5,8 +5,8 @@ import torch
 import open_clip
 from PIL import Image
 
-from pipeline.config import settings
-from pipeline.logging_utils import get_logger
+from pipeline.core.config import settings
+from pipeline.core.logging import get_logger
 
 
 class OpenCLIPEmbedder:

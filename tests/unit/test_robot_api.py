@@ -116,7 +116,7 @@ def test_pose_query_response_schema(mock_clip, mock_qdrant_store):
 @patch("app.routers.robot.qdrant_store")
 @patch("app.routers.robot.clip_model")
 def test_pose_query_1d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_FILTER_2D", False)
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
@@ -134,7 +134,7 @@ def test_pose_query_1d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch
 @patch("app.routers.robot.qdrant_store")
 @patch("app.routers.robot.clip_model")
 def test_pose_query_2d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch):
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_FILTER_2D", True)
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
@@ -153,7 +153,7 @@ def test_pose_query_2d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch
 @patch("app.routers.robot.clip_model")
 def test_pose_query_python_lon_postfilter(mock_clip, mock_qdrant_store, monkeypatch):
     """1D mode: hits outside lon bbox are post-filtered in Python."""
-    from pipeline import config
+    from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_FILTER_2D", False)
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"

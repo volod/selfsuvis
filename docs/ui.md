@@ -1,20 +1,42 @@
 # UI
 
-## Index form (API)
-Simple HTML form at `http://localhost:8000/index/form` to upload a local video file or submit a URL for indexing. Optional API key field when `API_KEY` is set.
+The current UI is a single Streamlit app in [`ui/app.py`](/home/vola/src/selfsuvis/ui/app.py). It is intentionally simple and mirrors the API directly.
 
-## Index Video (Streamlit)
-- Upload a video, or provide a URL or local path
-- Watch job status updates
+## Tabs
 
-## Query
-- Text: enter query (e.g., "green field")
-- Image: upload a reference image
+### Index Video
 
-Each result includes an `mpv` command you can run locally:
-```bash
-mpv "./data/videos/<video_id>.mp4" --start=<t_sec>
-```
+- Upload a video file
+- Submit a remote URL
+- Submit a local directory path for batch indexing
+- Poll job status by job ID
+
+### Image Query
+
+- Upload a query image
+- Choose `search_type`
+- Choose `vector_space` (`clip` or `dino`)
+- Toggle reranking
+
+### Text Query
+
+- Submit a text search string
+- Choose `search_type`
+- Toggle reranking
+
+### Admin
+
+- View queue and active-learning stats
+- Inspect mission list returned by `/admin/missions`
+- Open available 3DGS outputs in the embedded SuperSplat iframe
+
+## API form
+
+`GET /index/form` serves a minimal HTML form for direct API testing without Streamlit.
+
+## Result rendering
+
+Search results show score, video ID, timestamp, frame/tile paths when present, and an `mpv` command for local playback from `data/videos`.
 
 ---
 [← API](api.md) | [Helpers →](helpers.md)
