@@ -70,6 +70,11 @@ def apply_demo_env(args: Any) -> None:
     os.environ.setdefault("SAM_ENABLED", "false" if _no_sam else "true")
     _sam_model = getattr(args, "sam_model", "auto") or "auto"
     os.environ.setdefault("SAM_MODEL", _sam_model)
+    # Gemma directed tracking (step P3) — enabled by default; opt out with --no-rfdetr
+    _no_rfdetr = getattr(args, "no_rfdetr", False)
+    os.environ.setdefault("RFDETR_ENABLED", "false" if _no_rfdetr else "true")
+    _rfdetr_model = getattr(args, "rfdetr_model", "base") or "base"
+    os.environ.setdefault("RFDETR_MODEL", _rfdetr_model)
     os.environ.setdefault(
         "WORLD_MODEL_ENABLED", "true" if args.world_model else "false"
     )

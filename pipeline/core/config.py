@@ -166,6 +166,14 @@ class Settings:
     # SAM_MODEL: "auto" (tries sam3 → sam2 → segment-anything) | "sam2" | "sam3" | "sam1"
     SAM_ENABLED = _env("SAM_ENABLED", "true").lower() == "true"
     SAM_MODEL = _env("SAM_MODEL", "auto")
+    # ── RF-DETR directed tracking (step P3) ──────────────────────────────────
+    # Gemma 4 directed tracking: Gemma understands the scene → directs SAM to
+    # segment named objects → RF-DETR tracks them across frames.
+    # Requires GEMMA_API_URL to be set; silently skipped otherwise.
+    # RFDETR_MODEL: "base" (RFDETRBase, faster) | "large" (RFDETRLarge, higher accuracy)
+    RFDETR_ENABLED = _env("RFDETR_ENABLED", "true").lower() == "true"
+    RFDETR_MODEL = _env("RFDETR_MODEL", "base")
+    RFDETR_CONFIDENCE = _env_float("RFDETR_CONFIDENCE", 0.35)
     LABELS_FILE = _env("LABELS_FILE", os.path.join(DATA_DIR, "labels", "openclip_rich.txt"))
 
     DEVICE = _env("DEVICE", "auto")

@@ -74,6 +74,8 @@ class VideoIndexer:
         self.world_model = WorldModel() if settings.WORLD_MODEL_ENABLED else None
         self.yolo_detector = YOLODetector() if settings.YOLO_ENABLED else None
         self.sam_predictor = SAMPredictor() if settings.SAM_ENABLED else None
+        # RF-DETR tracker is initialised lazily inside _run_gemma_directed_tracking_pass
+        self.rfdetr_tracker = None
         self.phash_lru = PhashLRU(settings.PHASH_LRU_SIZE, settings.PHASH_HAMMING_MAX)
         self.recent_index = RecentEmbeddingIndex(
             dim=self.clip_model.image_dim(),
@@ -424,6 +426,10 @@ class VideoIndexer:
                 frame_records=frame_records,
             )
 
+        # ── Gemma directed tracking pass (step P3) ────────────────────────────
+        if frame_records and settings.RFDETR_ENABLED and settings.GEMMA_API_URL:
+            self._run_gemma_directed_tracking_pass(frame_records)
+
         # ── World model pass (video clip embeddings) ──────────────────────────
         if frame_records and self.world_model and self.world_model.is_enabled():
             self._run_world_model_pass(frame_records)
@@ -621,6 +627,110 @@ class VideoIndexer:
         self.logger.info(
             "YOLO+SAM pass complete: %d detections across %d frames",
             total_dets, len(frame_records),
+        )
+
+    def _run_gemma_directed_tracking_pass(
+        self,
+        frame_records: List[Dict[str, Any]],
+    ) -> None:
+        """Gemma directed tracking pass: Gemma scene understanding → SAM segmentation
+        → RF-DETR tracking. Stores results in ``frame_facts_json["gemma_tracking"]``.
+
+        Tracking results per frame:
+            {
+                "scene_type":        str,
+                "tracking_priority": List[str],
+                "detections":        List[detection_dict],
+                "sam_masks":         [{"category": str, "area_norm": float, "source": str}],
+            }
+        """
+        from pipeline.workflows.demo.steps_gemma_tracking import (
+            _gemma_structured_scene_analysis,
+            _sam_directed_by_gemma,
+        )
+        from pipeline.vision.rfdetr import RFDETRTracker
+
+        frame_list = [
+            (r["frame_path"], float(r.get("t_sec", 0.0)))
+            for r in frame_records
+            if r.get("frame_path")
+        ]
+        if not frame_list:
+            return
+
+        # Structured Gemma scene analysis on a sparse sample
+        gemma_scene = _gemma_structured_scene_analysis(
+            frame_list,
+            api_url=settings.GEMMA_API_URL,
+            model=settings.GEMMA_API_MODEL,
+            timeout=float(settings.GEMMA_API_TIMEOUT_SEC),
+            clip_model=self.clip_model,
+        )
+        tracking_priority = gemma_scene.get("tracking_priority", [])
+        gemma_objects = gemma_scene.get("dominant_objects", [])
+        scene_type = gemma_scene.get("scene_type", "other")
+        self.logger.info(
+            "Gemma directed tracking: scene_type=%s priority=%s objects=%d",
+            scene_type, tracking_priority, len(gemma_objects),
+        )
+
+        # RF-DETR tracking pass across all frame records
+        if self.rfdetr_tracker is None:
+            self.rfdetr_tracker = RFDETRTracker()
+        tracking_results = self.rfdetr_tracker.track_sequence(
+            frame_list,
+            target_labels=tracking_priority if tracking_priority else None,
+        )
+        path_to_dets = {r["frame_path"]: r.get("detections", []) for r in tracking_results}
+
+        # SAM segmentation pass (only when SAM is available and objects were identified)
+        use_sam = (
+            self.sam_predictor is not None
+            and self.sam_predictor.is_available()
+            and bool(gemma_objects)
+        )
+
+        # Write results into frame_records
+        for rec in frame_records:
+            fp = rec.get("frame_path", "")
+            fj = rec.get("frame_facts_json") or {}
+            if not isinstance(fj, dict):
+                fj = {}
+            tracking_dets = path_to_dets.get(fp, [])
+            sam_masks_summary: List[Dict] = []
+            if use_sam and fp:
+                try:
+                    img = Image.open(fp).convert("RGB")
+                    masks = _sam_directed_by_gemma(
+                        img, gemma_objects, self.sam_predictor, self.clip_model,
+                    )
+                    w_img, h_img = img.size
+                    sam_masks_summary = [
+                        {
+                            "category":  m.get("category", "unknown"),
+                            "area_norm": round(
+                                float(m["mask"].sum()) / (w_img * h_img), 6
+                            ) if m.get("mask") is not None else 0.0,
+                            "source":    m.get("source", "unknown"),
+                        }
+                        for m in masks
+                    ]
+                except Exception as exc:
+                    self.logger.debug(
+                        "Gemma directed tracking SAM pass failed for %s: %s",
+                        rec.get("frame_id", fp), exc,
+                    )
+            fj["gemma_tracking"] = {
+                "scene_type":        scene_type,
+                "tracking_priority": tracking_priority,
+                "detections":        tracking_dets,
+                "sam_masks":         sam_masks_summary,
+            }
+            rec["frame_facts_json"] = fj
+
+        self.logger.info(
+            "Gemma directed tracking pass complete: %d frames, scene=%s",
+            len(frame_records), scene_type,
         )
 
     def _run_yolo_ssg_pass(

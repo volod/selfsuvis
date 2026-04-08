@@ -187,6 +187,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="[demo] Disable SAM2/3 segmentation (detection only; no masks)")
     parser.add_argument("--sam-model", default="auto",
                         help="[demo] SAM backend: 'auto' (tries sam3→sam2→sam1) | 'sam3' | 'sam2' | 'sam1'")
+    # Gemma 4 directed tracking: SAM segmentation + RF-DETR tracking (step P3)
+    # Enabled automatically when --gemma-api-url is provided; disable with --no-rfdetr.
+    parser.add_argument("--no-rfdetr", action="store_true",
+                        help="[demo] Disable Gemma directed SAM segmentation + RF-DETR tracking (step P3)")
+    parser.add_argument("--rfdetr-model", default="base",
+                        choices=["base", "large"],
+                        help="[demo] RF-DETR model tier: 'base' (faster) or 'large' (higher accuracy)")
     parser.add_argument("--world-model", action="store_true",
                         help="[demo] Enable world model video embeddings (step Q)")
     parser.add_argument("--world-model-id", default="auto",

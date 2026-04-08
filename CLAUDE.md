@@ -86,10 +86,11 @@ Check that profiles loaded: `sudo aa-status | grep cursor_sandbox`. The Linux sa
 - **MediaMTX** — RTSP/RTMP/WebRTC streaming server for video ingestion.
 - **nerfstudio** — *(optional, GPU machines only — `docker-compose.override.yml`)* 3DGS reconstruction via `ns-train splatfacto`. Exposed as a thin FastAPI HTTP wrapper called by `pipeline/mapper.py`.
 
-### Model wrappers (in `models/`)
+### Model wrappers (in `models/` and `pipeline/vision/`)
 - **`models/openclip_model.py`** — `OpenCLIPEmbedder`: batched image + text embedding via OpenCLIP. Configured by `OPENCLIP_MODEL`, `OPENCLIP_PRETRAINED`, `DEVICE`, `USE_FP16`.
 - **`models/dino_model.py`** — `DINOEmbedder`: DINOv3 image embedding. Loaded only when `MODEL_NAME=dinov3`.
 - **`pipeline/florence_model.py`** — Florence-2 (`microsoft/Florence-2-large`) for image-to-text captioning. Batched inference; `FLORENCE_BATCH_SIZE` env var (default 16); OOM fallback to batch=1.
+- **`pipeline/vision/rfdetr.py`** — `RFDETRTracker`: RF-DETR object detection + lightweight IoU-based multi-frame tracking. Wraps `rfdetr` package (`RFDETRBase` / `RFDETRLarge`). Configured by `RFDETR_ENABLED`, `RFDETR_MODEL` (`base`/`large`), `RFDETR_CONFIDENCE`. Track IDs assigned by greedy IoU matching (threshold 0.45) across frames; reset per video.
 
 ### Pipeline (in `pipeline/`)
 The indexing pipeline is orchestrated by `VideoIndexer` in `pipeline/indexer.py`. Two separate frame extraction passes per mission:
@@ -105,9 +106,11 @@ The indexing pipeline is orchestrated by `VideoIndexer` in `pipeline/indexer.py`
 6. `pipeline/florence_model.py` — Florence-2 captioning per keyframe; stores `caption`, `caption_confidence`
 7. `models/openclip_model.py` + `models/dino_model.py` — CLIP + DINOv3 embeddings → Qdrant upsert
 8. Tile extraction + quality filters + dedup (unchanged from v0)
-9. `pipeline/active_learning.py` — compute `active_learning_score = 0.6×DINOv3_dist + 0.4×(1−caption_confidence)`; assign `al_tag` (`needs_annotation` | `novel` | `none`)
-10. `pipeline/report_generator.py` — HTML mission summary (`reports/{mission_id}/summary.html`)
-11. `pipeline/change_detection.py` — post-pipeline; GPS bbox Qdrant filter + embedding distance; writes `change_detections` table
+9. `pipeline/vision/yolo.py` + `pipeline/vision/sam.py` — YOLO11 detection + SAM2/3 mask refinement per frame
+10. `pipeline/vision/rfdetr.py` + `pipeline/workflows/demo/steps_gemma_tracking.py` — Gemma 4 directed tracking: Gemma analyses sampled frames → structured JSON with object categories + rough bboxes → SAM segments those objects (box-prompt or CLIP-filtered auto-mask) → RF-DETR tracks Gemma-priority classes across the sequence. Stores results in `frame_facts_json["gemma_tracking"]`. Requires `RFDETR_ENABLED=true` and `GEMMA_API_URL`.
+11. `pipeline/active_learning.py` — compute `active_learning_score = 0.6×DINOv3_dist + 0.4×(1−caption_confidence)`; assign `al_tag` (`needs_annotation` | `novel` | `none`)
+12. `pipeline/report_generator.py` — HTML mission summary (`reports/{mission_id}/summary.html`)
+13. `pipeline/change_detection.py` — post-pipeline; GPS bbox Qdrant filter + embedding distance; writes `change_detections` table
 
 ### Agentic scene-understanding system (optional, separate from main indexing)
 `pipeline/agentic_system.py` implements a multi-agent pipeline for structured scene analysis — not part of the default indexing flow. See `docs/pipeline.md` for details.

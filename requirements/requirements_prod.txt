@@ -9,6 +9,7 @@ xformers==0.0.35
 open-clip-torch==2.24.0
 ultralytics>=8.3.0
 segment-anything==1.0
+rfdetr>=1.1.0
 pillow>=10.2.0
 opencv-python==4.10.0.84
 numpy>=1.26.4

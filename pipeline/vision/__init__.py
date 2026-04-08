@@ -10,6 +10,7 @@ _EXPORTS = {
     "FlorenceModel": (".florence", "FlorenceModel"),
     "OCRModel": (".ocr", "OCRModel"),
     "QwenModel": (".qwen", "QwenModel"),
+    "RFDETRTracker": (".rfdetr", "RFDETRTracker"),
     "SAMPredictor": (".sam", "SAMPredictor"),
     "WorldModel": (".world", "WorldModel"),
     "YOLODetector": (".yolo", "YOLODetector"),

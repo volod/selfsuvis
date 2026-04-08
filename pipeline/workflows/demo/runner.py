@@ -48,7 +48,7 @@ from ._common import (
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_TOTAL_STEPS = 20
+_TOTAL_STEPS = 21
 _VIDEO_EXTS  = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 
 # Phase 3 SSL gate: skip distillation / ONNX / search comparison when the
@@ -733,6 +733,7 @@ def run_video_pipeline(
     from .steps_map import step_create_3d_map
     from .steps_semantic_graph import step_build_semantic_environment_graph
     from .steps_yolo_sam import step_yolo_sam_detection
+    from .steps_gemma_tracking import step_gemma_directed_tracking
     from .steps_report import write_multimodal_md, write_final_stats_md, print_run_stats
 
     import concurrent.futures as _cf
@@ -1124,10 +1125,69 @@ def run_video_pipeline(
         ] if not yolo_sam_result.get("skipped") else [],
     )
 
+    # P3: Gemma 4 directed tracking — Gemma understands the scene, directs SAM to
+    # segment named objects, RF-DETR tracks those objects across the full sequence.
+    gemma_tracking_result: Dict[str, Any] = {"skipped": True}
+    _gemma_api_url_p3 = getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL
+    _gemma_api_model_p3 = getattr(args, "gemma_api_model", "") or settings.GEMMA_API_MODEL
+    if not getattr(args, "no_rfdetr", False) and _gemma_api_url_p3:
+        _step(10, _TOTAL_STEPS, "Gemma 4 directed tracking → gemma_tracking/ + gemma_tracking_results.json")
+        _prep_vram_for_step(models, device)
+        clip_dino_on_gpu = False
+        with _Timer(T, "P3_gemma_tracking"):
+            gemma_tracking_result = step_gemma_directed_tracking(
+                frame_list,
+                video_name,
+                video_dir,
+                device,
+                models=models,
+                gemma_api_url=_gemma_api_url_p3,
+                gemma_api_model=_gemma_api_model_p3,
+            )
+    else:
+        T["P3_gemma_tracking"] = 0.0
+        if not _gemma_api_url_p3:
+            _log.info("  Step P3 skipped (no gemma_api_url configured)")
+    _append_agentic_step(
+        agentic_trace,
+        step_id="P3",
+        title="Gemma 4 directed tracking",
+        description=(
+            "Gemma 4 watches sampled frames and produces structured JSON: scene type, "
+            "dominant object categories with rough bounding boxes, and a priority-ordered "
+            "tracking list. SAM uses Gemma's bboxes as direct box prompts (Path A) or "
+            "falls back to CLIP-filtered auto-masks (Path B). RF-DETR then tracks "
+            "Gemma-priority classes across the full frame sequence with persistent track IDs."
+        ),
+        status="skipped" if gemma_tracking_result.get("skipped") else "ok",
+        context_inputs=[
+            "sampled frames", "Gemma sidecar API output",
+            "CLIP embeddings for SAM mask filtering",
+        ],
+        context_outputs=[
+            f"scene_type={gemma_tracking_result.get('scene_type', 'n/a')}",
+            f"{gemma_tracking_result.get('n_tracked_objects', 0)} unique track IDs",
+            f"{gemma_tracking_result.get('sam_masks_total', 0)} SAM masks",
+            "gemma_tracking_results.json + annotated frames + summary.md",
+        ] if not gemma_tracking_result.get("skipped") else ["no Gemma tracking context"],
+        risks=[
+            "Gemma JSON parse failure silently falls back to no-op (empty target_labels)",
+            "rough_bbox from Gemma may not align precisely — SAM mask may bleed",
+            "CLIP-filtered auto-mask path adds latency; disable with --no-sam to skip",
+            "RF-DETR tracking IDs reset per video; no cross-video identity",
+            "Gemma object labels may not match RF-DETR COCO vocabulary exactly",
+        ],
+        artifacts=[
+            "gemma_tracking_results.json",
+            "gemma_tracking/frame_*_tracked.jpg",
+            "gemma_tracking_summary.md",
+        ] if not gemma_tracking_result.get("skipped") else [],
+    )
+
     # Q: World model
     world_result: Dict[str, Any] = {"skipped": True, "world_results": []}
     if args.world_model:
-        _step(10, _TOTAL_STEPS, "World model video embeddings")
+        _step(11, _TOTAL_STEPS, "World model video embeddings")
         _prep_vram_for_step(models, device)
         clip_dino_on_gpu = False
         with _Timer(T, "Q_world"):
@@ -1158,7 +1218,7 @@ def run_video_pipeline(
     # R: Qwen — uses ASR + OCR context from previous steps (already agentic)
     qwen_result: Dict[str, Any] = {"skipped": True, "results": []}
     if args.qwen:
-        _step(11, _TOTAL_STEPS, "Qwen VLM detailed captioning → detailed_captions.md")
+        _step(12, _TOTAL_STEPS, "Qwen VLM detailed captioning → detailed_captions.md")
         with _Timer(T, "R_qwen"):
             qwen_result = step_qwen_captioning(
                 frame_list, video_name, video_dir,
@@ -1216,7 +1276,7 @@ def run_video_pipeline(
                 _unload_ollama_model(_qwen_url, _qwen_model)
         _restore_models_to_gpu(models, device)
         clip_dino_on_gpu = _models_on_device(models, device)
-    _step(12, _TOTAL_STEPS, "Base model transformation test → base_search.md")
+    _step(13, _TOTAL_STEPS, "Base model transformation test → base_search.md")
     with _Timer(T, "C_base_search"):
         c = step_base_model_search_test(frame_list, store, is_qdrant, models,
                                         video_id, video_name, video_dir, top_k=args.top_k)
@@ -1242,7 +1302,7 @@ def run_video_pipeline(
     )
 
     # I: 3D map + Gaussian Splat — collect background-thread result (Phase 2 close)
-    _step(13, _TOTAL_STEPS, "3D map + Gaussian Splat → 3d_map/ (joining background thread)")
+    _step(14, _TOTAL_STEPS, "3D map + Gaussian Splat → 3d_map/ (joining background thread)")
     with _Timer(T, "I_3dmap"):
         if _map_future is not None:
             try:
@@ -1336,14 +1396,14 @@ def run_video_pipeline(
     if models.get("uses_api_embedder"):
         T["D_finetune"] = 0.0
         T["E_distill"] = 0.0
-        _step(14, _TOTAL_STEPS, "SSL DINOv3 fine-tuning (skipped — API embedder)")
-        _step(15, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
+        _step(15, _TOTAL_STEPS, "SSL DINOv3 fine-tuning (skipped — API embedder)")
+        _step(16, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
         student_backbone = None; student_dim = 768
     else:
         if device == "cuda" and clip_dino_on_gpu:
             _offload_models_to_cpu(models)
             clip_dino_on_gpu = False
-        _step(14, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
+        _step(15, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
         with _Timer(T, "D_finetune"):
             d = step_ssl_finetune(video_id, video_name, video_dir, frame_list, device,
                                   epochs=args.epochs, batch_size=args.batch_size)
@@ -1417,7 +1477,7 @@ def run_video_pipeline(
                 _gemma_teacher = models["clip"]
                 _log.info("  Using GemmaVisionTeacher for distillation (max hydration)")
 
-            _step(15, _TOTAL_STEPS, "Knowledge distillation (max hydration) → ViT-S/14 student")
+            _step(16, _TOTAL_STEPS, "Knowledge distillation (max hydration) → ViT-S/14 student")
             with _Timer(T, "E_distill"):
                 e_distill = step_distill(
                     checkpoint_path, frame_list, video_name, video_dir, device,
@@ -1458,7 +1518,7 @@ def run_video_pipeline(
         else:
             T["E_distill"] = 0.0
             _gate_reason = "SSL gate did not pass" if not ssl_gate_passed else "--no-distill"
-            _step(15, _TOTAL_STEPS, f"Knowledge distillation (skipped — {_gate_reason})")
+            _step(16, _TOTAL_STEPS, f"Knowledge distillation (skipped — {_gate_reason})")
             _append_agentic_step(
                 agentic_trace,
                 step_id="E",
@@ -1509,7 +1569,7 @@ def run_video_pipeline(
         if device == "cuda" and not clip_dino_on_gpu:
             _restore_models_to_gpu(models, device)
             clip_dino_on_gpu = _models_on_device(models, device)
-        _step(16, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
+        _step(17, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
         with _Timer(T, "F_export"):
             e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
                                   no_onnx=args.no_onnx,
@@ -1536,7 +1596,7 @@ def run_video_pipeline(
     else:
         T["F_export"] = 0.0
         stats.setdefault("onnx_mb", 0.0); stats.setdefault("onnx_exported", False)
-        _step(16, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
+        _step(17, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="F",
@@ -1552,7 +1612,7 @@ def run_video_pipeline(
     # G: Fine-tuned search — only if SSL gate passed (needs fine-tuned or distilled backbone)
     ft_results: List[Dict] = []
     if ssl_gate_passed:
-        _step(17, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
+        _step(18, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
         with _Timer(T, "G_ft_search"):
             f = step_finetuned_model_search_test(frame_list, store, is_qdrant, models,
                                                  query_frame, query_t_sec, video_id, video_name,
@@ -1579,7 +1639,7 @@ def run_video_pipeline(
     else:
         T["G_ft_search"] = 0.0
         stats.setdefault("ft_top_score", 0.0)
-        _step(17, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
+        _step(18, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="G",
@@ -1594,7 +1654,7 @@ def run_video_pipeline(
 
     # H: Comparison + description — only runs when ssl_gate_passed (needs ft_results)
     if ssl_gate_passed:
-        _step(18, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
+        _step(19, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
         with _Timer(T, "H_compare"):
             g = step_compare_and_describe(frame_list, store, is_qdrant, base_results, ft_results,
                                           models, video_id, video_name, video_dir,
@@ -1624,7 +1684,7 @@ def run_video_pipeline(
         )
     else:
         T["H_compare"] = 0.0
-        _step(18, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
+        _step(19, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="H",
@@ -1642,7 +1702,7 @@ def run_video_pipeline(
     if device == "cuda" and clip_dino_on_gpu:
         _offload_models_to_cpu(models)
         clip_dino_on_gpu = False  # noqa: F841
-    _step(19, _TOTAL_STEPS, "Video synthesis (ontology + narrative) → video_synthesis.md")
+    _step(20, _TOTAL_STEPS, "Video synthesis (ontology + narrative) → video_synthesis.md")
     _qwen_url   = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
     _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
     with _Timer(T, "Z_synthesis"):
@@ -1674,7 +1734,7 @@ def run_video_pipeline(
     )
 
     # AA: Agentic flow artifact — prefer Gemma reasoning, fall back to Qwen, then deterministic text.
-    _step(20, _TOTAL_STEPS, "Agentic flow audit → agentic_flow.md")
+    _step(21, _TOTAL_STEPS, "Agentic flow audit → agentic_flow.md")
     _agentic_url = (
         getattr(args, "reasoning_api_url", "")
         or getattr(settings, "REASONING_API_URL", "")
