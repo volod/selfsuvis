@@ -427,6 +427,66 @@ Start with the anchor detectors:
 
 ---
 
+### Step 9.5. Gemma 4 directed tracking *(new)*
+
+**What the demo does**
+
+This step uses a Gemma sidecar to inspect up to 12 sampled frames and return structured JSON:
+`scene_type`, `dominant_objects` with rough fractional boxes, `areas_of_interest`, and a
+priority-ordered `tracking_priority` list. That scene summary then drives two downstream passes:
+
+1. **SAM-directed segmentation**: when Gemma gives a specific `rough_bbox`, SAM uses it as a
+   direct box prompt. When Gemma falls back to an almost-whole-frame box, the code switches to
+   automatic mask generation and keeps only masks whose CLIP embedding matches one of Gemma's
+   named object categories.
+2. **RF-DETR tracking**: RF-DETR runs on up to 90 frames and filters detections by
+   `tracking_priority` when Gemma provided one. Persistent track IDs are then assigned by greedy
+   IoU matching across adjacent frames.
+
+The step writes:
+
+- `gemma_tracking_results.json` — scene summary plus per-frame RF-DETR detections and SAM metadata
+- `gemma_tracking_summary.md` — human-readable explanation of Gemma's scene interpretation and tracking totals
+- `gemma_tracking/frame_{t:.3f}_tracked.jpg` — annotated tracking frames
+
+**Why it matters**
+
+This is the first place where the pipeline uses a language model to *steer* classic perception
+rather than just describe its outputs. Gemma narrows the search space to likely categories and
+regions; SAM and RF-DETR then do the spatial work. That makes the stage cheaper than open-ended
+tracking and more interpretable than running a detector across every class all the time.
+
+It also exposes a practical integration issue: label vocabularies matter. If Gemma emits
+`pickup truck` and RF-DETR emits `truck`, the substring-based label filter still works. If Gemma
+chooses a label with no overlap with the detector vocabulary, tracking can come back empty even
+when the object is visible.
+
+**How a human should learn this topic**
+
+Run the demo once with `--gemma-api-url` set and inspect the three P3 artifacts together:
+
+1. Read `gemma_tracking_summary.md` first. Verify that `scene_type`, `tracking_priority`, and
+   dominant objects match the video at a high level.
+2. Open `gemma_tracking_results.json` and compare `dominant_objects[*].rough_bbox` with
+   `frames[*].sam_masks[*].source` to see whether the run used direct Gemma box prompts
+   (`gemma_bbox`) or the CLIP-filtered fallback (`clip_filtered_automask`).
+3. Inspect a few `gemma_tracking/frame_*_tracked.jpg` frames and confirm that the same `track_id`
+   persists across adjacent frames for the same object.
+4. If tracking is unexpectedly empty, check Gemma's `tracking_priority` labels before blaming
+   RF-DETR. Vocabulary mismatch is a more common failure mode than total detector failure.
+
+One implementation detail to keep in mind while debugging: the saved JPEGs currently render
+tracking boxes and IDs only. SAM outputs are stored as metadata in JSON and summarized in
+markdown, but are not re-painted onto the tracking frames.
+
+**Essential reading**
+
+- RF-DETR repository and docs: https://github.com/roboflow/rf-detr
+- Segment Anything (SAM): https://arxiv.org/abs/2304.02643
+- CLIP: https://arxiv.org/abs/2103.00020
+
+---
+
 ### Step 10. World model video embeddings
 
 **What the demo does**

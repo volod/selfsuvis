@@ -215,6 +215,11 @@ python main.py --mode demo --asr --ocr --depth --detection \
 > skipped. Embedding-based analysis (scene change, clustering, CLIP/DINOv3 comparison)
 > still runs whenever `MODEL_NAME=gemma` (the demo default).
 
+The same `GEMMA_API_URL` also enables demo step `P3` when RF-DETR is on: Gemma produces
+structured scene JSON on sampled frames, SAM optionally segments Gemma-named objects, and
+RF-DETR tracks Gemma-priority labels across the sequence. Outputs are written to
+`gemma_tracking_results.json`, `gemma_tracking/`, and `gemma_tracking_summary.md`.
+
 ### Split analysis and reasoning models
 
 The demo now uses two separate LLM roles:

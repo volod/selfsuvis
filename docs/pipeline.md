@@ -161,9 +161,14 @@ video/mission.
 
 **Artifacts** (under `<output_dir>/<video>/`):
 
-- `gemma_tracking_results.json` — per-frame detections with track IDs + SAM mask metadata
-- `gemma_tracking/frame_*_tracked.jpg` — annotated frames (tracking boxes + IDs)
-- `gemma_tracking_summary.md` — Gemma scene interpretation, tracking statistics, SAM counts
+- `gemma_tracking_results.json` — scene summary, per-frame detections with track IDs, and per-frame SAM metadata
+- `gemma_tracking/frame_*_tracked.jpg` — annotated frames with RF-DETR tracking boxes and IDs
+- `gemma_tracking_summary.md` — Gemma scene interpretation, tracking statistics, and SAM-path summary
+
+Current implementation detail: SAM outputs are persisted as metadata in
+`gemma_tracking_results.json` and summarized in `gemma_tracking_summary.md`. The rendered
+`frame_*_tracked.jpg` images currently show tracking boxes only; they do not re-render SAM
+mask overlays.
 
 **Config env vars**: `RFDETR_ENABLED` (default `true`), `RFDETR_MODEL` (`base`/`large`,
 default `base`), `RFDETR_CONFIDENCE` (default `0.35`).

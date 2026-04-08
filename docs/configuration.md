@@ -66,6 +66,8 @@ python scripts/migrate_postgres.py
 | `YOLO_SSG_CLUSTER_RADIUS_PCA` | `0.85` | Merge radius for demo PCA/SfM anchors |
 | `YOLO_SSG_NEAR_EDGE_RADIUS_PCA` | `1.5` | `near` edge radius for demo PCA/SfM anchors |
 | `SAM_ENABLED` / `SAM_MODEL` | `true` / `auto` | SAM mask refinement |
+| `RFDETR_ENABLED` / `RFDETR_MODEL` | `true` / `base` | Gemma-directed RF-DETR tracking stage |
+| `RFDETR_CONFIDENCE` | `0.35` | RF-DETR detection threshold before tracking |
 | `WORLD_MODEL_ENABLED` / `WORLD_MODEL` | `false` / `nvidia/Cosmos-1.0-Autoregressive-4B` | Clip-level world-model embeddings |
 
 ## Mapping and spatial queries
@@ -121,6 +123,7 @@ python scripts/migrate_postgres.py
 - Qdrant IDs and dedup hashes are SHA-256 based; changing embedding strategy may require a wipe and re-index.
 - Production indexing writes mission-scoped semantic graph JSON to `MAPS_DIR/<mission_id>/semantic_environment_graph.json`.
 - Demo runs write semantic graph artifacts under `3d_map/semantic_environment_graph.{json,md}`.
+- Demo runs write Gemma tracking artifacts under `gemma_tracking/`, `gemma_tracking_results.json`, and `gemma_tracking_summary.md` when `GEMMA_API_URL` is set and `RFDETR_ENABLED=true`.
 - For a full variable list, use [`pipeline/core/config.py`](/home/vola/src/selfsuvis/pipeline/core/config.py) as the source of truth.
 
 ---
