@@ -44,10 +44,10 @@ from typing import Any, Dict, List, Optional
 
 from PIL import Image
 
-from pipeline.core import get_logger, settings
+from pipeline.core import get_logger, resolve_device, settings
 from pipeline.vision.florence import _best_attn_impl
 
-from .registry import auto_select, detect_resources
+from .registry import resolve_model_id
 
 logger = get_logger(__name__)
 
@@ -70,11 +70,7 @@ _VLM_PREFIXES = (
 
 
 def _resolve_model_id() -> str:
-    model_cfg = settings.OCR_MODEL.strip()
-    if model_cfg and model_cfg.lower() != "auto":
-        return model_cfg
-    resources = detect_resources()
-    return auto_select("ocr", resources) or "microsoft/trocr-base-printed"
+    return resolve_model_id(settings.OCR_MODEL, "ocr", "microsoft/trocr-base-printed")
 
 
 class OCRModel:
@@ -514,13 +510,4 @@ def _encode_b64(image: Image.Image) -> str:
 
 
 def _get_device() -> str:
-    cfg = settings.DEVICE.lower()
-    try:
-        import torch
-        if cfg == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
-        if cfg == "cuda" and torch.cuda.is_available():
-            return "cuda"
-    except ImportError:
-        pass
-    return "cpu"
+    return resolve_device()

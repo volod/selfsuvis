@@ -6,6 +6,7 @@ import open_clip
 from PIL import Image
 
 from pipeline.core.config import settings
+from pipeline.core.gpu_utils import is_cuda_oom, resolve_device
 from pipeline.core.logging import get_logger
 
 
@@ -28,11 +29,7 @@ class OpenCLIPEmbedder:
         )
 
     def _resolve_device(self) -> str:
-        if settings.DEVICE == "cpu":
-            return "cpu"
-        if settings.DEVICE == "cuda":
-            return "cuda"
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        return resolve_device()
 
     def encode_images(self, images: List[Image.Image], batch_size: int = 16) -> np.ndarray:
         embeddings = []
@@ -51,7 +48,7 @@ class OpenCLIPEmbedder:
                     else:
                         feats = self.model.encode_image(tensors)
             except Exception as exc:
-                if not _is_cuda_oom(exc) or not str(actual_device).startswith("cuda"):
+                if not is_cuda_oom(exc) or not str(actual_device).startswith("cuda"):
                     raise
                 self.logger.warning(
                     "OpenCLIP CUDA OOM during image encoding; moving backbone to CPU for remaining batches."
@@ -86,7 +83,7 @@ class OpenCLIPEmbedder:
                     else:
                         feats = self.model.encode_text(tokens)
             except Exception as exc:
-                if not _is_cuda_oom(exc) or not str(actual_device).startswith("cuda"):
+                if not is_cuda_oom(exc) or not str(actual_device).startswith("cuda"):
                     raise
                 self.logger.warning(
                     "OpenCLIP CUDA OOM during text encoding; moving backbone to CPU."
@@ -111,6 +108,3 @@ class OpenCLIPEmbedder:
         return self.model.text.output_dim
 
 
-def _is_cuda_oom(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return type(exc).__name__ == "OutOfMemoryError" or "cuda out of memory" in msg

@@ -20,7 +20,7 @@ from typing import List, Tuple
 import torch
 from PIL import Image
 
-from pipeline.core import get_logger, settings
+from pipeline.core import get_logger, resolve_device, settings
 
 _TASK_PROMPT = "<MORE_DETAILED_CAPTION>"
 _MODEL_ID = "microsoft/Florence-2-large"
@@ -159,11 +159,7 @@ class FlorenceModel:
     # ── internals ─────────────────────────────────────────────────────────────
 
     def _resolve_device(self) -> str:
-        if settings.DEVICE == "cpu":
-            return "cpu"
-        if settings.DEVICE == "cuda":
-            return "cuda"
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        return resolve_device()
 
     def _caption_batch_chunk(
         self,

@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 
-from pipeline.core import get_logger, settings
+from pipeline.core import get_logger, resolve_device, settings
 
 logger = get_logger(__name__)
 
@@ -87,16 +87,7 @@ def _detect_backend() -> str:
 
 
 def _get_device() -> str:
-    cfg = settings.DEVICE.lower()
-    try:
-        import torch
-        if cfg == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
-        if cfg == "cuda" and torch.cuda.is_available():
-            return "cuda"
-    except ImportError:
-        pass
-    return "cpu"
+    return resolve_device()
 
 
 # ── Main predictor class ──────────────────────────────────────────────────────

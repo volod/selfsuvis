@@ -450,3 +450,25 @@ def get_entry(task: str, model_id: str) -> Optional[ModelEntry]:
 def list_models(task: str) -> List[ModelEntry]:
     """Return the catalog for a task, or empty list."""
     return CATALOGS.get(task, [])
+
+
+def resolve_model_id(setting_value: str, task: str, fallback: str) -> str:
+    """Resolve a model ID from a settings value, using GPU-aware auto-selection.
+
+    This is the standard helper used by every vision model wrapper
+    (``asr``, ``ocr``, ``depth``, ``detection``, ``world_model``) to avoid
+    duplicating the same four-line pattern:
+
+    - If *setting_value* is non-empty and not ``"auto"``, return it unchanged.
+    - Otherwise call :func:`auto_select` with the current hardware resources.
+    - If ``auto_select`` returns ``None`` (no catalog entry fits), return *fallback*.
+
+    Args:
+        setting_value: Raw value from ``settings.<TASK>_MODEL`` (may be ``"auto"``).
+        task: Registry task key (e.g. ``"asr"``, ``"depth"``).
+        fallback: HuggingFace model ID to use when auto-selection yields nothing.
+    """
+    cfg = setting_value.strip()
+    if cfg and cfg.lower() != "auto":
+        return cfg
+    return auto_select(task, detect_resources()) or fallback

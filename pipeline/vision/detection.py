@@ -37,18 +37,15 @@ from typing import Any, Dict, List, Optional
 
 from PIL import Image
 
-from pipeline.core import get_logger, settings
+from pipeline.core import get_logger, is_cuda_oom, pipeline_device_arg, resolve_device, settings
 
-from .registry import auto_select, detect_resources
+from .registry import resolve_model_id
 
 logger = get_logger(__name__)
 
 
 def _resolve_model_id() -> str:
-    cfg = settings.DETECTION_MODEL.strip()
-    if cfg and cfg.lower() != "auto":
-        return cfg
-    return auto_select("detection", detect_resources()) or "PekingU/rtdetr_r50vd"
+    return resolve_model_id(settings.DETECTION_MODEL, "detection", "PekingU/rtdetr_r50vd")
 
 
 class DetectionModel:
@@ -122,7 +119,7 @@ class DetectionModel:
                 pipe.call_count = 0
             return self._normalise_detection_output(pipe(image, **kwargs), image)
         except Exception as exc:
-            if _is_cuda_oom(exc) and self._device == "cuda":
+            if is_cuda_oom(exc) and self._device == "cuda":
                 logger.warning(
                     "Detection CUDA OOM for %s — retrying on CPU for remaining frames.",
                     self.model_id,
@@ -153,7 +150,7 @@ class DetectionModel:
                     for raw, image in zip(raw_outputs, images)
                 ]
         except Exception as exc:
-            if _is_cuda_oom(exc) and self._device == "cuda":
+            if is_cuda_oom(exc) and self._device == "cuda":
                 logger.warning(
                     "Detection CUDA OOM for %s — retrying on CPU for remaining frames.",
                     self.model_id,
@@ -211,7 +208,7 @@ class DetectionModel:
                 self._pipe = hf_pipeline(
                     "object-detection",
                     model=self.model_id,
-                    device=_pipeline_device_arg(target_device),
+                    device=pipeline_device_arg(target_device),
                     torch_dtype=torch_dtype,
                     use_fast=True,
                 )
@@ -220,7 +217,7 @@ class DetectionModel:
                 self._pipe.call_count = 0
             logger.info("Detection model loaded: %s on %s", self.model_id, target_device)
         except Exception as exc:
-            if _is_cuda_oom(exc) and target_device == "cuda" and force_device != "cpu":
+            if is_cuda_oom(exc) and target_device == "cuda" and force_device != "cpu":
                 logger.warning(
                     "Detection model %s failed to load on CUDA due to OOM — retrying on CPU.",
                     self.model_id,
@@ -265,26 +262,8 @@ class DetectionModel:
         return self._get_pipe(force_device="cpu")
 
 
-def _is_cuda_oom(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return type(exc).__name__ == "OutOfMemoryError" or "cuda out of memory" in msg
-
-
-def _pipeline_device_arg(device: str) -> int:
-    return -1 if device == "cpu" else 0
-
-
 def _get_device() -> str:
-    cfg = settings.DEVICE.lower()
-    try:
-        import torch
-        if cfg == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
-        if cfg == "cuda" and torch.cuda.is_available():
-            return "cuda"
-    except ImportError:
-        pass
-    return "cpu"
+    return resolve_device()
 
 
 @contextlib.contextmanager

@@ -232,6 +232,14 @@ class Settings:
     # PostgreSQL
     DATABASE_URL = _env("DATABASE_URL", "")
 
+    # Realtime ingest / autonomy scaffolding
+    REALTIME_ENABLED = _env("REALTIME_ENABLED", "false").lower() == "true"
+    REALTIME_BACKEND = _env("REALTIME_BACKEND", "stub")
+    REALTIME_POSE_BACKEND = _env("REALTIME_POSE_BACKEND", "stub")
+    REALTIME_PACKET_BATCH_SIZE = _env_int("REALTIME_PACKET_BATCH_SIZE", 128)
+    REALTIME_MAX_SENSOR_LAG_MS = _env_int("REALTIME_MAX_SENSOR_LAG_MS", 120)
+    REALTIME_SESSION_TIMEOUT_SEC = _env_int("REALTIME_SESSION_TIMEOUT_SEC", 30)
+
     # Reports and maps output directories
     REPORTS_DIR = _env("REPORTS_DIR", os.path.join(DATA_DIR, "reports"))
     MAPS_DIR = _env("MAPS_DIR", os.path.join(DATA_DIR, "maps"))

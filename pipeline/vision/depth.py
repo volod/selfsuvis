@@ -32,18 +32,15 @@ from typing import Any, Dict, List, Optional
 
 from PIL import Image
 
-from pipeline.core import get_logger, settings
+from pipeline.core import get_logger, is_cuda_oom, pipeline_device_arg, resolve_device, settings
 
-from .registry import auto_select, detect_resources
+from .registry import resolve_model_id
 
 logger = get_logger(__name__)
 
 
 def _resolve_model_id() -> str:
-    cfg = settings.DEPTH_MODEL.strip()
-    if cfg and cfg.lower() != "auto":
-        return cfg
-    return auto_select("depth", detect_resources()) or "depth-anything/Depth-Anything-V2-Small-hf"
+    return resolve_model_id(settings.DEPTH_MODEL, "depth", "depth-anything/Depth-Anything-V2-Small-hf")
 
 
 class DepthModel:
@@ -101,7 +98,7 @@ class DepthModel:
         try:
             return self._normalise_depth_output(pipe(image))
         except Exception as exc:
-            if _is_cuda_oom(exc) and self._device == "cuda":
+            if is_cuda_oom(exc) and self._device == "cuda":
                 logger.warning(
                     "Depth CUDA OOM for %s — retrying on CPU for remaining frames.",
                     self.model_id,
@@ -121,7 +118,7 @@ class DepthModel:
             if isinstance(raw_outputs, list) and len(raw_outputs) == len(images):
                 return [self._normalise_depth_output(output) for output in raw_outputs]
         except Exception as exc:
-            if _is_cuda_oom(exc) and self._device == "cuda":
+            if is_cuda_oom(exc) and self._device == "cuda":
                 logger.warning(
                     "Depth CUDA OOM for %s — retrying on CPU for remaining frames.",
                     self.model_id,
@@ -166,13 +163,13 @@ class DepthModel:
             self._pipe = hf_pipeline(
                 "depth-estimation",
                 model=self.model_id,
-                device=_pipeline_device_arg(target_device),
+                device=pipeline_device_arg(target_device),
                 torch_dtype=torch_dtype,
             )
             self._device = target_device
             logger.info("Depth model loaded: %s on %s", self.model_id, target_device)
         except Exception as exc:
-            if _is_cuda_oom(exc) and target_device == "cuda" and force_device != "cpu":
+            if is_cuda_oom(exc) and target_device == "cuda" and force_device != "cpu":
                 logger.warning(
                     "Depth model %s failed to load on CUDA due to OOM — retrying on CPU.",
                     self.model_id,
@@ -218,22 +215,4 @@ class DepthModel:
 
 
 def _get_device() -> str:
-    cfg = settings.DEVICE.lower()
-    try:
-        import torch
-        if cfg == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
-        if cfg == "cuda" and torch.cuda.is_available():
-            return "cuda"
-    except ImportError:
-        pass
-    return "cpu"
-
-
-def _pipeline_device_arg(device: str) -> int:
-    return -1 if device == "cpu" else 0
-
-
-def _is_cuda_oom(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return type(exc).__name__ == "OutOfMemoryError" or "cuda out of memory" in msg
+    return resolve_device()

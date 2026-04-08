@@ -8,6 +8,7 @@ from PIL import Image
 from torchvision import transforms
 
 from pipeline.core.config import settings
+from pipeline.core.gpu_utils import is_cuda_oom, resolve_device
 from pipeline.core.logging import get_logger
 
 # ---------------------------------------------------------------------------
@@ -196,11 +197,7 @@ class DINOEmbedder:
         self.logger.info("DINO loaded: %s on %s (dim=%d)", model_name, self.device, self._embed_dim)
 
     def _resolve_device(self) -> str:
-        if settings.DEVICE == "cpu":
-            return "cpu"
-        if settings.DEVICE == "cuda":
-            return "cuda"
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        return resolve_device()
 
     def _load_model(self, model_name: str):
         import torch.hub as _hub
@@ -318,7 +315,7 @@ class DINOEmbedder:
                         _set_dino_xformers_enabled(False)
                         feats = self.model(tensors)
             except Exception as exc:
-                if not _is_cuda_oom(exc) or not str(actual_device).startswith("cuda"):
+                if not is_cuda_oom(exc) or not str(actual_device).startswith("cuda"):
                     raise
                 self.logger.warning(
                     "DINO CUDA OOM during image encoding; moving backbone to CPU for remaining batches."
@@ -341,6 +338,3 @@ class DINOEmbedder:
         return self._embed_dim
 
 
-def _is_cuda_oom(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return type(exc).__name__ == "OutOfMemoryError" or "cuda out of memory" in msg

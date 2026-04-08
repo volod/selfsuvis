@@ -43,9 +43,9 @@ import io
 import warnings
 from typing import Any, Dict, List, Optional
 
-from pipeline.core import get_logger, settings
+from pipeline.core import get_logger, resolve_device, settings
 
-from .registry import auto_select, detect_resources
+from .registry import resolve_model_id
 
 logger = get_logger(__name__)
 
@@ -60,11 +60,7 @@ _WHISPER_PREFIXES = (
 
 def _resolve_model_id() -> str:
     """Return the model ID to load, resolving ``"auto"`` via GPU detection."""
-    model_cfg = settings.ASR_MODEL.strip()
-    if model_cfg and model_cfg.lower() != "auto":
-        return model_cfg
-    resources = detect_resources()
-    selected = auto_select("asr", resources) or "openai/whisper-large-v3-turbo"
+    selected = resolve_model_id(settings.ASR_MODEL, "asr", "openai/whisper-large-v3-turbo")
     if not _supports_native_timestamps(selected):
         fallback = "openai/whisper-large-v3-turbo"
         logger.info("ASR auto-selection skipped unsupported model %s; using %s", selected, fallback)
@@ -151,7 +147,7 @@ class ASRModel:
             import torch
             from transformers import pipeline as hf_pipeline
 
-            device = _resolve_device()
+            device = resolve_device()
             torch_dtype = torch.float16 if settings.USE_FP16 and device != "cpu" else torch.float32
 
             self._pipe = hf_pipeline(
@@ -228,26 +224,6 @@ def _probe_audio_duration(audio_path: str) -> float:
     except Exception:
         pass
     return 0.0
-
-
-def _resolve_device() -> str:
-    """Return 'cuda', 'mps', or 'cpu' based on availability and DEVICE setting."""
-    cfg = settings.DEVICE.lower()
-    try:
-        import torch
-        if cfg == "auto":
-            if torch.cuda.is_available():
-                return "cuda"
-            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                return "mps"
-            return "cpu"
-        if cfg == "cuda" and torch.cuda.is_available():
-            return "cuda"
-        if cfg == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            return "mps"
-    except ImportError:
-        pass
-    return "cpu"
 
 
 @contextlib.contextmanager

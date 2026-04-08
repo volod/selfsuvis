@@ -255,6 +255,88 @@ _SCHEMA = [
     )
     """,
 
+    """
+    CREATE TABLE IF NOT EXISTS robot_sessions (
+        id                  TEXT PRIMARY KEY,
+        robot_id            TEXT NOT NULL,
+        mission_id          TEXT,
+        sensor_profile_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status              TEXT NOT NULL DEFAULT 'active'
+                                CHECK (status IN ('active','stopped','failed')),
+        started_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ended_at            TIMESTAMPTZ,
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_robot_sessions_robot_id_started ON robot_sessions (robot_id, started_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_robot_sessions_status_started ON robot_sessions (status, started_at DESC)",
+
+    """
+    CREATE TABLE IF NOT EXISTS sensor_packets (
+        id           BIGSERIAL PRIMARY KEY,
+        session_id   TEXT NOT NULL REFERENCES robot_sessions(id) ON DELETE CASCADE,
+        sensor_type  TEXT NOT NULL,
+        t_device     DOUBLE PRECISION NOT NULL,
+        t_server     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        seq          BIGINT,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_sensor_packets_session_sensor_time ON sensor_packets (session_id, sensor_type, t_device DESC)",
+
+    """
+    CREATE TABLE IF NOT EXISTS realtime_poses (
+        id                    BIGSERIAL PRIMARY KEY,
+        session_id            TEXT NOT NULL REFERENCES robot_sessions(id) ON DELETE CASCADE,
+        source                TEXT NOT NULL,
+        t_sec                 DOUBLE PRECISION NOT NULL,
+        position_enu_json     JSONB NOT NULL,
+        orientation_quat_json JSONB,
+        velocity_enu_json     JSONB,
+        covariance_json       JSONB,
+        tracking_status       TEXT NOT NULL DEFAULT 'ok',
+        global_map_id         INTEGER REFERENCES global_map(id) ON DELETE SET NULL,
+        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_realtime_poses_session_tsec ON realtime_poses (session_id, t_sec DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_realtime_poses_global_map_time ON realtime_poses (global_map_id, created_at DESC)",
+
+    """
+    CREATE TABLE IF NOT EXISTS map_tiles (
+        id            BIGSERIAL PRIMARY KEY,
+        session_id    TEXT NOT NULL REFERENCES robot_sessions(id) ON DELETE CASCADE,
+        global_map_id INTEGER REFERENCES global_map(id) ON DELETE SET NULL,
+        tile_key      TEXT NOT NULL,
+        map_type      TEXT NOT NULL,
+        storage_path  TEXT NOT NULL,
+        resolution_m  DOUBLE PRECISION NOT NULL,
+        bounds_json   JSONB NOT NULL DEFAULT '{}'::jsonb,
+        stats_json    JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (session_id, tile_key, map_type)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_map_tiles_session_type_updated ON map_tiles (session_id, map_type, updated_at DESC)",
+
+    """
+    CREATE TABLE IF NOT EXISTS semantic_observations (
+        id                BIGSERIAL PRIMARY KEY,
+        session_id        TEXT NOT NULL REFERENCES robot_sessions(id) ON DELETE CASCADE,
+        frame_id          TEXT,
+        class_name        TEXT NOT NULL,
+        confidence        DOUBLE PRECISION NOT NULL,
+        position_enu_json JSONB,
+        bbox_json         JSONB,
+        mask_ref          TEXT,
+        track_id          TEXT,
+        facts_json        JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_semantic_observations_session_created ON semantic_observations (session_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_observations_class_created ON semantic_observations (class_name, created_at DESC)",
+
     # Phase 5 — scene_timeline: one row per GPS-tagged keyframe across all missions.
     # Enables "last N visits" reasoning in POST /query/pose.
     """

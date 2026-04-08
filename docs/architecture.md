@@ -47,6 +47,39 @@ Optional services:
 6. Metadata is written to PostgreSQL and vectors are written to Qdrant.
 7. Optional downstream steps run: change detection, reports, mapping, multimodal facts, fine-tune triggers.
 
+## Shared utility packages
+
+Two packages centralise cross-cutting helpers that would otherwise be copy-pasted into every model file:
+
+### `pipeline/core/gpu_utils.py`
+
+GPU and device utilities used by every model loader and vision pipeline stage:
+
+| Symbol | Purpose |
+|--------|---------|
+| `is_cuda_oom(exc)` | Returns `True` when `exc` is a CUDA out-of-memory error (works for both `torch.cuda.OutOfMemoryError` and older `RuntimeError` messages). |
+| `resolve_device(device_cfg=None)` | Maps `settings.DEVICE` (or an explicit string) to `"cuda"`, `"mps"`, or `"cpu"` with proper availability checks including Apple MPS. |
+| `pipeline_device_arg(device)` | Converts a device string to the integer HuggingFace `pipeline()` expects: `-1` for CPU, `0` for everything else. |
+
+All three are re-exported from `pipeline.core` for convenience:
+
+```python
+from pipeline.core import is_cuda_oom, resolve_device, pipeline_device_arg
+```
+
+### `pipeline/vision/registry.resolve_model_id`
+
+Helper used by every vision model wrapper to avoid duplicating the four-line "read setting → auto-select → fallback" pattern:
+
+```python
+from pipeline.vision.registry import resolve_model_id
+
+def _resolve_model_id() -> str:
+    return resolve_model_id(settings.DEPTH_MODEL, "depth", "depth-anything/Depth-Anything-V2-Small-hf")
+```
+
+When the setting is non-empty and not `"auto"`, the value is returned as-is.  Otherwise `auto_select` picks the largest model that fits in available VRAM, falling back to the explicit *fallback* ID if the catalog has no match.
+
 ## Query architecture
 
 - `/query/text`: OpenCLIP text embedding against Qdrant vectors

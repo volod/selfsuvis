@@ -53,7 +53,7 @@ from typing import Any, Dict, List, Optional
 
 from PIL import Image
 
-from pipeline.core import get_logger, settings
+from pipeline.core import get_logger, resolve_device, settings
 
 from .registry import auto_select, detect_resources, normalize_model_id
 
@@ -346,13 +346,4 @@ def _load_world_preprocessor(source_label: str, load_kwargs: Dict[str, Any], *lo
 
 
 def _get_device() -> str:
-    cfg = settings.DEVICE.lower()
-    try:
-        import torch
-        if cfg == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
-        if cfg == "cuda" and torch.cuda.is_available():
-            return "cuda"
-    except ImportError:
-        pass
-    return "cpu"
+    return resolve_device()

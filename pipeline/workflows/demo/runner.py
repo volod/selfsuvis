@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 
-from pipeline.core import settings
+from pipeline.core import resolve_device, settings
 from pipeline.media import extract_frames
 from pipeline.storage import InMemoryStore
 from pipeline.mapping.viewer import view_npz, _HAS_MPL
@@ -54,15 +54,6 @@ _VIDEO_EXTS  = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 # Phase 3 SSL gate: skip distillation / ONNX / search comparison when the
 # SSL fine-tune best loss is ≥ this threshold (indicates a failed run).
 _SSL_GATE_MAX_LOSS = 10.0
-
-
-# ── Device resolution ──────────────────────────────────────────────────────────
-
-def _resolve_device(device_cfg: str) -> str:
-    import torch
-    if device_cfg == "auto":
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    return device_cfg
 
 
 # ── Model & store initialisation ───────────────────────────────────────────────
@@ -1880,7 +1871,7 @@ def run_demo(args: Any) -> None:
 
     _log.info("Found %d video(s): %s", len(videos), [v.name for v in videos])
 
-    device   = _resolve_device(args.device)
+    device   = resolve_device(args.device)
     _log.info("Using device: %s", device)
 
     from pipeline.vision.registry import detect_resources  # noqa: PLC0415

@@ -65,5 +65,25 @@ streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0
 
 Set `API_URL=http://localhost:8000` so the UI talks to your local API.
 
+## Adding a new vision model wrapper
+
+Each model file (under `pipeline/vision/`) should import shared helpers from the central packages rather than copy-pasting them:
+
+```python
+# Device selection
+from pipeline.core import is_cuda_oom, pipeline_device_arg, resolve_device
+
+# Model ID resolution (settings value → "auto" → GPU-aware auto-select → fallback)
+from pipeline.vision.registry import resolve_model_id
+
+def _resolve_model_id() -> str:
+    return resolve_model_id(settings.MY_MODEL, "my_task", "org/default-model")
+
+def _get_device() -> str:
+    return resolve_device()
+```
+
+Do **not** copy-paste `_is_cuda_oom`, `_resolve_device`, `_get_device`, or `_pipeline_device_arg` into a new file — the canonical implementations live in `pipeline/core/gpu_utils.py`.
+
 ---
 [← Setup](setup.md) | [API →](api.md)
