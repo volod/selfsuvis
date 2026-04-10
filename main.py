@@ -1,9 +1,9 @@
 """Entry point for the selfsuvis CLI.
 
 Modes:
+  local   — run the full local analysis / training orchestration
   file    — process a video file or directory (default)
   stream  — process a live RTSP/device stream
-  demo    — run the full end-to-end demonstration pipeline
 """
 
 from pipeline.workflows import build_parser
@@ -13,12 +13,12 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.mode == "demo":
+    if args.mode == "local":
         # Env vars must be set before pipeline.core.config is imported.
-        from pipeline.workflows import apply_demo_env  # noqa: PLC0415
-        apply_demo_env(args)
-        from pipeline.workflows import run_demo  # noqa: PLC0415
-        run_demo(args)
+        from pipeline.workflows import apply_local_env  # noqa: PLC0415
+        apply_local_env(args)
+        from pipeline.workflows import run_local  # noqa: PLC0415
+        run_local(args)
     elif args.mode == "file":
         from pipeline.workflows import run_file_mode  # noqa: PLC0415
         run_file_mode(args)

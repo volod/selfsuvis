@@ -159,7 +159,7 @@ def step_export_model(
 
     edge_dir     = video_dir / "edge_models"
     edge_dir.mkdir(parents=True, exist_ok=True)
-    onnx_path    = str(edge_dir / "dino_demo.onnx")
+    onnx_path    = str(edge_dir / "dino_local.onnx")
     gallery_path = str(edge_dir / "gallery.npz")
     result: Dict[str, Any] = {"onnx_path": onnx_path, "gallery_path": gallery_path,
                                "onnx_mb": 0.0, "exported": False, "gallery_saved": False}

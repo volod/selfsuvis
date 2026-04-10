@@ -1,7 +1,7 @@
-"""Demo mode environment setup helpers.
+"""Local full-analysis environment setup helpers.
 
 This module is intentionally dependency-light so it can be imported by `main.py`
-before `pipeline.core.config` is imported. This ensures demo CLI flags are reflected
+before `pipeline.core.config` is imported. This ensures local orchestration CLI flags are reflected
 in environment variables consumed by settings initialization.
 """
 
@@ -12,12 +12,34 @@ from pathlib import Path
 from typing import Any
 
 
-def apply_demo_env(args: Any) -> None:
-    """Set environment variables for demo mode.
+def normalize_local_orchestration_args(args: Any) -> Any:
+    """Apply default-on local orchestration flags unless explicitly overridden."""
+    if getattr(args, "mode", "") != "local":
+        return args
+
+    default_true_flags = (
+        "asr",
+        "ocr",
+        "depth",
+        "detection",
+        "world_model",
+        "qwen",
+        "unidrive",
+    )
+    for flag in default_true_flags:
+        if getattr(args, flag, None) is None:
+            setattr(args, flag, True)
+    return args
+
+
+def apply_local_env(args: Any) -> None:
+    """Set environment variables for local full-analysis mode.
 
     Args:
-        args: Parsed argparse namespace for demo mode.
+        args: Parsed argparse namespace for local full-analysis mode.
     """
+    normalize_local_orchestration_args(args)
+
     # Load the project-root .env FIRST so its values are visible to the
     # setdefault calls below.  Explicit CLI args (direct os.environ assignments
     # further down) still override .env values.
@@ -44,7 +66,7 @@ def apply_demo_env(args: Any) -> None:
     os.environ.setdefault("GEMMA_USE_BF16", "true" if args.device != "cpu" else "false")
     os.environ.setdefault("QDRANT_HOST", "localhost")
     os.environ.setdefault("QDRANT_PORT", "6333")
-    os.environ.setdefault("QDRANT_COLLECTION", "demo_video_semantic")
+    os.environ.setdefault("QDRANT_COLLECTION", "local_video_semantic")
     os.environ.setdefault("DEVICE", args.device)
     os.environ.setdefault("USE_FP16", "false")
     os.environ.setdefault("SAMPLE_FPS_MAX", str(args.fps))
@@ -92,6 +114,14 @@ def apply_demo_env(args: Any) -> None:
         os.environ["QWEN_MODEL"] = args.qwen_model
     if args.qwen_backend:
         os.environ["QWEN_BACKEND"] = args.qwen_backend
+    os.environ.setdefault("UNIDRIVE_ENABLED", "true" if args.unidrive else "false")
+    if getattr(args, "unidrive_api_url", ""):
+        os.environ["UNIDRIVE_API_URL"] = args.unidrive_api_url
+    os.environ.setdefault("UNIDRIVE_API_URL", "")
+    if getattr(args, "unidrive_model", ""):
+        os.environ["UNIDRIVE_MODEL"] = args.unidrive_model
+    if getattr(args, "unidrive_backend", ""):
+        os.environ["UNIDRIVE_BACKEND"] = args.unidrive_backend
 
     gemma_api_url = getattr(args, "gemma_api_url", "")
     if gemma_api_url:

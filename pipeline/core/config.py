@@ -154,7 +154,7 @@ class Settings:
     YOLO_CONFIDENCE = _env_float("YOLO_CONFIDENCE", 0.25)
     # ── YOLO Semantic Scene Graph (SSG) ──────────────────────────────────────
     # Builds an observation-centric 3D semantic environment graph from YOLO
-    # detections anchored to frame poses (ENU in production, SfM/PCA in demo).
+    # detections anchored to frame poses (ENU in production, SfM/PCA in local mode).
     YOLO_SSG_ENABLED = _env("YOLO_SSG_ENABLED", "true").lower() == "true"
     YOLO_SSG_MIN_OBSERVATIONS = _env_int("YOLO_SSG_MIN_OBSERVATIONS", 1)
     YOLO_SSG_CLUSTER_RADIUS_METERS = _env_float("YOLO_SSG_CLUSTER_RADIUS_METERS", 12.0)
@@ -307,6 +307,23 @@ class Settings:
     QWEN_MODEL = _env("QWEN_MODEL", _qwen_model_default)
     QWEN_TIMEOUT_SEC = _env_int("QWEN_TIMEOUT_SEC", 30)
     QWEN_CLIP_THRESHOLD = _env_float("QWEN_CLIP_THRESHOLD", 0.25)
+
+    # UniDriveVLA external analysis sidecar.
+    # Designed for an OpenAI-compatible bridge that serves UniDrive-style
+    # understanding/perception/planning JSON, without vendoring the full
+    # upstream autonomous-driving stack into selfsuvis runtime processes.
+    UNIDRIVE_ENABLED = _env("UNIDRIVE_ENABLED", "false").lower() == "true"
+    UNIDRIVE_API_URL = _env("UNIDRIVE_API_URL", "")
+    UNIDRIVE_BACKEND = _env("UNIDRIVE_BACKEND", "vllm")  # "vllm" or "ollama"
+    _unidrive_model_default = (
+        "unidrivevla:base"
+        if _env("UNIDRIVE_BACKEND", "vllm").lower() == "ollama"
+        or "11434" in _env("UNIDRIVE_API_URL", "")
+        else "xiaomi-research/UniDriveVLA-Base"
+    )
+    UNIDRIVE_MODEL = _env("UNIDRIVE_MODEL", _unidrive_model_default)
+    UNIDRIVE_TIMEOUT_SEC = _env_int("UNIDRIVE_TIMEOUT_SEC", 60)
+    UNIDRIVE_MAX_FRAMES = _env_int("UNIDRIVE_MAX_FRAMES", 24)
 
     # ── ASR (Whisper) — audio-to-subtitle transcription ──────────────────────
     # Extracted subtitles are stored in frames.subtitle_text and injected into

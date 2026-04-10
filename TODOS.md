@@ -5,11 +5,22 @@ Format: [Priority] [Effort] — Description
 
 ---
 
-## SV-DEMO | End-to-end demo pipeline (`main.py --mode demo`)
+## SV-DEMO | Historical transition into the local pipeline
 
-Self-contained CLI that runs the full perception stack on a directory of videos
-and produces per-video reports, a fine-tuned model, 3D maps, and final statistics —
-without requiring the Docker stack (except optional Qdrant for vector search).
+Historical planning section for the workflow that started as the standalone demo
+pipeline and was later promoted into the canonical local full-analysis and
+learning flow.
+
+Current semantics:
+- Use `python main.py --mode local` for the local full-analysis pipeline
+- Canonical implementation now lives in `pipeline/workflows/local/`
+- References below to `demo`, `pipeline/demo_runner.py`, or `pipeline/demo/`
+  are preserved only to connect historical decisions with the current codebase
+
+The resulting local CLI still runs the full perception stack on a directory of
+videos and produces per-video reports, a fine-tuned model, 3D maps, and final
+statistics without requiring the Docker stack (except optional Qdrant for
+vector search).
 
 ### ✅ DONE — [DEMO-01] Setup: directory structure + arg parsing + logging
 - `video_demo/videos/.gitkeep` placeholder for input videos
@@ -800,6 +811,11 @@ Phase ordering: Phase 1 (no gate) → Phase 2 (no gate, parallel) → Phase 3 (S
 ---
 
 ### ✅ DONE — [P1][S] Refactor `pipeline/demo_runner.py` into `pipeline/demo/` subpackage
+**Transition note:** This was an intermediate restructuring step in the old
+demo era. The orchestrator was later promoted into the canonical
+`pipeline/workflows/local/` package and the demo compatibility surface was
+removed, but this item remains here as historical context for that transition.
+
 **What:** Split the 5667-line `demo_runner.py` into a proper subpackage:
 - `pipeline/demo/steps_embed.py` — embedding steps
 - `pipeline/demo/steps_caption.py` — captioning steps

@@ -1,6 +1,6 @@
 # Learning Path
 
-This document follows the real `python main.py --mode demo` pipeline in this repo.
+This document follows the real `python main.py --mode local` pipeline in this repo.
 It explains, step by step:
 
 - what each step does
@@ -9,7 +9,13 @@ It explains, step by step:
 - which paper to read first
 - how a human should study the topic behind that step
 
-The current demo has 20 ordered steps per video:
+Purpose note:
+
+- This document is intentionally written as a detailed description of the approaches used at each pipeline step.
+- It is meant for a human who wants to deep dive into the underlying technology, not just for someone who wants to run the pipeline once.
+- Use it as a study guide for the representation-learning, multimodal reasoning, mapping, training, deployment, and audit choices made in this codebase.
+
+The current local full-analysis pipeline has 23 ordered steps per video:
 
 1. Frame extraction
 2. Vector store indexing
@@ -20,17 +26,20 @@ The current demo has 20 ordered steps per video:
 7. Depth estimation
 8. Object detection (HuggingFace RT-DETR / Grounding DINO)
 9. **YOLO11 + SAM2/3 detection and segmentation** *(new)*
-10. World model video embeddings
-11. Qwen detailed captioning
-12. Base model search test
-13. 3D map + Gaussian Splat
-14. SSL DINO fine-tuning
-15. Knowledge distillation
-16. ONNX export + gallery build
-17. Fine-tuned search test
-18. Model comparison + video description
-19. Video synthesis
-20. Agentic flow audit
+10. Gemma 4 directed tracking
+11. World model video embeddings
+12. Qwen detailed captioning
+13. UniDriveVLA expert analysis
+14. Base model search test
+15. 3D map + Gaussian Splat
+16. SSL DINO fine-tuning
+17. Knowledge distillation
+18. ONNX export + gallery build
+19. Fine-tuned search test
+20. Model comparison + video description
+21. Multi-model comparison
+22. Video synthesis
+23. Agentic flow audit
 
 ## Before You Start
 
@@ -40,35 +49,41 @@ Minimum practical setup:
 2. Install `ffmpeg`
 3. Put `.mp4` or `.mov` files in `data_test/videos/`
 4. Optionally run Qdrant on `localhost:6333`
-5. Optionally prefetch large models with `python scripts/prepare_models.py --all`
+5. Optionally prefetch local-model assets with `python scripts/prepare_models.py --all`
 6. For YOLO+SAM: `pip install ultralytics sam-2`
 
 Useful mental model:
 
 - Steps 1-2 build the raw visual memory.
 - Step 3 analyses that memory with Gemma open-weight across all multimodal use-cases.
-- Steps 4-11 attach language, text, geometry, and temporal structure — and feed results forward
+- Steps 4-13 attach language, text, geometry, temporal structure, and expert driving analysis — and feed results forward
   into a shared `VideoKnowledge` accumulator so each step benefits from all earlier steps.
-- Step 9 adds YOLO11+SAM2/3 detection with explicit priority ordering (human > vehicle > artificial).
-- Steps 12-18 evaluate and adapt the representation.
-- Steps 19-20 build a narrative summary and a final reasoning audit.
-- The 3D map (step 13) runs concurrently with steps 5-11 in a background thread.
+- Steps 9-10 add priority-aware detection/segmentation and Gemma-directed tracking.
+- Steps 14-20 evaluate and adapt the representation.
+- Steps 21-23 build cross-model synthesis, a narrative summary, and a final reasoning audit.
+- The 3D map (step 15) runs concurrently with steps 5-13 in a background thread.
 
-The agentic flow (Steps 3 → 4 → 5–9 → 11 → 19 → 20): see the
+Study note:
+
+- The numbered list above is the canonical runtime order.
+- Some deep-dive sections later in this document are grouped pedagogically rather than strictly in runtime order.
+- When in doubt, use the canonical 23-step list and [`pipeline/workflows/local/runner.py`](/home/vola/src/selfsuvis/pipeline/workflows/local/runner.py) as the execution source of truth.
+
+The agentic flow (Steps 3 → 4 → 5–10 → 12 → 20 → 21): see the
 **Agentic Knowledge Flow** section below for a full data-flow diagram.
 
 ## Step-By-Step Learning Path
 
 ### Step 1. Frame extraction
 
-**What the demo does**
+**What the local pipeline does**
 
 The pipeline uses `ffmpeg` to decode the source video and save JPEG frames at the requested FPS. This is not an ML step, but every downstream model depends on its output quality and sampling rate.
 
 **Tool / model used**
 
 - `ffmpeg`
-- Output: `data_test/videos_test/<video>/frames/`
+- Output: `data/local_runs/<video>/frames/`
 
 **Why it matters**
 
@@ -86,7 +101,7 @@ Learn video basics first: FPS, GOP/keyframes, H.264/H.265 compression, color spa
 
 ### Step 2. Vector store indexing
 
-**What the demo does**
+**What the local pipeline does**
 
 Each extracted frame is embedded into two visual spaces and then inserted into a vector store. This is the memory layer used later for search, comparison, and retrieval-based reasoning.
 
@@ -95,7 +110,7 @@ Each extracted frame is embedded into two visual spaces and then inserted into a
 - `OpenCLIP` image encoder from [models/openclip_model.py](../models/openclip_model.py)
 - `DINO` image encoder from [models/dino_model.py](../models/dino_model.py)
 - Current default OpenCLIP config: `ViT-B-16` with the `openai` weights
-- Current DINO label in the demo: `dinov3_vitb14`
+- Current DINO label in the local pipeline: `dinov3_vitb14`
 - Important repo detail: in this codebase, `dinov3_*` is an alias for `DINOv2` register-token checkpoints served from `facebookresearch/dinov2`
 - Store backend: Qdrant if available, otherwise in-memory cosine search
 
@@ -116,7 +131,7 @@ Start with embeddings, cosine similarity, and nearest-neighbour retrieval. Then 
 
 ### Step 3. Gemma 4 open-weight multimodal analysis
 
-**What the demo does**
+**What the local pipeline does**
 
 The pipeline loads `GemmaEmbedder` (backed by `google/gemma-4-it-2b` or the configured
 `GEMMA_MODEL_ID`) and runs six embedding-based analyses on a sample of up to 30 frames:
@@ -143,13 +158,13 @@ Results and interpretation are written to `gemma_analysis.md`.
 **Models used**
 
 - `GemmaEmbedder` in [models/gemma_model.py](../models/gemma_model.py)
-- Current local demo default: `google/gemma-3-4b-it` via HuggingFace `transformers`
+- Current local default: `google/gemma-3-4b-it` via HuggingFace `transformers`
 - The processor is now loaded with `use_fast=False` explicitly so runtime behavior stays stable across future `transformers` releases
 - Vision encoder: Gemma multimodal vision path pooled into the language hidden space
 - Embedding dim: 2560 (Gemma 4 2B hidden size), L2-normalised
 - Optional sidecar: Ollama `gemma4:e4b` at `GEMMA_API_URL` for generative descriptions on 16 GB-class GPUs
 - Requires `HF_TOKEN` for gated HuggingFace model download
-- Important runtime detail: the embedder instance is reused across the demo, and image embeddings are cached in-process to avoid recomputing the same frame repeatedly across indexing, Gemma analysis, and Gemma-teacher distillation
+- Important runtime detail: the embedder instance is reused across the local pipeline, and image embeddings are cached in-process to avoid recomputing the same frame repeatedly across indexing, Gemma analysis, and Gemma-teacher distillation
 
 **Why it matters**
 
@@ -203,9 +218,9 @@ swap DINOv3 for Gemma embeddings in Qdrant without losing retrieval quality.
 
 ### Step 4. Florence scene captioning
 
-**What the demo does**
+**What the local pipeline does**
 
-The demo captions every keyframe with a detailed textual scene description. This gives you a readable semantic summary before later multimodal steps add speech, OCR, or object structure.
+The local pipeline captions every keyframe with a detailed textual scene description. This gives you a readable semantic summary before later multimodal steps add speech, OCR, or object structure.
 
 **Agentic enrichment (new)**
 
@@ -240,7 +255,7 @@ Learn image captioning as a sequence-generation problem. Then study prompt-condi
 
 ### Step 5. ASR transcription
 
-**What the demo does**
+**What the local pipeline does**
 
 The pipeline extracts audio from the video, runs speech recognition, and aligns subtitle segments to video frames.
 
@@ -266,7 +281,7 @@ Study audio preprocessing, spectrograms, encoder-decoder speech models, and time
 
 ### Step 6. OCR text extraction
 
-**What the demo does**
+**What the local pipeline does**
 
 The pipeline looks for visible text inside each frame. That text can come from road signs, dashboards, labels, UI overlays, subtitles burned into the video, equipment markings, or documents in view.
 
@@ -274,7 +289,7 @@ The pipeline looks for visible text inside each frame. That text can come from r
 
 - Wrapper: [pipeline/vision/ocr.py](../pipeline/vision/ocr.py)
 - `OCR_MODEL=auto` is GPU-aware and can choose TrOCR, GOT-OCR2, Florence, Qwen, Phi-3.5 Vision, or DeepSeek OCR depending on setup
-- In recent demo runs, `auto` selected `microsoft/Phi-3.5-vision-instruct`
+- In recent local runs, `auto` selected `microsoft/Phi-3.5-vision-instruct`
 - When a Qwen/Ollama sidecar is already active, the repo can route OCR through that sidecar instead of loading another heavy local VLM
 
 **Why it matters**
@@ -294,7 +309,7 @@ Start with the difference between document OCR and scene-text OCR. Then learn la
 
 ### Step 7. Depth estimation
 
-**What the demo does**
+**What the local pipeline does**
 
 The pipeline predicts monocular depth and stores a compact five-number summary per frame instead of a full dense depth map.
 
@@ -302,7 +317,7 @@ The pipeline predicts monocular depth and stores a compact five-number summary p
 
 - Wrapper: [pipeline/depth_model.py](../pipeline/depth_model.py)
 - `DEPTH_MODEL=auto` is registry-driven
-- In recent demo runs, `auto` selected `apple/DepthPro-hf`
+- In recent local runs, `auto` selected `apple/DepthPro-hf`
 - The wrapper will retry on CPU if CUDA runs out of memory
 
 **Why it matters**
@@ -321,7 +336,7 @@ Study the difference between metric depth, relative depth, and inverse depth. Th
 
 ### Step 8. Object detection
 
-**What the demo does**
+**What the local pipeline does**
 
 The pipeline predicts object instances and normalized bounding boxes for each frame.
 
@@ -329,7 +344,7 @@ The pipeline predicts object instances and normalized bounding boxes for each fr
 
 - Wrapper: [pipeline/vision/detection.py](../pipeline/vision/detection.py)
 - `DETECTION_MODEL=auto` is registry-driven
-- In recent demo runs, `auto` selected `SenseTime/deformable-detr`
+- In recent local runs, `auto` selected `SenseTime/deformable-detr`
 - Open-vocabulary alternatives are also supported via `DETECTION_LABELS`
 
 **Why it matters**
@@ -348,7 +363,7 @@ Learn the difference between classification, detection, and segmentation. Then s
 
 ### Step 9. YOLO11 + SAM2/3 detection and segmentation *(new)*
 
-**What the demo does**
+**What the local pipeline does**
 
 The pipeline runs YOLO11 on each sampled frame to detect object instances, assigns every detection a priority label (human → vehicle → artificial → other), and optionally refines each detection with a SAM2/3 segmentation mask. Those detections are then reused by the 3D map stage to build a lightweight semantic scene graph (YOLO SSG). The step writes:
 
@@ -361,11 +376,11 @@ The pipeline runs YOLO11 on each sampled frame to detect object instances, assig
 **CLI flags**
 
 ```bash
-python main.py --mode demo                                # YOLO + SSG on by default
-python main.py --mode demo --no-sam                       # YOLO detection only
-python main.py --mode demo --yolo-model yolo11m           # larger model
-python main.py --mode demo --sam-model sam2               # force SAM2
-python main.py --mode demo --no-yolo                      # disable YOLO + SSG entirely
+python main.py --mode local                               # YOLO + SSG on by default
+python main.py --mode local --no-sam                      # YOLO detection only
+python main.py --mode local --yolo-model yolo11m          # larger model
+python main.py --mode local --sam-model sam2              # force SAM2
+python main.py --mode local --no-yolo                     # disable YOLO + SSG entirely
 ```
 
 **Model used**
@@ -379,7 +394,7 @@ YOLO tiers (set with `--yolo-model` or `YOLO_MODEL=`):
 
 | Model | Size | COCO mAP50-95 | Best for |
 |-------|------|--------------|---------|
-| `yolo11n` | 6 MB | 39.5 | edge / fast demo |
+| `yolo11n` | 6 MB | 39.5 | edge / fast local runs |
 | `yolo11s` | 18 MB | 47.0 | balanced |
 | `yolo11m` | 38 MB | 51.5 | higher accuracy |
 | `yolo11l` | 48 MB | 53.4 | server |
@@ -421,15 +436,15 @@ Start with the anchor detectors:
 1. Understand how YOLO frames detection as a single-pass regression (grid cells, anchor boxes, class probability × objectness). Run `yolo11n predict` on a test image and inspect the raw output tensors.
 2. Learn the transformer-DETR family (step 8) to appreciate the accuracy–speed tradeoff: DETR uses attention to reason about the whole image; YOLO uses local regression and non-maximum suppression.
 3. Study Segment Anything: prompting a foundation model with a bounding box to get a pixel mask. Compare the result to a threshold on the depth map (step 7) — they capture different aspects of "where is the object".
-4. Run the demo with `--yolo --detection` together and look at `detection_comparison.md`. Note which categories each detector misses and why.
+4. Run the local pipeline with YOLO and detection enabled together and look at `detection_comparison.md`. Note which categories each detector misses and why.
 5. Build a simple scene graph from detections: merge recurring `truck` observations across nearby frames, add `near` edges to co-visible `person` and `truck` nodes, and inspect where this approximation is helpful versus geometrically wrong.
 6. Design your own priority function: consider what `priority=1` should mean for indoor versus outdoor versus underwater scenes.
 
 ---
 
-### Step 9.5. Gemma 4 directed tracking *(new)*
+### Step 10. Gemma 4 directed tracking *(new)*
 
-**What the demo does**
+**What the local pipeline does**
 
 This step uses a Gemma sidecar to inspect up to 12 sampled frames and return structured JSON:
 `scene_type`, `dominant_objects` with rough fractional boxes, `areas_of_interest`, and a
@@ -463,7 +478,7 @@ when the object is visible.
 
 **How a human should learn this topic**
 
-Run the demo once with `--gemma-api-url` set and inspect the three P3 artifacts together:
+Run the local pipeline once with `--gemma-api-url` set and inspect the three P3 artifacts together:
 
 1. Read `gemma_tracking_summary.md` first. Verify that `scene_type`, `tracking_priority`, and
    dominant objects match the video at a high level.
@@ -487,9 +502,9 @@ markdown, but are not re-painted onto the tracking frames.
 
 ---
 
-### Step 10. World model video embeddings
+### Step 11. World model video embeddings
 
-**What the demo does**
+**What the local pipeline does**
 
 The pipeline groups consecutive frames into clips and computes one temporal embedding per clip. This is the video-native representation step, as opposed to the frame-by-frame image encoders used earlier.
 
@@ -515,11 +530,11 @@ First learn why image encoders are not enough for temporal understanding. Then s
 
 ---
 
-### Step 11. Qwen detailed captioning
+### Step 12. Qwen detailed captioning
 
-**What the demo does**
+**What the local pipeline does**
 
-The demo sends each frame, plus all accumulated context from previous steps, to a vision-language model for a richer structured description than the Florence caption.  By Step 10 every earlier analysis is complete, making this the most information-dense step in the pipeline.
+The local pipeline sends each frame, plus all accumulated context from previous steps, to a vision-language model for a richer structured description than the Florence caption. By Step 12 every earlier analysis is complete, making this the most information-dense step in the pipeline.
 
 **Agentic enrichment (new)**
 
@@ -552,7 +567,7 @@ Each Qwen result is fed back into `VideoKnowledge` via `update_qwen_state()` so 
 
 **Why it matters**
 
-By Step 10 the pipeline has already extracted language, geometry, sound, and object structure independently.  Rather than treating those as parallel outputs, Qwen can now reason *across* them: "the depth profile shows an obstacle approaching (Step 7), detection found a barrier (Step 8), and ASR says 'checkpoint ahead' (Step 5) — is the scene consistent?"  This cross-modal reasoning was not possible when each step ran in isolation.
+By Step 12 the pipeline has already extracted language, geometry, sound, and object structure independently.  Rather than treating those as parallel outputs, Qwen can now reason *across* them: "the depth profile shows an obstacle approaching (Step 7), detection found a barrier (Step 8), and ASR says 'checkpoint ahead' (Step 5) — is the scene consistent?"  This cross-modal reasoning was not possible when each step ran in isolation.
 
 **Essential reading**
 
@@ -564,9 +579,61 @@ Study multimodal prompting, context packing, and grounding failures. Then learn 
 
 ---
 
-### Step 12. Base model search test
+### Step 13. UniDriveVLA expert analysis
 
-**What the demo does**
+**What the local pipeline does**
+
+The local pipeline sends a sparse set of frames to a UniDriveVLA bridge and
+normalizes the output into four blocks:
+
+- `understanding`
+- `perception`
+- `planning`
+- `mixture_of_experts`
+
+This step is deliberately bridge-based rather than in-process. UniDriveVLA is a
+full autonomous-driving VLA stack, not a lightweight captioning model, so
+selfsuvis integrates it through an OpenAI-compatible sidecar contract.
+
+**Models used**
+
+- External bridge target: `xiaomi-research/UniDriveVLA-Base` by default
+- Runtime wrapper: [pipeline/vision/unidrive.py](../pipeline/vision/unidrive.py)
+- Local artifact: `unidrive_analysis.md`
+
+**Why it matters**
+
+This is the first step in the local pipeline that explicitly separates:
+
+- semantic understanding
+- scene perception
+- action/planning guidance
+- expert-consensus synthesis
+
+That separation is useful even outside pure driving tasks because it exposes
+where a model is describing, where it is localizing, and where it is making an
+action recommendation.
+
+**Essential reading**
+
+- UniDriveVLA repository: https://github.com/xiaomi-research/unidrivevla
+
+**How a human should learn this topic**
+
+Study the difference between a generic VLM and a domain VLA. A VLM mostly tells
+you what is visible. A VLA tries to turn that into perception plus action
+structure. In practice, compare `detailed_captions.md` and `unidrive_analysis.md`
+for the same timestamps and ask:
+
+1. which facts overlap?
+2. where does UniDrive add planning-specific language?
+3. where does the mixture-of-experts summary preserve disagreement instead of collapsing it?
+
+---
+
+### Step 14. Base model search test
+
+**What the local pipeline does**
 
 The system uses the middle frame as a query and retrieves visually similar neighbours from the frame store using the base representation.
 
@@ -591,11 +658,11 @@ Learn embedding evaluation through nearest-neighbour retrieval, not just classif
 
 ---
 
-### Step 13. SSL DINO fine-tuning
+### Step 16. SSL DINO fine-tuning
 
-**What the demo does**
+**What the local pipeline does**
 
-The demo fine-tunes the DINOv3 ViT-B/14 backbone on this mission's extracted frames using
+The local pipeline fine-tunes the DINOv3 ViT-B/14 backbone on this mission's extracted frames using
 NT-Xent contrastive loss.  Two strategies are chosen automatically:
 
 - **Temporal pairs** (default when frames ≥ 2 × batch\_size): frame[i] and frame[i+k] are
@@ -643,9 +710,9 @@ more tightly.
 
 ---
 
-### Step 14. Knowledge distillation — maximum hydration chain
+### Step 17. Knowledge distillation — maximum hydration chain
 
-**What the demo does**
+**What the local pipeline does**
 
 The fine-tuned teacher is distilled into a smaller ViT-S/14 student using **Relational Knowledge
 Distillation with Distance + Angle losses (RKD-DA)** plus two regularisers:
@@ -710,16 +777,16 @@ before and after distillation and observe how each loss term contributes.
 
 ---
 
-### Step 15. ONNX export + gallery build
+### Step 18. ONNX export + gallery build
 
-**What the demo does**
+**What the local pipeline does**
 
 The adapted backbone is exported to ONNX and then used to build an embedding gallery for lightweight edge inference.
 
 **Models used**
 
 - Export target: fine-tuned teacher by default, or distilled student if that path succeeds
-- Runtime artifact: `edge_models/dino_demo.onnx`
+- Runtime artifact: `edge_models/dino_local.onnx`
 - Gallery artifact: `edge_models/gallery.npz`
 
 **Why it matters**
@@ -736,11 +803,11 @@ Learn model export, operator compatibility, dynamic versus static shapes, and ru
 
 ---
 
-### Step 16. Fine-tuned search test
+### Step 19. Fine-tuned search test
 
-**What the demo does**
+**What the local pipeline does**
 
-The demo reruns the same retrieval test from Step 10, now with the adapted model.
+The local pipeline reruns the same retrieval test from Step 14, now with the adapted model.
 
 **Models used**
 
@@ -760,16 +827,25 @@ Learn to evaluate representation changes with controlled before/after comparison
 
 ---
 
-### Step 17. Model comparison + video description
+### Step 20. Model comparison + video description
 
-**What the demo does**
+**What the local pipeline does**
+
+The pipeline compares baseline and adapted retrieval results and derives a
+coarse CLIP-based video-level description from the prompt bank in the local
+runner.
+
+This is still the “single-model family” comparison stage: base vs fine-tuned
+retrieval plus CLIP text-description scoring.
+
+**What the local pipeline does**
 
 The pipeline ranks a curated set of text prompts against the average CLIP embedding of the video and writes out a short video-level description.
 
 **Models used**
 
 - OpenCLIP text and image encoders
-- Prompt bank defined in the demo runner
+- Prompt bank defined in the local runner
 
 **Why it matters**
 
@@ -785,9 +861,48 @@ Study prompt-set design, prompt leakage, and dataset bias in text-image similari
 
 ---
 
-### Step 18. 3D map + Gaussian Splat
+### Step 21. Multi-model comparison
 
-**What the demo does**
+**What the local pipeline does**
+
+When both Qwen and UniDrive are enabled, the pipeline writes
+`multi_model_comparison.md`. This compares:
+
+- Gemma’s video-level scene classification output
+- Qwen’s structured per-frame scene summaries
+- UniDrive’s understanding + Mixture-of-Experts consensus output
+
+The comparison includes:
+
+- matched timestamps between Qwen and UniDrive
+- token-overlap agreement between summaries
+- UniDrive risk distribution
+- UniDrive expert-agreement distribution
+- concrete matched examples for inspection
+
+**Why it matters**
+
+This is the first explicit *cross-model* evaluation step in the local pipeline.
+It does not ask only “did training improve retrieval?” It asks “do our major
+multimodal analyzers agree on what is happening, and where do they diverge?”
+
+**Essential reading**
+
+- CLIP: https://arxiv.org/abs/2103.00020
+- Qwen2.5-VL: https://arxiv.org/abs/2502.13923
+- UniDriveVLA repository: https://github.com/xiaomi-research/unidrivevla
+
+**How a human should learn this topic**
+
+Read `comparison.md` and `multi_model_comparison.md` together. The first tells
+you whether the representation improved. The second tells you whether the major
+reasoning models agree about the scene. Those are different questions and both matter.
+
+---
+
+### Step 15. 3D map + Gaussian Splat
+
+**What the local pipeline does**
 
 The pipeline first tries classical Structure-from-Motion with pycolmap to recover poses and sparse geometry. If SfM fails or is partial, it falls back to a PCA point cloud. It then reuses the frame anchors from that map to attach YOLO detections into a semantic scene graph, and optionally builds a Gaussian Splat representation for interactive viewing.
 
@@ -814,9 +929,9 @@ Learn camera geometry, epipolar constraints, feature matching, bundle adjustment
 
 ---
 
-### Step 19. Video synthesis
+### Step 22. Video synthesis
 
-**What the demo does**
+**What the local pipeline does**
 
 The pipeline synthesizes a final ontology-style summary and a narrative report from all earlier artifacts. This is a report-writing step driven by multimodal context rather than a single raw model output.
 
@@ -824,7 +939,7 @@ The pipeline synthesizes a final ontology-style summary and a narrative report f
 
 - OpenAI-compatible chat endpoint
 - In practice this is usually the configured Qwen sidecar
-- Input context includes captions, OCR, ASR, detections, descriptions, map outputs, and other accumulated demo artifacts
+- Input context includes captions, OCR, ASR, detections, descriptions, map outputs, and other accumulated local-run artifacts
 
 **Why it matters**
 
@@ -840,13 +955,13 @@ Study ontology design, schema-first prompting, and evidence-backed summarization
 
 ---
 
-### Step 20. Agentic flow audit
+### Step 23. Agentic flow audit
 
-**What the demo does**
+**What the local pipeline does**
 
-The final step generates `agentic_flow.md`, a reasoning-heavy audit artifact that explains how context moved from one demo step to the next, what each step added, and where misidentification or stale/wrong context could propagate.
+The final step generates `agentic_flow.md`, a reasoning-heavy audit artifact that explains how context moved from one step to the next, what each step added, and where misidentification or stale/wrong context could propagate.
 
-Unlike Step 18, which writes a user-facing summary of the video, Step 19 is a system-facing audit of the pipeline itself.
+Unlike Step 22, which writes a user-facing summary of the video, Step 23 is a system-facing audit of the pipeline itself.
 
 **Models used**
 
@@ -857,7 +972,7 @@ Unlike Step 18, which writes a user-facing summary of the video, Step 19 is a sy
 
 **Why it matters**
 
-This step makes the demo inspectable. It turns a long multimodal run into a traceable reasoning document, which is critical when the pipeline is used for robotics, surveillance, or operational reporting.
+This step makes the local pipeline inspectable. It turns a long multimodal run into a traceable reasoning document, which is critical when the pipeline is used for robotics, surveillance, or operational reporting.
 
 **Essential reading**
 
@@ -881,11 +996,11 @@ The practical exercise is to compare `video_synthesis.md` and `agentic_flow.md` 
 ### What problem it solves
 
 Steps 3–9 each run a specialised model independently and write results to disk. Without an
-accumulator, Step 10 (Qwen) knows only what it can see in the raw image, a subtitle string, and
+accumulator, Step 12 (Qwen) knows only what it can see in the raw image, a subtitle string, and
 an OCR string. It cannot ask "was a barrier detected 2 seconds ago?" or "does this scene belong
 to the same segment as the last 8 frames?"
 
-The `VideoKnowledge` accumulator (in `pipeline/workflows/demo/runner.py`) solves this: each step
+The `VideoKnowledge` accumulator (in `pipeline/workflows/local/runner.py`) solves this: each step
 *deposits* structured results into a shared object and later steps *query* it per frame.  The
 accumulator is never serialised to disk; it lives for the lifetime of one video pass.
 
@@ -910,7 +1025,7 @@ Step 7  Depth ──────────────────────
 Step 8  Detection ──────────────────────────────────────► VideoKnowledge.add_detections()
                                         │  _detections {t_sec: [labels]}, known_entities
                                         ▼
-Step 10 Qwen ◄────────── domain_hint() + context_for_frame(t_sec) per frame
+Step 12 Qwen ◄────────── domain_hint() + context_for_frame(t_sec) per frame
              └──────────────────────────────────────────► update_qwen_state(result)
                                                                (rolling memory for next frame)
 ```
@@ -943,10 +1058,10 @@ and the top detected entity classes:
 Dominant scene: military convoy | Known objects: truck, soldier, barrier | Visual transitions: 3
 ```
 
-This is passed to Step 4 (Florence) as a prompt prefix and to Step 10 (Qwen) as a system-prompt
+This is passed to Step 4 (Florence) as a prompt prefix and to Step 12 (Qwen) as a system-prompt
 prefix.  Both calls default to no prefix when Gemma was skipped.
 
-### Temporal rolling memory in Step 10
+### Temporal rolling memory in Step 12
 
 After Qwen processes each frame it calls `VideoKnowledge.update_qwen_state(result)`.  The next
 frame's `context_for_frame()` includes a `[Prior frame state]` block derived from that result.
@@ -964,18 +1079,18 @@ Frame N+1 sees this in its prompt; Qwen can now reason:
 
 | Component | File | Function / class |
 |---|---|---|
-| Accumulator | [pipeline/workflows/demo/runner.py](../pipeline/workflows/demo/runner.py) | `VideoKnowledge` |
-| Per-frame context | [pipeline/workflows/demo/runner.py](../pipeline/workflows/demo/runner.py) | `VideoKnowledge.context_for_frame()` |
-| Domain hint | [pipeline/workflows/demo/runner.py](../pipeline/workflows/demo/runner.py) | `VideoKnowledge.domain_hint()` |
+| Accumulator | [pipeline/workflows/local/runner.py](../pipeline/workflows/local/runner.py) | `VideoKnowledge` |
+| Per-frame context | [pipeline/workflows/local/runner.py](../pipeline/workflows/local/runner.py) | `VideoKnowledge.context_for_frame()` |
+| Domain hint | [pipeline/workflows/local/runner.py](../pipeline/workflows/local/runner.py) | `VideoKnowledge.domain_hint()` |
 | Qwen batch with context | [pipeline/vision/qwen.py](../pipeline/vision/qwen.py) | `QwenModel.extract_batch()` |
-| Pipeline wiring | [pipeline/workflows/demo/runner.py](../pipeline/workflows/demo/runner.py) | `_run_video_pipeline()` |
+| Pipeline wiring | [pipeline/workflows/local/runner.py](../pipeline/workflows/local/runner.py) | `_run_video_pipeline()` |
 
 ### How a human should study this pattern
 
 The agentic accumulator is an instance of the broader *chain-of-thought with external tools*
 pattern from language model research, applied to a multimodal inference pipeline.  To study it:
 
-1. Read the `VideoKnowledge` class from top to bottom in `demo_runner.py` — notice how each
+1. Read the `VideoKnowledge` class from top to bottom in `local/runner.py` — notice how each
    `add_*` method stores data in timestamp-indexed dicts and how `_nearest()` handles sparse
    lookups across time.
 2. Print `context_for_frame()` output for 10 frames from a real video run and check whether the
@@ -991,7 +1106,7 @@ pattern from language model research, applied to a multimodal inference pipeline
 ## Advanced Implementation Guide
 
 This section is for a human who wants to deeply understand how to replace, tune, or re-implement
-the model used at each demo step. Read it as an engineering guide, not just a learning checklist.
+the model used at each pipeline step. Read it as an engineering guide, not just a learning checklist.
 
 ### Step-by-step implementation recommendations
 
@@ -1005,16 +1120,20 @@ the model used at each demo step. Read it as an engineering guide, not just a le
 | 6. OCR | Adds visible-text evidence | scene-text OCR, prompt formatting for VLM OCR, prescreen logic | named entities, signs, and UI text disappear or become wrong context |
 | 7. Depth | Adds lightweight geometry | relative vs metric depth, aggregation, failure under low texture | later prompts use misleading near/far reasoning |
 | 8. Detection | Adds explicit object structure | detector calibration, open-vocabulary labels, small-object recall | entity lists become noisy and poison downstream prompts |
-| 9. World model | Adds clip-level temporal features | clip sampling, temporal embeddings, runtime fallback behavior | temporal context becomes uninterpretable or inconsistent |
-| 10. Qwen reasoning | Fuses all prior evidence per frame | prompt packing, evidence precedence, state carry-over | one wrong upstream cue propagates across multiple frames |
-| 11/15. Retrieval tests | Quantify representation quality | controlled query selection, top-k comparison | adaptation results become untrustworthy |
-| 12. SSL fine-tuning | Tightens domain-specific embeddings | positive-pair design, freeze schedule, collapse avoidance | adapted model overfits or improves only numerically |
-| 13. Distillation | Compresses teacher structure | teacher quality, relational loss, anchor losses | student inherits teacher bugs or loses retrieval geometry |
-| 14. ONNX export | Creates deployable runtime | export correctness, operator coverage, embedding parity | edge model diverges silently from training model |
-| 16. Video description | Produces coarse text hypothesis | prompt-bank design, CLIP text/image alignment | top-level description becomes prompt-biased |
-| 17. 3D mapping | Produces spatial world structure | SfM assumptions, pose quality, splat generation | geometry looks plausible but is physically wrong |
-| 18. Video synthesis | Produces user-facing summary | schema-first generation, evidence selection, contradiction handling | report sounds confident but hides disagreement |
-| 19. Agentic audit | Produces system-facing reasoning trace | compact provenance prompts, timeout budgeting, risk framing | audit step falls back too often or repeats unsupported claims |
+| 9. YOLO + SAM | Adds fast prioritized instance structure | detector-speed tradeoffs, mask prompting, taxonomy stability | safety-relevant entities are sorted or segmented incorrectly |
+| 10. Gemma directed tracking | Uses Gemma to steer SAM + RF-DETR | vocabulary alignment, bbox prompting, track persistence | tracked-object context becomes sparse or wrong |
+| 11. World model | Adds clip-level temporal features | clip sampling, temporal embeddings, runtime fallback behavior | temporal context becomes uninterpretable or inconsistent |
+| 12. Qwen reasoning | Fuses all prior evidence per frame | prompt packing, evidence precedence, state carry-over | one wrong upstream cue propagates across multiple frames |
+| 13. UniDriveVLA expert analysis | Adds understanding/perception/planning decomposition | bridge schema stability, expert-consensus interpretation | planning or risk signals drift away from visual evidence |
+| 14/19. Retrieval tests | Quantify representation quality | controlled query selection, top-k comparison | adaptation results become untrustworthy |
+| 15. 3D mapping | Produces spatial world structure | SfM assumptions, pose quality, splat generation | geometry looks plausible but is physically wrong |
+| 16. SSL fine-tuning | Tightens domain-specific embeddings | positive-pair design, freeze schedule, collapse avoidance | adapted model overfits or improves only numerically |
+| 17. Distillation | Compresses teacher structure | teacher quality, relational loss, anchor losses | student inherits teacher bugs or loses retrieval geometry |
+| 18. ONNX export | Creates deployable runtime | export correctness, operator coverage, embedding parity | edge model diverges silently from training model |
+| 20. Video description | Produces coarse text hypothesis | prompt-bank design, CLIP text/image alignment | top-level description becomes prompt-biased |
+| 21. Multi-model comparison | Exposes disagreement across major analyzers | timestamp matching, agreement metrics, schema normalization | divergence remains hidden behind one preferred model |
+| 22. Video synthesis | Produces user-facing summary | schema-first generation, evidence selection, contradiction handling | report sounds confident but hides disagreement |
+| 23. Agentic audit | Produces system-facing reasoning trace | compact provenance prompts, timeout budgeting, risk framing | audit step falls back too often or repeats unsupported claims |
 
 ### How to think about model selection per step
 
@@ -1086,8 +1205,8 @@ That is why the repo keeps:
 
 Use different models or at least different prompts for these two steps:
 
-- Step 18 should optimize for coherent user-facing summarization
-- Step 19 should optimize for provenance, risk analysis, and context-flow inspection
+- Step 22 should optimize for coherent user-facing summarization
+- Step 23 should optimize for provenance, risk analysis, and context-flow inspection
 
 Do not collapse them into one generic “LLM summary” step. That removes the distinction between
 "what the video means" and "why the pipeline thinks so."
@@ -1098,7 +1217,7 @@ For each step:
 
 1. Read the wrapper in `pipeline/` or `models/`.
 2. Identify input contract, output contract, and runtime fallback path.
-3. Run the demo on a short clip and inspect the artifact produced by that step.
+3. Run the local pipeline on a short clip and inspect the artifact produced by that step.
 4. Replace just one model or prompt variable and rerun.
 5. Compare not only the local artifact, but also the later steps that consumed it.
 
@@ -1124,12 +1243,12 @@ pipeline with `google/gemma-4-it-2b` and `gemma4:e4b` (Ollama).  Full analysis:
 
 ### Caption quality (Steps 3, 4, 10)
 
-- Florence-2 (Step 4) and Qwen (Step 10) produce **identical or near-identical captions for
+- Florence-2 (Step 4) and Qwen (Step 12) produce **identical or near-identical captions for
   consecutive 30 fps frames** because they process each frame independently.
 - Gemma 4 **multi-image reasoning** (multiple frames in one prompt) is the correct fix: send
   `[frame_A][frame_B]` with prompt "what changed?" to get transition descriptions instead of
   repeated static descriptions.
-- The `_analyze_caption_sequence()` function in `demo_runner.py` uses token-Jaccard similarity
+- The `_analyze_caption_sequence()` function in `local/runner.py` uses token-Jaccard similarity
   to group frames into segments and only shows a caption change when Jaccard < 0.45.
 
 ### What Gemma 4 can do that no other model in the pipeline can
@@ -1205,7 +1324,7 @@ Recommended order for a human learner:
 If you only have one weekend:
 
 1. Read CLIP, DINOv2, Florence-2, Whisper, and the Gemma open-weight blog.
-2. Run the demo on one short video with `HF_TOKEN` set (for Gemma) or `GEMMA_API_URL` set (for sidecar).
+2. Run the local pipeline on one short video with `HF_TOKEN` set (for Gemma) or `GEMMA_API_URL` set (for sidecar).
 3. Inspect `gemma_analysis.md`, `gemma_captions.md`, `base_search.md`, `scene_captions.md`, `asr_subtitles.md`,
    `comparison.md`, and `video_synthesis.md`.
 4. Then study depth/detection/3D only after you understand the retrieval-and-caption core.

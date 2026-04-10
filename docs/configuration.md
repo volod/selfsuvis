@@ -53,7 +53,12 @@ python scripts/migrate_postgres.py
 | `GEMMA_MODEL_ID` | `google/gemma-3-4b-it` | Local Gemma embedder |
 | `GEMMA_API_URL` | empty | Gemma sidecar endpoint |
 | `GEMMA_API_MODEL` | backend-dependent | Gemma sidecar model |
-| `REASONING_API_URL` | Gemma default | Final demo reasoning endpoint |
+| `UNIDRIVE_ENABLED` | `false` | Enables UniDriveVLA expert analysis |
+| `UNIDRIVE_API_URL` | empty | UniDriveVLA OpenAI-compatible bridge endpoint |
+| `UNIDRIVE_MODEL` | `xiaomi-research/UniDriveVLA-Base` | UniDriveVLA model ID for bridge / sidecar |
+| `UNIDRIVE_TIMEOUT_SEC` | `60` | UniDrive request timeout |
+| `UNIDRIVE_MAX_FRAMES` | `24` | Max sampled frames analysed per video/job |
+| `REASONING_API_URL` | Gemma default | Final local-run reasoning endpoint |
 | `ASR_ENABLED` / `ASR_MODEL` | `false` / `auto` | Whisper transcription |
 | `OCR_ENABLED` / `OCR_MODEL` | `false` / `auto` | OCR extraction |
 | `DEPTH_ENABLED` / `DEPTH_MODEL` | `false` / `auto` | Depth estimation |
@@ -63,8 +68,8 @@ python scripts/migrate_postgres.py
 | `YOLO_SSG_MIN_OBSERVATIONS` | `1` | Minimum observations before a semantic node is kept |
 | `YOLO_SSG_CLUSTER_RADIUS_METERS` | `12` | Merge radius for production ENU anchors |
 | `YOLO_SSG_NEAR_EDGE_RADIUS_METERS` | `20` | `near` edge radius for production ENU anchors |
-| `YOLO_SSG_CLUSTER_RADIUS_PCA` | `0.85` | Merge radius for demo PCA/SfM anchors |
-| `YOLO_SSG_NEAR_EDGE_RADIUS_PCA` | `1.5` | `near` edge radius for demo PCA/SfM anchors |
+| `YOLO_SSG_CLUSTER_RADIUS_PCA` | `0.85` | Merge radius for local PCA/SfM anchors |
+| `YOLO_SSG_NEAR_EDGE_RADIUS_PCA` | `1.5` | `near` edge radius for local PCA/SfM anchors |
 | `SAM_ENABLED` / `SAM_MODEL` | `true` / `auto` | SAM mask refinement |
 | `RFDETR_ENABLED` / `RFDETR_MODEL` | `true` / `base` | Gemma-directed RF-DETR tracking stage |
 | `RFDETR_CONFIDENCE` | `0.35` | RF-DETR detection threshold before tracking |
@@ -122,8 +127,10 @@ python scripts/migrate_postgres.py
 - The UI forwards `API_KEY` automatically when it is set in the UI container environment.
 - Qdrant IDs and dedup hashes are SHA-256 based; changing embedding strategy may require a wipe and re-index.
 - Production indexing writes mission-scoped semantic graph JSON to `MAPS_DIR/<mission_id>/semantic_environment_graph.json`.
-- Demo runs write semantic graph artifacts under `3d_map/semantic_environment_graph.{json,md}`.
-- Demo runs write Gemma tracking artifacts under `gemma_tracking/`, `gemma_tracking_results.json`, and `gemma_tracking_summary.md` when `GEMMA_API_URL` is set and `RFDETR_ENABLED=true`.
+- Production indexing stores optional UniDrive expert outputs in `frame_facts_json["unidrive_vla"]` and returns an aggregate `unidrive_summary` from `VideoIndexer.index_video(...)`.
+- Local runs write semantic graph artifacts under `3d_map/semantic_environment_graph.{json,md}`.
+- Local runs write Gemma tracking artifacts under `gemma_tracking/`, `gemma_tracking_results.json`, and `gemma_tracking_summary.md` when `GEMMA_API_URL` is set and `RFDETR_ENABLED=true`.
+- Local runs write `unidrive_analysis.md` and `multi_model_comparison.md` when UniDrive is enabled.
 - For a full variable list, use [`pipeline/core/config.py`](/home/vola/src/selfsuvis/pipeline/core/config.py) as the source of truth.
 
 ---

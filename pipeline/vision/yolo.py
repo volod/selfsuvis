@@ -21,7 +21,7 @@ Model tiers (smallest → largest — set with YOLO_MODEL):
 
 Disabled by default (``YOLO_ENABLED=false``).  Enable with:
 
-    YOLO_ENABLED=true YOLO_MODEL=auto python main.py --mode demo --yolo
+    YOLO_ENABLED=true YOLO_MODEL=auto python main.py --mode local
 
 Output schema per detection:
 

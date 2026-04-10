@@ -12,6 +12,7 @@ _EXPORTS = {
     "QwenModel": (".qwen", "QwenModel"),
     "RFDETRTracker": (".rfdetr", "RFDETRTracker"),
     "SAMPredictor": (".sam", "SAMPredictor"),
+    "UniDriveVLAModel": (".unidrive", "UniDriveVLAModel"),
     "WorldModel": (".world", "WorldModel"),
     "YOLODetector": (".yolo", "YOLODetector"),
     "auto_select": (".registry", "auto_select"),

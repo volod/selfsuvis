@@ -1,7 +1,7 @@
-"""Main orchestration for the demo pipeline.
+"""Main orchestration for the local full-analysis pipeline.
 
 Contains: model/store init, per-video orchestrator, and the top-level
-``run_demo`` entry point.  Step helpers are imported from sibling modules.
+``run_local`` entry point. Step helpers are imported from sibling modules.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ from ._common import (
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_TOTAL_STEPS = 21
+_TOTAL_STEPS = 23
 _VIDEO_EXTS  = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 
 # Phase 3 SSL gate: skip distillation / ONNX / search comparison when the
@@ -175,6 +175,41 @@ def find_videos(videos_dir: Path) -> List[Path]:
     return sorted(p for p in videos_dir.iterdir() if p.suffix.lower() in _VIDEO_EXTS)
 
 
+def resolve_local_videos(args: Any) -> Tuple[str, List[Path]]:
+    """Resolve input videos for the local full-analysis workflow.
+
+    Priority:
+    1. ``--input`` single file
+    2. ``--dir`` directory
+    3. ``--videos-dir`` directory
+    """
+    input_path = getattr(args, "input", None)
+    if input_path:
+        video_path = Path(input_path).resolve()
+        if not video_path.is_file():
+            _log.error("Input video does not exist: %s", video_path)
+            sys.exit(1)
+        if video_path.suffix.lower() not in _VIDEO_EXTS:
+            _log.error("Unsupported input extension for %s", video_path)
+            _log.error("Supported formats: %s", " ".join(sorted(_VIDEO_EXTS)))
+            sys.exit(1)
+        return str(video_path.parent), [video_path]
+
+    dir_path = getattr(args, "dir", None) or getattr(args, "videos_dir", None)
+    videos_dir = Path(dir_path)
+    if not videos_dir.is_dir():
+        _log.error("Videos directory does not exist: %s", videos_dir)
+        _log.error("Create it with:  mkdir -p %s", videos_dir)
+        sys.exit(1)
+
+    videos = find_videos(videos_dir)
+    if not videos:
+        _log.error("No video files found in %s", videos_dir)
+        _log.error("Supported formats: %s", " ".join(sorted(_VIDEO_EXTS)))
+        sys.exit(1)
+    return str(videos_dir), videos
+
+
 # ── Step H: compare + describe ────────────────────────────────────────────────
 
 def step_compare_and_describe(
@@ -228,6 +263,26 @@ def step_compare_and_describe(
             "top_description": text_descriptions[0][0] if text_descriptions else ""}
 
 
+def step_multi_model_compare(
+    video_name: str,
+    video_dir: Path,
+    gemma_result: Dict[str, Any],
+    qwen_result: Dict[str, Any],
+    unidrive_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Write a Gemma vs Qwen vs UniDriveVLA comparison artifact."""
+    from .steps_report import write_multi_model_comparison_md
+
+    out_md = video_dir / "multi_model_comparison.md"
+    return write_multi_model_comparison_md(
+        out_md,
+        video_name,
+        gemma_result,
+        qwen_result,
+        unidrive_result,
+    )
+
+
 # ── Agentic video synthesis helpers ───────────────────────────────────────────
 
 def _build_context_prompt(video_name: str, video_context: Dict[str, Any]) -> str:
@@ -265,6 +320,8 @@ def _build_context_prompt(video_name: str, video_context: Dict[str, Any]) -> str
         if cl.get("n_clusters"):
             parts.append(f"  - semantic clusters: {cl['n_clusters']}")
         mnn = gem_ctx.get("mnn_rate")
+        if mnn is None:
+            mnn = gem_ctx.get("mnn_rate_dino")
         if mnn is not None:
             parts.append(f"  - Gemma/DINOv3 MNN agreement: {mnn:.1%}")
 
@@ -323,6 +380,30 @@ def _build_context_prompt(video_name: str, video_context: Dict[str, Any]) -> str
             if cap:
                 parts.append(f"  [{r.get('t_sec', 0.0):.1f}s] {str(cap)[:200]}")
 
+    unidrive_rows = video_context.get("unidrive_analysis", [])
+    if unidrive_rows:
+        parts.append(
+            f"\nUniDriveVLA expert analysis ({min(len(unidrive_rows), 8)} sampled frames):"
+        )
+        for r in unidrive_rows[:8]:
+            understanding = (r.get("understanding") or {}).get("scene_summary", "")
+            planning = (r.get("planning") or {}).get("recommended_action", "")
+            moe = (r.get("mixture_of_experts") or {}).get("consensus_summary", "")
+            if understanding or planning or moe:
+                parts.append(
+                    f"  [{r.get('t_sec', 0.0):.1f}s] understand={understanding[:90]} "
+                    f"| plan={planning[:70]} | moe={moe[:90]}"
+                )
+
+    mm = video_context.get("multi_model_comparison", {})
+    if mm:
+        parts.append("\nCross-model comparison:")
+        parts.append(
+            f"  - matched frames: {mm.get('matched_frames', 0)} | "
+            f"Qwen/UniDrive agreement: {mm.get('mean_qwen_unidrive_agreement', 0.0):.3f} | "
+            f"high-risk UniDrive frames: {mm.get('high_risk_frames', 0)}"
+        )
+
     return "\n".join(parts)
 
 
@@ -356,7 +437,7 @@ def _build_agentic_flow_prompt(video_name: str, video_context: Dict[str, Any]) -
     trace = video_context.get("agentic_trace", [])
     lines = [
         f"Video: {video_name}",
-        "You are auditing an agentic video-demo pipeline.",
+        "You are auditing a local multimodal video-analysis pipeline.",
         "Analyze how context is accumulated step by step, how later steps depend on earlier outputs, and where wrong context can propagate.",
         "",
         "Per-step trace:",
@@ -441,7 +522,7 @@ def _fallback_agentic_flow_analysis(video_context: Dict[str, Any]) -> str:
     trace = video_context.get("agentic_trace", [])
     lines = [
         "## Flow Summary",
-        "The demo pipeline accumulates context progressively: frame sampling establishes the timeline, multimodal steps add semantic and geometric evidence, and later reasoning steps consume that evidence to produce higher-level conclusions. The main agentic risk is not a single wrong model output but error carry-over from early observations into later narrative and structured reasoning.",
+        "The local full-analysis pipeline accumulates context progressively: frame sampling establishes the timeline, multimodal steps add semantic and geometric evidence, and later reasoning steps consume that evidence to produce higher-level conclusions. The main agentic risk is not a single wrong model output but error carry-over from early observations into later narrative and structured reasoning.",
         "",
         "## Step-by-Step Agentic Context",
     ]
@@ -711,6 +792,7 @@ def run_video_pipeline(
         step_object_detection,
         step_world_model_pass,
         step_qwen_captioning,
+        step_unidrive_analysis,
         _offload_models_to_cpu,
         _restore_models_to_gpu,
         _models_on_device,
@@ -847,6 +929,7 @@ def run_video_pipeline(
         video_context["gemma_analysis"] = {
             "n_frames":        j.get("n_frames", 0),
             "n_tasks":         len(j.get("task_results", {})),
+            "task_results":    j.get("task_results", {}),
             "mnn_rate_dino":   j.get("dino_comparison", {}).get("mnn_rate"),
             "mnn_rate_clip":   j.get("clip_comparison", {}).get("mnn_rate"),
         }
@@ -1216,7 +1299,7 @@ def run_video_pipeline(
                 subtitle_map=asr_result.get("subtitle_map", {}),
                 ocr_results=ocr_result.get("ocr_results", []),
                 # Pass a passthrough so QwenModel never creates a second CLIP
-                # embedder (OpenCLIPTagger) that competes for VRAM.  In demo
+                # embedder (OpenCLIPTagger) that competes for VRAM. In local mode
                 # mode we want full coverage; prescreening is not needed.
                 clip_prescreen_fn=lambda _img: True,
                 knowledge=knowledge,
@@ -1251,10 +1334,51 @@ def run_video_pipeline(
         artifacts=["detailed_captions.md"] if not qwen_result.get("skipped") else [],
     )
 
-    if any([args.asr, args.ocr, args.depth, args.detection, args.world_model, args.qwen]):
+    # S: UniDriveVLA expert analysis — compare understanding/perception/planning
+    unidrive_result: Dict[str, Any] = {"skipped": True, "results": []}
+    if getattr(args, "unidrive", False):
+        _step(13, _TOTAL_STEPS, "UniDriveVLA expert analysis → unidrive_analysis.md")
+        with _Timer(T, "S_unidrive"):
+            unidrive_result = step_unidrive_analysis(
+                frame_list,
+                video_name,
+                video_dir,
+                subtitle_map=asr_result.get("subtitle_map", {}),
+                ocr_results=ocr_result.get("ocr_results", []),
+                knowledge=knowledge,
+            )
+    else:
+        T["S_unidrive"] = 0.0
+    if not unidrive_result.get("skipped"):
+        video_context["unidrive_analysis"] = unidrive_result.get("results", [])
+    _append_agentic_step(
+        agentic_trace,
+        step_id="S",
+        title="UniDriveVLA expert analysis",
+        description="Run an external UniDriveVLA bridge for understanding, perception, planning, and mixture-of-experts consensus on sampled frames.",
+        status="skipped" if unidrive_result.get("skipped") else "ok",
+        context_inputs=[
+            "sampled frames",
+            "ASR/OCR context when available",
+            "agentic context from earlier steps",
+        ],
+        context_outputs=[
+            f"{unidrive_result.get('ok_count', 0)} UniDrive analyses",
+            "understanding/perception/planning triplets",
+            "mixture-of-experts consensus summaries",
+        ] if not unidrive_result.get("skipped") else ["no UniDrive context"],
+        risks=[
+            "external bridge can expose a different ontology than existing steps",
+            "planning advice may be overconfident for non-driving footage",
+            "expert consensus can hide meaningful disagreement if prompts are too generic",
+        ],
+        artifacts=["unidrive_analysis.md"] if not unidrive_result.get("skipped") else [],
+    )
+
+    if any([args.asr, args.ocr, args.depth, args.detection, args.world_model, args.qwen, getattr(args, "unidrive", False)]):
         _mm_md = video_dir / "multimodal_features.md"
         write_multimodal_md(_mm_md, video_name, asr_result, ocr_result,
-                            depth_result, det_result, world_result, qwen_result)
+                            depth_result, det_result, world_result, qwen_result, unidrive_result)
 
     # C: Base model search — restore CLIP+DINO to GPU before joining 3D-map thread
     # (I must be joined first so the background thread no longer accesses models).
@@ -1265,9 +1389,14 @@ def run_video_pipeline(
             _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
             if _qwen_url and _qwen_model:
                 _unload_ollama_model(_qwen_url, _qwen_model)
+        if getattr(args, "unidrive", False):
+            _unidrive_url = getattr(args, "unidrive_api_url", "") or settings.UNIDRIVE_API_URL
+            _unidrive_model = getattr(args, "unidrive_model", "") or settings.UNIDRIVE_MODEL
+            if _unidrive_url and _unidrive_model:
+                _unload_ollama_model(_unidrive_url, _unidrive_model)
         _restore_models_to_gpu(models, device)
         clip_dino_on_gpu = _models_on_device(models, device)
-    _step(13, _TOTAL_STEPS, "Base model transformation test → base_search.md")
+    _step(14, _TOTAL_STEPS, "Base model transformation test → base_search.md")
     with _Timer(T, "C_base_search"):
         c = step_base_model_search_test(frame_list, store, is_qdrant, models,
                                         video_id, video_name, video_dir, top_k=args.top_k)
@@ -1293,7 +1422,7 @@ def run_video_pipeline(
     )
 
     # I: 3D map + Gaussian Splat — collect background-thread result (Phase 2 close)
-    _step(14, _TOTAL_STEPS, "3D map + Gaussian Splat → 3d_map/ (joining background thread)")
+    _step(15, _TOTAL_STEPS, "3D map + Gaussian Splat → 3d_map/ (joining background thread)")
     with _Timer(T, "I_3dmap"):
         if _map_future is not None:
             try:
@@ -1387,14 +1516,14 @@ def run_video_pipeline(
     if models.get("uses_api_embedder"):
         T["D_finetune"] = 0.0
         T["E_distill"] = 0.0
-        _step(15, _TOTAL_STEPS, "SSL DINOv3 fine-tuning (skipped — API embedder)")
-        _step(16, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
+        _step(16, _TOTAL_STEPS, "SSL DINOv3 fine-tuning (skipped — API embedder)")
+        _step(17, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
         student_backbone = None; student_dim = 768
     else:
         if device == "cuda" and clip_dino_on_gpu:
             _offload_models_to_cpu(models)
             clip_dino_on_gpu = False
-        _step(15, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
+        _step(16, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
         with _Timer(T, "D_finetune"):
             d = step_ssl_finetune(video_id, video_name, video_dir, frame_list, device,
                                   epochs=args.epochs, batch_size=args.batch_size)
@@ -1468,7 +1597,7 @@ def run_video_pipeline(
                 _gemma_teacher = models["clip"]
                 _log.info("  Using GemmaVisionTeacher for distillation (max hydration)")
 
-            _step(16, _TOTAL_STEPS, "Knowledge distillation (max hydration) → ViT-S/14 student")
+            _step(17, _TOTAL_STEPS, "Knowledge distillation (max hydration) → ViT-S/14 student")
             with _Timer(T, "E_distill"):
                 e_distill = step_distill(
                     checkpoint_path, frame_list, video_name, video_dir, device,
@@ -1509,7 +1638,7 @@ def run_video_pipeline(
         else:
             T["E_distill"] = 0.0
             _gate_reason = "SSL gate did not pass" if not ssl_gate_passed else "--no-distill"
-            _step(16, _TOTAL_STEPS, f"Knowledge distillation (skipped — {_gate_reason})")
+            _step(17, _TOTAL_STEPS, f"Knowledge distillation (skipped — {_gate_reason})")
             _append_agentic_step(
                 agentic_trace,
                 step_id="E",
@@ -1560,7 +1689,7 @@ def run_video_pipeline(
         if device == "cuda" and not clip_dino_on_gpu:
             _restore_models_to_gpu(models, device)
             clip_dino_on_gpu = _models_on_device(models, device)
-        _step(17, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
+        _step(18, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
         with _Timer(T, "F_export"):
             e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
                                   no_onnx=args.no_onnx,
@@ -1582,12 +1711,12 @@ def run_video_pipeline(
                 "gallery coverage can be too narrow for field use",
                 "deployment artifacts can hide upstream semantic errors behind good latency",
             ],
-            artifacts=["edge_models/dino_demo.onnx", "edge_models/gallery.npz"],
+            artifacts=["edge_models/dino_local.onnx", "edge_models/gallery.npz"],
         )
     else:
         T["F_export"] = 0.0
         stats.setdefault("onnx_mb", 0.0); stats.setdefault("onnx_exported", False)
-        _step(17, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
+        _step(18, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="F",
@@ -1603,7 +1732,7 @@ def run_video_pipeline(
     # G: Fine-tuned search — only if SSL gate passed (needs fine-tuned or distilled backbone)
     ft_results: List[Dict] = []
     if ssl_gate_passed:
-        _step(18, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
+        _step(19, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
         with _Timer(T, "G_ft_search"):
             f = step_finetuned_model_search_test(frame_list, store, is_qdrant, models,
                                                  query_frame, query_t_sec, video_id, video_name,
@@ -1630,7 +1759,7 @@ def run_video_pipeline(
     else:
         T["G_ft_search"] = 0.0
         stats.setdefault("ft_top_score", 0.0)
-        _step(18, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
+        _step(19, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="G",
@@ -1645,7 +1774,7 @@ def run_video_pipeline(
 
     # H: Comparison + description — only runs when ssl_gate_passed (needs ft_results)
     if ssl_gate_passed:
-        _step(19, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
+        _step(20, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
         with _Timer(T, "H_compare"):
             g = step_compare_and_describe(frame_list, store, is_qdrant, base_results, ft_results,
                                           models, video_id, video_name, video_dir,
@@ -1675,7 +1804,7 @@ def run_video_pipeline(
         )
     else:
         T["H_compare"] = 0.0
-        _step(19, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
+        _step(20, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="H",
@@ -1688,12 +1817,52 @@ def run_video_pipeline(
             artifacts=[],
         )
 
+    # T: Multi-model comparison — Gemma vs Qwen vs UniDriveVLA
+    if not qwen_result.get("skipped") and not unidrive_result.get("skipped"):
+        _step(21, _TOTAL_STEPS, "Multi-model comparison → multi_model_comparison.md")
+        with _Timer(T, "T_multimodel"):
+            mm = step_multi_model_compare(video_name, video_dir, j, qwen_result, unidrive_result)
+        video_context["multi_model_comparison"] = mm
+        _append_agentic_step(
+            agentic_trace,
+            step_id="T",
+            title="Multi-model comparison",
+            description="Compare Gemma, Qwen, and UniDriveVLA outputs and expose UniDrive mixture-of-experts agreement signals.",
+            status="ok",
+            context_inputs=["Gemma summary", "Qwen structured scene facts", "UniDrive expert outputs"],
+            context_outputs=[
+                f"{mm.get('matched_frames', 0)} matched comparison frames",
+                f"Qwen/UniDrive agreement {mm.get('mean_qwen_unidrive_agreement', 0.0):.3f}",
+                f"{mm.get('high_risk_frames', 0)} high-risk UniDrive frames",
+            ],
+            risks=[
+                "timestamp-nearest matching can compare slightly different moments",
+                "token-overlap agreement is a coarse proxy for semantic agreement",
+                "expert consensus may under-report minority expert concerns",
+            ],
+            artifacts=["multi_model_comparison.md"],
+        )
+    else:
+        T["T_multimodel"] = 0.0
+        _step(21, _TOTAL_STEPS, "Multi-model comparison (skipped — requires Qwen and UniDrive)")
+        _append_agentic_step(
+            agentic_trace,
+            step_id="T",
+            title="Multi-model comparison",
+            description="Compare Gemma, Qwen, and UniDriveVLA outputs and expose UniDrive mixture-of-experts agreement signals.",
+            status="skipped",
+            context_inputs=["Qwen and UniDrive outputs"],
+            context_outputs=["no cross-model comparison artifact"],
+            risks=["cross-model disagreement remains implicit"],
+            artifacts=[],
+        )
+
     # ── Finalization (always runs regardless of SSL gate) ──────────────────────
     # Z: Video synthesis — offload CLIP+DINO; Ollama API call only (no local model)
     if device == "cuda" and clip_dino_on_gpu:
         _offload_models_to_cpu(models)
         clip_dino_on_gpu = False  # noqa: F841
-    _step(20, _TOTAL_STEPS, "Video synthesis (ontology + narrative) → video_synthesis.md")
+    _step(22, _TOTAL_STEPS, "Video synthesis (ontology + narrative) → video_synthesis.md")
     _qwen_url   = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
     _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
     with _Timer(T, "Z_synthesis"):
@@ -1725,7 +1894,7 @@ def run_video_pipeline(
     )
 
     # AA: Agentic flow artifact — prefer Gemma reasoning, fall back to Qwen, then deterministic text.
-    _step(21, _TOTAL_STEPS, "Agentic flow audit → agentic_flow.md")
+    _step(23, _TOTAL_STEPS, "Agentic flow audit → agentic_flow.md")
     _agentic_url = (
         getattr(args, "reasoning_api_url", "")
         or getattr(settings, "REASONING_API_URL", "")
@@ -1768,6 +1937,8 @@ def run_video_pipeline(
             [
                 (_agentic_url, _agentic_model),
                 (_qwen_url, _qwen_model),
+                (getattr(args, "unidrive_api_url", "") or settings.UNIDRIVE_API_URL,
+                 getattr(args, "unidrive_model", "") or settings.UNIDRIVE_MODEL),
                 (getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL,
                  getattr(args, "gemma_api_model", "") or settings.GEMMA_API_MODEL),
             ]
@@ -1811,11 +1982,11 @@ def _run_video_pipeline_safe(
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def run_demo(args: Any) -> None:
-    """Run the end-to-end demo pipeline.
+def run_local(args: Any) -> None:
+    """Run the local full-analysis and training pipeline.
 
-    Called by ``main.py --mode demo``.
-    Env vars must be set by the caller (via :func:`apply_demo_env`) **before**
+    Called by ``main.py --mode local``.
+    Env vars must be set by the caller (via :func:`apply_local_env`) **before**
     this module is imported.
     """
     from .steps_caption import (
@@ -1842,32 +2013,23 @@ def run_demo(args: Any) -> None:
         return
 
     t_start = time.time()
-    _banner("selfsuvis — End-to-End Demo Pipeline")
-    _log.info("Videos directory : %s", args.videos_dir)
+    source_label, videos = resolve_local_videos(args)
+
+    _banner("selfsuvis — Local Full Analysis and Training Pipeline")
+    _log.info("Input source     : %s", source_label)
     _log.info("Output directory : %s", output_dir)
     _log.info("Device           : %s", args.device)
     _log.info("Epochs           : %d", args.epochs)
     _log.info("Qdrant           : %s", "disabled" if args.no_qdrant else "auto-detect")
     _log.info("SfM              : %s", "disabled" if args.no_sfm else "auto-detect (pycolmap)")
-    multimodal_active = [args.asr, args.ocr, args.depth, args.detection, args.world_model, args.qwen]
+    multimodal_active = [args.asr, args.ocr, args.depth, args.detection, args.world_model, args.qwen, getattr(args, "unidrive", False)]
     if any(multimodal_active):
         _log.info("Multimodal steps : %s",
                   " ".join(s for s, e in [("ASR", args.asr), ("OCR", args.ocr),
                                            ("Depth", args.depth), ("Detection", args.detection),
                                            ("WorldModel", args.world_model),
-                                           ("Qwen", args.qwen)] if e))
-
-    videos_dir = Path(args.videos_dir)
-    if not videos_dir.is_dir():
-        _log.error("Videos directory does not exist: %s", videos_dir)
-        _log.error("Create it with:  mkdir -p %s", videos_dir)
-        sys.exit(1)
-
-    videos = find_videos(videos_dir)
-    if not videos:
-        _log.error("No video files found in %s", videos_dir)
-        _log.error("Supported formats: %s", " ".join(sorted(_VIDEO_EXTS)))
-        sys.exit(1)
+                                           ("Qwen", args.qwen),
+                                           ("UniDriveVLA", getattr(args, "unidrive", False))] if e))
 
     _log.info("Found %d video(s): %s", len(videos), [v.name for v in videos])
 
@@ -1883,6 +2045,8 @@ def run_demo(args: Any) -> None:
                  getattr(args, "gemma_api_model", "") or settings.GEMMA_API_MODEL),
                 (getattr(args, "qwen_api_url", "") or getattr(settings, "QWEN_API_URL", ""),
                  getattr(args, "qwen_model", "") or getattr(settings, "QWEN_MODEL", "")),
+                (getattr(args, "unidrive_api_url", "") or getattr(settings, "UNIDRIVE_API_URL", ""),
+                 getattr(args, "unidrive_model", "") or getattr(settings, "UNIDRIVE_MODEL", "")),
                 (getattr(args, "reasoning_api_url", "") or getattr(settings, "REASONING_API_URL", ""),
                  getattr(args, "reasoning_model", "") or getattr(settings, "REASONING_MODEL", "")),
             ]
@@ -1922,7 +2086,7 @@ def run_demo(args: Any) -> None:
             settings.REASONING_API_URL = fallback_reasoning_url  # type: ignore[misc]
 
     _log.info(
-        "Demo LLM plan: analysis model=%s | reasoning model=%s",
+        "Local pipeline LLM plan: analysis model=%s | reasoning model=%s",
         settings.GEMMA_API_MODEL or auto_analysis_model,
         settings.REASONING_MODEL or auto_reasoning_model,
     )
@@ -2003,7 +2167,7 @@ def run_demo(args: Any) -> None:
             if _r.status_code == 404:
                 _log.error(
                     "Reasoning model '%s' not found at %s (HTTP 404). "
-                    "Pull or serve it before running the demo.",
+                    "Pull or serve it before running the local pipeline.",
                     _reasoning_model, _reasoning_url,
                 )
                 sys.exit(1)
@@ -2061,7 +2225,7 @@ def run_demo(args: Any) -> None:
     _log.info("  Final statistics: %s", stats_path)
     _log.info("")
     _log.info("  Next steps:")
-    _log.info("    • Edge inference:  EdgeClassifier('edge_models/dino_demo.onnx', 'edge_models/gallery.npz')")
+    _log.info("    • Edge inference:  EdgeClassifier('edge_models/dino_local.onnx', 'edge_models/gallery.npz')")
     _log.info("    • Full stack:      make up")
-    _log.info("    • Fine-tune rerun: DINO_CHECKPOINT=<path> python main.py --mode demo")
+    _log.info("    • Fine-tune rerun: DINO_CHECKPOINT=<path> python main.py --mode local")
     _log.info("")

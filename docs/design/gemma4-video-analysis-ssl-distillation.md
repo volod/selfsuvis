@@ -396,9 +396,15 @@ Recall@1 — acceptable for edge deployment.
 
 ## 4. Implementation Roadmap
 
-### Phase 1 — Gemma 4 multi-frame analysis in demo pipeline (no new training)
+Transition note: this document was written during the historical demo phase.
+That workflow has since been promoted into the canonical local full-analysis and
+learning pipeline. Where this section references the "demo pipeline" or
+`pipeline/demo_runner.py`, read it as the current local orchestration layer in
+`pipeline/workflows/local/runner.py`.
 
-1. Add `step_gemma_segment_captions()` to `pipeline/demo_runner.py`:
+### Phase 1 — Gemma 4 multi-frame analysis in local pipeline (no new training)
+
+1. Add `step_gemma_segment_captions()` to the local workflow runner:
    - Re-uses `_analyze_caption_sequence()` to get segment boundaries
    - For each segment boundary pair, calls `GemmaEmbedder` with two frames
      and a diff prompt
@@ -414,7 +420,7 @@ Recall@1 — acceptable for edge deployment.
    - Wraps SigLIP vision encoder extraction
    - Reuses existing `TemporalPairDataset`
    - NT-Xent loss identical to current DINOv3 SSL
-2. Add `write_gemma_ssl_stats_md()` to `pipeline/demo_runner.py`
+2. Add `write_gemma_ssl_stats_md()` to the local workflow reporting layer
 
 **Effort:** ~3 days. Requires ≥16 GB VRAM for training.
 
@@ -423,7 +429,7 @@ Recall@1 — acceptable for edge deployment.
 1. Add `GemmaVisionTeacher` wrapper class to `pipeline/distill.py`
 2. Extend `DistillConfig` with `stage: int` and `lambda_caption_anchor: float`
 3. Add EfficientViT-S1 loader to `models/dino_model.py` or new `models/efficientvit_model.py`
-4. Add `step_distill_stage2()` to `pipeline/demo_runner.py`
+4. Add `step_distill_stage2()` to the local workflow runner
 5. ONNX export for EfficientViT-S1 in `pipeline/edge_inference.py`
 
 **Effort:** ~5 days. Requires ≥24 GB VRAM for Stage 0→1 distillation.
@@ -438,4 +444,4 @@ Recall@1 — acceptable for edge deployment.
 | Can we SSL fine-tune Gemma 4? | Yes — Strategy A (vision encoder only, top 4 blocks) is feasible on 16 GB VRAM in ~8 min per mission; Strategy B (LoRA full model) on 24 GB; both reuse existing `TemporalPairDataset` |
 | What is the smallest viable distilled model? | EfficientViT-S1 (6.6 M params, 8 ms/frame CPU) via two-stage distillation: Gemma 4 vision encoder → ViT-S/14 → EfficientViT-S1; ~60× compression from teacher, R@1 ≈ 0.85 |
 | Does distillation require labels? | No — RKD-DA is fully unsupervised, driven only by the teacher's embedding structure |
-| What changes in existing code? | `distill.py`: new `GemmaVisionTeacher` wrapper + `lambda_caption_anchor`; `ssl_finetune.py`: new `GemmaSSLFinetuner`; `demo_runner.py`: new steps for segment captions + Stage 2 distill |
+| What changes in existing code? | `distill.py`: new `GemmaVisionTeacher` wrapper + `lambda_caption_anchor`; `ssl_finetune.py`: new `GemmaSSLFinetuner`; local workflow runner/reporting: new steps for segment captions + Stage 2 distill |

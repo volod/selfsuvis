@@ -20,8 +20,8 @@ def _write_frame(path: Path, color: tuple[int, int, int]) -> None:
 
 
 def _load_steps_module():
-    module_name = "pipeline.workflows.demo.steps_gemma_tracking"
-    module_path = ROOT / "pipeline/workflows/demo/steps_gemma_tracking.py"
+    module_name = "pipeline.workflows.local.steps_gemma_tracking"
+    module_path = ROOT / "pipeline/workflows/local/steps_gemma_tracking.py"
 
     for name in [
         module_name,
@@ -30,8 +30,8 @@ def _load_steps_module():
         "pipeline.vision",
         "pipeline.vision.rfdetr",
         "pipeline.workflows",
-        "pipeline.workflows.demo",
-        "pipeline.workflows.demo._common",
+        "pipeline.workflows.local",
+        "pipeline.workflows.local._common",
     ]:
         sys.modules.pop(name, None)
 
@@ -93,14 +93,14 @@ def _load_steps_module():
     workflows_pkg.__path__ = [str(ROOT / "pipeline/workflows")]
     sys.modules["pipeline.workflows"] = workflows_pkg
 
-    demo_pkg = types.ModuleType("pipeline.workflows.demo")
-    demo_pkg.__path__ = [str(ROOT / "pipeline/workflows/demo")]
-    sys.modules["pipeline.workflows.demo"] = demo_pkg
+    local_pkg = types.ModuleType("pipeline.workflows.local")
+    local_pkg.__path__ = [str(ROOT / "pipeline/workflows/local")]
+    sys.modules["pipeline.workflows.local"] = local_pkg
 
-    common_mod = types.ModuleType("pipeline.workflows.demo._common")
+    common_mod = types.ModuleType("pipeline.workflows.local._common")
     common_mod._log = types.SimpleNamespace(info=lambda *a, **k: None, debug=lambda *a, **k: None, warning=lambda *a, **k: None)
     common_mod._open_frame_image = lambda frame_path: Image.open(frame_path).convert("RGB")
-    sys.modules["pipeline.workflows.demo._common"] = common_mod
+    sys.modules["pipeline.workflows.local._common"] = common_mod
 
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     assert spec is not None and spec.loader is not None

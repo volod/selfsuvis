@@ -663,7 +663,7 @@ def write_finetune_stats_md(
         f"",
         f"```bash",
         f"export DINO_CHECKPOINT={checkpoint_path}",
-        f"python main.py --mode demo --videos-dir data_test/videos",
+        f"python main.py --mode local --videos-dir data_test/videos",
         f"```",
         f"",
         f"---",
@@ -747,7 +747,7 @@ def write_distill_stats_md(
         f"The saved checkpoint contains **only the student backbone weights**.",
         f"",
         f"---",
-        f"*Artifact produced by {_RUNNER_LABEL}. Student exported to `edge_models/dino_demo.onnx`.*",
+        f"*Artifact produced by {_RUNNER_LABEL}. Student exported to `edge_models/dino_local.onnx`.*",
     ]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     _log.info("  ✓ Written %s", output_path)
@@ -804,13 +804,13 @@ def write_comparison_md(
         f"",
         f"- **`base_search.md`** — nearest-neighbour results with the pretrained DINOv3 backbone",
         f"- **`finetuned_search.md`** — same query with the mission-adapted backbone",
-        f"- **`edge_models/dino_demo.onnx`** — ONNX model for on-device inference (Jetson, Hailo-8)",
+        f"- **`edge_models/dino_local.onnx`** — ONNX model for on-device inference (Jetson, Hailo-8)",
         f"- **`edge_models/gallery.npz`** — embedding gallery for 1-NN classification",
         f"- **`3d_map/`** — sparse 3D point cloud from Structure-from-Motion",
         f"",
         f"```python",
         f"from pipeline.training.edge_inference import EdgeClassifier",
-        f"clf = EdgeClassifier('edge_models/dino_demo.onnx', 'edge_models/gallery.npz')",
+        f"clf = EdgeClassifier('edge_models/dino_local.onnx', 'edge_models/gallery.npz')",
         f"labels = clf.classify(frame_pil)   # [(label, score), ...]",
         f"```",
         f"",
@@ -866,7 +866,7 @@ def write_final_stats_md(
     total_elapsed: float,
 ) -> None:
     lines = [
-        f"# Demo Pipeline — Final Statistics",
+        f"# Local Full-Analysis Pipeline — Final Statistics",
         f"",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Total elapsed: {total_elapsed:.1f}s",
@@ -905,11 +905,13 @@ def write_final_stats_md(
         f"| `checkpoints/dino_ssl_best.pt` | Fine-tuned teacher backbone (PyTorch) |",
         f"| `checkpoints/student_best.pt` | Distilled student backbone (PyTorch, ~22M params) |",
         f"| `distill_stats.md` | Distillation loss curve + architecture notes |",
-        f"| `edge_models/dino_demo.onnx` | ONNX export (student when distilled, teacher otherwise) |",
+        f"| `edge_models/dino_local.onnx` | ONNX export (student when distilled, teacher otherwise) |",
         f"| `edge_models/gallery.npz` | Embedding gallery for 1-NN classification |",
         f"| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step M) |",
         f"| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps N–Q) |",
         f"| `detailed_captions.md` | Qwen VLM detailed per-frame scene captions with ASR context (step R) |",
+        f"| `unidrive_analysis.md` | UniDriveVLA understanding, perception, planning, and MoE consensus (step S) |",
+        f"| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison and MoE agreement summary (step T) |",
         f"| `video_synthesis.md` | LLM video ontology + fine-grained narrative (step Z) |",
         f"| `agentic_flow.md` | Step-by-step agentic context trace, risk analysis, and context-propagation audit (step AA) |",
         f"| `video_ontology.json` | Structured ontology JSON (domain, environment, activities, objects) |",
@@ -917,7 +919,7 @@ def write_final_stats_md(
         f"| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
         f"",
         f"---",
-        f"*Run `python main.py --mode demo --help` for all options.*",
+        f"*Run `python main.py --mode local --help` for all options.*",
     ]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     _log.info("✓ Final stats written to %s", output_path)
@@ -932,6 +934,7 @@ def write_multimodal_md(
     det_result: Dict[str, Any],
     world_result: Dict[str, Any],
     qwen_result: Dict[str, Any],
+    unidrive_result: Dict[str, Any],
 ) -> None:
     lines = [
         f"# Multimodal Features — {video_name}",
@@ -954,6 +957,8 @@ def write_multimodal_md(
         f"{world_result.get('ok_count', 0)} clips processed |",
         f"| Qwen VLM captioning | {'✓' if not qwen_result.get('skipped') else '—'} | "
         f"{qwen_result.get('ok_count', 0)} frames captioned |",
+        f"| UniDriveVLA expert analysis | {'✓' if not unidrive_result.get('skipped') else '—'} | "
+        f"{unidrive_result.get('ok_count', 0)} frames analysed |",
         f"",
     ]
     if not ocr_result.get("skipped"):
@@ -987,7 +992,7 @@ def write_multimodal_md(
                 lines.append(f"| {r['t_sec']:.1f} | "
                               f"{p[0]:.3f} | {p[1]:.3f} | {p[2]:.3f} | {p[3]:.3f} | {p[4]:.3f} |")
         lines.append("")
-    lines += ["---", f"*Produced by {_RUNNER_LABEL} · multimodal steps M–R*"]
+    lines += ["---", f"*Produced by {_RUNNER_LABEL} · multimodal steps M–S*"]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     _log.info("  ✓ Written %s", output_path)
 
@@ -1114,6 +1119,166 @@ def write_detailed_captions_md(
     _log.info("  ✓ Written %s", output_path)
 
 
+def write_unidrive_analysis_md(
+    output_path: Path,
+    video_name: str,
+    results: List[Dict[str, Any]],
+    elapsed_sec: float,
+    model_id: str,
+) -> None:
+    ok = sum(1 for r in results if not r.get("service_unavailable") and not r.get("parse_error"))
+    lines = [
+        f"# UniDriveVLA Expert Analysis — {video_name}",
+        f"",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Model: {model_id}  |  Frames processed: {ok}/{len(results)}",
+        f"Elapsed: {elapsed_sec:.1f}s",
+        f"",
+        f"| t (s) | Risk | Drivable | Expert Agreement | Understanding | Planning |",
+        f"|-------|------|----------|------------------|---------------|----------|",
+    ]
+    for r in results:
+        if r.get("service_unavailable"):
+            lines.append(f"| {r.get('t_sec', 0.0):.1f} | — | — | — | *service unavailable* | — |")
+            continue
+        if r.get("parse_error"):
+            lines.append(f"| {r.get('t_sec', 0.0):.1f} | — | — | — | *parse error* | — |")
+            continue
+        u = r.get("understanding", {}) or {}
+        p = r.get("perception", {}) or {}
+        plan = r.get("planning", {}) or {}
+        moe = r.get("mixture_of_experts", {}) or {}
+        understanding = (u.get("scene_summary", "") or "").replace("|", "\\|")[:70]
+        planning = (plan.get("recommended_action", "") or "").replace("|", "\\|")[:70]
+        lines.append(
+            f"| {r.get('t_sec', 0.0):.1f} | {u.get('risk_level', 'unknown')} | "
+            f"{p.get('drivable_area', 'unknown')} | {moe.get('expert_agreement', 'unknown')} | "
+            f"{understanding} | {planning} |"
+        )
+    lines += ["", "## Mixture-of-Experts Consensus", ""]
+    for r in results[:12]:
+        moe = r.get("mixture_of_experts", {}) or {}
+        consensus = (moe.get("consensus_summary", "") or "").strip()
+        if not consensus:
+            continue
+        disagreements = moe.get("disagreement_points", []) or []
+        dis_str = "; ".join(disagreements[:3]) if disagreements else "none"
+        lines.append(
+            f"- t={r.get('t_sec', 0.0):.1f}s: {consensus} "
+            f"(agreement={moe.get('expert_agreement', 'unknown')}; disagreements: {dis_str})"
+        )
+    lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · UniDriveVLA step S*"]
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    _log.info("  ✓ Written %s", output_path)
+
+
+def write_multi_model_comparison_md(
+    output_path: Path,
+    video_name: str,
+    gemma_result: Dict[str, Any],
+    qwen_result: Dict[str, Any],
+    unidrive_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    qwen_rows = [r for r in qwen_result.get("results", []) if not r.get("service_unavailable")]
+    uni_rows = [
+        r for r in unidrive_result.get("results", [])
+        if not r.get("service_unavailable") and not r.get("parse_error")
+    ]
+
+    def _nearest(rows: List[Dict[str, Any]], t_sec: float) -> Optional[Dict[str, Any]]:
+        if not rows:
+            return None
+        return min(rows, key=lambda r: abs(float(r.get("t_sec", 0.0)) - t_sec))
+
+    pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    for u in uni_rows:
+        q = _nearest(qwen_rows, float(u.get("t_sec", 0.0)))
+        if q is None:
+            continue
+        if abs(float(u.get("t_sec", 0.0)) - float(q.get("t_sec", 0.0))) <= 2.0:
+            pairs.append((q, u))
+
+    agreement_scores: List[float] = []
+    example_rows: List[Tuple[float, str, str, str, str]] = []
+    for q, u in pairs[:10]:
+        q_summary = str(q.get("scene_summary") or q.get("caption") or "")
+        u_under = u.get("understanding", {}) or {}
+        u_moe = u.get("mixture_of_experts", {}) or {}
+        u_summary = str(u_under.get("scene_summary", "") or "")
+        moe_summary = str(u_moe.get("consensus_summary", "") or "")
+        agreement_scores.append(_jaccard(q_summary, u_summary or moe_summary))
+        example_rows.append((
+            float(u.get("t_sec", 0.0)),
+            q_summary,
+            u_summary,
+            moe_summary,
+            str(u_moe.get("expert_agreement", "unknown") or "unknown"),
+        ))
+
+    mean_agreement = float(np.mean(agreement_scores)) if agreement_scores else 0.0
+    gemma_scene = ""
+    task_results = gemma_result.get("task_results", {}) or {}
+    clf = task_results.get("scene_classification", {}) or {}
+    cat_dist = clf.get("category_distribution", {}) or {}
+    if cat_dist:
+        gemma_scene = next(iter(cat_dist))
+
+    risk_levels = [((r.get("understanding") or {}).get("risk_level", "unknown")) for r in uni_rows]
+    agreement_levels = [((r.get("mixture_of_experts") or {}).get("expert_agreement", "unknown")) for r in uni_rows]
+    lines = [
+        f"# Multi-Model Comparison — {video_name}",
+        f"",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"",
+        f"## Coverage",
+        f"",
+        f"| Model family | Frames analysed | Primary output |",
+        f"|-------------|-----------------|----------------|",
+        f"| Gemma | {gemma_result.get('n_frames', 0)} | scene classification, clustering, cross-model probes |",
+        f"| Qwen | {qwen_result.get('ok_count', 0)} | structured per-frame scene facts |",
+        f"| UniDriveVLA | {len(uni_rows)} | understanding/perception/planning + MoE consensus |",
+        f"",
+        f"## Cross-Model Signals",
+        f"",
+        f"- Gemma dominant scene category: `{gemma_scene or 'unknown'}`",
+        f"- Qwen ↔ UniDrive scene-summary token agreement: {mean_agreement:.3f} across {len(agreement_scores)} matched frames",
+        f"- UniDrive risk profile: low={sum(1 for v in risk_levels if v == 'low')}, medium={sum(1 for v in risk_levels if v == 'medium')}, high={sum(1 for v in risk_levels if v == 'high')}",
+        f"- UniDrive expert agreement: high={sum(1 for v in agreement_levels if v == 'high')}, medium={sum(1 for v in agreement_levels if v == 'medium')}, low={sum(1 for v in agreement_levels if v == 'low')}",
+        f"",
+        f"## Matched Examples",
+        f"",
+        f"| t (s) | Qwen summary | UniDrive understanding | UniDrive MoE consensus | Expert agreement |",
+        f"|-------|--------------|------------------------|------------------------|------------------|",
+    ]
+    for t_sec, q_summary, u_summary, moe_summary, expert_agreement in example_rows:
+        q_summary_md = q_summary.replace("|", "\\|")[:60]
+        u_summary_md = u_summary.replace("|", "\\|")[:60]
+        moe_summary_md = moe_summary.replace("|", "\\|")[:60]
+        lines.append(
+            f"| {t_sec:.1f} | {q_summary_md} | "
+            f"{u_summary_md} | "
+            f"{moe_summary_md} | {expert_agreement} |"
+        )
+    lines += [
+        "",
+        "## Interpretation",
+        "",
+        "- Qwen is the structured scene-facts baseline.",
+        "- UniDrive adds explicit understanding, perception, and planning experts.",
+        "- The UniDrive MoE consensus field is the best single input for downstream synthesis because it preserves both consensus and disagreement.",
+        "",
+        "---",
+        f"*Produced by {_RUNNER_LABEL} · multi-model comparison step T*",
+    ]
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    _log.info("  ✓ Written %s", output_path)
+    return {
+        "matched_frames": len(agreement_scores),
+        "mean_qwen_unidrive_agreement": mean_agreement,
+        "high_risk_frames": sum(1 for v in risk_levels if v == "high"),
+    }
+
+
 def write_video_synthesis_md(
     output_path: Path,
     video_name: str,
@@ -1206,12 +1371,14 @@ _STEP_LABELS = [
     ("P_detection",  "P  Object detection"),
     ("Q_world",      "Q  World model"),
     ("R_qwen",       "R  Qwen detailed captioning"),
+    ("S_unidrive",   "S  UniDriveVLA expert analysis"),
     ("C_base_search","C  Base search test"),
     ("D_finetune",   "D  SSL fine-tuning"),
     ("E_distill",    "E  Knowledge distillation"),
     ("F_export",     "F  ONNX export + gallery"),
     ("G_ft_search",  "G  Fine-tuned search test"),
     ("H_compare",    "H  Comparison + description"),
+    ("T_multimodel", "T  Multi-model comparison"),
     ("I_3dmap",      "I  3D map creation"),
     ("Z_synthesis",  "Z  Video synthesis (ontology + narrative)"),
     ("AA_agentic",   "AA Agentic flow audit"),

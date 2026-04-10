@@ -49,13 +49,17 @@ The workaround costs hours per mission review and produces no reusable training 
 
 ## Premises
 
+Transition note: older design language in this document uses "demo" to describe
+the standalone local workflow that existed at the time. In the current codebase,
+that path has been promoted into the canonical local full-analysis pipeline.
+
 1. **Core product = 3D semantic map + image-to-text description.** The 3D map gives spatial anchoring (where was each frame captured, what does the space look like). The text description gives natural language searchability. Both are essential — neither alone is the product.
 
 2. **Self-improvement loop = the competitive moat.** Data → training → better models → better maps. This compounds over time. No competitor has your accumulated mission data once you're deployed.
 
 3. **Dense 3D map (3DGS) is core from v1, not a later upgrade.** The 3D map is the differentiator for navigation and spatial understanding. A sparse pose graph is not sufficient. (User held this premise against Codex's challenge — strong signal.)
 
-4. **File processing is v1; MediaMTX streaming is v1.5.** File ingest is the fastest path to a working demo and test loop. Existing video files can be re-broadcast via MediaMTX for streaming testing — so live stream support uses the same pipeline once MediaMTX is integrated.
+4. **File processing is v1; MediaMTX streaming is v1.5.** File ingest is the fastest path to a working local full-analysis and test loop. Existing video files can be re-broadcast via MediaMTX for streaming testing — so live stream support uses the same pipeline once MediaMTX is integrated.
 
 5. **PostgreSQL for dataset metadata; no FiftyOne in v1.** FiftyOne is MongoDB-only and cannot use PostgreSQL. PostgreSQL fits the existing SQLite-based architecture pattern, CVAT (v2 annotation) uses PostgreSQL natively (shared DB), and the active learning tagging logic is simple enough to own directly. lakeFS, Datumaro, and Elasticsearch remain deferred.
 
@@ -71,7 +75,7 @@ The workaround costs hours per mission review and produces no reusable training 
 >
 > The key quote is "I'm solving my own problem." This should not start as generic robotics infra. It should start as the shortest path from a field run to a useful internal artifact: searchable observations, spatial grounding, and better training data for your own autonomy stack. If it does that well, productization is plausible; if it does not, the platform story is fiction.
 >
-> Challenged premise 3: V1 should prove searchable spatial memory, not "usable 3D map" as an end in itself. A sparse pose graph + semantically indexed keyframes answers most real internal questions; dense 3D adds demo value but little operational value.
+> Challenged premise 3: V1 should prove searchable spatial memory, not "usable 3D map" as an end in itself. A sparse pose graph + semantically indexed keyframes answers most real internal questions; dense 3D adds presentation value but little operational value.
 >
 > 48-hour prototype: MP4 → adaptive keyframe extraction → pycolmap camera poses → DINOv3/R3M embeddings → Florence-2 captions → store frame/timestamp/pose/caption/embedding in Qdrant + FiftyOne metadata → Streamlit with timeline, sparse 3D camera path, text search, image search, and click-through from result to map location.
 

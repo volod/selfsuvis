@@ -6,11 +6,19 @@ import argparse
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the argument parser."""
     parser = argparse.ArgumentParser(description="Video processing pipeline")
-    parser.add_argument("--mode", choices=["file", "stream", "demo"], default="file")
+    parser.add_argument(
+        "--mode",
+        choices=["local", "file", "stream"],
+        default="local",
+        help=(
+            "Execution mode: local=full local analysis/train orchestration, "
+            "file=lightweight indexing CLI, stream=live stream CLI"
+        ),
+    )
     parser.add_argument("--input", help="Video file path")
     parser.add_argument("--dir", help="Directory containing videos")
     parser.add_argument(
-        "--output-dir", default="data_test/videos_test", help="Output directory"
+        "--output-dir", default="data/local_runs", help="Output directory"
     )
 
     parser.add_argument(
@@ -86,139 +94,161 @@ def build_parser() -> argparse.ArgumentParser:
         "--es-index", help="Elasticsearch index name"
     )
 
-    # ── Demo mode args (used when --mode demo) ────────────────────────────────
+    # ── Local orchestration args (used when --mode local) ─────────────────────
     parser.add_argument(
         "--videos-dir", default="data_test/videos",
-        help="[demo] Directory containing input .mp4/.mov/.mkv files",
+        help="[local] Directory containing input .mp4/.mov/.mkv files",
     )
     parser.add_argument(
         "--device", default="auto", choices=["auto", "cpu", "cuda"],
-        help="[demo] Torch device (auto selects CUDA when available)",
+        help="[local] Torch device (auto selects CUDA when available)",
     )
     parser.add_argument(
         "--epochs", type=int, default=3,
-        help="[demo] SSL fine-tuning epochs per video",
+        help="[local] SSL fine-tuning epochs per video",
     )
     parser.add_argument(
         "--batch-size", type=int, default=4,
-        help="[demo] SSL fine-tuning batch size",
+        help="[local] SSL fine-tuning batch size",
     )
     parser.add_argument(
         "--top-k", type=int, default=5,
-        help="[demo] Nearest neighbours to show in search tests",
+        help="[local] Nearest neighbours to show in search tests",
     )
     parser.add_argument(
         "--no-qdrant", action="store_true",
-        help="[demo] Skip Qdrant; use in-memory cosine search",
+        help="[local] Skip Qdrant; use in-memory cosine search",
     )
     parser.add_argument(
         "--no-sfm", action="store_true",
-        help="[demo] Skip pycolmap SfM; use PCA point-cloud fallback",
+        help="[local] Skip pycolmap SfM; use PCA point-cloud fallback",
     )
     parser.add_argument(
         "--no-gsplat", action="store_true",
-        help="[demo] Skip 3D Gaussian Splatting (step I); keep sparse point-cloud only",
+        help="[local] Skip 3D Gaussian Splatting (step I); keep sparse point-cloud only",
     )
     parser.add_argument(
         "--no-caption", action="store_true",
-        help="[demo] Skip Florence-2 scene captioning (step L)",
+        help="[local] Skip Florence-2 scene captioning (step L)",
     )
     parser.add_argument(
         "--florence-api-url", default="",
-        help="[demo] vLLM endpoint serving Florence-2 (e.g. http://localhost:8020/v1). "
+        help="[local] vLLM endpoint serving Florence-2 (e.g. http://localhost:8020/v1). "
              "When set, Florence is called via API instead of loading locally — "
              "no local VRAM consumed. See README for vLLM setup instructions.",
     )
     parser.add_argument(
         "--florence-model", default="",
-        help="[demo] Florence-2 model ID for vLLM API (default: microsoft/Florence-2-large)",
+        help="[local] Florence-2 model ID for vLLM API (default: microsoft/Florence-2-large)",
     )
     parser.add_argument(
         "--distill-epochs", type=int, default=5,
-        help="[demo] Knowledge distillation epochs (student ViT-S/14)",
+        help="[local] Knowledge distillation epochs (student ViT-S/14)",
     )
     parser.add_argument(
         "--no-distill", action="store_true",
-        help="[demo] Skip knowledge distillation; export teacher to ONNX instead",
+        help="[local] Skip knowledge distillation; export teacher to ONNX instead",
     )
     parser.add_argument(
         "--no-onnx", action="store_true",
-        help="[demo] Skip ONNX export",
+        help="[local] Skip ONNX export",
     )
     parser.add_argument(
         "--fps", type=float, default=2.0,
-        help="[demo] Frame-extraction rate (fps)",
+        help="[local] Frame-extraction rate (fps)",
     )
     parser.add_argument(
         "--view-npz", metavar="PATH", nargs="?", const="",
-        help="[demo] Visualize existing sparse_map.npz without running pipeline",
+        help="[local] Visualize existing sparse_map.npz without running pipeline",
     )
     parser.add_argument(
         "--no-view", action="store_true",
-        help="[demo] Skip the interactive 3D map viewer",
+        help="[local] Skip the interactive 3D map viewer",
     )
     # Optional multimodal steps
-    parser.add_argument("--asr", action="store_true",
-                        help="[demo] Enable Whisper ASR speech-to-text (step M)")
+    parser.add_argument("--asr", dest="asr", action="store_const", const=True, default=None,
+                        help="[local] Enable Whisper ASR speech-to-text (step M)")
+    parser.add_argument("--no-asr", dest="asr", action="store_const", const=False,
+                        help="[local] Disable Whisper ASR speech-to-text (step M)")
     parser.add_argument("--asr-model", default="auto",
-                        help="[demo] Whisper model ID or 'auto'")
+                        help="[local] Whisper model ID or 'auto'")
     parser.add_argument("--asr-language", default="",
-                        help="[demo] Force ASR language code (e.g. 'en'). Empty = auto-detect")
-    parser.add_argument("--ocr", action="store_true",
-                        help="[demo] Enable OCR text extraction per frame (step N)")
+                        help="[local] Force ASR language code (e.g. 'en'). Empty = auto-detect")
+    parser.add_argument("--ocr", dest="ocr", action="store_const", const=True, default=None,
+                        help="[local] Enable OCR text extraction per frame (step N)")
+    parser.add_argument("--no-ocr", dest="ocr", action="store_const", const=False,
+                        help="[local] Disable OCR text extraction per frame (step N)")
     parser.add_argument("--ocr-model", default="auto",
-                        help="[demo] OCR model ID or 'auto'")
-    parser.add_argument("--depth", action="store_true",
-                        help="[demo] Enable depth estimation per frame (step O)")
+                        help="[local] OCR model ID or 'auto'")
+    parser.add_argument("--depth", dest="depth", action="store_const", const=True, default=None,
+                        help="[local] Enable depth estimation per frame (step O)")
+    parser.add_argument("--no-depth", dest="depth", action="store_const", const=False,
+                        help="[local] Disable depth estimation per frame (step O)")
     parser.add_argument("--depth-model", default="auto",
-                        help="[demo] Depth model ID or 'auto'")
-    parser.add_argument("--detection", action="store_true",
-                        help="[demo] Enable object detection per frame (step P)")
+                        help="[local] Depth model ID or 'auto'")
+    parser.add_argument("--detection", dest="detection", action="store_const", const=True, default=None,
+                        help="[local] Enable object detection per frame (step P)")
+    parser.add_argument("--no-detection", dest="detection", action="store_const", const=False,
+                        help="[local] Disable object detection per frame (step P)")
     parser.add_argument("--detection-model", default="auto",
-                        help="[demo] Detection model ID or 'auto'")
+                        help="[local] Detection model ID or 'auto'")
     parser.add_argument("--detection-labels", default="",
-                        help="[demo] Comma-separated labels for open-vocabulary detection")
+                        help="[local] Comma-separated labels for open-vocabulary detection")
     # YOLO11 + SAM2/3 detection and segmentation (step P2) — ON by default
     parser.add_argument("--no-yolo", action="store_true",
-                        help="[demo] Disable YOLO11 detection + priority scoring (step P2)")
+                        help="[local] Disable YOLO11 detection + priority scoring (step P2)")
     parser.add_argument("--yolo-model", default="yolo11l",
-                        help="[demo] YOLO model: 'yolo11l' (default) or yolo11n/yolo11s/yolo11m/yolo11x")
+                        help="[local] YOLO model: 'yolo11l' (default) or yolo11n/yolo11s/yolo11m/yolo11x")
     parser.add_argument("--no-sam", action="store_true",
-                        help="[demo] Disable SAM2/3 segmentation (detection only; no masks)")
+                        help="[local] Disable SAM2/3 segmentation (detection only; no masks)")
     parser.add_argument("--sam-model", default="auto",
-                        help="[demo] SAM backend: 'auto' (tries sam3→sam2→sam1) | 'sam3' | 'sam2' | 'sam1'")
+                        help="[local] SAM backend: 'auto' (tries sam3→sam2→sam1) | 'sam3' | 'sam2' | 'sam1'")
     # Gemma 4 directed tracking: SAM segmentation + RF-DETR tracking (step P3)
     # Enabled automatically when --gemma-api-url is provided; disable with --no-rfdetr.
     parser.add_argument("--no-rfdetr", action="store_true",
-                        help="[demo] Disable Gemma directed SAM segmentation + RF-DETR tracking (step P3)")
+                        help="[local] Disable Gemma directed SAM segmentation + RF-DETR tracking (step P3)")
     parser.add_argument("--rfdetr-model", default="base",
                         choices=["base", "large"],
-                        help="[demo] RF-DETR model tier: 'base' (faster) or 'large' (higher accuracy)")
-    parser.add_argument("--world-model", action="store_true",
-                        help="[demo] Enable world model video embeddings (step Q)")
+                        help="[local] RF-DETR model tier: 'base' (faster) or 'large' (higher accuracy)")
+    parser.add_argument("--world-model", dest="world_model", action="store_const", const=True, default=None,
+                        help="[local] Enable world model video embeddings (step Q)")
+    parser.add_argument("--no-world-model", dest="world_model", action="store_const", const=False,
+                        help="[local] Disable world model video embeddings (step Q)")
     parser.add_argument("--world-model-id", default="auto",
-                        help="[demo] World model ID or 'auto'")
-    parser.add_argument("--qwen", action="store_true",
-                        help="[demo] Enable Qwen VLM detailed captioning (step R); requires --qwen-api-url")
+                        help="[local] World model ID or 'auto'")
+    parser.add_argument("--qwen", dest="qwen", action="store_const", const=True, default=None,
+                        help="[local] Enable Qwen VLM detailed captioning (step R)")
+    parser.add_argument("--no-qwen", dest="qwen", action="store_const", const=False,
+                        help="[local] Disable Qwen VLM detailed captioning (step R)")
     parser.add_argument("--qwen-api-url", default="",
-                        help="[demo] Qwen vLLM/ollama endpoint (e.g. http://localhost:8010/v1)")
+                        help="[local] Qwen vLLM/ollama endpoint (e.g. http://localhost:8010/v1)")
     parser.add_argument("--qwen-model", default="",
-                        help="[demo] Qwen model ID; empty = use QWEN_MODEL env var default")
+                        help="[local] Qwen model ID; empty = use QWEN_MODEL env var default")
     parser.add_argument("--qwen-backend", default="", choices=["", "vllm", "ollama"],
-                        help="[demo] Qwen backend type. Empty = auto-detect")
+                        help="[local] Qwen backend type. Empty = auto-detect")
+    parser.add_argument("--unidrive", dest="unidrive", action="store_const", const=True, default=None,
+                        help="[local] Enable UniDriveVLA expert analysis (understanding + perception + planning)")
+    parser.add_argument("--no-unidrive", dest="unidrive", action="store_const", const=False,
+                        help="[local] Disable UniDriveVLA expert analysis")
+    parser.add_argument("--unidrive-api-url", default="",
+                        help="[local] UniDriveVLA bridge endpoint (OpenAI-compatible /chat/completions)")
+    parser.add_argument("--unidrive-model", default="",
+                        help="[local] UniDriveVLA model ID; empty = use UNIDRIVE_MODEL env var default")
+    parser.add_argument("--unidrive-backend", default="", choices=["", "vllm", "ollama"],
+                        help="[local] UniDrive backend type. Empty = auto-detect")
     parser.add_argument("--gemma-api-url", default="",
-                        help="[demo] Gemma vLLM/ollama endpoint (e.g. http://localhost:11434/v1)")
+                        help="[local] Gemma vLLM/ollama endpoint (e.g. http://localhost:11434/v1)")
     parser.add_argument("--gemma-api-model", default="",
-                        help="[demo] Gemma model ID; empty = use GEMMA_API_MODEL env var default")
+                        help="[local] Gemma model ID; empty = use GEMMA_API_MODEL env var default")
     parser.add_argument("--gemma-api-backend", default="", choices=["", "vllm", "ollama"],
-                        help="[demo] Gemma backend type. Empty = auto-detect")
+                        help="[local] Gemma backend type. Empty = auto-detect")
     parser.add_argument("--reasoning-api-url", default="",
-                        help="[demo] Reasoning endpoint for the final agentic audit step; "
+                        help="[local] Reasoning endpoint for the final agentic audit step; "
                              "empty = reuse Gemma endpoint, then Qwen endpoint")
     parser.add_argument("--reasoning-model", default="",
-                        help="[demo] Reasoning model ID for the final agentic audit step; "
+                        help="[local] Reasoning model ID for the final agentic audit step; "
                              "empty = auto-select from detected hardware")
     parser.add_argument("--reasoning-backend", default="", choices=["", "vllm", "ollama"],
-                        help="[demo] Reasoning backend type. Empty = auto-detect")
+                        help="[local] Reasoning backend type. Empty = auto-detect")
 
     return parser

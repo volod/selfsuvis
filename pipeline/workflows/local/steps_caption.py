@@ -1203,6 +1203,81 @@ def step_qwen_captioning(
     return result
 
 
+def step_unidrive_analysis(
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+    subtitle_map: Dict[float, str],
+    ocr_results: List[Dict[str, Any]],
+    knowledge: Optional["VideoKnowledge"] = None,
+) -> Dict[str, Any]:
+    """Step S: UniDriveVLA expert analysis on a sparse frame sample."""
+    from .steps_report import write_unidrive_analysis_md
+
+    out_md = video_dir / "unidrive_analysis.md"
+    result: Dict[str, Any] = {"skipped": True, "results": []}
+    try:
+        from pipeline.vision.unidrive import UniDriveVLAModel
+    except ImportError as exc:
+        _log.warning("  UniDriveVLA client unavailable (%s) — skipping", exc)
+        return result
+
+    client = UniDriveVLAModel()
+    _log_vram_snapshot("before UniDrive sidecar use")
+    if not client.is_enabled():
+        _log.info("  UniDriveVLA disabled (UNIDRIVE_API_URL not set) — skipping")
+        _log.info("  To enable: --unidrive-api-url http://localhost:8030/v1  (or set UNIDRIVE_API_URL)")
+        return result
+
+    max_frames = max(1, int(getattr(settings, "UNIDRIVE_MAX_FRAMES", 24) or 24))
+    sample_step = max(1, len(frame_list) // max_frames)
+    sampled_frames = frame_list[::sample_step][:max_frames]
+    ocr_map: Dict[float, str] = {
+        r["t_sec"]: r["ocr_text"]
+        for r in ocr_results
+        if r.get("t_sec") is not None and r.get("ocr_text")
+    }
+    domain = knowledge.domain_hint() if knowledge else ""
+    _log.info(
+        "Running UniDriveVLA expert analysis on %d sampled frames (model=%s) …",
+        len(sampled_frames), settings.UNIDRIVE_MODEL,
+    )
+    t0 = time.time()
+
+    def _batch_fn(batch: List[Tuple[str, float]], imgs: List[Image.Image]) -> List[Dict[str, Any]]:
+        extra_contexts = None
+        if knowledge:
+            extra_contexts = [knowledge.context_for_frame(t_sec) for _fp, t_sec in batch]
+        return client.extract_batch(
+            imgs,
+            subtitle_texts=[subtitle_map.get(t_sec) or None for _fp, t_sec in batch],
+            ocr_texts=[ocr_map.get(t_sec) or None for _fp, t_sec in batch],
+            extra_contexts=extra_contexts,
+            domain_hint=domain or None,
+        )
+
+    batch_results = _run_batched_frame_inference(
+        sampled_frames,
+        batch_size=2,
+        batch_fn=_batch_fn,
+        warning_label="UniDriveVLA",
+        error_result={"service_unavailable": True},
+    )
+    elapsed = time.time() - t0
+    ok = sum(1 for r in batch_results if not r.get("service_unavailable") and not r.get("parse_error"))
+    _log.info("  ✓ UniDriveVLA: %d/%d sampled frames analysed in %.1fs", ok, len(batch_results), elapsed)
+    _log_vram_snapshot("after UniDrive sidecar use")
+    write_unidrive_analysis_md(out_md, video_name, batch_results, elapsed, settings.UNIDRIVE_MODEL)
+    result.update({
+        "skipped": False,
+        "results": batch_results,
+        "ok_count": ok,
+        "elapsed_sec": elapsed,
+        "sampled_frames": len(batch_results),
+    })
+    return result
+
+
 def step_asr_transcription(
     video_path: Path,
     frame_list: List[Tuple[str, float]],

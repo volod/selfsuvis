@@ -1,4 +1,4 @@
-"""Shared logging helpers, constants, and VideoKnowledge for the demo subpackage."""
+"""Shared logging helpers, constants, and VideoKnowledge for the local subpackage."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _configure_warnings() -> None:
                             category=FutureWarning)
 
 
-_log = logging.getLogger("demo")
+_log = logging.getLogger("local")
 
 
 def _banner(msg: str) -> None:
@@ -176,7 +176,7 @@ _GEMMA_TEXT_PROBES: List[str] = [
 
 # ── Runner label ──────────────────────────────────────────────────────────────
 
-_RUNNER_LABEL = "demo pipeline (`main.py --mode demo`)"
+_RUNNER_LABEL = "local full-analysis pipeline (`main.py --mode local`)"
 
 # ── VideoKnowledge — agentic knowledge accumulator ────────────────────────────
 

@@ -1,7 +1,7 @@
 """Download and cache all model weights needed by selfsuvis.
 
 Run this once (or in a Docker build step) to pre-populate the local cache so
-that the API, worker, and demo can start without network access.
+that the API, worker, and local full-analysis pipeline can start without network access.
 
 Usage
 -----
@@ -23,6 +23,7 @@ Usage
     python scripts/prepare_models.py --depth        # Step O: Depth estimation
     python scripts/prepare_models.py --detection    # Step P: Object detection
     python scripts/prepare_models.py --world-model  # Step Q: World model video embeddings
+    python scripts/prepare_models.py --unidrive     # Step S: UniDriveVLA expert model assets
     python scripts/prepare_models.py --yolo         # Step P2: YOLO11l detection (~48 MB)
     python scripts/prepare_models.py --sam          # Step P2: SAM3/SAM2 segmentation (tries sam3 first)
 
@@ -31,6 +32,7 @@ Usage
     python scripts/prepare_models.py --depth     --depth-model     depth-anything/Depth-Anything-V2-Large-hf
     python scripts/prepare_models.py --detection --detection-model IDEA-Research/grounding-dino-base
     python scripts/prepare_models.py --world-model --world-model-id MCG-NJU/videomae-base
+    python scripts/prepare_models.py --unidrive --unidrive-model xiaomi-research/UniDriveVLA-Base
     python scripts/prepare_models.py --yolo        --yolo-model yolo11x
     python scripts/prepare_models.py --sam         --sam-model facebook/sam2-hiera-large
 
@@ -65,6 +67,7 @@ Environment
     OPENCLIP_MODEL       OpenCLIP model name        (default from pipeline.core.config)
     OPENCLIP_PRETRAINED  OpenCLIP pretrained tag     (default from pipeline.core.config)
     GEMMA_MODEL_ID       Gemma model repo ID (default: google/gemma-3-4b-it)
+    UNIDRIVE_MODEL       UniDriveVLA model repo ID (default: xiaomi-research/UniDriveVLA-Base)
     DEVICE               torch device for loading    (default: cpu)
     HF_TOKEN             HuggingFace token for gated / private model access (required for Gemma)
 """
@@ -539,6 +542,36 @@ def _download_world_model(model_id: str) -> None:
         raise
 
 
+def _download_unidrive(model_id: str) -> None:
+    """Download UniDriveVLA model assets for local bridges / sidecars."""
+    log.info("UniDriveVLA — model=%s", model_id)
+    if _is_hf_cached(model_id):
+        log.info("  ✓ UniDriveVLA already cached — skipping load")
+        return
+    t0 = time.monotonic()
+    try:
+        from huggingface_hub import snapshot_download
+        local_dir = snapshot_download(
+            repo_id=model_id,
+            ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
+        )
+        try:
+            from transformers import AutoProcessor, AutoModelForCausalLM
+            AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+            AutoModelForCausalLM.from_pretrained(
+                model_id, trust_remote_code=True, torch_dtype="auto", low_cpu_mem_usage=True,
+            )
+        except Exception as exc:
+            log.info(
+                "  Transformers warmup skipped for %s (%s); repository cache is still ready",
+                model_id, exc,
+            )
+        log.info("  ✓ UniDriveVLA ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
+    except Exception as exc:
+        log.warning("  UniDriveVLA download failed: %s", exc)
+        raise
+
+
 def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
     """Download (or verify) DINO weights."""
     import torch
@@ -790,7 +823,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--flash-attn", action="store_true",
                    help="Install flash-attn (CUDA required; uses prebuilt wheel or compiles)")
     p.add_argument("--all",  action="store_true",
-                   help="Download/verify everything (flash-attn + clip + dino + gemma + florence + whisper + ocr + depth + detection + world-model)")
+                   help="Download/verify everything (flash-attn + clip + dino + gemma + florence + whisper + ocr + depth + detection + world-model + unidrive + yolo + sam)")
     p.add_argument("--verify", action="store_true",
                    help="Check cache status for all requested models without downloading")
 
@@ -848,6 +881,11 @@ def _build_parser() -> argparse.ArgumentParser:
                        "World model ID to cache. Empty = auto-select by VRAM. "
                        "Examples: MCG-NJU/videomae-base, facebook/vjepa2-vitl-fpc64-256"
                    ))
+    _default_unidrive = os.getenv("UNIDRIVE_MODEL", "xiaomi-research/UniDriveVLA-Base")
+    p.add_argument("--unidrive", action="store_true",
+                   help="Download UniDriveVLA expert model assets (step S)")
+    p.add_argument("--unidrive-model", default=_default_unidrive, metavar="MODEL_ID",
+                   help="UniDriveVLA model repo ID to cache for external bridge / sidecar use")
 
     p.add_argument("--yolo", action="store_true",
                    help="Download YOLO11 detection model (step P2; default model: yolo11l.pt ~48 MB)")
@@ -889,7 +927,7 @@ def main() -> None:
 
     _any_flag = (args.clip or args.dino or args.gemma or args.flash_attn or args.whisper
                  or args.florence or args.ocr or args.depth or args.detection or args.world_model
-                 or args.yolo or args.sam)
+                 or args.unidrive or args.yolo or args.sam)
     # Auto-include Gemma in the default run when HF_TOKEN + GEMMA_MODEL_ID are configured,
     # so `python scripts/prepare_models.py` caches everything needed out of the box.
     _gemma_env_ready = bool(
@@ -906,6 +944,7 @@ def main() -> None:
     do_depth       = args.depth       or args.all
     do_detection   = args.detection   or args.all
     do_world_model = args.world_model or args.all
+    do_unidrive    = args.unidrive    or args.all
     do_yolo        = args.yolo        or args.all
     do_sam         = args.sam         or args.all
 
@@ -924,6 +963,7 @@ def main() -> None:
     depth_id      = _resolve_hf_model("depth",       args.depth_model)    if do_depth       else ""
     detection_id  = _resolve_hf_model("detection",   args.detection_model) if do_detection  else ""
     world_id      = _resolve_hf_model("world_model", args.world_model_id) if do_world_model else ""
+    unidrive_id   = args.unidrive_model if do_unidrive else ""
 
     # ── Verify mode ───────────────────────────────────────────────────────────
     if args.verify:
@@ -953,6 +993,8 @@ def main() -> None:
             specs.append((f"Detection {detection_id}", lambda m=detection_id: _is_hf_cached(m)))
         if do_world_model and world_id:
             specs.append((f"WorldModel {world_id}", lambda m=world_id: _is_hf_cached(m)))
+        if do_unidrive and unidrive_id:
+            specs.append((f"UniDriveVLA {unidrive_id}", lambda m=unidrive_id: _is_hf_cached(m)))
         if do_yolo:
             ym = args.yolo_model
             specs.append((f"YOLO11 {ym}", lambda m=ym: _is_yolo_cached(m)))
@@ -1072,6 +1114,18 @@ def main() -> None:
             except Exception as exc:
                 log.error("World model [%s] download failed: %s", world_id, exc)
                 errors.append(("WorldModel", exc))
+
+    if do_unidrive:
+        if not unidrive_id:
+            log.error("UniDriveVLA: could not determine a model ID — pass --unidrive-model explicitly")
+            errors.append(("UniDriveVLA", ValueError("no model ID")))
+        else:
+            try:
+                _with_auth_retry(f"UniDriveVLA ({unidrive_id})", unidrive_id,
+                                 lambda: _download_unidrive(unidrive_id))
+            except Exception as exc:
+                log.error("UniDriveVLA [%s] download failed: %s", unidrive_id, exc)
+                errors.append(("UniDriveVLA", exc))
 
     if do_yolo:
         yolo_id = args.yolo_model

@@ -6,7 +6,7 @@ Supports Meta's Segment Anything Model family:
   - SAM2 (pip: sam-2) — fallback
   - Original SAM (pip: segment-anything) — last resort
 
-Usage in the demo pipeline:
+Usage in the local full-analysis pipeline:
 
     predictor = SAMPredictor()
     if predictor.is_available():

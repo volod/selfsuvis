@@ -1,4 +1,4 @@
-"""Sparse 3D map builder for the demo pipeline.
+"""Sparse 3D map builder for the local full-analysis pipeline.
 
 Builds a point cloud from mission frames either via pycolmap SfM
 (camera centres) or a PCA projection of frame embeddings as fallback.

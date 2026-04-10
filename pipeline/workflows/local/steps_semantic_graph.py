@@ -18,7 +18,7 @@ def step_build_semantic_environment_graph(
     yolo_sam_result: Dict[str, Any],
     map_result: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Build a YOLO-driven semantic environment graph for the demo artifacts."""
+    """Build a YOLO-driven semantic environment graph for local-run artifacts."""
     if yolo_sam_result.get("skipped"):
         return {"skipped": True, "reason": "yolo_step_skipped"}
 

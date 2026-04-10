@@ -1,7 +1,7 @@
 """In-memory cosine-similarity nearest-neighbour store.
 
 Drop-in fallback for QdrantStore when Qdrant is not running.
-Used by the demo pipeline and any offline/test context.
+Used by the local full-analysis pipeline and any offline/test context.
 """
 from typing import Any, Dict, List
 

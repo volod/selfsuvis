@@ -18,9 +18,10 @@ Then open the Streamlit UI (default: http://localhost:8501),
 upload a video or provide a URL (file or stream), start understanding, 
 and run text or image queries.
 
-## Demo
+## Local Full Analysis
 
-Run the end-to-end demonstration pipeline — no Docker, no GPU required (CPU fallback available):
+Run the full local analysis and training pipeline. `python main.py` now defaults
+to `--mode local`.
 
 ### Prerequisites
 
@@ -34,7 +35,7 @@ Run the end-to-end demonstration pipeline — no Docker, no GPU required (CPU fa
 Use the project's existing Compose configuration — data is persisted in `data/qdrant/`:
 
 ```bash
-# Start only the Qdrant service (no GPU, no API, no worker needed for the demo)
+# Start only the Qdrant service (no GPU, no API, no worker needed for local runs)
 env UID=$(id -u) GID=$(id -g) docker compose -f docker/docker-compose.yml up -d qdrant
 
 # Verify it is up:
@@ -44,7 +45,7 @@ curl -s http://localhost:6333/healthz   # → {"title":"qdrant","version":"..."}
 env UID=$(id -u) GID=$(id -g) docker compose -f docker/docker-compose.yml stop qdrant
 ```
 
-If Qdrant is not running the demo falls back to an in-memory cosine-similarity store automatically — no action needed.
+If Qdrant is not running the local pipeline falls back to an in-memory cosine-similarity store automatically — no action needed.
 
 ### Sample videos
 
@@ -72,8 +73,9 @@ python scripts/prepare_models.py --dino --source hub
 python scripts/prepare_models.py --gemma
 python scripts/prepare_models.py --gemma --gemma-model google/gemma-4-31b-it   # 31B
 
-# Pre-cache Whisper ASR + Florence-2 captioning models
-python scripts/prepare_models.py --whisper --florence
+# Pre-cache Whisper ASR + Florence-2 + UniDriveVLA assets
+python scripts/prepare_models.py --whisper --florence --unidrive
+python scripts/prepare_models.py --unidrive --unidrive-model xiaomi-research/UniDriveVLA-Base
 
 # Everything at once
 python scripts/prepare_models.py --all
@@ -122,7 +124,7 @@ docker run --gpus all --rm -p 8010:8000 \
   --max-model-len 8192 --limit-mm-per-prompt image=1
 
 # Run — Qwen via vLLM Docker, Florence loaded locally:
-python main.py --mode demo --asr --ocr --qwen \
+python main.py --mode local \
   --qwen-api-url http://localhost:8010/v1
 ```
 
@@ -137,13 +139,13 @@ reloads when step R runs. No extra flags needed.
 ollama pull qwen2.5vl:7b
 
 # Run — Florence local (Ollama auto-evicted before step L), Qwen via Ollama:
-python main.py --mode demo --asr --ocr --qwen \
+python main.py --mode local \
   --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b
 
 # Or set env vars permanently:
 export QWEN_API_URL=http://localhost:11434/v1
 export QWEN_BACKEND=ollama
-python main.py --mode demo --asr --ocr --qwen
+python main.py --mode local
 ```
 
 **Option 3 — Remote / Docker Compose:**
@@ -151,11 +153,55 @@ python main.py --mode demo --asr --ocr --qwen
 ```bash
 # In docker-compose.yml, add a qwen service, then:
 QWEN_API_URL=http://qwen:8010/v1 \
-  python main.py --mode demo --asr --ocr --qwen
+  python main.py --mode local
 ```
 
 > **Note:** If `QWEN_API_URL` is empty (the default), step R is skipped automatically.
-> The demo still runs to completion without it.
+> The local pipeline still runs to completion without it.
+
+### UniDriveVLA sidecar (optional — for expert analysis, step S)
+
+Step S adds a driving-oriented expert pass with four normalized output blocks:
+
+- `understanding`
+- `perception`
+- `planning`
+- `mixture_of_experts`
+
+The runtime integration is intentionally lightweight: selfsuvis expects an
+OpenAI-compatible `/chat/completions` bridge and stores normalized UniDrive
+results in local artifacts and production `frame_facts_json["unidrive_vla"]`.
+
+Source project: https://github.com/xiaomi-research/unidrivevla
+
+Recommended local setup:
+
+```bash
+# Cache the repo/model assets locally
+python scripts/prepare_models.py --unidrive
+
+# Point selfsuvis at your UniDrive bridge
+export UNIDRIVE_API_URL=http://localhost:8030/v1
+export UNIDRIVE_MODEL=xiaomi-research/UniDriveVLA-Base
+
+python main.py --mode local
+```
+
+Or explicitly from the CLI:
+
+```bash
+python main.py --mode local \
+  --unidrive-api-url http://localhost:8030/v1 \
+  --unidrive-model xiaomi-research/UniDriveVLA-Base
+```
+
+When enabled, local runs write:
+
+- `unidrive_analysis.md`
+- `multi_model_comparison.md`
+
+and production indexing adds a `unidrive_summary` result plus per-frame
+`frame_facts_json["unidrive_vla"]`.
 
 ### Gemma 4 sidecar (optional — for open-weight video analysis, step J)
 
@@ -164,7 +210,7 @@ It runs in two modes that complement each other:
 
 | Mode | What it does | When active |
 |---|---|---|
-| **Embedding mode** (local) | Loads `GemmaEmbedder` for scene change detection, clustering, zero-shot classification, cross-modal retrieval, and comparison with CLIP and DINOv3 | `MODEL_NAME=gemma` (default in demo) |
+| **Embedding mode** (local) | Loads `GemmaEmbedder` for scene change detection, clustering, zero-shot classification, cross-modal retrieval, and comparison with CLIP and DINOv3 | `MODEL_NAME=gemma` (default in local mode) |
 | **Generative mode** (sidecar) | Calls Ollama/vLLM to produce a natural-language description for each sampled frame | `GEMMA_API_URL` is set |
 
 The default sidecar model is **`gemma4:31b`** — Gemma 4's largest open-weight variant.
@@ -178,11 +224,11 @@ so it runs on mixed GPU+CPU hardware (e.g. 12 GB VRAM + 32 GB RAM handles 31B IN
 ollama pull gemma4:31b
 
 # Run with Gemma sidecar (step J generative descriptions):
-python main.py --mode demo --gemma-api-url http://localhost:11434/v1
+python main.py --mode local --gemma-api-url http://localhost:11434/v1
 
 # Or export once:
 export GEMMA_API_URL=http://localhost:11434/v1
-python main.py --mode demo
+python main.py --mode local
 ```
 
 **Option 2 — vLLM Docker (GPU-only, higher throughput):**
@@ -194,7 +240,7 @@ docker run --gpus all --rm -p 8020:8000 \
   --model google/gemma-4-31b-it --trust-remote-code \
   --max-model-len 4096
 
-python main.py --mode demo \
+python main.py --mode local \
   --gemma-api-url http://localhost:8020/v1 \
   --gemma-api-model google/gemma-4-31b-it
 ```
@@ -206,29 +252,80 @@ python main.py --mode demo \
 ollama pull gemma4:31b
 ollama pull qwen2.5vl:7b
 
-python main.py --mode demo --asr --ocr --depth --detection \
+python main.py --mode local \
   --gemma-api-url http://localhost:11434/v1 \
-  --qwen --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b
+  --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b
 ```
+
+**Full local pipeline with all major models enabled**
+
+This is the closest thing to the repo’s maximum-hydration local run:
+
+```bash
+# Local models + sidecars expected:
+# - Gemma embedder via HF_TOKEN / GEMMA_MODEL_ID
+# - Florence local
+# - Whisper ASR
+# - OCR / depth / detection / world-model via auto-select
+# - Gemma sidecar for step J/P3
+# - Qwen sidecar for step R
+# - UniDrive bridge for step S
+# - Reasoning sidecar for final audit (can reuse Gemma or Qwen endpoint)
+
+python scripts/prepare_models.py --all
+
+python main.py --mode local \
+  --dir data_test/videos \
+  --gemma-api-url http://localhost:11434/v1 --gemma-api-model gemma4:e4b \
+  --qwen-api-url http://localhost:8010/v1 --qwen-model Qwen/Qwen2.5-VL-7B-Instruct \
+  --unidrive-api-url http://localhost:8030/v1 --unidrive-model xiaomi-research/UniDriveVLA-Base \
+  --reasoning-api-url http://localhost:11434/v1 --reasoning-model deepseek-r1:14b
+```
+
+This path runs the full 23-step local flow:
+
+1. frame extraction
+2. vector indexing
+3. Gemma multimodal analysis
+4. Florence captioning
+5. ASR
+6. OCR
+7. depth
+8. HF detection
+9. YOLO + SAM
+10. Gemma directed tracking
+11. world model
+12. Qwen detailed captioning
+13. UniDrive expert analysis
+14. base retrieval test
+15. 3D map / splat
+16. SSL fine-tuning
+17. distillation
+18. ONNX export
+19. fine-tuned retrieval test
+20. model comparison + description
+21. multi-model comparison
+22. video synthesis
+23. agentic audit
 
 > **Note:** If `GEMMA_API_URL` is empty, the generative descriptions sub-step is
 > skipped. Embedding-based analysis (scene change, clustering, CLIP/DINOv3 comparison)
-> still runs whenever `MODEL_NAME=gemma` (the demo default).
+> still runs whenever `MODEL_NAME=gemma` (the local-mode default).
 
-The same `GEMMA_API_URL` also enables demo step `P3` when RF-DETR is on: Gemma produces
+The same `GEMMA_API_URL` also enables local step `P3` when RF-DETR is on: Gemma produces
 structured scene JSON on sampled frames, SAM optionally segments Gemma-named objects, and
 RF-DETR tracks Gemma-priority labels across the sequence. Outputs are written to
 `gemma_tracking_results.json`, `gemma_tracking/`, and `gemma_tracking_summary.md`.
 
 ### Split analysis and reasoning models
 
-The demo now uses two separate LLM roles:
+The local full-analysis pipeline uses two separate LLM roles:
 
 - **Video analysis model**: used during step J for repeated sampled-frame analysis. Keep this relatively light.
 - **Reasoning model**: used only in the final `agentic_flow.md` audit step. This can be larger and slower.
 - The local `GemmaEmbedder` is reused across the run, and repeated image embeddings are cached in-process to avoid unnecessary recomputation.
 
-New demo flags:
+Relevant flags:
 
 ```bash
 --gemma-api-url http://localhost:11434/v1
@@ -237,7 +334,7 @@ New demo flags:
 --reasoning-model deepseek-r1:14b
 ```
 
-If you do **not** set `--gemma-api-model` or `--reasoning-model`, the demo auto-selects them from detected hardware:
+If you do **not** set `--gemma-api-model` or `--reasoning-model`, the local pipeline auto-selects them from detected hardware:
 
 | Hardware profile | Step J analysis default | Final reasoning default |
 |---|---|---|
@@ -254,7 +351,7 @@ For a machine with **16 GB GPU VRAM** and **64+ GB RAM**, the practical default 
 - **Step J analysis**: `gemma4:e4b`
 - **Final reasoning audit**: `deepseek-r1:14b`
 
-If Ollama or another process keeps the GPU occupied from a previous run, the demo now unloads known sidecar models before sizing the run. If VRAM detection still fails because the NVIDIA driver is not reachable from the current process, set:
+If Ollama or another process keeps the GPU occupied from a previous run, the local pipeline unloads known sidecar models before sizing the run. If VRAM detection still fails because the NVIDIA driver is not reachable from the current process, set:
 
 ```bash
 export GPU_TOTAL_GB_HINT=16
@@ -277,14 +374,14 @@ ollama pull deepseek-r1:14b
 Example:
 
 ```bash
-python main.py --mode demo --asr --ocr --depth --detection --qwen \
+python main.py --mode local \
   --gemma-api-url http://localhost:11434/v1 \
   --reasoning-api-url http://localhost:11434/v1
 ```
 
-The demo also logs VRAM snapshots before and after local model loads, model offload/restore events, and sidecar-backed Gemma/Qwen/reasoning calls so you can see whether memory was actually freed between steps. The final reasoning timeout is longer than the default API timeout; override with `REASONING_TIMEOUT_SEC` if needed.
+The local pipeline also logs VRAM snapshots before and after local model loads, model offload/restore events, and sidecar-backed Gemma/Qwen/reasoning calls so you can see whether memory was actually freed between steps. The final reasoning timeout is longer than the default API timeout; override with `REASONING_TIMEOUT_SEC` if needed.
 
-For the local Gemma processor path, the repo now sets `use_fast=False` explicitly. That avoids a future `transformers` default flip changing behavior silently during demo runs.
+For the local Gemma processor path, the repo sets `use_fast=False` explicitly. That avoids a future `transformers` default flip changing behavior silently during local runs.
 
 ### 3D Gaussian Splat map (step I)
 
@@ -338,61 +435,61 @@ Controls: left-drag to orbit · right-drag to pan · scroll to zoom
 **Option C — View NPZ point cloud** (no gsplat needed, matplotlib):
 
 ```bash
-python main.py --mode demo --view-npz data_test/videos_test/<name>/3d_map/sparse_map.npz
+python main.py --mode local --view-npz data/local_runs/<name>/3d_map/sparse_map.npz
 ```
 
 **Skip gsplat** (faster runs, point-cloud only):
 
 ```bash
-python main.py --mode demo --no-gsplat
+python main.py --mode local --no-gsplat
 ```
 
 ### Run
 
 ```bash
-# Basic — uses data_test/videos/, writes to data_test/videos_test/
-python main.py --mode demo
+# Basic — uses data_test/videos/, writes to data/local_runs/
+python main.py
 
 # Custom directories
-python main.py --mode demo --videos-dir /path/to/videos --output-dir /path/to/output
+python main.py --mode local --videos-dir /path/to/videos --output-dir /path/to/output
 
 # CPU only (no CUDA required)
-python main.py --mode demo --device cpu
+python main.py --mode local --device cpu
 
 # Skip optional steps
-python main.py --mode demo --no-qdrant --no-sfm --no-onnx
+python main.py --mode local --no-qdrant --no-sfm --no-onnx
 
 # Enable multimodal steps (each loads its model lazily on first frame):
-python main.py --mode demo --asr                   # Whisper speech-to-text
-python main.py --mode demo --ocr                   # OCR text extraction per frame
-python main.py --mode demo --depth                 # Depth estimation per frame
-python main.py --mode demo --detection             # Object detection per frame
-python main.py --mode demo --world-model           # World model video embeddings
-python main.py --mode demo --qwen --qwen-api-url http://localhost:8010/v1  # Qwen VLM (step R)
-python main.py --mode demo --gemma-api-url http://localhost:11434/v1      # Gemma 4 31B (step J)
+python main.py --mode local --no-asr              # disable ASR
+python main.py --mode local --no-ocr              # disable OCR
+python main.py --mode local --no-depth            # disable depth
+python main.py --mode local --no-detection        # disable HF detection
+python main.py --mode local --no-world-model      # disable world model
+python main.py --mode local --qwen-api-url http://localhost:8010/v1
+python main.py --mode local --gemma-api-url http://localhost:11434/v1
 
 # Full multimodal — Florence local (Ollama auto-evicted before step L), Qwen via vLLM Docker:
-python main.py --mode demo --asr --depth --detection --world-model --ocr --qwen --qwen-api-url http://localhost:8010/v1
+python main.py --mode local --qwen-api-url http://localhost:8010/v1
 
 # Full multimodal — Gemma + Qwen + DeepSeek-R1 reasoning via Ollama:
 export WORLD_MODEL=nvidia/Cosmos-1.0-Autoregressive-4B  # do not force gpu <16GB
-python main.py --mode demo --asr --depth --detection --world-model --ocr \
+python main.py --mode local \
   --gemma-api-url http://localhost:11434/v1 --gemma-api-model gemma4:e4b \
-  --qwen --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b \
+  --qwen-api-url http://localhost:11434/v1 --qwen-model qwen2.5vl:7b \
   --reasoning-api-url http://localhost:11434/v1 --reasoning-model deepseek-r1:14b
 
 # Select specific models (default: GPU-aware auto-selection):
-python main.py --mode demo --asr --asr-model openai/whisper-large-v3
+python main.py --mode local --asr-model openai/whisper-large-v3
 
-python main.py --mode demo --qwen --qwen-model Qwen/Qwen2.5-VL-72B-Instruct --qwen-api-url http://host:8010/v1
+python main.py --mode local --qwen-model Qwen/Qwen2.5-VL-72B-Instruct --qwen-api-url http://host:8010/v1
 
 # Full options
-python main.py --mode demo --help
+python main.py --help
 ```
 
 ### Output artifacts
 
-For each video `<name>.mp4` the demo writes `<output-dir>/<name>/`:
+For each video `<name>.mp4` the local pipeline writes `<output-dir>/<name>/`:
 
 | File / Dir | Contents |
 |---|---|
@@ -403,9 +500,11 @@ For each video `<name>.mp4` the demo writes `<output-dir>/<name>/`:
 | `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step M, `--asr`) |
 | `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps N–Q) |
 | `detailed_captions.md` | Qwen VLM structured per-frame scene analysis with ASR context (step R, `--qwen`) |
+| `unidrive_analysis.md` | UniDriveVLA understanding, perception, planning, and Mixture-of-Experts consensus (step S, `--unidrive`) |
 | `finetune_stats.md` | SSL fine-tuning loss curve + config |
 | `finetuned_search.md` | Same queries re-run with the fine-tuned model |
 | `comparison.md` | Side-by-side comparison + video-to-text description |
+| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison with expert-agreement summary |
 | `edge_models/` | ONNX model + frame gallery for edge deployment |
 | `checkpoints/` | Fine-tuned `.pt` checkpoints |
 | `3d_map/sparse_map.ply` | Sparse point cloud (SfM camera centres or PCA fallback) |

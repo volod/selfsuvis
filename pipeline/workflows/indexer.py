@@ -1,5 +1,6 @@
 import dataclasses
 import itertools
+import json
 import os
 import shutil
 from dataclasses import dataclass
@@ -35,6 +36,7 @@ from pipeline.vision import (
     OCRModel,
     QwenModel,
     SAMPredictor,
+    UniDriveVLAModel,
     WorldModel,
     YOLODetector,
 )
@@ -66,6 +68,7 @@ class VideoIndexer:
         self._florence_model: Optional[FlorenceModel] = None
         self.store = QdrantStore(clip_dim=self.clip_model.image_dim(), dino_dim=self._dino_dim())
         self.qwen_model = QwenModel(clip_prescreen_fn=self._make_vehicle_prescreen()) if settings.QWEN_API_URL else None
+        self.unidrive_model = UniDriveVLAModel() if settings.UNIDRIVE_ENABLED and settings.UNIDRIVE_API_URL else None
         # Optional enrichment models — lazily loaded on first use (enabled via env vars).
         self.asr_model = ASRModel() if settings.ASR_ENABLED else None
         self.ocr_model = OCRModel() if settings.OCR_ENABLED else None
@@ -434,6 +437,10 @@ class VideoIndexer:
         if frame_records and self.world_model and self.world_model.is_enabled():
             self._run_world_model_pass(frame_records)
 
+        # ── UniDriveVLA expert pass (understanding/perception/planning) ──────
+        if frame_records and self.unidrive_model and self.unidrive_model.is_enabled():
+            self._run_unidrive_pass(frame_records)
+
         self.logger.info(
             "Indexing complete video_id=%s segments=%s frames=%s tiles=%s",
             video_id, len(segments), frames_indexed, tiles_indexed,
@@ -448,6 +455,7 @@ class VideoIndexer:
             "gps_origin": gps_origin,
             "frame_records": frame_records,
             "semantic_graph": semantic_graph_summary,
+            "unidrive_summary": self._summarize_unidrive_records(frame_records),
         }
 
     def _make_vehicle_prescreen(self):
@@ -542,6 +550,66 @@ class VideoIndexer:
             else:
                 rec["frame_facts_json"] = qwen_result
         self.logger.info("Qwen2.5-VL pass complete")
+
+    def _run_unidrive_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Run UniDriveVLA expert analysis on a sparse sample and store results."""
+        if not self.unidrive_model or not self.unidrive_model.is_enabled():
+            return
+        max_frames = max(1, int(getattr(settings, "UNIDRIVE_MAX_FRAMES", 24) or 24))
+        sample_step = max(1, len(frame_records) // max_frames)
+        sampled = frame_records[::sample_step][:max_frames]
+        self.logger.info("UniDriveVLA pass: %d sampled frames", len(sampled))
+        for rec in sampled:
+            try:
+                img = Image.open(rec["frame_path"]).convert("RGB")
+            except Exception:
+                fj = rec.get("frame_facts_json") or {}
+                if isinstance(fj, dict):
+                    fj["unidrive_vla"] = {"file_error": True}
+                    rec["frame_facts_json"] = fj
+                continue
+            existing = rec.get("frame_facts_json") or {}
+            extra_context = ""
+            if isinstance(existing, dict) and existing:
+                try:
+                    extra_context = json.dumps(existing, ensure_ascii=True, sort_keys=True)[:2000]
+                except Exception:
+                    extra_context = ""
+            result = self.unidrive_model.analyze_frame(
+                img,
+                subtitle_text=rec.get("subtitle_text"),
+                ocr_text=rec.get("ocr_text"),
+                extra_context=extra_context,
+            )
+            fj = rec.get("frame_facts_json") or {}
+            if isinstance(fj, dict):
+                fj["unidrive_vla"] = result
+                rec["frame_facts_json"] = fj
+        self.logger.info("UniDriveVLA pass complete")
+
+    def _summarize_unidrive_records(self, frame_records: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Summarise UniDriveVLA outputs for worker/job status reporting."""
+        analysed = 0
+        high_risk = 0
+        agreement_counts: Dict[str, int] = {}
+        for rec in frame_records:
+            facts = rec.get("frame_facts_json") or {}
+            if not isinstance(facts, dict):
+                continue
+            uv = facts.get("unidrive_vla")
+            if not isinstance(uv, dict) or uv.get("service_unavailable") or uv.get("parse_error"):
+                continue
+            analysed += 1
+            risk = ((uv.get("understanding") or {}).get("risk_level", "unknown"))
+            if risk == "high":
+                high_risk += 1
+            agreement = ((uv.get("mixture_of_experts") or {}).get("expert_agreement", "unknown"))
+            agreement_counts[agreement] = agreement_counts.get(agreement, 0) + 1
+        return {
+            "analysed_frames": analysed,
+            "high_risk_frames": high_risk,
+            "expert_agreement": agreement_counts,
+        }
 
     def _run_depth_pass(self, frame_records: List[Dict[str, Any]]) -> None:
         """Estimate monocular depth and store percentiles in frame_facts_json."""
@@ -644,7 +712,7 @@ class VideoIndexer:
                 "sam_masks":         [{"category": str, "area_norm": float, "source": str}],
             }
         """
-        from pipeline.workflows.demo.steps_gemma_tracking import (
+        from pipeline.workflows.local.steps_gemma_tracking import (
             _gemma_structured_scene_analysis,
             _sam_directed_by_gemma,
         )

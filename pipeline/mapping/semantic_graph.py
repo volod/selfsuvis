@@ -2,7 +2,7 @@
 
 The graph is intentionally observation-centric rather than metrically exact:
 every detection is anchored to the best available 3D frame position
-(ENU/GPS-derived pose in production, SfM/PCA frame point in demo, timeline
+(ENU/GPS-derived pose in production, SfM/PCA frame point in local mode, timeline
 fallback otherwise). Detections with the same label that recur near one
 another are merged into persistent object nodes; co-visible or spatially close
 nodes are connected with ``near`` edges.
@@ -138,9 +138,9 @@ def build_semantic_environment_graph(
         Per-frame dicts containing ``frame_path``, ``t_sec``, and a
         ``detections`` list (or ``frame_facts_json['yolo_detections']``).
     graph_id:
-        Stable graph identifier such as a mission ID or demo video ID.
+        Stable graph identifier such as a mission ID or local-run video ID.
     frame_positions:
-        Optional list of frame anchor positions from SfM/PCA/demo map output.
+        Optional list of frame anchor positions from SfM/PCA/local-map output.
     output_path:
         Optional JSON file destination.
     """
@@ -327,7 +327,7 @@ def write_semantic_graph_markdown(
     *,
     title: str,
 ) -> str:
-    """Write a short markdown summary for demo/report consumption."""
+    """Write a short markdown summary for local/report consumption."""
     output_path = Path(output_path)
     ensure_dir(str(output_path.parent))
     summary = graph.get("summary", {})

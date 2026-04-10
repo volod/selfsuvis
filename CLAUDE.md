@@ -107,7 +107,7 @@ The indexing pipeline is orchestrated by `VideoIndexer` in `pipeline/indexer.py`
 7. `models/openclip_model.py` + `models/dino_model.py` — CLIP + DINOv3 embeddings → Qdrant upsert
 8. Tile extraction + quality filters + dedup (unchanged from v0)
 9. `pipeline/vision/yolo.py` + `pipeline/vision/sam.py` — YOLO11 detection + SAM2/3 mask refinement per frame
-10. `pipeline/vision/rfdetr.py` + `pipeline/workflows/demo/steps_gemma_tracking.py` — Gemma 4 directed tracking: Gemma analyses sampled frames → structured JSON with object categories + rough bboxes → SAM segments those objects (box-prompt or CLIP-filtered auto-mask) → RF-DETR tracks Gemma-priority classes across the sequence. Stores results in `frame_facts_json["gemma_tracking"]`. Requires `RFDETR_ENABLED=true` and `GEMMA_API_URL`.
+10. `pipeline/vision/rfdetr.py` + `pipeline/workflows/local/steps_gemma_tracking.py` — Gemma 4 directed tracking: Gemma analyses sampled frames → structured JSON with object categories + rough bboxes → SAM segments those objects (box-prompt or CLIP-filtered auto-mask) → RF-DETR tracks Gemma-priority classes across the sequence. Stores results in `frame_facts_json["gemma_tracking"]`. Requires `RFDETR_ENABLED=true` and `GEMMA_API_URL`.
 11. `pipeline/active_learning.py` — compute `active_learning_score = 0.6×DINOv3_dist + 0.4×(1−caption_confidence)`; assign `al_tag` (`needs_annotation` | `novel` | `none`)
 12. `pipeline/report_generator.py` — HTML mission summary (`reports/{mission_id}/summary.html`)
 13. `pipeline/change_detection.py` — post-pipeline; GPS bbox Qdrant filter + embedding distance; writes `change_detections` table

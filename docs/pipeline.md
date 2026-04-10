@@ -1,6 +1,6 @@
 # Pipeline
 
-This page describes the current indexing and demo flows, not historical design stages.
+This page describes the current indexing flow and the local full-analysis flow.
 
 ## Production indexing flow
 
@@ -13,6 +13,9 @@ This page describes the current indexing and demo flows, not historical design s
    - embeds kept frames
    - optionally extracts and indexes tiles
    - captions frames with Florence and optional sidecar-backed enrichments
+   - optionally runs UniDriveVLA expert analysis when `UNIDRIVE_ENABLED=true` and
+     `UNIDRIVE_API_URL` is set; stores normalized understanding/perception/planning
+     output in `frame_facts_json["unidrive_vla"]`
    - runs YOLO/SAM when enabled and writes a mission-scoped semantic environment graph
    - runs Gemma directed tracking when `RFDETR_ENABLED=true` and `GEMMA_API_URL` is set:
      Gemma analyses sampled frames → SAM segments Gemma-identified objects → RF-DETR
@@ -84,28 +87,30 @@ result = indexer.index_video("/path/to/video.mp4", "dev_test")
 print(result)
 ```
 
-This path is useful for local debugging when PostgreSQL/Qdrant are already reachable. The returned dict includes a `semantic_graph` summary when YOLO SSG is enabled.
+This path is useful for local debugging when PostgreSQL/Qdrant are already reachable. The returned dict includes a `semantic_graph` summary when YOLO SSG is enabled and a `unidrive_summary` when UniDrive enrichment is enabled.
 
-## Demo mode
+## Local Full-Analysis Mode
 
-`main.py --mode demo` runs the standalone demo pipeline defined by the current CLI in [`pipeline/workflows/cli_parser.py`](/home/vola/src/selfsuvis/pipeline/workflows/cli_parser.py) and the demo runner modules under [`pipeline/workflows/demo`](/home/vola/src/selfsuvis/pipeline/workflows/demo).
+`main.py` now defaults to the local full-analysis and training pipeline (`--mode local`),
+implemented by the current CLI in [`pipeline/workflows/cli_parser.py`](/home/vola/src/selfsuvis/pipeline/workflows/cli_parser.py) and the runner modules under [`pipeline/workflows/local`](/home/vola/src/selfsuvis/pipeline/workflows/local).
 
 Common options:
 
 ```bash
-python main.py --mode demo
-python main.py --mode demo --no-qdrant --no-sfm --no-gsplat
-python main.py --mode demo --asr --ocr --depth --detection
-python main.py --mode demo --qwen --qwen-api-url http://localhost:8010/v1
-python main.py --mode demo --gemma-api-url http://localhost:11434/v1
-python main.py --mode demo --no-yolo --no-sam
-python main.py --mode demo --gemma-api-url http://localhost:11434/v1 --no-rfdetr
-python main.py --mode demo --gemma-api-url http://localhost:11434/v1 --rfdetr-model large
+python main.py
+python main.py --mode local --input /path/to/video.mp4
+python main.py --mode local --dir /path/to/video_dir --no-qdrant --no-sfm --no-gsplat
+python main.py --mode local --qwen-api-url http://localhost:8010/v1
+python main.py --mode local --gemma-api-url http://localhost:11434/v1
+python main.py --mode local --no-yolo --no-sam
+python main.py --mode local --gemma-api-url http://localhost:11434/v1 --no-rfdetr
+python main.py --mode local --gemma-api-url http://localhost:11434/v1 --rfdetr-model large
+python main.py --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-model xiaomi-research/UniDriveVLA-Base
 ```
 
-The demo combines local models and sidecar-backed models for Gemma, Qwen, Florence, and final reasoning.
+The local full-analysis flow combines local models and sidecar-backed models for Gemma, Qwen, Florence, and final reasoning.
 
-### Demo step order (21 steps)
+### Local Step Order (23 steps)
 
 | Step | ID | Description |
 |------|----|-------------|
@@ -121,15 +126,35 @@ The demo combines local models and sidecar-backed models for Gemma, Qwen, Floren
 | 10 | P3  | Gemma 4 directed tracking |
 | 11 | Q   | World model video embeddings |
 | 12 | R   | Qwen VLM detailed captioning |
-| 13 | C   | Base model transformation test |
-| 14 | I   | 3D map + Gaussian Splat |
-| 15 | D   | SSL DINOv3 fine-tuning |
-| 16 | E   | Knowledge distillation |
-| 17 | F   | ONNX export + gallery |
-| 18 | G   | Fine-tuned model search test |
-| 19 | H   | Model comparison |
-| 20 | Z   | Video synthesis |
-| 21 | AA  | Agentic flow audit |
+| 13 | S   | UniDriveVLA expert analysis |
+| 14 | C   | Base model transformation test |
+| 15 | I   | 3D map + Gaussian Splat |
+| 16 | D   | SSL DINOv3 fine-tuning |
+| 17 | E   | Knowledge distillation |
+| 18 | F   | ONNX export + gallery |
+| 19 | G   | Fine-tuned model search test |
+| 20 | H   | Model comparison |
+| 21 | T   | Multi-model comparison |
+| 22 | Z   | Video synthesis |
+| 23 | AA  | Agentic flow audit |
+
+### Step S — UniDriveVLA expert analysis
+
+Runs after Qwen in the local pipeline and as an optional sparse enrichment pass in
+production indexing. Requires `UNIDRIVE_API_URL` or `--unidrive-api-url`.
+
+Normalized output schema:
+
+- `understanding`: scene summary, traffic context, risk level, key agents
+- `perception`: object list, drivable-area estimate, lane structure
+- `planning`: recommended action, trajectory hint, hazards
+- `mixture_of_experts`: consensus summary, expert agreement, disagreement points
+
+Artifacts and outputs:
+
+- Local: `unidrive_analysis.md`
+- Local: `multi_model_comparison.md` when both Qwen and UniDrive are enabled
+- Production: `frame_facts_json["unidrive_vla"]` and `index_video(...).unidrive_summary`
 
 ### Step P3 — Gemma 4 directed tracking
 
@@ -193,10 +218,10 @@ Expect artifacts under `data/` such as:
 Relevant semantic-graph artifacts:
 
 - Production: `data/maps/<mission_id>/semantic_environment_graph.json`
-- Demo: `<output_dir>/<video>/3d_map/semantic_environment_graph.json`
-- Demo summary: `<output_dir>/<video>/3d_map/semantic_environment_graph.md`
+- Local run: `<output_dir>/<video>/3d_map/semantic_environment_graph.json`
+- Local summary: `<output_dir>/<video>/3d_map/semantic_environment_graph.md`
 
-Relevant Gemma directed tracking artifacts (demo):
+Relevant Gemma directed tracking artifacts (local runs):
 
 - `<output_dir>/<video>/gemma_tracking_results.json`
 - `<output_dir>/<video>/gemma_tracking/frame_*_tracked.jpg`
