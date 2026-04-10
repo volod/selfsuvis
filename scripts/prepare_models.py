@@ -32,7 +32,7 @@ Usage
     python scripts/prepare_models.py --depth     --depth-model     depth-anything/Depth-Anything-V2-Large-hf
     python scripts/prepare_models.py --detection --detection-model IDEA-Research/grounding-dino-base
     python scripts/prepare_models.py --world-model --world-model-id MCG-NJU/videomae-base
-    python scripts/prepare_models.py --unidrive --unidrive-model xiaomi-research/UniDriveVLA-Base
+    python scripts/prepare_models.py --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
     python scripts/prepare_models.py --yolo        --yolo-model yolo11x
     python scripts/prepare_models.py --sam         --sam-model facebook/sam2-hiera-large
 
@@ -67,7 +67,7 @@ Environment
     OPENCLIP_MODEL       OpenCLIP model name        (default from pipeline.core.config)
     OPENCLIP_PRETRAINED  OpenCLIP pretrained tag     (default from pipeline.core.config)
     GEMMA_MODEL_ID       Gemma model repo ID (default: google/gemma-3-4b-it)
-    UNIDRIVE_MODEL       UniDriveVLA model repo ID (default: xiaomi-research/UniDriveVLA-Base)
+    UNIDRIVE_MODEL       UniDriveVLA model repo ID (default: owl10/UniDriveVLA_Nusc_Base_Stage3)
     DEVICE               torch device for loading    (default: cpu)
     HF_TOKEN             HuggingFace token for gated / private model access (required for Gemma)
 """
@@ -110,12 +110,16 @@ logging.basicConfig(
 log = logging.getLogger("prepare_models")
 
 
+_UNIDRIVE_DEFAULT_MODEL = "owl10/UniDriveVLA_Nusc_Base_Stage3"
+_UNIDRIVE_COLLECTION_URL = "https://huggingface.co/collections/owl10/unidrivevla"
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 # ── Auth error detection & interactive retry ──────────────────────────────────
 
 def _is_auth_error(exc: Exception):
-    """Return (is_auth_error: bool, kind: str) where kind is 'gated' or 'unauthorized'."""
+    """Return (is_auth_error: bool, kind: str) where kind includes repo-not-found."""
     # Try huggingface_hub typed exceptions first (most reliable).
     for module_path in ("huggingface_hub.errors", "huggingface_hub.utils"):
         try:
@@ -125,7 +129,7 @@ def _is_auth_error(exc: Exception):
                 return True, "gated"
             RepositoryNotFoundError = getattr(m, "RepositoryNotFoundError", None)
             if RepositoryNotFoundError and isinstance(exc, RepositoryNotFoundError):
-                return True, "unauthorized"
+                return False, "repo_not_found"
         except (ImportError, AttributeError):
             continue
 
@@ -133,6 +137,8 @@ def _is_auth_error(exc: Exception):
     msg = str(exc).lower()
     if "gated" in msg or ("access" in msg and "repo" in msg):
         return True, "gated"
+    if "repository not found" in msg or "404" in msg:
+        return False, "repo_not_found"
     if "401" in msg or "403" in msg or "unauthorized" in msg or "authentication" in msg:
         return True, "unauthorized"
     return False, ""
@@ -155,6 +161,12 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
             return
         except Exception as exc:
             is_auth, kind = _is_auth_error(exc)
+            if kind == "repo_not_found":
+                raise RuntimeError(
+                    f"Hugging Face repo '{model_id}' was not found. "
+                    f"UniDriveVLA weights are currently published under the owl10 collection: "
+                    f"{_UNIDRIVE_COLLECTION_URL}"
+                ) from exc
             if not is_auth or attempts >= max_retries:
                 raise
 
@@ -459,11 +471,7 @@ def _is_yolo_cached(model_id: str) -> bool:
 
 
 def _download_sam(model_id: str) -> None:
-    """Download SAM3 (or SAM2 fallback) weights from HuggingFace Hub.
-
-    Tries the requested model_id; if that fails due to SAM3 not being
-    available yet, falls back to SAM2.
-    """
+    """Download SAM3 (or SAM2 fallback) weights from HuggingFace Hub."""
     log.info("SAM — model=%s", model_id)
     if _is_hf_cached(model_id):
         log.info("  ✓ SAM already cached — skipping load")
@@ -477,7 +485,6 @@ def _download_sam(model_id: str) -> None:
         )
         log.info("  ✓ SAM ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
     except Exception as exc:
-        # SAM3 may not be publicly available yet; fall back to SAM2.
         if "sam3" in model_id.lower():
             fallback = "facebook/sam2-hiera-large"
             log.warning(
@@ -881,11 +888,14 @@ def _build_parser() -> argparse.ArgumentParser:
                        "World model ID to cache. Empty = auto-select by VRAM. "
                        "Examples: MCG-NJU/videomae-base, facebook/vjepa2-vitl-fpc64-256"
                    ))
-    _default_unidrive = os.getenv("UNIDRIVE_MODEL", "xiaomi-research/UniDriveVLA-Base")
+    _default_unidrive = os.getenv("UNIDRIVE_MODEL", _UNIDRIVE_DEFAULT_MODEL)
     p.add_argument("--unidrive", action="store_true",
                    help="Download UniDriveVLA expert model assets (step S)")
     p.add_argument("--unidrive-model", default=_default_unidrive, metavar="MODEL_ID",
-                   help="UniDriveVLA model repo ID to cache for external bridge / sidecar use")
+                   help=(
+                       "UniDriveVLA model repo ID to cache for external bridge / sidecar use. "
+                       f"Default: {_UNIDRIVE_DEFAULT_MODEL}"
+                   ))
 
     p.add_argument("--yolo", action="store_true",
                    help="Download YOLO11 detection model (step P2; default model: yolo11l.pt ~48 MB)")
@@ -899,11 +909,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p.add_argument("--sam", action="store_true",
                    help="Download SAM3/SAM2 segmentation model (step P2; tries sam3 then sam2 fallback)")
-    p.add_argument("--sam-model", default="facebook/sam3-hiera-large", metavar="MODEL_ID",
+    p.add_argument("--sam-model", default="facebook/sam3", metavar="MODEL_ID",
                    help=(
                        "SAM model repo ID to cache. "
-                       "Default: facebook/sam3-hiera-large (falls back to facebook/sam2-hiera-large). "
-                       "Options: facebook/sam3-hiera-large | facebook/sam2-hiera-large | "
+                       "Default: facebook/sam3 (falls back to facebook/sam2-hiera-large). "
+                       "Options: facebook/sam3 | facebook/sam2-hiera-large | "
                        "facebook/sam2-hiera-base-plus"
                    ))
 

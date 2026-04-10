@@ -75,7 +75,7 @@ python scripts/prepare_models.py --gemma --gemma-model google/gemma-4-31b-it   #
 
 # Pre-cache Whisper ASR + Florence-2 + UniDriveVLA assets
 python scripts/prepare_models.py --whisper --florence --unidrive
-python scripts/prepare_models.py --unidrive --unidrive-model xiaomi-research/UniDriveVLA-Base
+python scripts/prepare_models.py --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
 
 # Everything at once
 python scripts/prepare_models.py --all
@@ -182,7 +182,7 @@ python scripts/prepare_models.py --unidrive
 
 # Point selfsuvis at your UniDrive bridge
 export UNIDRIVE_API_URL=http://localhost:8030/v1
-export UNIDRIVE_MODEL=xiaomi-research/UniDriveVLA-Base
+export UNIDRIVE_MODEL=owl10/UniDriveVLA_Nusc_Base_Stage3
 
 python main.py --mode local
 ```
@@ -192,7 +192,7 @@ Or explicitly from the CLI:
 ```bash
 python main.py --mode local \
   --unidrive-api-url http://localhost:8030/v1 \
-  --unidrive-model xiaomi-research/UniDriveVLA-Base
+  --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
 ```
 
 When enabled, local runs write:
@@ -278,7 +278,7 @@ python main.py --mode local \
   --dir data_test/videos \
   --gemma-api-url http://localhost:11434/v1 --gemma-api-model gemma4:e4b \
   --qwen-api-url http://localhost:8010/v1 --qwen-model Qwen/Qwen2.5-VL-7B-Instruct \
-  --unidrive-api-url http://localhost:8030/v1 --unidrive-model xiaomi-research/UniDriveVLA-Base \
+  --unidrive-api-url http://localhost:8030/v1 --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3 \
   --reasoning-api-url http://localhost:11434/v1 --reasoning-model deepseek-r1:14b
 ```
 

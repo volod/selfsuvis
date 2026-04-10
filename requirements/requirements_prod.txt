@@ -8,6 +8,8 @@ torchvision==0.25.0
 xformers==0.0.35
 open-clip-torch==2.24.0
 ultralytics>=8.3.0
+sam3
+sam2
 segment-anything==1.0
 rfdetr>=1.1.0
 pillow>=10.2.0

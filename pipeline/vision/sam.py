@@ -2,8 +2,8 @@
 
 Supports Meta's Segment Anything Model family:
 
-  - SAM3 (https://github.com/facebookresearch/sam3) — latest, preferred
-  - SAM2 (pip: sam-2) — fallback
+  - SAM3 (pip: sam3) — latest, preferred
+  - SAM2 (pip: sam2) — fallback
   - Original SAM (pip: segment-anything) — last resort
 
 Usage in the local full-analysis pipeline:
@@ -53,8 +53,7 @@ _SAM2_HF_MODELS = [
     "facebook/sam2-hiera-tiny",
 ]
 _SAM3_HF_MODELS = [
-    "facebook/sam3-hiera-large",
-    "facebook/sam3-hiera-base-plus",
+    "facebook/sam3",
 ]
 
 
@@ -167,8 +166,8 @@ class SAMPredictor:
         if backend == _BACKEND_NONE:
             logger.info(
                 "No SAM backend found. Install one with:\n"
-                "  pip install sam-2          # SAM2 (recommended)\n"
-                "  pip install sam3           # SAM3 when available"
+                "  pip install sam3           # SAM3 (preferred)\n"
+                "  pip install sam2           # SAM2 fallback"
             )
             self._load_failed = True
             return None
@@ -192,7 +191,6 @@ class SAMPredictor:
     def _load_sam3(self, device: str):
         """Load SAM3 predictor (https://github.com/facebookresearch/sam3)."""
         try:
-            from sam3.build_sam import build_sam3  # type: ignore[import]
             from sam3.sam3_image_predictor import SAM3ImagePredictor  # type: ignore[import]
             model_id = _SAM3_HF_MODELS[0]
             predictor = SAM3ImagePredictor.from_pretrained(model_id)
@@ -206,7 +204,7 @@ class SAMPredictor:
             return self._load_sam2(device)
 
     def _load_sam2(self, device: str):
-        """Load SAM2 predictor (pip: sam-2)."""
+        """Load SAM2 predictor (pip: sam2)."""
         try:
             from sam2.sam2_image_predictor import SAM2ImagePredictor  # type: ignore[import]
             model_id = _SAM2_HF_MODELS[0]

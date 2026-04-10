@@ -319,7 +319,7 @@ class Settings:
         "unidrivevla:base"
         if _env("UNIDRIVE_BACKEND", "vllm").lower() == "ollama"
         or "11434" in _env("UNIDRIVE_API_URL", "")
-        else "xiaomi-research/UniDriveVLA-Base"
+        else "owl10/UniDriveVLA_Nusc_Base_Stage3"
     )
     UNIDRIVE_MODEL = _env("UNIDRIVE_MODEL", _unidrive_model_default)
     UNIDRIVE_TIMEOUT_SEC = _env_int("UNIDRIVE_TIMEOUT_SEC", 60)

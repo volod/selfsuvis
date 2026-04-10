@@ -55,7 +55,7 @@ python scripts/migrate_postgres.py
 | `GEMMA_API_MODEL` | backend-dependent | Gemma sidecar model |
 | `UNIDRIVE_ENABLED` | `false` | Enables UniDriveVLA expert analysis |
 | `UNIDRIVE_API_URL` | empty | UniDriveVLA OpenAI-compatible bridge endpoint |
-| `UNIDRIVE_MODEL` | `xiaomi-research/UniDriveVLA-Base` | UniDriveVLA model ID for bridge / sidecar |
+| `UNIDRIVE_MODEL` | `owl10/UniDriveVLA_Nusc_Base_Stage3` | UniDriveVLA model ID for bridge / sidecar |
 | `UNIDRIVE_TIMEOUT_SEC` | `60` | UniDrive request timeout |
 | `UNIDRIVE_MAX_FRAMES` | `24` | Max sampled frames analysed per video/job |
 | `REASONING_API_URL` | Gemma default | Final local-run reasoning endpoint |

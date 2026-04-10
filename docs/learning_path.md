@@ -50,7 +50,6 @@ Minimum practical setup:
 3. Put `.mp4` or `.mov` files in `data_test/videos/`
 4. Optionally run Qdrant on `localhost:6333`
 5. Optionally prefetch local-model assets with `python scripts/prepare_models.py --all`
-6. For YOLO+SAM: `pip install ultralytics sam-2`
 
 Useful mental model:
 
@@ -388,7 +387,7 @@ python main.py --mode local --no-yolo                     # disable YOLO + SSG e
 | Component | Default (`auto`) | Notes |
 |-----------|-----------------|-------|
 | YOLO11 detector | `yolo11n.pt` (~6 MB) | Downloaded automatically by ultralytics on first run |
-| Segmentation | SAM3 → SAM2 → SAM1 fallback | Requires `pip install sam-2` or `pip install sam3` |
+| Segmentation | SAM3 → SAM2 → SAM1 fallback | `sam3` and `sam2` are included in the default requirements; SAM3 is preferred automatically |
 
 YOLO tiers (set with `--yolo-model` or `YOLO_MODEL=`):
 
@@ -597,7 +596,7 @@ selfsuvis integrates it through an OpenAI-compatible sidecar contract.
 
 **Models used**
 
-- External bridge target: `xiaomi-research/UniDriveVLA-Base` by default
+- External bridge target: `owl10/UniDriveVLA_Nusc_Base_Stage3` by default
 - Runtime wrapper: [pipeline/vision/unidrive.py](../pipeline/vision/unidrive.py)
 - Local artifact: `unidrive_analysis.md`
 

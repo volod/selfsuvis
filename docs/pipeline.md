@@ -105,7 +105,7 @@ python main.py --mode local --gemma-api-url http://localhost:11434/v1
 python main.py --mode local --no-yolo --no-sam
 python main.py --mode local --gemma-api-url http://localhost:11434/v1 --no-rfdetr
 python main.py --mode local --gemma-api-url http://localhost:11434/v1 --rfdetr-model large
-python main.py --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-model xiaomi-research/UniDriveVLA-Base
+python main.py --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
 ```
 
 The local full-analysis flow combines local models and sidecar-backed models for Gemma, Qwen, Florence, and final reasoning.

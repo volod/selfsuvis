@@ -384,9 +384,10 @@ def _write_detection_comparison_md(
         ]
     else:
         lines += [
-            "SAM segmentation **not enabled**. Install with:",
+            "SAM segmentation **not enabled**. Install the default requirements or add a SAM backend manually:",
             "```",
-            "pip install sam-2   # SAM2",
+            "pip install sam3    # preferred",
+            "pip install sam2    # fallback",
             "```",
             "Then re-run with `--yolo` flag (SAM is auto-enabled when `SAM_ENABLED=true`).",
         ]

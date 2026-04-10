@@ -262,8 +262,8 @@ def _get_sam_auto_masks(
 ) -> List[Dict[str, Any]]:
     """Generate candidate masks from SAM in automatic mode.
 
-    Tries SAM2/3 SAM2AutomaticMaskGenerator first; falls back to a 4×4 grid
-    of box prompts via ``SAMPredictor.predict_boxes``.
+    Tries the backend-native automatic mask generator first; falls back to a
+    4×4 grid of box prompts via ``SAMPredictor.predict_boxes``.
 
     Returns list of dicts with keys: ``mask`` (bool ndarray), ``bbox``
     ([x, y, w, h] pixel coords), ``area`` (int), ``score`` (float).
@@ -271,12 +271,32 @@ def _get_sam_auto_masks(
     img_np = np.array(image.convert("RGB"))
     h_img, w_img = img_np.shape[:2]
 
-    # Try SAM2/3 automatic mask generator
+    # Try backend-native automatic mask generation first.
     try:
         import torch
-        from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator  # type: ignore
         backend_tag, predictor_obj = sam_predictor._predictor
-        if backend_tag in ("sam2", "sam3"):
+
+        amg = None
+        if backend_tag == "sam3":
+            try:
+                import sam3.automatic_mask_generator as sam3_amg  # type: ignore
+
+                amg_cls = getattr(sam3_amg, "SAM3AutomaticMaskGenerator", None)
+                if amg_cls is None:
+                    amg_cls = getattr(sam3_amg, "SAMAutomaticMaskGenerator", None)
+                if amg_cls is not None:
+                    amg = amg_cls(
+                        predictor_obj.model,
+                        points_per_side=16,
+                        pred_iou_thresh=0.7,
+                        stability_score_thresh=0.85,
+                        min_mask_region_area=100,
+                    )
+            except Exception:
+                amg = None
+        elif backend_tag == "sam2":
+            from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator  # type: ignore
+
             amg = SAM2AutomaticMaskGenerator(
                 predictor_obj.model,
                 points_per_side=16,
@@ -284,6 +304,8 @@ def _get_sam_auto_masks(
                 stability_score_thresh=0.85,
                 min_mask_region_area=100,
             )
+
+        if amg is not None:
             with torch.inference_mode():
                 masks = amg.generate(img_np)
             return [
@@ -926,7 +948,7 @@ def _write_gemma_tracking_summary_md(
         lines += [
             "SAM segmentation was **not available** (SAM_ENABLED=false or no backend installed).",
             "",
-            "To enable: set `SAM_ENABLED=true` and install `pip install sam-2`.",
+            "To enable: set `SAM_ENABLED=true` and install the default requirements (`make venv`) or add `sam3` manually.",
         ]
     lines.append("")
 
