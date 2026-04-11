@@ -4,12 +4,8 @@ from __future__ import annotations
 
 from typing import Dict, Iterable
 
+from .sensors import packet_sensor_summary as _packet_sensor_summary
+
 
 def packet_sensor_summary(sensor_types: Iterable[str]) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
-    for sensor_type in sensor_types:
-        key = str(sensor_type).strip().lower()
-        if not key:
-            continue
-        counts[key] = counts.get(key, 0) + 1
-    return counts
+    return _packet_sensor_summary(sensor_types)

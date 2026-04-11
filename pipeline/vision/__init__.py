@@ -11,6 +11,7 @@ _EXPORTS = {
     "OCRModel": (".ocr", "OCRModel"),
     "QwenModel": (".qwen", "QwenModel"),
     "RFDETRTracker": (".rfdetr", "RFDETRTracker"),
+    "RFSignalAnalyzer": (".rf_analyzer", "RFSignalAnalyzer"),
     "SAMPredictor": (".sam", "SAMPredictor"),
     "UniDriveVLAModel": (".unidrive", "UniDriveVLAModel"),
     "WorldModel": (".world", "WorldModel"),

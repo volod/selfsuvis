@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List
 
-_VALID_SENSOR_TYPES = {"camera", "imu", "gps", "lidar", "barometer"}
+from .sensors import require_supported_sensor_type
 
 
 def normalize_packets(packets: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     normalized: List[Dict[str, Any]] = []
     for packet in packets:
-        sensor_type = str(packet.get("sensor_type", "")).strip().lower()
-        if sensor_type not in _VALID_SENSOR_TYPES:
-            raise ValueError(f"unsupported sensor_type: {sensor_type or '<empty>'}")
+        sensor_type = require_supported_sensor_type(packet.get("sensor_type", ""))
         if "t_device" not in packet:
             raise ValueError("packet missing t_device")
         normalized.append(

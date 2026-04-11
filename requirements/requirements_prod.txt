@@ -12,6 +12,7 @@ sam3
 sam2
 segment-anything==1.0
 rfdetr>=1.1.0
+torchsig>=0.6.0
 pillow>=10.2.0
 opencv-python==4.10.0.84
 numpy>=1.26.4

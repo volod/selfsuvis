@@ -260,7 +260,7 @@ async def test_packet_ingest_creates_stub_pose_from_gps():
                             "sensor_type": "imu",
                             "t_device": 12.52,
                             "seq": 8,
-                            "payload": {"ax": 0.1, "ay": 0.0, "az": 9.8},
+                            "payload": {"yaw": 0.1, "vx": 0.2, "vy": 0.0, "vz": 0.0},
                         },
                     ]
                 },
@@ -273,9 +273,9 @@ async def test_packet_ingest_creates_stub_pose_from_gps():
             pose = await client.get(f"/realtime/session/{session_id}/pose/latest")
             assert pose.status_code == 200
             data = pose.json()
-            assert data["source"] == "gps_fallback"
+            assert data["source"] == "fused_gps_imu"
             assert data["position_enu"] == {"x": 1.25, "y": -0.5, "z": 10.0}
-            assert data["tracking_status"] == "degraded"
+            assert data["tracking_status"] == "ok"
             assert data["global_map_id"] == 3
 
             state = await client.get(f"/realtime/session/{session_id}/state")

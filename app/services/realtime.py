@@ -8,11 +8,12 @@ from typing import Any, Dict, List, Optional
 from pipeline.core import settings
 from pipeline.realtime import (
     build_sensor_profile,
-    build_stub_pose_from_packet,
+    build_fused_pose_from_packets,
     new_session_id,
     normalize_map_tile,
     normalize_packets,
     normalize_semantic_observation,
+    packet_sensor_summary,
 )
 from pipeline.storage.jobs import create_job
 from pipeline.storage.missions import upsert_mission
@@ -63,13 +64,13 @@ async def ingest_realtime_packets(conn, *, session_id: str, packets: List[Dict[s
         raise LookupError("session not found")
     await insert_sensor_packets(conn, session_id, normalized)
 
+    packet_summary = packet_sensor_summary(packet["sensor_type"] for packet in normalized)
     pose_updated = False
-    packet_summary: Dict[str, int] = {}
-    for packet in normalized:
-        packet_summary[packet["sensor_type"]] = packet_summary.get(packet["sensor_type"], 0) + 1
-        pose = build_stub_pose_from_packet(packet)
-        if pose is None:
-            continue
+    pose = build_fused_pose_from_packets(
+        normalized,
+        max_lag_ms=settings.REALTIME_MAX_SENSOR_LAG_MS,
+    )
+    if pose is not None:
         await insert_realtime_pose(
             conn,
             session_id=session_id,

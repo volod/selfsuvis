@@ -28,7 +28,14 @@ async def test_start_realtime_session_creates_profile_and_session():
         "session_id": "session-123",
         "robot_id": "drone_a",
         "mission_id": "mission_a",
-        "sensor_profile": {"sensors": ["gps", "imu"], "sensor_count": 2},
+        "sensor_profile": {
+            "sensors": ["gps", "imu"],
+            "sensor_count": 2,
+            "capabilities": {
+                "gps": ["position", "velocity", "global_reference"],
+                "imu": ["orientation", "acceleration", "angular_velocity", "velocity"],
+            },
+        },
         "status": "active",
     }
 
@@ -46,18 +53,43 @@ async def test_ingest_realtime_packets_persists_packets_and_stub_pose():
             session_id="s1",
             packets=[
                 {"sensor_type": "gps", "t_device": 10.0, "payload": {"east": 1.0, "north": 2.0}},
-                {"sensor_type": "imu", "t_device": 10.1, "payload": {"ax": 0.1}},
+                {"sensor_type": "imu", "t_device": 10.1, "payload": {"yaw": 0.1, "vx": 0.4, "vy": 0.0}},
             ],
         )
 
     insert_packets.assert_awaited_once()
     insert_pose.assert_awaited_once()
+    kwargs = insert_pose.await_args.kwargs
+    assert kwargs["source"] == "fused_gps_imu"
+    assert kwargs["position_enu"] == {"x": 1.0, "y": 2.0, "z": 0.0}
     assert result == {
         "session_id": "s1",
         "accepted_packets": 2,
         "packet_summary": {"gps": 1, "imu": 1},
         "pose_updated": True,
     }
+
+
+@pytest.mark.anyio
+async def test_ingest_realtime_packets_skips_pose_when_gps_and_imu_are_stale():
+    conn = object()
+    with (
+        patch.object(realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value={"session": {"id": "s1"}}),
+        patch.object(realtime_service, "insert_sensor_packets", new_callable=AsyncMock),
+        patch.object(realtime_service, "insert_realtime_pose", new_callable=AsyncMock) as insert_pose,
+        patch.object(realtime_service.settings, "REALTIME_MAX_SENSOR_LAG_MS", 100),
+    ):
+        result = await realtime_service.ingest_realtime_packets(
+            conn,
+            session_id="s1",
+            packets=[
+                {"sensor_type": "gps", "t_device": 10.0, "payload": {"east": 1.0, "north": 2.0}},
+                {"sensor_type": "imu", "t_device": 10.5, "payload": {"yaw": 0.1}},
+            ],
+        )
+
+    insert_pose.assert_not_awaited()
+    assert result["pose_updated"] is False
 
 
 @pytest.mark.anyio

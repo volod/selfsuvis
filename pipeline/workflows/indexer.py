@@ -35,6 +35,7 @@ from pipeline.vision import (
     FlorenceModel,
     OCRModel,
     QwenModel,
+    RFSignalAnalyzer,
     SAMPredictor,
     UniDriveVLAModel,
     WorldModel,
@@ -77,6 +78,7 @@ class VideoIndexer:
         self.world_model = WorldModel() if settings.WORLD_MODEL_ENABLED else None
         self.yolo_detector = YOLODetector() if settings.YOLO_ENABLED else None
         self.sam_predictor = SAMPredictor() if settings.SAM_ENABLED else None
+        self.rf_analyzer = RFSignalAnalyzer() if settings.RF_ENABLED else None
         # RF-DETR tracker is initialised lazily inside _run_gemma_directed_tracking_pass
         self.rfdetr_tracker = None
         self.phash_lru = PhashLRU(settings.PHASH_LRU_SIZE, settings.PHASH_HAMMING_MAX)
@@ -417,6 +419,10 @@ class VideoIndexer:
         if frame_records and self.detection_model and self.detection_model.is_enabled():
             self._run_detection_pass(frame_records)
 
+        # ── RF signal analysis pass (TorchSig) ───────────────────────────────
+        if frame_records and self.rf_analyzer and self.rf_analyzer.is_enabled():
+            self._run_rf_analysis_pass(dst_path, frame_records)
+
         # ── YOLO11 + SAM3/SAM2 pass (priority-ranked detections + masks) ─────
         if frame_records and self.yolo_detector and self.yolo_detector.is_enabled():
             self._run_yolo_sam_pass(frame_records)
@@ -644,6 +650,33 @@ class VideoIndexer:
                     fj.update(res)
                     rec["frame_facts_json"] = fj
         self.logger.info("Detection pass complete")
+
+    def _run_rf_analysis_pass(
+        self, video_path: str, frame_records: List[Dict[str, Any]]
+    ) -> None:
+        """Analyze IQ sidecar (or audio proxy) and write RF metrics to frame_facts_json.
+
+        Stores ``frame_facts_json["rf_signal"]`` with SNR, spectral flatness,
+        occupied bandwidth, peak frequency ratio, and optionally modulation class.
+        If no IQ sidecar is present the analyzer falls back to the audio track
+        extracted by the ASR pass (reuses the WAV in ASR_AUDIO_DIR if present).
+        """
+        import os
+        base = os.path.splitext(os.path.basename(video_path))[0]
+        audio_dir = settings.ASR_AUDIO_DIR
+        audio_wav = os.path.join(audio_dir, f"{base}.wav")
+        audio_wav = audio_wav if os.path.isfile(audio_wav) else None
+
+        timestamps = [rec["t_sec"] for rec in frame_records]
+        results = self.rf_analyzer.analyze_video(video_path, timestamps, audio_wav_path=audio_wav)
+
+        for rec, res in zip(frame_records, results):
+            if not res:
+                continue
+            fj = rec.get("frame_facts_json") or {}
+            if isinstance(fj, dict):
+                fj.update(res)
+                rec["frame_facts_json"] = fj
 
     def _run_yolo_sam_pass(self, frame_records: List[Dict[str, Any]]) -> None:
         """Run YOLO11 detection (+ optional SAM3/SAM2 masks) and store results in frame_facts_json.

@@ -9,6 +9,7 @@
 - OpenCLIP retrieval with optional DINO vectors
 - Florence captioning during indexing
 - Optional multimodal enrichments: Gemma, Qwen, ASR, OCR, depth, detection, YOLO, SAM, world-model steps
+- Multi-modal sensor fusion: thermal/IR, multispectral, LiDAR, radar, GNSS-R, atmospheric, gas, radiation, acoustic, and event-camera sidecars aligned to video frame timestamps and written to `frame_facts_json["sensor_fusion"]`
 - YOLO SSG semantic environment graphs built from detection output plus ENU/SfM/PCA frame anchors
 - pycolmap pose estimation and optional nerfstudio/mapper 3D outputs
 - Mission reports, change detection, robot pose queries, and scene queries

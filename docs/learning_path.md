@@ -15,31 +15,51 @@ Purpose note:
 - It is meant for a human who wants to deep dive into the underlying technology, not just for someone who wants to run the pipeline once.
 - Use it as a study guide for the representation-learning, multimodal reasoning, mapping, training, deployment, and audit choices made in this codebase.
 
-The current local full-analysis pipeline has 23 ordered steps per video:
+The current local full-analysis pipeline has 35 ordered steps per video:
+
+**Perception and analysis (Steps 1–20)**
 
 1. Frame extraction
-2. Vector store indexing
-3. Gemma open-weight analysis
+2. Vector store indexing (CLIP + DINOv3)
+3. Gemma open-weight multimodal analysis
 4. Florence scene captioning
 5. ASR transcription
 6. OCR text extraction
-7. Depth estimation
+7. Depth estimation (monocular)
 8. Object detection (HuggingFace RT-DETR / Grounding DINO)
-9. **YOLO11 + SAM2/3 detection and segmentation** *(new)*
-10. Gemma 4 directed tracking
-11. World model video embeddings
-12. Qwen detailed captioning
-13. UniDriveVLA expert analysis
-14. Base model search test
-15. 3D map + Gaussian Splat
-16. SSL DINO fine-tuning
-17. Knowledge distillation
-18. ONNX export + gallery build
-19. Fine-tuned search test
-20. Model comparison + video description
-21. Multi-model comparison
-22. Video synthesis
-23. Agentic flow audit
+9. RF / SDR electromagnetic passive sensing (TorchSig)
+10. Thermal / infrared imaging (LWIR)
+11. Multispectral / hyperspectral imaging
+12. Event camera (neuromorphic sensing)
+13. LiDAR / active ranging (ToF, FMCW)
+14. Radar (FMCW, Doppler, SAR)
+15. GNSS-R + satellite signal reception (ADS-B, AIS, NOAA APT, GOES)
+16. Inertial + barometric sensing (IMU, barometer, anemometer)
+17. Atmospheric / environmental sensing (temperature, humidity, wind)
+18. Chemical / gas / radiation sensing
+19. Acoustic sensing (mic arrays, ultrasonic, hydrophone, infrasound)
+20. Sensor fusion analysis
+
+**Detection, tracking, and 3D reconstruction (Steps 21–27)**
+
+21. YOLO11 + SAM2/3 detection and segmentation
+22. Gemma 4 directed tracking
+23. World model video embeddings
+24. Qwen detailed captioning
+25. UniDriveVLA expert analysis
+26. Base model search test
+27. 3D map + Gaussian Splat
+
+**Self-supervised learning and model adaptation (Steps 28–35)**
+
+28. SSL DINOv3 fine-tuning
+29. Knowledge distillation — maximum hydration chain
+30. ONNX export + gallery build
+31. Fine-tuned search test
+32. Model comparison + video description
+33. Multi-model comparison
+34. Video synthesis
+35. Agentic flow audit
 
 ## Before You Start
 
@@ -53,23 +73,233 @@ Minimum practical setup:
 
 Useful mental model:
 
-- Steps 1-2 build the raw visual memory.
-- Step 3 analyses that memory with Gemma open-weight across all multimodal use-cases.
-- Steps 4-13 attach language, text, geometry, temporal structure, and expert driving analysis — and feed results forward
-  into a shared `VideoKnowledge` accumulator so each step benefits from all earlier steps.
-- Steps 9-10 add priority-aware detection/segmentation and Gemma-directed tracking.
-- Steps 14-20 evaluate and adapt the representation.
-- Steps 21-23 build cross-model synthesis, a narrative summary, and a final reasoning audit.
-- The 3D map (step 15) runs concurrently with steps 5-13 in a background thread.
+- Steps 1–2 build the raw visual memory (frames + vectors).
+- Steps 3–8 attach language, text, geometry: captioning, ASR, OCR, depth, object detection.
+- Steps 9–19 extend perception into the physical world: each step covers one sensing modality grouped by its physical principle and SIGINT algorithm (RF/SDR, thermal, multispectral, event camera, LiDAR, radar, GNSS-R/satellite, IMU/inertial, atmospheric, gas/radiation, acoustic).
+- Step 20 fuses all modalities into `frame_facts_json["sensor_fusion"]` with temporal alignment, cross-modal detections, and active-learning escalation.
+- Steps 21–22 run YOLO11 + SAM and Gemma-directed tracking — consuming sensor-fusion context.
+- Steps 23–27 add world model embeddings, Qwen captioning, UniDriveVLA, search tests, and 3D Gaussian Splat.
+- Steps 28–35 adapt, compress, evaluate, and synthesise the full representation.
 
 Study note:
 
 - The numbered list above is the canonical runtime order.
 - Some deep-dive sections later in this document are grouped pedagogically rather than strictly in runtime order.
-- When in doubt, use the canonical 23-step list and [`pipeline/workflows/local/runner.py`](/home/vola/src/selfsuvis/pipeline/workflows/local/runner.py) as the execution source of truth.
+- When in doubt, use the canonical 35-step list and [`pipeline/workflows/local/runner.py`](/home/vola/src/selfsuvis/pipeline/workflows/local/runner.py) as the execution source of truth.
 
-The agentic flow (Steps 3 → 4 → 5–10 → 12 → 20 → 21): see the
+The agentic flow (Steps 3 → 4 → 5–9 → 20 → 21 → 22): see the
 **Agentic Knowledge Flow** section below for a full data-flow diagram.
+
+## Local Full Run Setup
+
+This section covers everything needed to run all 35 pipeline steps locally — including sidecar VLM/LLM servers, sensor sample data, and model weights. Run `scripts/setup_local_full.sh` for a one-shot bootstrap, or follow the steps below manually.
+
+---
+
+### 1. Base environment
+
+```bash
+# Python environment
+make venv                             # creates .venv with all pip deps
+
+# System dependencies (Ubuntu/Debian)
+sudo apt-get install -y ffmpeg curl wget git python3-dev
+
+# Optional: verify GPU
+nvidia-smi                            # must show your GPU for CUDA steps
+python3 -c "import torch; print(torch.cuda.is_available())"
+```
+
+---
+
+### 2. Core model weights
+
+```bash
+# OpenCLIP + DINOv3 (always required)
+.venv/bin/python scripts/prepare_models.py
+
+# Step 4 — Florence-2 captioning
+.venv/bin/python scripts/prepare_models.py --florence
+
+# Step 5 — Whisper ASR
+.venv/bin/python scripts/prepare_models.py --whisper
+
+# Step 6 — OCR (auto-selects by VRAM)
+.venv/bin/python scripts/prepare_models.py --ocr
+
+# Step 7 — Depth estimation (Apple DepthPro default)
+.venv/bin/python scripts/prepare_models.py --depth
+
+# Step 8 — HuggingFace RT-DETR / Grounding DINO
+.venv/bin/python scripts/prepare_models.py --detection
+
+# Step 21 — YOLO11l detection
+.venv/bin/python scripts/prepare_models.py --yolo
+
+# Step 21 — SAM3 / SAM2 segmentation
+.venv/bin/python scripts/prepare_models.py --sam
+
+# Step 23 — World model video embeddings
+.venv/bin/python scripts/prepare_models.py --world-model
+
+# Step 25 — UniDriveVLA expert analysis
+.venv/bin/python scripts/prepare_models.py --unidrive
+
+# Step 3/22 — Gemma 4 open-weight (requires HF_TOKEN; ~8 GiB)
+export HF_TOKEN=<your_huggingface_token>
+.venv/bin/python scripts/prepare_models.py --gemma
+
+# Download everything at once
+HF_TOKEN=<your_token> .venv/bin/python scripts/prepare_models.py --all
+```
+
+---
+
+### 3. Sidecar VLM / LLM servers (Ollama)
+
+Steps 3 and 22 (Gemma multimodal), Step 24 (Qwen2.5-VL), and Step 25 (UniDriveVLA) can run against local Ollama or vLLM endpoints instead of loading weights directly.
+
+```bash
+# Install Ollama (Linux)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull models for each step
+# Step 3 / Step 22 — Gemma 4 multimodal (vision-capable)
+ollama pull gemma4:e4b               # ~5 GiB, default
+ollama pull gemma4:12b               # ~13 GiB, higher quality
+
+# Step 24 — Qwen2.5-VL detailed captioning
+ollama pull qwen2.5vl:7b             # ~5 GiB
+ollama pull qwen2.5vl:72b            # ~45 GiB, research grade
+
+# Step 25 — UniDriveVLA (if available as Ollama model)
+# UniDriveVLA is typically served via vLLM; see vLLM section below
+
+# Verify Ollama is running
+ollama serve &                        # starts on http://localhost:11434
+curl http://localhost:11434/api/tags  # should list pulled models
+
+# Run the pipeline pointing at Ollama
+.venv/bin/python main.py --mode local   --gemma-api-url http://localhost:11434/v1   --qwen-api-url  http://localhost:11434/v1   --input data_test/videos/mission.mp4
+```
+
+---
+
+### 4. Sidecar VLM server (vLLM)
+
+vLLM is preferred for Qwen2.5-VL and UniDriveVLA when serving multiple workers or when Ollama does not support the model.
+
+```bash
+# Install vLLM (CUDA required)
+pip install vllm
+
+# Step 24 — Qwen2.5-VL via vLLM
+python -m vllm.entrypoints.openai.api_server   --model Qwen/Qwen2.5-VL-7B-Instruct   --port 8010   --max-model-len 8192 &
+
+# Step 25 — UniDriveVLA via vLLM
+python -m vllm.entrypoints.openai.api_server   --model owl10/UniDriveVLA_Nusc_Base_Stage3   --port 8030   --max-model-len 4096 &
+
+# Run the pipeline pointing at vLLM endpoints
+.venv/bin/python main.py --mode local   --gemma-api-url   http://localhost:11434/v1   --qwen-api-url    http://localhost:8010/v1   --unidrive-api-url http://localhost:8030/v1   --input data_test/videos/mission.mp4
+```
+
+---
+
+### 5. Sensor sample data
+
+Download public sample data for each physical sensor modality. Each sidecar file is placed beside its matching video in `data_test/videos/`. The `scripts/prepare_sensor_data.sh` script automates all downloads below.
+
+```bash
+# One-shot download of all sensor sample data
+bash scripts/prepare_sensor_data.sh data_test/videos/
+```
+
+**What the script downloads (per sensor step):**
+
+| Step | Modality | Sample | Source |
+|---|---|---|---|
+| 9 | RF / SDR | RadioML 2018.01a (1 shard, ~300 MB) | https://www.deepsig.ai/datasets |
+| 10 | Thermal | FLIR ADAS sample images (RGB+thermal pairs) | https://www.flir.com/oem/adas/adas-dataset-form/ |
+| 11 | Multispectral | Indian Pines hyperspectral (salinas_corrected.mat) | http://www.ehu.eus/ccwintco/index.php/Hyperspectral_Remote_Sensing_Scenes |
+| 12 | Event camera | N-Caltech101 sample (100 events files, ~50 MB) | https://www.garrickorchard.com/datasets/n-caltech101 |
+| 13 | LiDAR | KITTI odometry sequence 00 velodyne (2 scans, ~20 MB) | https://www.cvlibs.net/datasets/kitti/ |
+| 14 | Radar | RADIATE Oxford sequence sample (5 frames, ~30 MB) | https://pro.hw.ac.uk/radiate/ |
+| 15 | GNSS-R / ADS-B | CYGNSS DDM sample (1 orbit, ~50 MB) + OpenSky 1-hour ADS-B JSON | https://podaac.jpl.nasa.gov/dataset/CYGNSS_L1_V3.1 |
+| 16 | IMU | EuRoC MAV MH_01_easy (IMU + ground truth, ~20 MB) | https://rpg.ifi.uzh.ch/docs/IJRR17_Burri.pdf |
+| 17 | Atmospheric | ERA5 single-level sample (1 day, 0.25° grid, ~5 MB) | https://cds.climate.copernicus.eu/ |
+| 18 | Gas / radiation | OpenAQ CSV (24 h, one station) + Safecast GeoJSON sample | https://openaq.org/ |
+| 19 | Acoustic | ESC-50 sample (10 clips, ~5 MB) + xeno-canto 5 bird recordings | https://github.com/karolpiczak/ESC-50 |
+
+---
+
+### 6. End-to-end local run command
+
+After setup, run all 35 steps on a test video with all sidecars present:
+
+```bash
+# Minimal run (Steps 1–9, no sidecar servers needed)
+.venv/bin/python main.py --mode local   --input data_test/videos/mission.mp4   --no-qdrant
+
+# Full run with Ollama sidecars + all sensors enabled
+.venv/bin/python main.py --mode local   --input data_test/videos/mission.mp4   --gemma-api-url    http://localhost:11434/v1   --qwen-api-url     http://localhost:11434/v1   --unidrive-api-url http://localhost:8030/v1   --rfdetr-model     base   SENSOR_FUSION_ENABLED=true
+
+# Full run with Docker stack (PostgreSQL + Qdrant + worker)
+make up
+python scripts/migrate_postgres.py
+curl -s -H "X-API-Key: $API_KEY"   -F "file=@data_test/videos/mission.mp4"   http://localhost:8000/index/video | python -m json.tool
+```
+
+---
+
+### 7. Environment variable reference for sensor steps
+
+```bash
+# Step 9 — RF/SDR
+RF_ENABLED=true
+RF_SAMPLE_RATE=1000000
+RF_WINDOW_SEC=0.5
+RF_CLASSIFIER_CHECKPOINT=data/models/rf_classifier.pt
+
+# Steps 10–19 — Physical sensors (all default false; enable per mission)
+THERMAL_ENABLED=true
+THERMAL_MODEL=auto                     # auto-resolves to YOLO-nano (FLIR ADAS fine-tune)
+
+MULTISPECTRAL_ENABLED=true
+MULTISPECTRAL_BANDS=R,G,RE,NIR         # band names in the sidecar GeoTIFF directory
+
+EVENT_CAMERA_ENABLED=true
+EVENT_WINDOW_MS=10                     # accumulation window for event-to-frame conversion
+
+LIDAR_ENABLED=true
+LIDAR_VOXEL_SIZE=0.1                   # voxel grid leaf size (metres)
+
+RADAR_ENABLED=true
+RADAR_CFAR_THRESHOLD=15                # CFAR threshold in dB above noise floor
+
+GNSS_R_ENABLED=true
+ADSB_ENABLED=true
+ADSB_CONFLICT_RADIUS_M=3000
+ADSB_CONFLICT_ALT_M=300
+
+IMU_ENABLED=true
+IMU_FREQ_HZ=200
+
+WEATHER_ENABLED=true
+
+GAS_ENABLED=true
+GAS_VOC_ALARM_PPB=1000
+GAS_DOSE_ALARM_USV_H=1.0              # hard-flags al_tag="needs_annotation"
+
+ACOUSTIC_ENABLED=true
+ACOUSTIC_SAMPLE_RATE=48000
+
+# Step 20 — Sensor fusion
+SENSOR_FUSION_ENABLED=true
+SENSOR_FUSION_MAX_LAG_MS=100           # max timestamp offset to align a sensor reading to a frame
+```
+
+---
+
 
 ## Step-By-Step Learning Path
 
@@ -360,7 +590,853 @@ Learn the difference between classification, detection, and segmentation. Then s
 
 ---
 
-### Step 9. YOLO11 + SAM2/3 detection and segmentation *(new)*
+### Step 9. RF signal analysis (TorchSig) *(new)*
+
+**What the local pipeline does**
+
+When an IQ capture file is present alongside the mission video (or when the audio track is used as
+a proxy), `RFSignalAnalyzer` slices a 0.5-second IQ window around each kept frame and computes
+four spectral metrics stored in `frame_facts_json["rf_signal"]`:
+
+| Field | What it measures |
+|---|---|
+| `snr_db` | Estimated signal-to-noise ratio: top-10 % vs bottom-10 % bin energy (dB) |
+| `spectral_flatness` | Wiener entropy — 0 = pure tone (narrow carrier), 1 = flat noise (wideband / jamming) |
+| `peak_freq_ratio` | Normalised position of the dominant frequency bin (0–1 of bandwidth) |
+| `occupied_bw_ratio` | Fraction of spectrum above noise floor + 3 dB (occupied channel estimate) |
+| `modulation_class` | Optional — only present when `RF_CLASSIFIER_CHECKPOINT` is set |
+| `source` | `iq_file` \| `sigmf` \| `audio_proxy` |
+
+The pass runs after the HuggingFace detection step and before YOLO. It is CPU-only — no GPU
+required. Implementation: [`pipeline/vision/rf_analyzer.py`](../pipeline/vision/rf_analyzer.py).
+
+**Enable the pass:**
+
+```bash
+# With a raw IQ sidecar (interleaved float32 I/Q at 1 MHz):
+RF_ENABLED=true RF_SAMPLE_RATE=1000000 python worker/main.py
+
+# With SigMF (sample rate auto-read from .sigmf-meta):
+RF_ENABLED=true python worker/main.py
+
+# Fallback to audio proxy (no SDR hardware needed):
+RF_ENABLED=true python worker/main.py   # falls back automatically if no .iq found
+```
+
+Place the IQ file next to the video with the same basename:
+```
+data/videos/mission_042.mp4
+data/videos/mission_042.iq        ← raw interleaved float32
+data/videos/mission_042.sigmf-data ← SigMF binary (+ mission_042.sigmf-meta)
+```
+
+**Recording your own IQ captures with SDR hardware**
+
+You need a software-defined radio (SDR) that captures the drone's operating frequency band.
+Common choices for drone/rover missions:
+
+| Hardware | Price | Frequency | Bandwidth | Notes |
+|---|---|---|---|---|
+| **RTL-SDR v4** | ~$35 | 500 kHz – 1.75 GHz | 3.2 MHz | Best entry-level, USB |
+| **HackRF One** | ~$340 | 1 MHz – 6 GHz | 20 MHz | Half-duplex, wide coverage |
+| **LimeSDR Mini** | ~$200 | 10 MHz – 3.5 GHz | 30.72 MHz | Full-duplex |
+| **USRP B205mini** | ~$800 | 70 MHz – 6 GHz | 56 MHz | Research grade, low noise |
+| **ADALM-Pluto+** | ~$230 | 325 MHz – 3.8 GHz | 56 MHz | Full-duplex, AD9363; software-unlock extends to ~70 MHz – 6 GHz |
+| **bladeRF 2.0 micro** | ~$480 | 47 MHz – 6 GHz | 56 MHz | Full-duplex, USB 3.0, FPGA-programmable; good mid-range option |
+| **Per Vices Crimson TNG** | ~$7,000+ | 100 MHz – 18 GHz | up to 1 GHz | Full-duplex, multi-channel; covers X-band (8–12 GHz) and Ku-band; research/defense grade |
+
+Common drone RF bands to tune to:
+- **2.400–2.483 GHz** — Wi-Fi / DJI OcuSync / FPV control links
+- **5.725–5.850 GHz** — 5.8 GHz FPV video downlink
+- **900 MHz** — LoRa/FHSS long-range control links (ArduPilot, ExpressLRS)
+- **1.575 GHz** — GPS L1 (monitor for jamming/spoofing)
+
+**Step 1 — Install capture software**
+
+```bash
+# GNU Radio (Linux) — most flexible, scriptable:
+sudo apt install gnuradio
+
+# SDR++ (cross-platform GUI + audio/IQ recording):
+# https://www.sdrpp.org — download AppImage / Windows installer
+
+# SoapySDR + Python (direct API, useful for automated capture):
+pip install SoapySDR
+```
+
+**Step 2 — Record an IQ capture file**
+
+Using GNU Radio Companion (GRC):
+
+1. Launch `gnuradio-companion`
+2. Add: **RTL-SDR Source** (or HackRF / UHD USRP) → **File Sink**
+3. Set **File Sink** output type to `Complex float32` — this is the native `.iq` format selfsuvis reads
+4. Set center frequency to match the drone band (e.g. `2437000000` for 2.4 GHz Ch 6)
+5. Set sample rate to match `RF_SAMPLE_RATE` (default `1000000` = 1 MHz)
+6. Run the flowgraph during the mission; stop and save the `.iq` file
+
+Using SoapySDR Python (scripted capture synced to video recording):
+
+```python
+import SoapySDR
+import numpy as np
+
+# Open RTL-SDR
+sdr = SoapySDR.Device({"driver": "rtlsdr"})
+sdr.setSampleRate(SoapySDR.SOAPY_SDR_RX, 0, 1e6)
+sdr.setFrequency(SoapySDR.SOAPY_SDR_RX, 0, 2.437e9)
+sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, 30)
+
+rxStream = sdr.setupStream(SoapySDR.SOAPY_SDR_RX, SoapySDR.SOAPY_SDR_CF32)
+sdr.activateStream(rxStream)
+
+num_samples = int(1e6 * 30)  # 30 seconds at 1 MHz
+buf = np.zeros(1024, dtype=np.complex64)
+
+with open("mission.iq", "wb") as f:
+    collected = 0
+    while collected < num_samples:
+        sr = sdr.readStream(rxStream, [buf], len(buf))
+        if sr.ret > 0:
+            # Write interleaved float32 I/Q (selfsuvis native format)
+            out = np.empty(sr.ret * 2, dtype=np.float32)
+            out[0::2] = buf[:sr.ret].real
+            out[1::2] = buf[:sr.ret].imag
+            f.write(out.tobytes())
+            collected += sr.ret
+
+sdr.deactivateStream(rxStream)
+sdr.closeStream(rxStream)
+```
+
+**Step 3 — Record in SigMF format** (recommended — preserves sample rate and center frequency)
+
+```bash
+pip install sigmf
+
+# With gr-sigmf GNU Radio block, or use the Python API:
+python - <<'EOF'
+import sigmf, sigmf.archive
+import numpy as np
+from sigmf import SigMFFile
+
+# Create metadata file
+meta = SigMFFile(
+    data_file="mission.sigmf-data",
+    global_info={
+        SigMFFile.DATATYPE_KEY: "cf32_le",
+        SigMFFile.SAMPLE_RATE_KEY: 1_000_000,
+        SigMFFile.AUTHOR_KEY: "selfsuvis",
+        SigMFFile.DESCRIPTION_KEY: "Drone 2.4 GHz control link capture",
+    }
+)
+meta.add_capture(0, metadata={
+    SigMFFile.FREQUENCY_KEY: 2_437_000_000,
+    SigMFFile.DATETIME_KEY: "2025-06-01T12:00:00Z",
+})
+meta.tofile("mission.sigmf-meta")
+EOF
+# Then write raw CF32 I/Q samples to mission.sigmf-data (same float32 interleaved format)
+```
+
+**Step 4 — Place files and run**
+
+```bash
+# Name the IQ file to match the video basename:
+cp mission.iq data/videos/mission_042.iq
+
+# Run indexing with RF enabled:
+RF_ENABLED=true RF_SAMPLE_RATE=1000000 python worker/main.py
+```
+
+**Training a modulation classifier**
+
+TorchSig includes a synthetic dataset generator for 24 modulation classes. Train a classifier
+and export it as TorchScript, then point the pipeline at it:
+
+```bash
+# Install TorchSig:
+pip install torchsig
+
+# Generate a training dataset (runs purely on CPU, no real SDR needed):
+python - <<'EOF'
+from torchsig.datasets import TorchSigNarrowband
+from torchsig.datasets.dataset_metadata import NarrowbandMetadata
+
+# 10 k samples per class, SNR sweep −20 dB to +30 dB
+dataset = TorchSigNarrowband(
+    root="data/torchsig_narrowband",
+    train=True,
+    num_samples=240_000,  # 10k × 24 classes
+)
+EOF
+
+# Train a simple EfficientNet-B0 classifier on the generated dataset
+# (see docs/rf_training.md for the full training script)
+
+# Export to TorchScript:
+python - <<'EOF'
+import torch
+model = torch.load("checkpoints/rf_classifier.pt")
+model.eval()
+scripted = torch.jit.script(model)
+scripted.save("checkpoints/rf_classifier_jit.pt")
+EOF
+
+# Enable modulation classification in selfsuvis:
+RF_ENABLED=true RF_CLASSIFIER_CHECKPOINT=checkpoints/rf_classifier_jit.pt python worker/main.py
+```
+
+See [`docs/rf_training.md`](rf_training.md) for the complete training pipeline.
+
+**Why it matters**
+
+Vision-only pipelines are blind to the radio environment during a mission. RF analysis adds a
+complementary sensing axis: even without visual change, a sudden drop in `snr_db` or a spike in
+`spectral_flatness` can indicate interference, jamming, or loss of the control link. Correlating
+these events with specific frames creates a richer mission record and can flag safety-critical
+moments that produce no visual artifact.
+
+**Essential reading**
+
+- TorchSig repository and documentation: https://github.com/torchdsp/torchsig
+- DeepSig RadioML dataset paper: https://arxiv.org/abs/1602.04105 (O'Shea & Corgan 2016)
+- SigMF specification: https://github.com/sigmf/SigMF
+- GNU Radio tutorials: https://wiki.gnuradio.org/index.php/Tutorials
+- RTL-SDR quick-start guide: https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/
+
+**Public IQ datasets for testing without real SDR hardware**
+
+| Dataset | Modulations | Size | Link |
+|---|---|---|---|
+| DeepSig RadioML 2018.01a | 24 | 25 GB | https://www.deepsig.ai/datasets |
+| TorchSig NarrowBand (synthetic) | 53 | Generate on demand | `torchsig.datasets.TorchSigNarrowband` |
+| TorchSig WideBand (synthetic) | 53 | Generate on demand | `torchsig.datasets.TorchSigWideband` |
+| SigMF reference captures | Various | Small | https://github.com/sigmf/SigMF/tree/main/examples |
+| Signal Identification Wiki DB | Real-world | Various | https://www.sigidwiki.com/wiki/Database |
+
+**How a human should learn this topic**
+
+1. **Start with IQ fundamentals**: understand what in-phase and quadrature components represent, why complex-valued samples are used, and how sampling rate relates to observable bandwidth. The GNU Radio tutorials cover this well before you touch any hardware.
+2. **Run the audio proxy first**: set `RF_ENABLED=true` on an existing video without any `.iq` file. The pass falls back to the audio track. Inspect the `rf_signal` dict in a frame record — you will see non-trivial `spectral_flatness` and `snr_db` values even from audio, which builds intuition for what the metrics mean.
+3. **Download RadioML 2018**: load one `.hdf5` shard, slice out 1 024 complex samples of a known modulation (e.g. QAM16), save as a `.iq` file, and run it through `_extract_features()` in `pipeline/vision/rf_analyzer.py`. Observe how `spectral_flatness` near 0 for narrow carriers and near 1 for FM/noise.
+4. **Capture with RTL-SDR**: tune to 100 MHz FM radio (strong, always-on signal), record 30 seconds, and run with `RF_ENABLED=true`. Verify `occupied_bw_ratio` is high (FM is wideband) and `spectral_flatness` is moderate.
+5. **Train a toy classifier**: use `torchsig.datasets.TorchSigNarrowband` to generate a balanced 4-class dataset (BPSK / QPSK / QAM16 / FM), train a small CNN, export to TorchScript, and test the `modulation_class` field end-to-end in the pipeline.
+6. **Compare against a mission video**: run a drone flight with RF capture at 2.4 GHz, then plot `snr_db` vs time. Look for correlation with GPS altitude (higher altitude → cleaner line-of-sight → higher SNR) or mission phases (take-off, hover, return).
+
+---
+
+### Step 10. Thermal / infrared imaging
+
+**Physical principle**
+
+All objects above absolute zero emit electromagnetic radiation proportional to their temperature (Planck's law). Long-wave infrared (LWIR, 8–14 µm) cameras detect this passive thermal emission without any active illuminator. Mid-wave infrared (MWIR, 3–5 µm) is used when targets are hot enough to contrast strongly against a cold sky (engines, missiles, exhaust plumes).
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| Non-uniformity correction (NUC) | Two-point calibration (shutter flat-field + scene) to remove fixed-pattern noise from uncooled LWIR detectors |
+| Radiometric calibration | Convert raw 14-bit ADU → apparent temperature (°C) using sensor datasheet look-up table + emissivity model |
+| Thermal contrast normalisation | Histogram equalisation or CLAHE to make cold-sky / warm-ground contrast perceptually visible |
+| Thermal detection (YOLO-nano on FLIR ADAS) | Fine-tuned nano-scale object detector; class set: person / vehicle / bike |
+| Cross-modal IoU merge | Match thermal detections with RGB YOLO detections by projected IoU; disagreement → novelty signal |
+
+**Hardware**
+
+| Sensor | Resolution | NETD | Price | Notes |
+|---|---|---|---|---|
+| FLIR Lepton 3.5 | 160×120 | 50 mK | ~$200 | USB module; 8.7 Hz; radiometric via `pylepton` |
+| FLIR Boson 640 | 640×512 | 50 mK | ~$3,000 | Drone-grade; 14-bit radiometric TIFF; CameraLink / USB3 |
+| DJI Zenmuse H20T | 640×512 + 4K RGB | 50 mK | ~$8,500 | Integrated gimbal; GPS-synced dual stream |
+| SEEK Thermal Compact Pro | 320×240 | 70 mK | ~$400 | USB-C; good for ground vehicles |
+| InfiRay C200 | 256×192 | 40 mK | ~$300 | Lightweight; UART+USB; suitable for small UAVs |
+
+**Key libraries**
+
+- `pylepton` — FLIR Lepton 3/3.5 Python driver (USB SPI)
+- `flirpy` — parse FLIR radiometric TIFF + extract temperature arrays
+- `opencv-python` — CLAHE, histogram equalisation, homography alignment to RGB
+- `ultralytics` — YOLO-nano fine-tuned on FLIR ADAS thermal dataset
+
+**Public datasets**
+
+| Dataset | Content | Link |
+|---|---|---|
+| FLIR ADAS Thermal | 14 k RGB+thermal pairs (pedestrian/vehicle/bike) | https://www.flir.com/oem/adas/adas-dataset-form/ |
+| KAIST Multispectral Pedestrian | 95 k RGB+LWIR frames, day/night | https://soonminhwang.github.io/rgbt-ped-detection/ |
+| DroneVehicle | 56 k drone RGB+IR vehicle detection pairs | https://github.com/VisDrone/DroneVehicle |
+| M3ED | Stereo + event + IMU + LiDAR + thermal | https://m3ed.io/ |
+
+**How a human should learn this topic**
+
+1. Install `pylepton`, connect a FLIR Lepton 3.5 via USB, capture 100 frames indoors. Apply CLAHE, identify yourself by heat signature in the scene.
+2. Download FLIR ADAS, train `yolo11n` for 20 epochs, verify mAP@0.5 on thermal validation split. Compare against the RGB baseline — night frames should be much better in thermal.
+3. Film a dual RGB+thermal sequence of a car parked outside (engine hot vs engine cold). Verify that the `mean_temp_c` in `frame_facts_json["thermal"]` drops over time as the engine cools. This teaches radiometric interpretation.
+
+Sidecar: `data/videos/mission_042.thermal.mp4` — FLIR radiometric video (14-bit TIFF sequence or encoded GREY16).
+
+---
+
+### Step 11. Multispectral / hyperspectral imaging
+
+**Physical principle**
+
+Multispectral cameras capture 4–10 discrete spectral bands; hyperspectral cameras capture continuous spectra across hundreds of narrow bands (typically 400–1000 nm). Reflectance spectra are the fingerprint of surface materials: healthy vegetation reflects strongly in NIR, stressed vegetation shows reduced NIR and elevated red-edge reflectance, water absorbs NIR almost completely.
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| Reflectance calibration | Divide scene radiance by calibration panel radiance → unitless reflectance (0–1) |
+| Vegetation indices | NDVI = (NIR−R)/(NIR+R); NDRE = (RE−R)/(RE+R); CIR false-colour composite |
+| Spectral unmixing | Linear unmixing of endmembers (ENVI/pysptools) to identify pure material fractions per pixel |
+| Anomaly detection (RX detector) | Mahalanobis distance from global mean spectrum → flag spectrally anomalous pixels |
+| Classification | SVM or CNN on spectral feature vectors → crop type, mineral, material label per pixel |
+
+**Hardware**
+
+| Sensor | Bands | Wavelength | Price | Notes |
+|---|---|---|---|---|
+| Parrot Sequoia+ | 4+RGB | 530/550/735/790 nm | ~$2,500 | Agriculture multispectral; in-camera NDVI |
+| MicaSense RedEdge-MX | 5 | G/R/RE/NIR + RGB | ~$4,900 | GPS-tagged; calibrated reflectance panel included |
+| Senop HSC-2 | up to 380 | 400–1000 nm | ~$25,000+ | Pushbroom hyperspectral; drone mount; mineral mapping |
+| Sony IMX487 UV | 1 (UV) | 200–400 nm | ~$1,500+ | Detect oil sheens, explosives residue, biological markers |
+| Teledyne DALSA | Configurable | NIR/SWIR/MWIR | ~$10,000+ | Industrial / precision agriculture |
+
+**Key libraries**
+
+- `rasterio` — read/write GeoTIFF multi-band rasters
+- `pysptools` — hyperspectral unmixing, endmember extraction (ATGP, N-FINDR)
+- `spectral` — hyperspectral Python library (SPy); ENVI file format I/O
+- `sklearn` — SVM spectral classification
+- `numpy` — band arithmetic for NDVI, NDRE, RX anomaly detector
+
+**Public datasets**
+
+| Dataset | Content | Link |
+|---|---|---|
+| Agriculture-Vision | Aerial multispectral crop disease | https://www.agriculture-vision.com/ |
+| Indian Pines / Pavia / Salinas | Hyperspectral remote sensing benchmarks | http://www.ehu.eus/ccwintco/index.php/Hyperspectral_Remote_Sensing_Scenes |
+| NASA EO-1 Hyperion | Satellite hyperspectral archive, global | https://earthexplorer.usgs.gov/ |
+| DESIS (ISS) | 235-band VNIR hyperspectral, 30 m GSD | https://www.dlr.de/content/en/articles/missions-projects/desis/desis-mission.html |
+
+Sidecar: `data/videos/mission_042.multispectral/` — directory of per-band GeoTIFF files named `band_R.tif`, `band_G.tif`, `band_RE.tif`, `band_NIR.tif`.
+
+---
+
+### Step 12. Event camera (neuromorphic sensing)
+
+**Physical principle**
+
+An event camera (Dynamic Vision Sensor, DVS) does not capture frames. Each pixel independently fires an asynchronous event `(x, y, t, polarity)` whenever the log-luminance change at that pixel exceeds a threshold (~15–20% contrast change). Result: microsecond temporal resolution with no motion blur, very low latency (~1 µs), and high dynamic range (>120 dB vs 60 dB for standard cameras).
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| Event-to-frame accumulation | Bin events into fixed time windows (e.g. 10 ms) → polarity histogram image for CNN ingestion |
+| Surface of Active Events (SAE) | Per-pixel timestamp of last event → depth-like surface representation |
+| Event-based optical flow | Lucas-Kanade or contrast maximisation on event streams → instant dense flow without frame latency |
+| Event-based corner detection | eHarris or Arc* detector on event stream → fast feature tracking |
+| LSTM/SNN on raw event stream | Spiking neural network for gesture or action recognition directly on event tuples |
+
+**Hardware**
+
+| Sensor | Resolution | Latency | Price | Notes |
+|---|---|---|---|---|
+| Prophesee EVK4 (IMX636) | 1280×720 | ~1 µs | ~$1,200 | USB3; MetavisionSDK; Linux/Windows |
+| iniVation DAVIS346 | 346×260 | ~1 µs | ~$1,500 | Combined event + frame + IMU; USB3 |
+| Inivation DVXplorer Lite | 640×480 | ~1 µs | ~$700 | Entry-level; USB3 |
+| Samsung DVS Gen4 | 1280×960 | ~10 µs | Research | Highest resolution; integrated in phones |
+
+**Key libraries**
+
+- `metavision_sdk` — Prophesee SDK; event recording, filtering, visualisation (Linux/Windows)
+- `tonic` — PyTorch Dataset wrappers for event camera datasets (N-MNIST, DAVIS346, DSEC)
+- `dv-processing` — iniVation DV framework; Python/C++ bindings
+- `spikingjelly` — SNN training framework for event data in PyTorch
+
+**Public datasets**
+
+| Dataset | Content | Link |
+|---|---|---|
+| DSEC | Event + LiDAR + stereo + GPS, driving | https://dsec.ifi.uzh.ch/ |
+| N-ImageNet | Event-camera classification benchmark (1000 classes) | https://github.com/82magnolia/n_imagenet |
+| N-Caltech101 | Event-camera object recognition | https://www.garrickorchard.com/datasets/n-caltech101 |
+| MVSEC | Monocular event + frame + IMU, driving + drone | https://daniilidis-group.github.io/mvsec/ |
+
+Sidecar: `data/videos/mission_042.events.raw` — raw event stream in Prophesee RAW format or `mission_042.events.h5` in iniVation DV format.
+
+---
+
+### Step 13. LiDAR / active ranging
+
+**Physical principle**
+
+LiDAR (Light Detection And Ranging) emits short laser pulses (905 nm or 1550 nm) and measures the round-trip time-of-flight (ToF) to compute range. Spinning LiDARs sweep a laser across azimuth angles; solid-state LiDARs use MEMS mirrors or OPA beamsteering. FMCW LiDAR continuously modulates frequency to measure both range and Doppler velocity simultaneously from a single return.
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| Point cloud filtering | Statistical outlier removal, radius outlier removal (open3d) to clean raw returns |
+| Ground plane removal | RANSAC plane fitting → separate ground from obstacles |
+| Euclidean clustering | DBSCAN or voxel-based clustering → individual obstacle candidates |
+| ICP registration | Iterative Closest Point → align successive frames → LiDAR odometry |
+| PointPillars / PointNet++ | 3D object detection from raw point clouds (BEV voxel pillars) |
+| LOAM / LIO-SAM | LiDAR inertial odometry and mapping; tightly-coupled with IMU |
+
+**Hardware**
+
+| Sensor | Lines / points | Range | Price | Notes |
+|---|---|---|---|---|
+| Garmin LiDAR-Lite v4 | 1D | 0–10 m | ~$130 | Lightweight 1D ToF; I2C; terrain-following |
+| Livox Mid-360 | Solid-state, 200k pt/s | 0.1–40 m | ~$500 | 360° FOV; ROS2 driver; good drone mount |
+| Ouster OS0-128 | 128 lines, 2.6M pt/s | 0–50 m | ~$4,000 | High-density; integrates with LIO-SAM |
+| Velodyne VLP-16 (Puck) | 16 lines | 0–100 m | ~$4,000 | Classic ground-vehicle unit; wide community support |
+| Hesai AT128 | 128 lines | 0–200 m | ~$2,500 | Long-range automotive grade |
+
+**Key libraries**
+
+- `open3d` — point cloud I/O (PCD, PLY), filtering, visualisation, ICP
+- `pyransac3d` — fast RANSAC plane/sphere/cylinder fitting on point clouds
+- `mmdetection3d` — PointPillars, BEVFusion, SECOND — 3D detection from LiDAR
+- `ROS2 + ros-humble-sensor-msgs` — PointCloud2 message type; Livox ROS2 driver
+
+**Public datasets**
+
+| Dataset | Content | Link |
+|---|---|---|
+| KITTI | LiDAR + stereo + GPS + IMU | https://www.cvlibs.net/datasets/kitti/ |
+| SemanticKITTI | Annotated 3D point clouds (KITTI) | http://www.semantic-kitti.org/ |
+| PandaSet | LiDAR + camera, urban scenes | https://pandaset.org/ |
+| nuScenes | 32-beam LiDAR + 6 cameras + radar | https://www.nuscenes.org/ |
+| SubT-MRS Challenge | Underground LiDAR + IMU + RGB + thermal | https://superodometry.com/ |
+
+Sidecar: `data/videos/mission_042.lidar.mcap` — MCAP container with `sensor_msgs/PointCloud2` topics, or `mission_042.lidar.pcd` for a single merged scan.
+
+---
+
+### Step 14. Radar (FMCW / Doppler / SAR)
+
+**Physical principle**
+
+Radar (Radio Detection And Ranging) emits modulated microwave signals and receives reflections. FMCW (Frequency Modulated Continuous Wave) linearly chirps the frequency; the beat frequency between transmitted and received signals gives range. Doppler shift gives radial velocity. 4D imaging radar adds elevation angle. SAR (Synthetic Aperture Radar) flies a platform along a path to synthesise a large aperture, achieving sub-meter resolution from a km altitude.
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| Range-FFT | Fast Fourier transform on IQ chirp beat → range profile |
+| Doppler-FFT (2D FFT) | Second FFT across chirps within a frame → range-Doppler map |
+| CFAR detection | Constant False Alarm Rate thresholding → extract target peaks from clutter |
+| Angle-FFT / MUSIC / ESPRIT | Direction-of-arrival estimation from multi-element array → azimuth/elevation of target |
+| DBSCAN clustering on detections | Cluster point-cloud detections into objects |
+| SAR image formation (back-projection or ω-k) | Coherent integration across aperture → 2D high-resolution reflectivity image |
+
+**Hardware**
+
+| Sensor | Type | Range | Price | Notes |
+|---|---|---|---|---|
+| TI AWR1843 | 77 GHz FMCW | 0–100 m | ~$150 | 3D point cloud; USB; good entry-level |
+| Ainstein US-D1 | 24 GHz FMCW | 0.5–50 m | ~$300 | Terrain-following; works through dust/fog/smoke |
+| Acconeer XM125 | 60 GHz pulse | 0.03–3 m | ~$30 | Ultra-short range; presence/gesture/vitals |
+| Imec 122 GHz radar | D-band FMCW | Research | — | Experimental; sub-cm resolution |
+| Capella Space SAR | Spaceborne SAR | Global | Pay-per-image | 0.5 m resolution, all-weather, night-capable |
+
+**Key libraries**
+
+- `OpenRadar` — Python FMCW radar signal processing (range-Doppler, CFAR, MUSIC): https://github.com/PreSenseRadar/OpenRadar
+- `mmwave-studio` — TI mmWave SDK companion (Windows DCA1000 capture)
+- `pysar` — SAR image formation (back-projection, ω-k algorithm)
+- `scipy.signal` — window functions, CFAR, spectral estimation
+
+**Public datasets**
+
+| Dataset | Content | Link |
+|---|---|---|
+| RADIATE | Radar + LiDAR + stereo + GPS, all weather | https://pro.hw.ac.uk/radiate/ |
+| View-of-Delft | 4D radar + LiDAR + stereo | https://github.com/tudelft-iv/view-of-delft-dataset |
+| ColoRadar | Radar + LiDAR + IMU, indoor/outdoor | https://arpg.github.io/coloradar/ |
+| nuScenes radar | 5-radar point clouds + camera + LiDAR | https://www.nuscenes.org/ |
+
+Sidecar: `data/videos/mission_042.radar.bin` — raw IQ ADC samples in TI DCA1000 format, or `mission_042.radar.csv` for pre-processed range-Doppler detections.
+
+---
+
+### Step 15. GNSS-R and satellite signal reception
+
+**Physical principle**
+
+Standard GNSS gives position. **GNSS-R** (reflectometry) uses reflected GNSS signals (direct path vs. ground reflection) to measure surface properties: soil moisture, sea surface roughness, snow depth, vegetation water content. The delay-Doppler map (DDM) captures the time-delay and Doppler-shift of the reflected signal relative to the direct signal. Separately, satellite *emission* reception (ADS-B at 1090 MHz, AIS at 162 MHz, NOAA APT at 137 MHz, GOES at 1694 MHz) extracts operational intelligence using passive SDR.
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| DDM generation | Cross-correlate reflected L1 signal with clean replica → delay-Doppler map (2D function) |
+| Reflectivity (Γ) estimation | `Γ = P_reflected / P_direct` after orbit and antenna pattern correction |
+| Soil moisture inversion | Empirical polynomial fit from Γ to volumetric water content (VWC) |
+| ADS-B Mode-S decoding | Manchester-coded 1090 ES squitter → 24-bit ICAO address, lat/lon, altitude, velocity |
+| AIS NRZI/HDLC decoding | GMSK-modulated AIS VDM sentences → vessel MMSI, position, heading, speed |
+| APT image decoding | AM synchronous detection, line sync → NOAA weather satellite image (2 visible/IR channels) |
+
+**Hardware** (passive reception — all SDR-based)
+
+| Modality | Frequency | Hardware | Software |
+|---|---|---|---|
+| GNSS-R direct path | 1.575 GHz L1 RHCP | RHCP patch antenna + RTL-SDR or HackRF | `pyGNSSR`, `gnssr` |
+| GNSS-R reflected | 1.575 GHz L1 LHCP | LHCP down-pointing patch + RTL-SDR | Simultaneous dual-receiver setup |
+| ADS-B | 1090 MHz | RTL-SDR + 1090 MHz antenna | `dump1090-mutability`, `dump1090-fa` |
+| AIS | 161.975 / 162.025 MHz | RTL-SDR + marine antenna | `rtl-ais`, `AIS-catcher` |
+| NOAA APT weather | 137.5 / 137.62 MHz | RTL-SDR + V-dipole antenna | `noaa-apt`, `WXtoImg` |
+| GOES LRIT/HRIT | 1694.1 MHz | RTL-SDR + LNA + dish | `goestools` |
+| Iridium L-band | 1616–1626 MHz | HackRF + patch antenna | `gr-iridium` |
+
+**Key libraries**
+
+- `pyGNSSR` — GNSS-R DDM generation from raw IQ: https://github.com/piyushrpt/PyGNSSR
+- `dump1090-mutability` — ADS-B decoder with JSON output: https://github.com/mutability/dump1090
+- `rtl-ais` — AIS decoder from RTL-SDR: https://github.com/dgiardini/rtl-ais
+- `noaa-apt` — NOAA APT weather satellite image decoder: https://noaa-apt.mbernardi.com.ar/
+- `goestools` — GOES-R LRIT/HRIT receiver and decoder: https://github.com/pietern/goestools
+
+**Public datasets**
+
+| Dataset | Content | Link |
+|---|---|---|
+| CYGNSS L1 v3.1 | NASA GNSS-R DDMs, ocean + land | https://podaac.jpl.nasa.gov/dataset/CYGNSS_L1_V3.1 |
+| ESA SMOS Level 2 | Soil moisture via passive microwave | https://earth.esa.int/eogateway/missions/smos |
+| TechDemoSat-1 | First spaceborne GNSS-R DDMs | https://www.sstl.co.uk/TDS-1-data |
+| OpenSky Network | Historical ADS-B, 10+ years, global | https://opensky-network.org/data/datasets |
+| MarineCadastre AIS | US coastal AIS vessel tracks | https://marinecadastre.gov/ais/ |
+
+Sidecar: `data/videos/mission_042.gnssr.bin` — raw GNSS-R IQ capture, or `mission_042.adsb.jsonl` (one aircraft JSON per second from `dump1090`).
+
+---
+
+### Step 16. Inertial and barometric sensing (IMU + barometer + anemometer)
+
+**Physical principle**
+
+- **Accelerometer**: MEMS capacitive proof mass detects specific force (acceleration + gravity). Integrates to velocity, double-integrates to position — but errors accumulate (bias, drift, random walk).
+- **Gyroscope**: MEMS vibratory (Coriolis effect) measures angular rate. Integrates to orientation. Allan variance characterises noise at each averaging interval.
+- **Barometer**: measures air pressure. Used as altitude estimate: ΔP ≈ −ρg·Δh (−12 hPa / 100 m at sea level). MS5611/BMP390 achieve ±10 cm altitude resolution.
+- **Anemometer**: mechanical (cup) or ultrasonic (transit-time difference) wind speed + direction.
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| IMU pre-integration | Accumulate Δv, Δθ between keyframes without full numerical integration — used in VINS-Fusion |
+| Strapdown navigation equations | Convert body-frame specific force + angular rate → world-frame position, velocity, orientation |
+| Allan variance analysis | Characterise ARW, bias instability, RRW of an IMU — determines which EKF noise parameters to set |
+| Complementary filter | Simple fused attitude: gyro for fast dynamics, accelerometer for low-freq correction |
+| EKF/UKF IMU+GPS fusion | 15-state Kalman filter; GPS provides absolute correction at fix rate; IMU fills between |
+| Wind vector decomposition | Ultrasonic: `v_wind = (t_downstream − t_upstream) · c² / (2 · d)` per axis |
+
+**Hardware**
+
+| Sensor | Type | DoF | Price | Notes |
+|---|---|---|---|---|
+| ICM-42688-P | MEMS IMU | 6 | ~$5 | Used in most drone FCs; SPI; 32 kHz |
+| BMI088 | MEMS IMU | 6 | ~$8 | Vibration-robust; used in racing drones |
+| VectorNav VN-100 | Navigation IMU | 9 | ~$800 | 0.05° static accuracy; UART/SPI; temperature-compensated |
+| ADIS16505-3 | Tactical IMU | 6 | ~$400 | Shock-rated; precision bias stability |
+| MS5611 | Barometer | — | ~$8 | ±10 cm altitude resolution; I2C/SPI |
+| RM Young 81000 | Ultrasonic anemometer | 3D wind | ~$2,500 | No moving parts; ±0.1 m/s accuracy |
+
+**Key libraries**
+
+- `filterpy` — EKF/UKF/particle filter in Python: https://github.com/rlabbe/filterpy
+- `robot_localization` — ROS2 production EKF node with GPS/UTM support
+- `imusim` — IMU simulation and error modelling (for Allan variance analysis)
+- `pyproj` — geodetic ↔ ENU coordinate transforms (WGS-84 ↔ UTM)
+
+**Public datasets**
+
+| Dataset | Platform | Link |
+|---|---|---|
+| EuRoC MAV | Drone, stereo + IMU + ground truth | https://rpg.ifi.uzh.ch/docs/IJRR17_Burri.pdf |
+| TUM-VI | Handheld, monocular + IMU | https://cvg.cit.tum.de/data/datasets/visual-inertial-dataset |
+| ADVIO | Pedestrian, phone IMU + GPS + BLE | https://github.com/AaltoVision/ADVIO |
+| SubT-MRS | Underground, IMU + LiDAR + thermal | https://superodometry.com/ |
+
+Sidecar: `data/videos/mission_042.imu.jsonl` — one JSON per IMU sample `{t, ax, ay, az, gx, gy, gz}` at ≥200 Hz; `mission_042.baro.jsonl` — `{t, pressure_hpa, temp_c}` at 1–10 Hz; `mission_042.wind.jsonl` — `{t, speed_ms, dir_deg, gust_ms}` at 1 Hz.
+
+---
+
+### Step 17. Atmospheric / environmental sensing
+
+**Physical principle**
+
+- **Temperature / humidity**: capacitive polymer (SHT4x) or thermistor + hygristor. RH is partial pressure of water vapour / saturation pressure at that temperature — must be cross-compensated (temperature changes saturation pressure).
+- **Barometric pressure**: already covered in Step 16; also used for short-range weather nowcasting.
+- **Wind**: ultrasonic transit-time (sonic anemometer) or mechanical cup/vane — wind speed and direction as time-varying 3D vector.
+- **Solar irradiance**: photodiode pyranometer — incident shortwave radiation (W/m²).
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| Temperature-humidity cross-compensation | Apply `RH_corrected = RH_raw / (1 − 0.02 × (T − 25))` for hygristor drift |
+| Dew-point calculation | Magnus formula: `Td = 243.04 × (ln(RH/100) + 17.625T/(243.04+T)) / (17.625 − ln(RH/100) − 17.625T/(243.04+T))` |
+| Visibility / fog model | `visibility_m = −log(0.05) / (extinction_coeff)` where extinction is fitted from RH above 95% |
+| Wind chill / heat index | Compute apparent temperature from temp + wind + humidity → mission safety envelope |
+| Pressure altitude | `altitude_m = 44330 × (1 − (P/P0)^0.1903)` — compared against GPS altitude for GPS health check |
+| Turbulence intensity (TI) | `TI = std(wind_speed) / mean(wind_speed)` over a 60-second window → flight risk score |
+
+**Hardware**
+
+| Sensor | Measurements | Interface | Price | Notes |
+|---|---|---|---|---|
+| BME280 | Temperature, humidity, pressure | I2C/SPI | ~$5 | Most popular; ±0.5°C, ±3% RH |
+| SHT45 (Sensirion) | Temperature, humidity | I2C | ~$15 | High-accuracy: ±0.1°C, ±1% RH |
+| MS5611 | Pressure, temperature | SPI/I2C | ~$8 | Precision barometer; ±10 cm altitude |
+| Davis 7911 | Wind speed + direction | Reed switch | ~$100 | Mechanical; simple pulse counting |
+| RM Young 81000V | 3D wind vector | RS-422 | ~$2,500 | Ultrasonic; no moving parts; aviation-grade |
+| Apogee SP-110 | Solar irradiance | Analog | ~$300 | Calibrated pyranometer; 0–2000 W/m² |
+
+**Key libraries**
+
+- `pynmea2` — parse NMEA sentences (some weather stations output NMEA wind/pressure)
+- `metpy` — meteorological calculations (dew point, CAPE, visibility, turbulence indices)
+- `siphon` — access NOAA/NWS/ECMWF APIs programmatically
+- `pyserial` — serial communication with weather station sensors
+
+**Public datasets**
+
+| Dataset | Content | Link |
+|---|---|---|
+| ERA5 Reanalysis (ECMWF) | Global atmosphere, 1940–present, hourly | https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-single-levels |
+| NOAA ISD (ASOS/AWOS) | Global surface station observations | https://www.ncei.noaa.gov/products/land-based-station/integrated-surface-database |
+| NOAA Radiosonde archive | Upper-air profiles, temp/wind/humidity | https://weather.uwyo.edu/upperair/sounding.html |
+| Copernicus Climate Data Store | ERA5, ERA5-Land, CERRA | https://cds.climate.copernicus.eu/ |
+
+Sidecar: `data/videos/mission_042.env.jsonl` — one JSON per second: `{t, temp_c, humidity_pct, pressure_hpa, wind_speed_ms, wind_dir_deg, solar_w_m2}`.
+
+---
+
+### Step 18. Chemical / gas / radiation sensing
+
+**Physical principle**
+
+- **Electrochemical (EC) sensors** (NO2, CO, SO2, H2S): target gas oxidised at a working electrode; current proportional to gas concentration. Cross-sensitive to temperature, humidity, and interfering gases.
+- **Non-dispersive infrared (NDIR)** (CO2, CH4): IR beam passes through sample gas; absorption at a specific wavelength correlates with concentration (Beer-Lambert law).
+- **Photoionisation detector (PID)** (VOC): UV lamp (10.6 eV) ionises volatile organics; ion current → ppb-level VOC concentration.
+- **Optical particle counter (OPC)** (PM1/PM2.5/PM10): laser scatters off particles; forward/side-scatter + Mie theory → particle size and count.
+- **Scintillation detector** (gamma, beta): ionising radiation excites a scintillator crystal (NaI, CsI:Tl, BGO) → photon flash counted by PMT or SiPM; energy spectrum → isotope identification.
+- **Geiger-Müller (GM) tube** (gamma, beta, X-ray): ionising radiation creates charge avalanche in gas-filled tube → counts per second → dose rate (µSv/h).
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| Cross-sensitivity matrix inversion | Correct EC sensor for temperature/humidity/interferer using factory calibration matrix |
+| Baseline drift correction | Rolling 24-hour minimum subtraction (WMA) for EC sensors with slow drift |
+| Gaussian dispersion inversion | Fit downwind concentration profile to back-project plume source location |
+| Gamma spectrum analysis | Peak finding (photopeak identification) in ADC histogram → Cs-137 (661 keV), Co-60, Ra-226 |
+| Kriging / Gaussian Process | Spatial interpolation of point measurements to continuous 2D contamination map |
+| PMT pile-up correction | Correct dead-time losses at high count rates in scintillation detectors |
+
+**Hardware**
+
+| Sensor | Analyte | Principle | Price | Notes |
+|---|---|---|---|---|
+| SCD41 (Sensirion) | CO2 | NDIR | ~$40 | Self-calibration; I2C; 400–5000 ppm; ±40 ppm |
+| Alphasense OPC-N3 | PM1/2.5/10 | OPC laser | ~$500 | Calibrated number + mass concentration |
+| SGP41 (Sensirion) | VOC, NOx index | MOX | ~$15 | Relative index only; good for anomaly detection |
+| miniPID 2 (Ion Science) | VOC (total PID) | Photoionisation | ~$400 | 1 ppb resolution; 0–10,000 ppm range |
+| Alphasense NO2-A43F | NO2 | Electrochemical | ~$80 | 0.1 ppb resolution; 3-electrode design |
+| Radiacode 103 | Gamma (+ beta) | CsI:Tl scintillation | ~$300 | Full spectrum 18 keV–3 MeV; USB/BLE; identifies isotopes |
+| Ludlum 44-9 | Beta + gamma | GM tube | ~$800 | 0.02–100 mR/hr; robust field instrument |
+
+**Key libraries**
+
+- `smbus2` — I2C sensor communication (SCD41, SGP41, SHT45)
+- `pyserial` — serial communication (OPC-N3, miniPID, Radiacode via USB)
+- `scipy.signal` — peak detection for gamma spectrum analysis
+- `scikit-gstat` — variogram fitting and kriging for spatial contamination mapping
+- `openatmos` — atmospheric dispersion modelling (Gaussian plume, AERMOD)
+
+**Public datasets**
+
+| Dataset | Content | Link |
+|---|---|---|
+| OpenAQ | Global open air quality (PM2.5, NO2, O3, CO) | https://openaq.org/ |
+| EPA AirNow | US real-time + historical AQI | https://www.airnow.gov/ |
+| CAMS (Copernicus) | Global atmospheric composition reanalysis | https://atmosphere.copernicus.eu/ |
+| Safecast Global Map | Crowdsourced gamma dose rate (post-Fukushima) | https://safecast.org/tilemap/ |
+| IAEA IRIX data format | Nuclear emergency data standard + examples | https://www.iaea.org/resources/tools-and-services/nuclear-and-radiological-emergency-response |
+
+**Active learning escalation**: any frame where `dose_rate_usv_h > 1.0` or `voc_ppm > 10.0` is hard-tagged `al_tag = "needs_annotation"` regardless of visual novelty — the spatial memory must flag contaminated zones for mandatory human review.
+
+Sidecar: `data/videos/mission_042.gas.jsonl` — `{t, co2_ppm, voc_ppb, no2_ppb, pm25_ug_m3, pm10_ug_m3, dose_rate_usv_h}` at 1 Hz.
+
+---
+
+### Step 19. Acoustic sensing
+
+**Physical principle**
+
+Microphones transduce pressure oscillations to electrical signals via MEMS (capacitive diaphragm) or electret elements. Ultrasonic transducers operate above 20 kHz for ranging (pulse-echo ToF). Hydrophones use piezoelectric ceramics sensitive to underwater pressure variations. Infrasound sensors (0.001–20 Hz) detect very-long-wavelength pressure waves from distant events (explosions, volcanoes, large machinery).
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Purpose |
+|---|---|
+| Beamforming (delay-and-sum) | Steer a microphone array to a direction by delaying channels by the propagation time difference → spatial filtering |
+| MUSIC / ESPRIT | Subspace methods for acoustic direction-of-arrival (DoA) from ULA/UCA arrays |
+| TDOA localisation (GCC-PHAT) | Generalised Cross-Correlation with Phase Transform between microphone pairs → time difference of arrival → triangulate source |
+| MFCC + CNN classification | Mel-frequency cepstral coefficients feature extraction → CNN/RNN → drone motor noise, gunshot, vehicle engine, wildlife calls |
+| Acoustic anomaly detection | Autoencoder reconstruction error on spectrogram → flag unknown sound events |
+| Matched filter | Cross-correlate received pulse with known transmitted pulse → ultrasonic range (MaxBotix, LV-EZ series) |
+| Hydrophone spectral analysis | FFT of hydrophone signal → identify vessel propeller blade rate (BPF = n_blades × RPM / 60) |
+
+**Hardware**
+
+| Sensor | Type | Frequency | Price | Notes |
+|---|---|---|---|---|
+| TDK ICS-43434 | MEMS mic | 20 Hz–20 kHz | ~$3 | Omnidirectional; I2S; used in arrays for beamforming |
+| Wildlife Acoustics SM4 | Bioacoustic recorder | 20 Hz–96 kHz | ~$900 | 384 kHz option for bats; GPS-tagged; SD card |
+| MaxBotix HRLV-EZ4 | Ultrasonic ToF | 42 kHz | ~$30 | 0.03–5 m terrain-following; UART/Analog |
+| Aquarian AS-1 | Hydrophone | 10 Hz–100 kHz | ~$200 | Underwater acoustic; detect vessel propellers |
+| Infiltec INFRA20 | Infrasound mic | 0.02–50 Hz | ~$150 | Detect distant explosions, volcano eruptions |
+| Hosiden HSM3A | MEMS array element | 20 Hz–20 kHz | ~$2 | Small form factor; used in phone-size arrays |
+
+**Key libraries**
+
+- `sounddevice` — real-time audio capture and playback (cross-platform, PortAudio)
+- `librosa` — audio feature extraction (MFCC, spectral centroid, chroma, onset detection)
+- `pyroomacoustics` — microphone array beamforming (delay-and-sum, MVDR, MUSIC, GCC-PHAT)
+- `torchaudio` — audio deep learning: spectrogram transforms, pre-trained models (wav2vec2, HuBERT)
+- `bioacoustics` — wildlife sound classification models and datasets
+
+**Public datasets**
+
+| Dataset | Content | Link |
+|---|---|---|
+| DCASE 2024 Challenge | Acoustic scene + event classification | https://dcase.community/challenge2024/ |
+| xeno-canto | 800k+ GPS-tagged bird recordings | https://xeno-canto.org/ |
+| FSD50K | 51 k clips, 200 sound classes (FreeSound) | https://zenodo.org/record/4060432 |
+| Macaulay Library (Cornell) | Wildlife audio + video, research | https://www.macaulaylibrary.org/ |
+| MVSEC | Stereo + event + IMU + audio, driving + drone | https://daniilidis-group.github.io/mvsec/ |
+| ESC-50 | 2000 clips, 50 environmental sound classes | https://github.com/karolpiczak/ESC-50 |
+
+Sidecar: `data/videos/mission_042.audio.wav` — 48 kHz WAV; for mic arrays `mission_042.audio_array.h5` (channels × samples, float32).
+
+---
+
+### Step 20. Sensor fusion analysis
+
+**Physical principle**
+
+Sensor fusion combines readings from multiple modalities — each with its own coordinate frame, clock, noise model, and sampling rate — into a unified per-frame state estimate. The theoretical basis is Bayesian estimation: the posterior over vehicle state given all sensor observations is the product of independent likelihood terms (assuming conditional independence given state). The extended / unscented Kalman filter (EKF/UKF) implements this online for Gaussian noise; particle filters handle non-Gaussian distributions.
+
+**SIGINT / signal processing algorithms**
+
+| Algorithm | Modality pair | Purpose |
+|---|---|---|
+| EKF 15-state navigation | IMU + GPS | Dead-reckoning pose between GPS fixes; maintains 3D position, velocity, orientation, biases |
+| Cross-modal IoU merge | RGB + Thermal | Match detections from two optical paths; disagreement → novelty |
+| Frustum PointNet / BEVFusion | RGB + LiDAR | Project camera frustum onto LiDAR points; fused 3D detection |
+| GNSS-R soil moisture | GNSS-R + GPS | Georeference reflectivity measurements to GPS waypoints → soil moisture map |
+| Interference heat map | RF + GPS | Grid `snr_db` by position → RF shadow / jamming zone map |
+| Gaussian dispersion inversion | Gas + GPS + wind | Back-project plume source from downwind concentration profile |
+| Weather confidence factor | Weather + all modalities | Scale detection confidence down under fog, icing, or high-wind conditions |
+| Temporal alignment | All | Nearest-neighbour interpolation of sensor readings to video frame timestamps |
+
+**Fusion architectures**
+
+| Architecture | When to use | Key tool |
+|---|---|---|
+| EKF / UKF | Pose and navigation, Gaussian noise | `filterpy` |
+| Late fusion (score averaging) | Independent models per sensor, simple merge | per-model confidence scores |
+| Cross-attention transformer | Rich multi-modal feature fusion (RGB+depth+thermal) | `timm` + custom cross-attention heads |
+| BEVFusion | LiDAR + camera 3D detection | `mmdetection3d` |
+| Deep state-space model | Irregular multi-rate time series (weather + gas + RF) | Mamba / GRU-D |
+
+**Spatial calibration toolchain**
+
+| Pair | Tool |
+|---|---|
+| Camera ↔ IMU | [kalibr](https://github.com/ethz-asl/kalibr) — continuous-time calibration |
+| Camera ↔ LiDAR | [lidar_camera_calibration](https://github.com/ankitdhall/lidar_camera_calibration) |
+| Camera ↔ Thermal | Manual homography — co-located calibration target |
+| Camera ↔ Radar | [OpenRadar](https://github.com/PreSenseRadar/OpenRadar) — retroreflector markers |
+
+**`frame_facts_json["sensor_fusion"]` output schema**
+
+```json
+{
+  "modalities_present": ["rgb", "thermal", "gps", "imu", "rf", "weather"],
+  "modalities_missing": ["lidar", "gas"],
+  "fusion_confidence": 0.87,
+  "weather_factor": 0.92,
+  "cross_modal_detections": [
+    {
+      "label": "person",
+      "rgb_conf": 0.78,
+      "thermal_conf": 0.91,
+      "fused_conf": 0.94,
+      "depth_m": 12.4,
+      "lidar_range_m": null,
+      "cross_modal_agreement": true
+    }
+  ],
+  "degradation_flags": ["high_humidity", "wind_blur"],
+  "rf_shadow": false,
+  "plume_proximity_m": null,
+  "pose_source": "ekf_imu_gps",
+  "pose_covariance_trace": 0.003
+}
+```
+
+Frames where any detection has `cross_modal_agreement = false` are escalated to `al_tag = "novel"`. Frames with `plume_proximity_m < 50` or `dose_rate_usv_h > 1.0` are hard-tagged `al_tag = "needs_annotation"`.
+
+**Key libraries**
+
+| Task | Library |
+|---|---|
+| EKF / UKF / particle filter | https://github.com/rlabbe/filterpy |
+| Production ROS2 EKF | https://github.com/cra-ros-pkg/robot_localization |
+| Camera-IMU calibration | https://github.com/ethz-asl/kalibr |
+| LiDAR-camera fusion | https://github.com/open-mmlab/mmdetection3d |
+| Point cloud processing | https://www.open3d.org/ |
+| Geometric camera transforms | https://kornia.readthedocs.io/ |
+| Radar signal processing | https://github.com/PreSenseRadar/OpenRadar |
+| Irregular time series | https://github.com/state-spaces/mamba |
+
+**Essential reading**
+
+- Kalman and Bayesian Filters in Python (free): https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python
+- BEVFusion — unified LiDAR-camera 3D perception: https://arxiv.org/abs/2205.13542
+- TokenFusion — transformer multi-modal fusion: https://arxiv.org/abs/2204.08721
+- VINS-Mono — visual-inertial odometry: https://arxiv.org/abs/1708.03852
+- LIO-SAM — LiDAR-inertial odometry: https://arxiv.org/abs/2007.00258
+
+**Public multi-modal fusion datasets**
+
+| Dataset | Modalities | Link |
+|---|---|---|
+| nuScenes | 6× RGB + LiDAR + radar + GPS + IMU | https://www.nuscenes.org/ |
+| RADIATE | Radar + LiDAR + stereo + GPS, all weather | https://pro.hw.ac.uk/radiate/ |
+| M3ED | Event + stereo + IMU + LiDAR + thermal | https://m3ed.io/ |
+| KITTI-360 | 360° stereo + LiDAR + GPS + IMU | https://www.cvlibs.net/datasets/kitti-360/ |
+| SubT-MRS Challenge | RGB + thermal + LiDAR + IMU + gas | https://superodometry.com/ |
+
+**How a human should learn this topic**
+
+1. **Temporal alignment first**: take any two sensor logs from the same mission and plot them together against wall-clock time. GPS and barometer both measure altitude — their curves should match after alignment. Any offset reveals a clock skew bug.
+2. **EKF on EuRoC MAV**: implement a 15-state IMU+GPS EKF in `filterpy` using the EuRoC dataset (ground truth available). Compare dead-reckoning (IMU-only) vs EKF-fused vs ground truth. The gap between IMU-only and EKF is the motivation for fusion.
+3. **Project LiDAR into camera**: open a KITTI sequence in `open3d`, apply the calibration matrix, visualise the point cloud coloured by the camera image. Verify road is grey/black, lane markings are white. This is the sanity check for extrinsic calibration.
+4. **Build a two-stream RGB+thermal detector**: train separate YOLO-nano models on FLIR ADAS RGB and thermal splits, then implement late fusion by weighting logits by validation mAP. Verify night-time mAP is higher with fusion than RGB alone.
+5. **Run BEVFusion on nuScenes**: use `mmdetection3d` BEVFusion config, run inference on 3 scenes, inspect the bird's-eye-view feature map. Camera contributes texture; LiDAR contributes geometry; fused BEV is richer than either alone.
+
+---
+
+### Step 21. YOLO11 + SAM2/3 detection and segmentation
 
 **What the local pipeline does**
 
@@ -441,7 +1517,7 @@ Start with the anchor detectors:
 
 ---
 
-### Step 10. Gemma 4 directed tracking *(new)*
+### Step 22. Gemma 4 directed tracking *(new)*
 
 **What the local pipeline does**
 
@@ -501,7 +1577,7 @@ markdown, but are not re-painted onto the tracking frames.
 
 ---
 
-### Step 11. World model video embeddings
+### Step 23. World model video embeddings
 
 **What the local pipeline does**
 
@@ -529,7 +1605,7 @@ First learn why image encoders are not enough for temporal understanding. Then s
 
 ---
 
-### Step 12. Qwen detailed captioning
+### Step 24. Qwen detailed captioning
 
 **What the local pipeline does**
 
@@ -578,7 +1654,7 @@ Study multimodal prompting, context packing, and grounding failures. Then learn 
 
 ---
 
-### Step 13. UniDriveVLA expert analysis
+### Step 25. UniDriveVLA expert analysis
 
 **What the local pipeline does**
 
@@ -630,7 +1706,7 @@ for the same timestamps and ask:
 
 ---
 
-### Step 14. Base model search test
+### Step 26. Base model search test
 
 **What the local pipeline does**
 
@@ -657,7 +1733,7 @@ Learn embedding evaluation through nearest-neighbour retrieval, not just classif
 
 ---
 
-### Step 16. SSL DINO fine-tuning
+### Step 28. SSL DINO fine-tuning
 
 **What the local pipeline does**
 
@@ -709,7 +1785,7 @@ more tightly.
 
 ---
 
-### Step 17. Knowledge distillation — maximum hydration chain
+### Step 29. Knowledge distillation — maximum hydration chain
 
 **What the local pipeline does**
 
@@ -776,7 +1852,7 @@ before and after distillation and observe how each loss term contributes.
 
 ---
 
-### Step 18. ONNX export + gallery build
+### Step 30. ONNX export + gallery build
 
 **What the local pipeline does**
 
@@ -802,7 +1878,7 @@ Learn model export, operator compatibility, dynamic versus static shapes, and ru
 
 ---
 
-### Step 19. Fine-tuned search test
+### Step 31. Fine-tuned search test
 
 **What the local pipeline does**
 
@@ -826,7 +1902,7 @@ Learn to evaluate representation changes with controlled before/after comparison
 
 ---
 
-### Step 20. Model comparison + video description
+### Step 32. Model comparison + video description
 
 **What the local pipeline does**
 
@@ -860,7 +1936,7 @@ Study prompt-set design, prompt leakage, and dataset bias in text-image similari
 
 ---
 
-### Step 21. Multi-model comparison
+### Step 33. Multi-model comparison
 
 **What the local pipeline does**
 
@@ -899,7 +1975,7 @@ reasoning models agree about the scene. Those are different questions and both m
 
 ---
 
-### Step 15. 3D map + Gaussian Splat
+### Step 27. 3D map + Gaussian Splat
 
 **What the local pipeline does**
 
@@ -928,7 +2004,7 @@ Learn camera geometry, epipolar constraints, feature matching, bundle adjustment
 
 ---
 
-### Step 22. Video synthesis
+### Step 34. Video synthesis
 
 **What the local pipeline does**
 
@@ -954,7 +2030,7 @@ Study ontology design, schema-first prompting, and evidence-backed summarization
 
 ---
 
-### Step 23. Agentic flow audit
+### Step 35. Agentic flow audit
 
 **What the local pipeline does**
 
@@ -1119,20 +2195,21 @@ the model used at each pipeline step. Read it as an engineering guide, not just 
 | 6. OCR | Adds visible-text evidence | scene-text OCR, prompt formatting for VLM OCR, prescreen logic | named entities, signs, and UI text disappear or become wrong context |
 | 7. Depth | Adds lightweight geometry | relative vs metric depth, aggregation, failure under low texture | later prompts use misleading near/far reasoning |
 | 8. Detection | Adds explicit object structure | detector calibration, open-vocabulary labels, small-object recall | entity lists become noisy and poison downstream prompts |
-| 9. YOLO + SAM | Adds fast prioritized instance structure | detector-speed tradeoffs, mask prompting, taxonomy stability | safety-relevant entities are sorted or segmented incorrectly |
-| 10. Gemma directed tracking | Uses Gemma to steer SAM + RF-DETR | vocabulary alignment, bbox prompting, track persistence | tracked-object context becomes sparse or wrong |
-| 11. World model | Adds clip-level temporal features | clip sampling, temporal embeddings, runtime fallback behavior | temporal context becomes uninterpretable or inconsistent |
-| 12. Qwen reasoning | Fuses all prior evidence per frame | prompt packing, evidence precedence, state carry-over | one wrong upstream cue propagates across multiple frames |
-| 13. UniDriveVLA expert analysis | Adds understanding/perception/planning decomposition | bridge schema stability, expert-consensus interpretation | planning or risk signals drift away from visual evidence |
-| 14/19. Retrieval tests | Quantify representation quality | controlled query selection, top-k comparison | adaptation results become untrustworthy |
-| 15. 3D mapping | Produces spatial world structure | SfM assumptions, pose quality, splat generation | geometry looks plausible but is physically wrong |
-| 16. SSL fine-tuning | Tightens domain-specific embeddings | positive-pair design, freeze schedule, collapse avoidance | adapted model overfits or improves only numerically |
-| 17. Distillation | Compresses teacher structure | teacher quality, relational loss, anchor losses | student inherits teacher bugs or loses retrieval geometry |
-| 18. ONNX export | Creates deployable runtime | export correctness, operator coverage, embedding parity | edge model diverges silently from training model |
-| 20. Video description | Produces coarse text hypothesis | prompt-bank design, CLIP text/image alignment | top-level description becomes prompt-biased |
-| 21. Multi-model comparison | Exposes disagreement across major analyzers | timestamp matching, agreement metrics, schema normalization | divergence remains hidden behind one preferred model |
-| 22. Video synthesis | Produces user-facing summary | schema-first generation, evidence selection, contradiction handling | report sounds confident but hides disagreement |
-| 23. Agentic audit | Produces system-facing reasoning trace | compact provenance prompts, timeout budgeting, risk framing | audit step falls back too often or repeats unsupported claims |
+| 9. RF analysis | Adds radio-environment signal metrics | IQ sampling theory, spectrogram computation, SNR estimation | RF link events are invisible; channel degradation frames go unflagged |
+| 10. YOLO + SAM | Adds fast prioritized instance structure | detector-speed tradeoffs, mask prompting, taxonomy stability | safety-relevant entities are sorted or segmented incorrectly |
+| 11. Gemma directed tracking | Uses Gemma to steer SAM + RF-DETR | vocabulary alignment, bbox prompting, track persistence | tracked-object context becomes sparse or wrong |
+| 12. World model | Adds clip-level temporal features | clip sampling, temporal embeddings, runtime fallback behavior | temporal context becomes uninterpretable or inconsistent |
+| 13. Qwen reasoning | Fuses all prior evidence per frame | prompt packing, evidence precedence, state carry-over | one wrong upstream cue propagates across multiple frames |
+| 14. UniDriveVLA expert analysis | Adds understanding/perception/planning decomposition | bridge schema stability, expert-consensus interpretation | planning or risk signals drift away from visual evidence |
+| 15/20. Retrieval tests | Quantify representation quality | controlled query selection, top-k comparison | adaptation results become untrustworthy |
+| 16. 3D mapping | Produces spatial world structure | SfM assumptions, pose quality, splat generation | geometry looks plausible but is physically wrong |
+| 17. SSL fine-tuning | Tightens domain-specific embeddings | positive-pair design, freeze schedule, collapse avoidance | adapted model overfits or improves only numerically |
+| 18. Distillation | Compresses teacher structure | teacher quality, relational loss, anchor losses | student inherits teacher bugs or loses retrieval geometry |
+| 19. ONNX export | Creates deployable runtime | export correctness, operator coverage, embedding parity | edge model diverges silently from training model |
+| 21. Video description | Produces coarse text hypothesis | prompt-bank design, CLIP text/image alignment | top-level description becomes prompt-biased |
+| 22. Multi-model comparison | Exposes disagreement across major analyzers | timestamp matching, agreement metrics, schema normalization | divergence remains hidden behind one preferred model |
+| 23. Video synthesis | Produces user-facing summary | schema-first generation, evidence selection, contradiction handling | report sounds confident but hides disagreement |
+| 24. Agentic audit | Produces system-facing reasoning trace | compact provenance prompts, timeout budgeting, risk framing | audit step falls back too often or repeats unsupported claims |
 
 ### How to think about model selection per step
 

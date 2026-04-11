@@ -112,31 +112,85 @@ The local full-analysis flow combines local models and sidecar-backed models for
 
 ### Local Step Order (23 steps)
 
+**Perception and analysis (Steps 1–20)**
+
 | Step | ID | Description |
 |------|----|-------------|
 | 1  | A   | Frame extraction |
-| 2  | B   | Vector store indexing |
-| 3  | J   | Gemma multimodal analysis |
+| 2  | B   | Vector store indexing (CLIP + DINOv3) |
+| 3  | J   | Gemma 4 open-weight multimodal analysis |
 | 4  | L   | Florence-2 scene captioning |
-| 5  | M   | ASR transcription |
+| 5  | M   | ASR transcription (Whisper) |
 | 6  | N   | OCR text extraction |
-| 7  | O   | Depth estimation |
-| 8  | P   | Object detection (HF) |
-| 9  | P2  | YOLO11 + SAM2/3 detection |
-| 10 | P3  | Gemma 4 directed tracking |
-| 11 | Q   | World model video embeddings |
-| 12 | R   | Qwen VLM detailed captioning |
-| 13 | S   | UniDriveVLA expert analysis |
-| 14 | C   | Base model transformation test |
-| 15 | I   | 3D map + Gaussian Splat |
-| 16 | D   | SSL DINOv3 fine-tuning |
-| 17 | E   | Knowledge distillation |
-| 18 | F   | ONNX export + gallery |
-| 19 | G   | Fine-tuned model search test |
-| 20 | H   | Model comparison |
-| 21 | T   | Multi-model comparison |
-| 22 | Z   | Video synthesis |
-| 23 | AA  | Agentic flow audit |
+| 7  | O   | Monocular depth estimation |
+| 8  | P   | Object detection (HF RT-DETR / Grounding DINO) |
+| 9  | RF  | RF / SDR electromagnetic passive sensing (TorchSig) |
+| 10 | TH  | Thermal / infrared imaging (LWIR radiometric) |
+| 11 | MS  | Multispectral / hyperspectral imaging |
+| 12 | EV  | Event camera (neuromorphic sensing) |
+| 13 | LD  | LiDAR / active ranging (ToF, FMCW) |
+| 14 | RD  | Radar (FMCW, Doppler, SAR) |
+| 15 | GS  | GNSS-R + satellite signal reception (ADS-B, AIS, NOAA APT) |
+| 16 | IM  | Inertial + barometric sensing (IMU, barometer, anemometer) |
+| 17 | AT  | Atmospheric / environmental sensing |
+| 18 | CH  | Chemical / gas / radiation sensing |
+| 19 | AC  | Acoustic sensing (mic arrays, ultrasonic, hydrophone) |
+| 20 | SF  | Sensor fusion analysis — temporal alignment, cross-modal detections, `frame_facts_json["sensor_fusion"]` |
+
+**Detection, tracking, and 3D reconstruction (Steps 21–27)**
+
+| Step | ID | Description |
+|------|----|-------------|
+| 21 | P2  | YOLO11 + SAM2/3 detection and segmentation |
+| 22 | P3  | Gemma 4 directed tracking |
+| 23 | Q   | World model video embeddings |
+| 24 | R   | Qwen VLM detailed captioning |
+| 25 | S   | UniDriveVLA expert analysis |
+| 26 | C   | Base model transformation test |
+| 27 | I   | 3D map + Gaussian Splat |
+
+**Self-supervised learning and model adaptation (Steps 28–35)**
+
+| Step | ID | Description |
+|------|----|-------------|
+| 28 | D   | SSL DINOv3 fine-tuning |
+| 29 | E   | Knowledge distillation — maximum hydration chain |
+| 30 | F   | ONNX export + gallery |
+| 31 | G   | Fine-tuned model search test |
+| 32 | H   | Model comparison + video description |
+| 33 | T   | Multi-model comparison |
+| 34 | Z   | Video synthesis |
+| 35 | AA  | Agentic flow audit |
+
+### Step SF — Sensor fusion analysis
+
+Runs after YOLO/SAM (P2) and before Gemma directed tracking (P3). Consumes sidecar files and `sensor_packets` from the current session, temporally aligns all modalities to video frame timestamps, and writes `frame_facts_json["sensor_fusion"]` for each frame.
+
+Key outputs per frame:
+
+- `modalities_present` / `modalities_missing` — which sensor streams had valid data within `REALTIME_MAX_SENSOR_LAG_MS` of the frame timestamp
+- `fusion_confidence` — geometric mean of per-modality confidence scores, penalised by `weather_factor`
+- `cross_modal_detections` — YOLO RGB detections merged with thermal detections by IoU ≥ 0.4; `cross_modal_agreement` flags objects confirmed by multiple sensors
+- `degradation_flags` — e.g. `["high_humidity", "wind_blur", "rf_shadow"]` derived from atmospheric sensor readings and RF SNR
+- `pose_source` — which navigation filter produced the frame's pose (`ekf_imu_gps`, `vins`, `orbslam3`, `gps_fallback`)
+- `pose_covariance_trace` — scalar summary of pose uncertainty; used to weight this frame's contribution to the global map
+
+Active learning integration: frames where `cross_modal_agreement = false` for any high-priority detection are escalated to `al_tag = "novel"`. Frames with `plume_proximity_m < 50` or `dose_rate_usv_h > 1.0` are hard-flagged `al_tag = "needs_annotation"` regardless of visual novelty score.
+
+Sidecar files consumed (all optional; step degrades gracefully when absent):
+
+```
+<video>.thermal.mp4       FLIR radiometric video
+<video>.env.jsonl         atmospheric sensor log (t_sec, temp_c, humidity_pct, pressure_hpa, wind_speed_ms, wind_dir_deg)
+<video>.adsb.jsonl        dump1090 aircraft list (one JSON per second)
+<video>.gnssr.bin         GNSS-R delay-Doppler maps
+<video>.lidar.bin         LiDAR point cloud (PCD or MCAP)
+<video>.gas.jsonl         gas sensor log (t_sec, co2_ppm, voc_ppm, pm25_ug_m3, dose_rate_usv_h)
+```
+
+Config env vars: `SENSOR_FUSION_ENABLED` (default `false`), `SENSOR_FUSION_MAX_LAG_MS` (default `100`), `THERMAL_MODEL` (auto-resolves to YOLO-nano fine-tuned on FLIR ADAS).
+
+See `docs/learning_path.md` Step 20 for the full fusion architecture, per-modality methods, library references, and public datasets. Steps 10–19 cover individual sensor families by physical principle.
 
 ### Step S — UniDriveVLA expert analysis
 

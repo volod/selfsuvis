@@ -387,6 +387,30 @@ class Settings:
     WORLD_MODEL_CLIP_FRAMES = _env_int("WORLD_MODEL_CLIP_FRAMES", 8)
     WORLD_MODEL_STORE_EMBED = _env("WORLD_MODEL_STORE_EMBED", "false").lower() == "true"
 
+    # ── RF signal analysis (TorchSig) ─────────────────────────────────────────
+    # Analyzes IQ recordings captured alongside mission video.
+    # Stores per-frame signal metrics in frame_facts_json["rf_signal"].
+    #
+    # IQ data sources (auto-detected, in priority order):
+    #   1. <video>.iq / <video>.bin — raw interleaved float32 I/Q
+    #   2. <video>.sigmf-data       — SigMF binary (+ matching .sigmf-meta)
+    #   3. Video audio track        — real-valued proxy (16 kHz, no SDR required)
+    #
+    # RF_SAMPLE_RATE:            ADC sample rate of the IQ capture (Hz).
+    #                            Ignored for audio proxy (rate read from WAV).
+    # RF_WINDOW_SEC:             IQ window per frame (seconds).
+    # RF_NPERSEG:                FFT segment length for spectrogram (samples).
+    # RF_CLASSIFIER_CHECKPOINT:  Path to TorchScript modulation classifier .pt.
+    #                            Leave empty to skip modulation labelling.
+    # RF_CLASSIFIER_CLASSES:     JSON list of class names matching classifier output.
+    #                            Defaults to 24-class TorchSig NarrowBand vocab.
+    RF_ENABLED = _env("RF_ENABLED", "false").lower() == "true"
+    RF_SAMPLE_RATE = _env_int("RF_SAMPLE_RATE", 1_000_000)
+    RF_WINDOW_SEC = _env_float("RF_WINDOW_SEC", 0.5)
+    RF_NPERSEG = _env_int("RF_NPERSEG", 256)
+    RF_CLASSIFIER_CHECKPOINT = _env("RF_CLASSIFIER_CHECKPOINT", "")
+    RF_CLASSIFIER_CLASSES = _env("RF_CLASSIFIER_CLASSES", "")
+
     # CVAT annotation service (http://localhost:8091 when running via make cvat-up)
     CVAT_URL = _env("CVAT_URL", "http://localhost:8091")
     # HMAC-SHA256 secret for verifying CVAT webhook payloads (X-Hook-Secret header).

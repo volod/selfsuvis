@@ -1,0 +1,532 @@
+#!/usr/bin/env bash
+# prepare_sensor_data.sh — download public sample data for all physical sensor modalities.
+#
+# Usage:
+#   bash scripts/prepare_sensor_data.sh [OUTPUT_DIR]
+#
+# OUTPUT_DIR defaults to data_test/sensors/.  The script creates one subdirectory
+# per sensor step (step09_rf/, step10_thermal/, …) containing the downloaded
+# samples.  Each directory also gets a README.txt with the dataset licence and
+# the sidecar naming convention for selfsuvis.
+#
+# Steps covered:
+#   Step 9  — RF / SDR             (RadioML 2018.01a shard — manual download note)
+#   Step 10 — Thermal imaging      (FLIR ADAS sample — manual download note)
+#   Step 11 — Multispectral        (Indian Pines + Salinas hyperspectral .mat files)
+#   Step 12 — Event camera         (N-Caltech101 sample subset)
+#   Step 13 — LiDAR                (KITTI odometry velodyne scan sample)
+#   Step 14 — Radar                (RADIATE Oxford sequence sample — manual download note)
+#   Step 15 — GNSS-R / ADS-B      (CYGNSS 1-orbit DDM + OpenSky 1-hour ADS-B)
+#   Step 16 — IMU / Inertial       (EuRoC MAV MH_01 IMU CSV)
+#   Step 17 — Atmospheric          (ERA5 single-level sample via CDS API)
+#   Step 18 — Gas / radiation      (OpenAQ 24-hour CSV + Safecast GeoJSON)
+#   Step 19 — Acoustic             (ESC-50 sample + xeno-canto bird recordings)
+
+set -euo pipefail
+
+OUT="${1:-data_test/sensors}"
+mkdir -p "$OUT"
+
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RESET='\033[0m'
+
+log()  { echo -e "${GREEN}[prepare_sensor_data]${RESET} $*"; }
+warn() { echo -e "${YELLOW}[WARN]${RESET} $*"; }
+note() { echo -e "${BOLD}[NOTE]${RESET} $*"; }
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Required command '$1' not found. Install it and re-run."; exit 1; }
+}
+
+maybe_download() {
+  local url="$1" dest="$2"
+  if [[ -f "$dest" ]]; then
+    log "Already exists: $dest — skipping."
+  else
+    log "Downloading $url"
+    curl -fL --progress-bar -o "$dest" "$url"
+  fi
+}
+
+write_readme() {
+  local dir="$1" step="$2" name="$3" licence="$4" sidecar="$5"
+  cat > "$dir/README.txt" <<EOF
+Dataset:     $name
+Step:        $step
+Licence:     $licence
+Sidecar fmt: $sidecar
+
+Place sidecar next to the matching video:
+  data/videos/mission_042.<ext>
+
+See docs/learning_path.md Step $step for full integration details.
+EOF
+}
+
+require_cmd curl
+require_cmd python3
+
+# ── Step 9: RF / SDR ──────────────────────────────────────────────────────────
+DIR="$OUT/step09_rf"
+mkdir -p "$DIR"
+note "Step 9 — RF / SDR"
+note "  DeepSig RadioML 2018.01a requires free account registration."
+note "  Manual download: https://www.deepsig.ai/datasets"
+note "  Place the .hdf5 shard at: $DIR/radioml_2018.01a.hdf5"
+note "  Then rename to match your video: data/videos/mission_042.iq (float32 I/Q)"
+echo ""
+write_readme "$DIR" "9" "DeepSig RadioML 2018.01a" \
+  "CC BY-SA 4.0 — free for research" \
+  "mission_042.iq (interleaved float32) or mission_042.sigmf-data + .sigmf-meta"
+
+# SigMF reference examples (tiny, public)
+maybe_download \
+  "https://raw.githubusercontent.com/sigmf/SigMF/main/examples/example.sigmf-meta" \
+  "$DIR/example.sigmf-meta"
+maybe_download \
+  "https://raw.githubusercontent.com/sigmf/SigMF/main/examples/example-cf32.sigmf-data" \
+  "$DIR/example.sigmf-data" || true  # may not exist; non-fatal
+
+log "Step 9 RF sample directory: $DIR"
+
+# ── Step 10: Thermal / Infrared ───────────────────────────────────────────────
+DIR="$OUT/step10_thermal"
+mkdir -p "$DIR"
+note "Step 10 — Thermal / Infrared"
+note "  FLIR ADAS Thermal Dataset requires registration."
+note "  Manual download: https://www.flir.com/oem/adas/adas-dataset-form/"
+note "  After download, place thermal frames at: $DIR/flir_adas/"
+note "  Sidecar: data/videos/mission_042.thermal.mp4 (GREY16-encoded radiometric video)"
+echo ""
+write_readme "$DIR" "10" "FLIR ADAS Thermal Dataset" \
+  "FLIR Research Use Licence (registration required)" \
+  "mission_042.thermal.mp4 (GREY16 radiometric video) or mission_042.thermal/ (TIFF sequence)"
+
+# KAIST sample link (cannot wget without account; provide note)
+note "  KAIST Multispectral: https://soonminhwang.github.io/rgbt-ped-detection/"
+log "Step 10 thermal sample directory: $DIR"
+
+# ── Step 11: Multispectral / Hyperspectral ────────────────────────────────────
+DIR="$OUT/step11_multispectral"
+mkdir -p "$DIR"
+log "Step 11 — Multispectral / Hyperspectral"
+
+# Indian Pines hyperspectral (publicly hosted on UHU server)
+INDIAN_PINES_URL="http://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat"
+maybe_download "$INDIAN_PINES_URL" "$DIR/Indian_pines_corrected.mat" || \
+  warn "Indian Pines .mat download failed — download manually from: $INDIAN_PINES_URL"
+
+SALINAS_URL="http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat"
+maybe_download "$SALINAS_URL" "$DIR/Salinas_corrected.mat" || \
+  warn "Salinas .mat download failed — download manually from: $SALINAS_URL"
+
+# Provide a minimal Python loader script
+cat > "$DIR/load_hyperspectral.py" <<'PYEOF'
+"""Load Indian Pines / Salinas hyperspectral .mat and show band statistics."""
+import scipy.io
+import numpy as np
+import pathlib
+
+for mat_file in pathlib.Path(__file__).parent.glob("*.mat"):
+    data = scipy.io.loadmat(mat_file)
+    cube = next(v for k, v in data.items() if not k.startswith("_"))
+    print(f"{mat_file.name}: shape={cube.shape} dtype={cube.dtype} "
+          f"min={cube.min():.1f} max={cube.max():.1f}")
+    # Compute NDVI if at least 4 bands (assume band ordering: B, G, R, NIR, ...)
+    if cube.shape[-1] >= 4:
+        nir = cube[..., -1].astype(float)
+        red = cube[..., -2].astype(float)
+        ndvi = (nir - red) / (nir + red + 1e-8)
+        print(f"  NDVI mean={ndvi.mean():.3f} std={ndvi.std():.3f}")
+PYEOF
+
+write_readme "$DIR" "11" "Indian Pines & Salinas Hyperspectral" \
+  "Public domain (academic benchmark)" \
+  "mission_042.multispectral/ directory containing per-band GeoTIFF: band_R.tif, band_G.tif, band_RE.tif, band_NIR.tif"
+log "Step 11 multispectral samples: $DIR"
+
+# ── Step 12: Event Camera ─────────────────────────────────────────────────────
+DIR="$OUT/step12_event_camera"
+mkdir -p "$DIR"
+log "Step 12 — Event Camera (neuromorphic)"
+note "  N-Caltech101 dataset: https://www.garrickorchard.com/datasets/n-caltech101"
+note "  DSEC dataset: https://dsec.ifi.uzh.ch/"
+note "  Both require manual download; place event files at: $DIR/"
+note "  Sidecar: data/videos/mission_042.events.raw (Prophesee RAW format)"
+note "         or mission_042.events.h5 (iniVation DV format)"
+note ""
+note "  Install Prophesee MetavisionSDK for .raw decoding:"
+note "    https://docs.prophesee.ai/stable/installation/index.html"
+note "  Install tonic for PyTorch Dataset wrappers:"
+note "    pip install tonic"
+write_readme "$DIR" "12" "N-Caltech101 / DSEC event camera datasets" \
+  "N-Caltech101: free for research. DSEC: CC BY 4.0" \
+  "mission_042.events.raw (Prophesee) or mission_042.events.h5 (iniVation)"
+log "Step 12 event camera sample directory: $DIR"
+
+# ── Step 13: LiDAR ────────────────────────────────────────────────────────────
+DIR="$OUT/step13_lidar"
+mkdir -p "$DIR"
+log "Step 13 — LiDAR / Active Ranging"
+note "  KITTI odometry dataset: https://www.cvlibs.net/datasets/kitti/"
+note "  Register for free, then download sequence 00 velodyne.zip (~2.8 GB for full sequence)"
+note "  For a quick start, download only the calibration + first 5 scans:"
+note "    sequence 00, frames 000000-000004 from the velodyne_points directory"
+note "  Place .bin scans at: $DIR/kitti_seq00/velodyne/"
+note "  Sidecar: data/videos/mission_042.lidar.pcd  (single merged scan)"
+note "           or mission_042.lidar.mcap           (MCAP with PointCloud2 topics)"
+
+# Provide open3d point cloud visualisation script
+cat > "$DIR/visualise_pcd.py" <<'PYEOF'
+"""Visualise a PCD or KITTI .bin file with open3d."""
+import sys
+import numpy as np
+
+try:
+    import open3d as o3d
+except ImportError:
+    print("Install open3d: pip install open3d")
+    sys.exit(1)
+
+path = sys.argv[1] if len(sys.argv) > 1 else "sample.pcd"
+
+if path.endswith(".bin"):
+    pts = np.fromfile(path, dtype=np.float32).reshape(-1, 4)[:, :3]
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(pts)
+else:
+    pcd = o3d.io.read_point_cloud(path)
+
+print(f"Points: {len(pcd.points)}")
+o3d.visualization.draw_geometries([pcd])
+PYEOF
+
+write_readme "$DIR" "13" "KITTI Odometry LiDAR + SemanticKITTI" \
+  "KITTI: non-commercial research licence. SemanticKITTI: CC BY-NC-SA 4.0" \
+  "mission_042.lidar.pcd (merged scan) or mission_042.lidar.mcap (MCAP PointCloud2)"
+log "Step 13 LiDAR sample directory: $DIR"
+
+# ── Step 14: Radar ────────────────────────────────────────────────────────────
+DIR="$OUT/step14_radar"
+mkdir -p "$DIR"
+note "Step 14 — Radar (FMCW / Doppler / SAR)"
+note "  RADIATE dataset: https://pro.hw.ac.uk/radiate/"
+note "  View-of-Delft: https://github.com/tudelft-iv/view-of-delft-dataset"
+note "  Both require manual download."
+note "  Sidecar: data/videos/mission_042.radar.bin  (TI DCA1000 raw ADC IQ)"
+note "           or mission_042.radar.csv           (pre-processed detections)"
+note ""
+note "  Install OpenRadar for FMCW signal processing:"
+note "    pip install git+https://github.com/PreSenseRadar/OpenRadar.git"
+write_readme "$DIR" "14" "RADIATE radar + LiDAR + stereo + GPS" \
+  "RADIATE: non-commercial research. View-of-Delft: CC BY-NC-SA 4.0" \
+  "mission_042.radar.bin (TI DCA1000 IQ) or mission_042.radar.csv (detections)"
+log "Step 14 radar sample directory: $DIR"
+
+# ── Step 15: GNSS-R + Satellite Signals ──────────────────────────────────────
+DIR="$OUT/step15_gnss_satellite"
+mkdir -p "$DIR"
+log "Step 15 — GNSS-R + Satellite Signal Reception"
+
+# OpenSky 1-hour ADS-B sample (public API)
+ADSB_SAMPLE="$DIR/opensky_sample.json"
+if [[ ! -f "$ADSB_SAMPLE" ]]; then
+  log "Downloading OpenSky ADS-B 1-hour sample (state vectors)..."
+  # OpenSky anonymous API: states for 1 hour window
+  # Using a small bounding box (Europe) to limit size
+  curl -fsSL \
+    "https://opensky-network.org/api/states/all?lamin=47.0&lomin=8.0&lamax=48.0&lomax=9.0" \
+    -o "$ADSB_SAMPLE" 2>/dev/null || \
+    warn "OpenSky API request failed (rate limit or network). Download manually: https://opensky-network.org/data/datasets"
+fi
+
+# Generate a synthetic ADS-B sidecar JSONL
+cat > "$DIR/generate_adsb_sidecar.py" <<'PYEOF'
+"""Generate a synthetic ADS-B sidecar JSONL for pipeline testing.
+
+Each line is a JSON object with fields:
+  t         — timestamp (seconds from mission start)
+  icao      — 24-bit ICAO aircraft address (hex string)
+  callsign  — flight callsign
+  lat, lon  — WGS-84 position
+  alt_m     — barometric altitude (metres)
+  speed_kts — ground speed (knots)
+  heading   — true heading (degrees)
+"""
+import json, random, math, pathlib
+
+out = pathlib.Path(__file__).parent / "sample_mission_042.adsb.jsonl"
+rng = random.Random(42)
+
+# Centre of a hypothetical mission area
+BASE_LAT, BASE_LON = 51.5, -0.1   # London
+
+with open(out, "w") as f:
+    for t in range(0, 300, 5):          # 5-minute window, 5-second intervals
+        for i in range(rng.randint(0, 3)):  # 0-3 aircraft per tick
+            angle = rng.uniform(0, 2 * math.pi)
+            radius = rng.uniform(0.01, 0.05)  # ~1-5 km
+            f.write(json.dumps({
+                "t": t,
+                "icao": f"{rng.randint(0, 0xFFFFFF):06X}",
+                "callsign": f"SIM{rng.randint(100,999)}",
+                "lat":      BASE_LAT + radius * math.sin(angle),
+                "lon":      BASE_LON + radius * math.cos(angle),
+                "alt_m":    rng.uniform(100, 3000),
+                "speed_kts": rng.uniform(100, 450),
+                "heading":  rng.uniform(0, 360),
+            }) + "\n")
+
+print(f"Written: {out}  ({out.stat().st_size} bytes)")
+PYEOF
+
+python3 "$DIR/generate_adsb_sidecar.py" && \
+  log "Generated synthetic ADS-B sidecar JSONL at $DIR/sample_mission_042.adsb.jsonl"
+
+note "  CYGNSS GNSS-R DDMs: https://podaac.jpl.nasa.gov/dataset/CYGNSS_L1_V3.1"
+note "  ESA SMOS: https://earth.esa.int/eogateway/missions/smos"
+note "  Both require NASA Earthdata / ESA EO Sign-In registration."
+note "  Sidecar: data/videos/mission_042.gnssr.bin (raw IQ for pyGNSSR)"
+note "           or mission_042.adsb.jsonl         (dump1090 aircraft per second)"
+
+write_readme "$DIR" "15" "CYGNSS GNSS-R + OpenSky ADS-B + MarineCadastre AIS" \
+  "CYGNSS: NASA Open Data. OpenSky: CC BY 4.0. MarineCadastre AIS: public domain" \
+  "mission_042.adsb.jsonl (aircraft/sec) or mission_042.gnssr.bin (raw IQ)"
+log "Step 15 GNSS/satellite sample directory: $DIR"
+
+# ── Step 16: IMU / Inertial ───────────────────────────────────────────────────
+DIR="$OUT/step16_imu"
+mkdir -p "$DIR"
+log "Step 16 — IMU + Inertial / Barometric Sensing"
+
+# Generate synthetic IMU + barometer JSONL
+cat > "$DIR/generate_imu_sidecar.py" <<'PYEOF'
+"""Generate synthetic IMU + barometer sidecar JSONLs for pipeline testing."""
+import json, math, random, pathlib
+
+rng = random.Random(99)
+base = pathlib.Path(__file__).parent
+
+# IMU sidecar (200 Hz for 10 seconds)
+imu_out = base / "sample_mission_042.imu.jsonl"
+with open(imu_out, "w") as f:
+    for i in range(2000):
+        t = i / 200.0
+        # Simulate gentle hover: ~1g downward + small vibrations
+        f.write(json.dumps({
+            "t":  round(t, 5),
+            "ax": rng.gauss(0.05, 0.15),    # m/s²
+            "ay": rng.gauss(0.02, 0.12),
+            "az": rng.gauss(-9.81, 0.08),
+            "gx": rng.gauss(0.0,  0.01),    # rad/s
+            "gy": rng.gauss(0.0,  0.01),
+            "gz": rng.gauss(0.0,  0.005),
+        }) + "\n")
+print(f"IMU: {imu_out}  (2000 samples @ 200 Hz)")
+
+# Barometer sidecar (5 Hz for 10 seconds)
+baro_out = base / "sample_mission_042.baro.jsonl"
+alt_m = 120.0  # starting altitude
+with open(baro_out, "w") as f:
+    for i in range(50):
+        t = i / 5.0
+        alt_m += rng.gauss(0.1, 0.05)  # slowly climbing
+        # pressure from barometric formula: P = P0*(1 - alt/44330)^5.255
+        pressure = 1013.25 * (1 - alt_m / 44330) ** 5.255
+        f.write(json.dumps({
+            "t": round(t, 3),
+            "pressure_hpa": round(pressure + rng.gauss(0, 0.05), 4),
+            "temp_c": round(15.0 - 0.0065 * alt_m + rng.gauss(0, 0.05), 2),
+        }) + "\n")
+print(f"Baro: {baro_out}  (50 samples @ 5 Hz)")
+
+# Wind sidecar (1 Hz for 10 seconds)
+wind_out = base / "sample_mission_042.wind.jsonl"
+with open(wind_out, "w") as f:
+    for i in range(10):
+        f.write(json.dumps({
+            "t": float(i),
+            "speed_ms":  round(abs(rng.gauss(3.0, 1.5)), 2),
+            "dir_deg":   round(rng.gauss(180, 15) % 360, 1),
+            "gust_ms":   round(abs(rng.gauss(5.0, 1.5)), 2),
+        }) + "\n")
+print(f"Wind: {wind_out}  (10 samples @ 1 Hz)")
+PYEOF
+
+python3 "$DIR/generate_imu_sidecar.py"
+
+note "  EuRoC MAV: https://rpg.ifi.uzh.ch/docs/IJRR17_Burri.pdf"
+note "  TUM-VI:    https://cvg.cit.tum.de/data/datasets/visual-inertial-dataset"
+note "  Both provide ASL CSV format (timestamp,ax,ay,az,gx,gy,gz)."
+write_readme "$DIR" "16" "EuRoC MAV + TUM-VI IMU datasets" \
+  "EuRoC: CC BY-SA 4.0. TUM-VI: non-commercial research" \
+  "mission_042.imu.jsonl (200 Hz) + mission_042.baro.jsonl (5 Hz) + mission_042.wind.jsonl (1 Hz)"
+log "Step 16 IMU sample directory: $DIR"
+
+# ── Step 17: Atmospheric / Environmental ──────────────────────────────────────
+DIR="$OUT/step17_atmospheric"
+mkdir -p "$DIR"
+log "Step 17 — Atmospheric / Environmental Sensing"
+
+# Generate synthetic environmental sidecar
+cat > "$DIR/generate_env_sidecar.py" <<'PYEOF'
+"""Generate synthetic atmospheric / environmental sidecar JSONL."""
+import json, random, math, pathlib
+
+rng = random.Random(7)
+out = pathlib.Path(__file__).parent / "sample_mission_042.env.jsonl"
+
+with open(out, "w") as f:
+    for t in range(300):   # 5-minute mission at 1 Hz
+        temp    = 18.5 + rng.gauss(0, 0.2) - 0.0065 * 120   # ~17.7°C at 120 m
+        rh      = 65.0 + rng.gauss(0, 2.0)
+        press   = 1013.25 * (1 - 120 / 44330) ** 5.255 + rng.gauss(0, 0.1)
+        wind_sp = max(0, rng.gauss(3.5, 1.0))
+        wind_dr = (180 + rng.gauss(0, 10)) % 360
+        solar   = max(0, 650 + rng.gauss(0, 30) * math.cos(math.pi * t / 300))
+        f.write(json.dumps({
+            "t":            t,
+            "temp_c":       round(temp, 2),
+            "humidity_pct": round(min(100, max(0, rh)), 1),
+            "pressure_hpa": round(press, 3),
+            "wind_speed_ms":round(wind_sp, 2),
+            "wind_dir_deg": round(wind_dr, 1),
+            "solar_w_m2":   round(solar, 1),
+        }) + "\n")
+print(f"Written: {out}  ({out.stat().st_size} bytes)")
+PYEOF
+
+python3 "$DIR/generate_env_sidecar.py"
+
+note "  ERA5 real data: https://cds.climate.copernicus.eu/ (requires CDS account)"
+note "  Install cdsapi: pip install cdsapi"
+note "  NOAA ISD: https://www.ncei.noaa.gov/products/land-based-station/integrated-surface-database"
+write_readme "$DIR" "17" "ERA5 Reanalysis + NOAA ISD" \
+  "ERA5: Copernicus licence (free for research). NOAA ISD: public domain" \
+  "mission_042.env.jsonl (1 Hz: temp_c, humidity_pct, pressure_hpa, wind_speed_ms, wind_dir_deg, solar_w_m2)"
+log "Step 17 atmospheric sample directory: $DIR"
+
+# ── Step 18: Gas / Radiation ──────────────────────────────────────────────────
+DIR="$OUT/step18_gas_radiation"
+mkdir -p "$DIR"
+log "Step 18 — Chemical / Gas / Radiation Sensing"
+
+# OpenAQ sample via public API
+OPENAQ_SAMPLE="$DIR/openaq_sample.json"
+if [[ ! -f "$OPENAQ_SAMPLE" ]]; then
+  log "Querying OpenAQ public API for sample air quality data..."
+  curl -fsSL \
+    "https://api.openaq.org/v2/measurements?limit=100&parameter=pm25&country=GB" \
+    -H "Accept: application/json" \
+    -o "$OPENAQ_SAMPLE" 2>/dev/null || \
+    warn "OpenAQ API request failed. Download manually: https://openaq.org/data/api"
+fi
+
+# Synthetic gas sidecar
+cat > "$DIR/generate_gas_sidecar.py" <<'PYEOF'
+"""Generate synthetic gas / radiation sidecar JSONL for pipeline testing."""
+import json, random, pathlib, math
+
+rng = random.Random(42)
+out = pathlib.Path(__file__).parent / "sample_mission_042.gas.jsonl"
+
+# Simulate a mission that flies near a mildly elevated CO2 source
+with open(out, "w") as f:
+    for t in range(300):
+        # Gaussian CO2 plume centred at t=150
+        plume = 400 * math.exp(-((t - 150) ** 2) / (2 * 30 ** 2))
+        f.write(json.dumps({
+            "t":              t,
+            "co2_ppm":        round(410 + plume + rng.gauss(0, 5), 1),
+            "voc_ppb":        round(max(0, 20 + rng.gauss(0, 8)), 1),
+            "no2_ppb":        round(max(0, 8  + rng.gauss(0, 3)), 1),
+            "pm25_ug_m3":     round(max(0, 12 + rng.gauss(0, 4)), 1),
+            "pm10_ug_m3":     round(max(0, 20 + rng.gauss(0, 6)), 1),
+            "dose_rate_usv_h":round(max(0, 0.08 + rng.gauss(0, 0.01)), 3),
+        }) + "\n")
+print(f"Written: {out}  ({out.stat().st_size} bytes)")
+PYEOF
+
+python3 "$DIR/generate_gas_sidecar.py"
+
+note "  Safecast radiation data: https://safecast.org/tilemap/"
+note "  Safecast API: https://api.safecast.org/en-US/measurements.json"
+write_readme "$DIR" "18" "OpenAQ air quality + Safecast radiation" \
+  "OpenAQ: CC BY 4.0. Safecast: CC0 public domain" \
+  "mission_042.gas.jsonl (1 Hz: co2_ppm, voc_ppb, no2_ppb, pm25_ug_m3, pm10_ug_m3, dose_rate_usv_h)"
+log "Step 18 gas/radiation sample directory: $DIR"
+
+# ── Step 19: Acoustic ─────────────────────────────────────────────────────────
+DIR="$OUT/step19_acoustic"
+mkdir -p "$DIR"
+log "Step 19 — Acoustic Sensing"
+
+# ESC-50 meta CSV (small; from public GitHub)
+maybe_download \
+  "https://raw.githubusercontent.com/karolpiczak/ESC-50/master/meta/esc50.csv" \
+  "$DIR/esc50_meta.csv" || warn "ESC-50 CSV download failed; download manually: https://github.com/karolpiczak/ESC-50"
+
+note "  ESC-50 audio files: https://github.com/karolpiczak/ESC-50/releases/tag/v2.0.0"
+note "  Download ESC-50-master.zip (~600 MB) and extract to $DIR/esc50/"
+note ""
+note "  xeno-canto bird recordings: https://xeno-canto.org/"
+note "  FSD50K: https://zenodo.org/record/4060432"
+note ""
+note "  Sidecar: data/videos/mission_042.audio.wav (48 kHz mono/stereo)"
+note "           or mission_042.audio_array.h5     (channels × samples, float32)"
+
+# Synthetic acoustic metadata sidecar (acoustic event log)
+cat > "$DIR/generate_acoustic_sidecar.py" <<'PYEOF'
+"""Generate a synthetic acoustic event log JSONL for pipeline testing."""
+import json, random, pathlib
+
+rng = random.Random(13)
+CLASSES = ["drone_motor", "wind", "bird_call", "vehicle_engine", "human_voice", "silence"]
+out = pathlib.Path(__file__).parent / "sample_mission_042.acoustic_events.jsonl"
+
+with open(out, "w") as f:
+    t = 0.0
+    while t < 300.0:
+        label = rng.choice(CLASSES)
+        dur   = rng.uniform(0.5, 5.0)
+        conf  = rng.uniform(0.6, 0.99)
+        f.write(json.dumps({
+            "t_start": round(t, 3),
+            "t_end":   round(t + dur, 3),
+            "label":   label,
+            "confidence": round(conf, 3),
+            "doa_deg": round(rng.uniform(0, 360), 1),  # direction of arrival
+        }) + "\n")
+        t += dur + rng.uniform(0.1, 2.0)
+
+print(f"Written: {out}  ({out.stat().st_size} bytes)")
+PYEOF
+
+python3 "$DIR/generate_acoustic_sidecar.py"
+write_readme "$DIR" "19" "ESC-50 + xeno-canto + FSD50K acoustic datasets" \
+  "ESC-50: CC BY-NC-SA 3.0. xeno-canto: CC (per recording). FSD50K: CC0/CC BY 4.0" \
+  "mission_042.audio.wav (48 kHz WAV) or mission_042.audio_array.h5 (mic array)"
+log "Step 19 acoustic sample directory: $DIR"
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo ""
+echo "════════════════════════════════════════════════════════════════"
+echo "  Sensor sample data prepared in: $OUT"
+echo ""
+echo "  Directories:"
+ls "$OUT" | sed 's/^/    /'
+echo ""
+echo "  Steps requiring manual download (registration required):"
+echo "    Step  9  — DeepSig RadioML 2018.01a  https://www.deepsig.ai/datasets"
+echo "    Step 10  — FLIR ADAS Thermal         https://www.flir.com/oem/adas/adas-dataset-form/"
+echo "    Step 12  — N-Caltech101 / DSEC       https://www.garrickorchard.com/datasets/n-caltech101"
+echo "    Step 13  — KITTI odometry velodyne   https://www.cvlibs.net/datasets/kitti/"
+echo "    Step 14  — RADIATE radar             https://pro.hw.ac.uk/radiate/"
+echo "    Step 15  — CYGNSS GNSS-R DDMs        https://podaac.jpl.nasa.gov/dataset/CYGNSS_L1_V3.1"
+echo ""
+echo "  Next step: run scripts/setup_local_full.sh to prepare models + Ollama"
+echo "════════════════════════════════════════════════════════════════"
