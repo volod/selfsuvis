@@ -17,54 +17,114 @@ make up
 Open the Streamlit UI at http://localhost:8501, upload a video or provide a URL,
 and run text or image queries.
 
+---
+
 ## Local full run (all 35 pipeline steps)
 
-One-shot bootstrap — installs environment, downloads models, pulls Ollama models,
-generates sensor sample data, and starts the Docker stack:
+Follow these steps in order — each one is a prerequisite for the next.
+
+### Step 1 — Environment variables (.env)
+
+Copy `.env.sample` to `.env` and fill in your secrets **before running anything else**.
+The setup script sources `.env` automatically.
 
 ```bash
-# Full setup (first time)
-bash scripts/setup_local_full.sh
-
-# Sensor sample data only
-bash scripts/setup_local_full.sh --sensor-data-only
-
-# Without Docker (no Qdrant / PostgreSQL)
-bash scripts/setup_local_full.sh --no-docker
-
-# Without Ollama (use direct HuggingFace weights instead)
-HF_TOKEN=<your_hf_token> bash scripts/setup_local_full.sh --no-ollama
+cp .env.sample .env
 ```
 
-After setup, the script prints the exact run command for your configuration.
-See [`docs/learning_path.md` — Local Full Run Setup](docs/learning_path.md) for the
-full step reference, sidecar file naming, and env-var configuration for each sensor step.
+Then edit `.env` and set at minimum:
 
-### Minimal run (Steps 1–9, no sidecar servers)
+```
+HF_TOKEN=hf_xxxx          # HuggingFace token — required for gated models (Gemma, Phi variants)
+```
+
+Obtain a token at https://huggingface.co/settings/tokens (Read scope), then accept
+the model licence on each model's HuggingFace page before running the setup.
+
+Without `HF_TOKEN`: Gemma runs via Ollama (pulled automatically in Step 3 of setup)
+and all non-gated models download without a token.
+
+Optional overrides in `.env` (see `.env.sample` for full reference):
+
+```
+GEMMA_API_URL=http://localhost:11434/v1   # Ollama endpoint for Gemma generative steps
+GEMMA_API_MODEL=gemma4:e4b               # model tag to use
+```
+
+### Step 2 — GPU model selection
+
+The pipeline auto-selects models based on detected VRAM. Verify your GPU, then
+decide which variant to run before starting setup.
+
+```bash
+nvidia-smi   # check VRAM
+```
+
+| VRAM | Analysis model (Steps 3, 22) | Reasoning model (Step 35) |
+|---|---|---|
+| 8 GB | `gemma4:e4b` | `qwen3:8b` |
+| 16 GB | `gemma4:e4b` | `deepseek-r1:14b` |
+| 24 GB | `gemma4:4b` | `deepseek-r1:14b` |
+| 48 GB | `gemma4:12b` | `qwen3:30b` |
+| 80 GB | `gemma4:26b` | `deepseek-r1:32b` |
+| CPU 64 GB RAM | `gemma4:4b` | `deepseek-r1:14b` |
+
+To override auto-detection (e.g. when the GPU driver is not reachable from the process):
+
+```bash
+export GPU_TOTAL_GB_HINT=16
+export GPU_FREE_GB_HINT=12
+```
+
+You can also pin specific models via `.env`:
+
+```
+GEMMA_API_MODEL=gemma4:12b
+```
+
+### Step 3 — Run setup
+
+One-shot bootstrap — creates the test data layout, downloads a test video, installs
+the Python environment, downloads model weights, pulls Ollama models, and starts Docker:
+
+```bash
+bash scripts/setup_local_full.sh
+```
+
+Common flags:
+
+```bash
+bash scripts/setup_local_full.sh --no-docker        # skip Qdrant / PostgreSQL
+bash scripts/setup_local_full.sh --no-ollama        # skip Ollama; use HF weights
+bash scripts/setup_local_full.sh --sensor-data-only # regenerate sensor sidecars only
+```
+
+After setup completes, the script prints the exact run command for your configuration.
+
+See [docs/learning_path.md](docs/learning_path.md) for the full 35-step reference,
+sidecar naming, and per-sensor env-var configuration.
+
+### Step 4 — Run the pipeline
+
+**Minimal run** (Steps 1–9, no sidecar servers needed):
 
 ```bash
 .venv/bin/python main.py --mode local \
-  --input data_test/videos/mission.mp4 \
+  --input data_test/videos/drone_mission.mp4 \
   --no-qdrant
 ```
 
-### Full run — Ollama sidecars + all sensors
+**Full run — Ollama sidecars + all sensor steps** (sensor steps on by default):
 
 ```bash
-SENSOR_FUSION_ENABLED=true \
-RF_ENABLED=true \
-THERMAL_ENABLED=true \
-LIDAR_ENABLED=true \
-GAS_ENABLED=true \
-ACOUSTIC_ENABLED=true \
-.venv/bin/python main.py --mode local \
-  --input data_test/videos/mission.mp4 \
+python main.py --mode local \
+  --input data_test/videos/drone_mission.mp4 \
   --gemma-api-url  http://localhost:11434/v1 \
   --qwen-api-url   http://localhost:11434/v1 \
   --rfdetr-model   base
 ```
 
-### Full run — vLLM sidecars (Qwen + UniDriveVLA, GPU-only)
+**Full run — vLLM sidecars** (Qwen2.5-VL + UniDriveVLA, GPU-only):
 
 ```bash
 # Terminal 1 — Qwen2.5-VL (Step 24)
@@ -79,7 +139,7 @@ python -m vllm.entrypoints.openai.api_server \
 
 # Terminal 3 — pipeline
 .venv/bin/python main.py --mode local \
-  --input data_test/videos/mission.mp4 \
+  --input data_test/videos/drone_mission.mp4 \
   --gemma-api-url    http://localhost:11434/v1 \
   --qwen-api-url     http://localhost:8010/v1 \
   --unidrive-api-url http://localhost:8030/v1
@@ -89,30 +149,11 @@ python -m vllm.entrypoints.openai.api_server \
 > vLLM 0.11+. Load Florence-2 locally; if Ollama is also running, the pipeline
 > sends `keep_alive=0` before loading Florence to free VRAM automatically.
 
-### GPU model selection
+### Sensor sidecar naming
 
-When `--gemma-api-model` / `--reasoning-model` are not specified, the pipeline
-auto-selects based on detected VRAM:
-
-| VRAM | Analysis model (Steps 3, 22) | Reasoning model (Step 35) |
-|---|---|---|
-| 8 GB | `gemma4:e4b` | `qwen3:8b` |
-| 16 GB | `gemma4:e4b` | `deepseek-r1:14b` |
-| 24 GB | `gemma4:4b` | `deepseek-r1:14b` |
-| 48 GB | `gemma4:12b` | `qwen3:30b` |
-| 80 GB | `gemma4:26b` | `deepseek-r1:32b` |
-| CPU 64 GB RAM | `gemma4:4b` | `deepseek-r1:14b` |
-
-Override VRAM detection when the driver is not reachable from the process:
-
-```bash
-export GPU_TOTAL_GB_HINT=16
-export GPU_FREE_GB_HINT=12
-```
-
-### Sensor sidecar naming convention
-
-Place each sidecar beside the video with the same basename:
+Each sidecar file sits beside the video with the same basename.
+`scripts/setup_local_full.sh` generates synthetic test sidecars automatically,
+named after the test video it downloads.
 
 ```
 data/videos/mission.mp4
@@ -132,60 +173,18 @@ data/videos/mission.gas.jsonl       # Step 18 — gas/radiation (CO2, VOC, dose 
 data/videos/mission.audio.wav       # Step 19 — acoustic (48 kHz WAV)
 ```
 
-Synthetic sample sidecars for local testing are generated by:
+To regenerate sidecars for a different video:
 
 ```bash
-bash scripts/prepare_sensor_data.sh data_test/sensors
+cp /path/to/my_mission.mp4 data_test/videos/
+bash scripts/setup_local_full.sh --sensor-data-only
 ```
 
-## 3D Gaussian Splat map (Step 27)
-
-Step 27 builds a 3D Gaussian Splat using [gsplat](https://github.com/nerfstudio-project/gsplat).
-
-**Two initialisation modes (auto-selected):**
-
-| Mode | When | Quality |
-|---|---|---|
-| `gsplat_sfm` | pycolmap installed + ≥3 SfM poses recovered | Best |
-| `gsplat_free` | pycolmap unavailable or SfM failed | Good |
-
-**Prerequisites:**
-
-```bash
-# gsplat is in requirements_prod.txt — included in make venv
-python -c "from gsplat.rendering import rasterization; print('gsplat OK')"
-```
-
-**Outputs** (in `3d_map/` per video):
-
-| File | Contents |
-|---|---|
-| `gaussian_splat.ply` | Standard 3DGS PLY — open in SuperSplat, Luma AI |
-| `view_splat.html` | Standalone browser viewer (requires local HTTP server) |
-| `sparse_map.ply` | Sparse point cloud (SfM or PCA fallback) |
-
-**Viewing:**
-
-```bash
-# Option A — drag-and-drop (no server needed):
-# Open https://playcanvas.com/supersplat/editor  →  drag gaussian_splat.ply
-
-# Option B — built-in HTML viewer:
-cd data_test/videos/<name>/3d_map/
-python -m http.server 8765
-# Open http://localhost:8765/view_splat.html
-
-# Option C — point cloud only (matplotlib, no gsplat):
-python main.py --mode local --view-npz data/local_runs/<name>/3d_map/sparse_map.npz
-```
-
-Controls: left-drag orbit · right-drag pan · scroll zoom
-
-**Skip:** `python main.py --mode local --no-gsplat`
+---
 
 ## Output artifacts
 
-For each video `<name>.mp4` the pipeline writes `<output-dir>/<name>/`:
+For each video `<name>.mp4` the pipeline writes to `<output-dir>/<name>/`:
 
 | File / Dir | Step | Contents |
 |---|---|---|
@@ -203,43 +202,30 @@ For each video `<name>.mp4` the pipeline writes `<output-dir>/<name>/`:
 | `edge_models/` | 30 | ONNX model + frame gallery for edge deployment |
 | `checkpoints/` | 28 | Fine-tuned `.pt` checkpoints |
 | `3d_map/sparse_map.ply` | 27 | Sparse SfM or PCA point cloud |
-| `3d_map/gaussian_splat.ply` | 27 | 3D Gaussian Splat (SuperSplat / HTML viewer) |
+| `3d_map/gaussian_splat.ply` | 27 | 3D Gaussian Splat — see [docs/gaussian_splat.md](docs/gaussian_splat.md) |
 | `3d_map/semantic_environment_graph.json` | 27 | YOLO SSG scene graph |
 | `gemma_tracking_results.json` | 22 | Gemma-directed tracking per frame |
 | `gemma_tracking/frame_*_tracked.jpg` | 22 | Annotated frames with RF-DETR track boxes |
 | `final_stats.md` | 35 | Per-video and aggregate statistics |
 
+---
+
 ## Docs
 
-- [Learning path & sensor reference](docs/learning_path.md)
-- [Pipeline](docs/pipeline.md)
-- [Architecture](docs/architecture.md)
-- [Configuration](docs/configuration.md)
-- [Overview](docs/overview.md)
-- [Setup](docs/setup.md)
-- [Develop](docs/develop.md)
-- [API](docs/api.md)
-- [UI](docs/ui.md)
-- [Helpers](docs/helpers.md)
-- [Examples](docs/examples.md)
-- [Data layout](docs/data_layout.md)
-- [Performance](docs/performance.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Licensing](docs/licensing.md)
-- [Tests](docs/tests.md)
-- [Architecture decisions](docs/adr/README.md)
-- [Design doc](docs/design/outdoor-autonomy-perception-stack.md)
-
-# Skils
-[kasetto](https://github.com/pivoshenko/kasetto)
-
-[YK](https://github.com/garrytan/gstack)
-/office-hours → /plan-ceo-review → /plan-eng-review → [build] → /review → /qa → /ship
-
-cloc $(git ls-files)
-
-[G](https://github.com/sickn33/antigravity-awesome-skills)
-[ACC](https://github.com/hesreallyhim/awesome-claude-code)
-[ECC](https://github.com/affaan-m/everything-claude-code)
-
-[Build](https://github.com/codecrafters-io/build-your-own-x)
+| Document | Contents |
+|---|---|
+| [Learning path & sensor reference](docs/learning_path.md) | Full 35-step walkthrough, sidecar formats, env-var reference |
+| [Pipeline](docs/pipeline.md) | Agentic pipeline architecture and data flow |
+| [Architecture](docs/architecture.md) | System components and service topology |
+| [Configuration](docs/configuration.md) | All env vars with defaults and security notes |
+| [3D Gaussian Splat map](docs/gaussian_splat.md) | Step 27 — gsplat modes, outputs, viewing |
+| [Setup](docs/setup.md) | Manual setup without the bootstrap script |
+| [API](docs/api.md) | HTTP API reference |
+| [UI](docs/ui.md) | Streamlit UI usage |
+| [Data layout](docs/data_layout.md) | Directory structure and file naming |
+| [Performance](docs/performance.md) | Latency targets and tuning |
+| [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+| [Tests](docs/tests.md) | Unit and integration test guide |
+| [Development](docs/development.md) | Contributing, code style, project conventions, workflow skills |
+| [Architecture decisions](docs/adr/README.md) | ADR log |
+| [Design doc](docs/design/outdoor-autonomy-perception-stack.md) | Original design document |

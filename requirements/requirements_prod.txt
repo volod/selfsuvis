@@ -1,6 +1,6 @@
 python-dotenv==1.0.1
-fastapi==0.110.0
-uvicorn[standard]==0.27.1
+fastapi>=0.115.0
+uvicorn[standard]>=0.27.1
 streamlit>=1.37.0
 ninja>=1.13.0
 torch==2.10.0
@@ -12,7 +12,10 @@ sam3
 sam2
 segment-anything==1.0
 rfdetr>=1.1.0
-torchsig>=0.6.0
+# torchsig PyPI releases cap at Python ≤3.11; install from git for Python 3.12+:
+#   pip install git+https://github.com/torchdsp/torchsig.git
+# rf_analyzer.py falls back to scipy/numpy spectrograms when torchsig is absent.
+# torchsig @ git+https://github.com/torchdsp/torchsig.git
 pillow>=10.2.0
 opencv-python==4.10.0.84
 numpy>=1.26.4

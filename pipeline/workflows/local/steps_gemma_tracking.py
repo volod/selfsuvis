@@ -113,8 +113,20 @@ def _gemma_structured_scene_analysis(
         "Only list objects you can clearly identify. Be concise and factual."
     )
 
-    endpoint = f"{api_url.rstrip('/')}/chat/completions"
+    # Two endpoint strategies:
+    #   1. OpenAI-compatible /v1/chat/completions with image_url content
+    #   2. Ollama native /api/chat with images[] array
+    # Thinking models (e.g. gemma4:e4b) return empty content via the OpenAI path
+    # because they emit all output as reasoning tokens.  The native Ollama path
+    # bypasses the thinking token mechanism and returns proper content.
+    base = api_url.rstrip("/")
+    openai_endpoint = f"{base}/chat/completions"
+    # Derive native Ollama base: strip trailing /v1 if present
+    ollama_base = base[:-3] if base.endswith("/v1") else base
+    ollama_endpoint = f"{ollama_base}/api/chat"
+
     per_frame_responses: List[Dict[str, Any]] = []
+    n_failed = 0
 
     for fp, _t_sec in sampled:
         try:
@@ -124,29 +136,10 @@ def _gemma_structured_scene_analysis(
             img.save(buf, format="JPEG", quality=88)
             b64 = base64.b64encode(buf.getvalue()).decode()
 
-            payload = {
-                "model": model,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                        {"type": "text", "text": structured_prompt},
-                    ],
-                }],
-                "max_tokens": 800,
-                "temperature": 0.1,
-            }
-            resp = httpx.post(endpoint, json=payload, timeout=timeout)
-            resp.raise_for_status()
-            msg = resp.json()["choices"][0]["message"]
-            content = msg.get("content") or ""
-            # Thinking models may embed the answer in reasoning when content is empty
-            if not content:
-                reasoning = msg.get("reasoning") or msg.get("thinking") or ""
-                sentences = [s.strip() for s in reasoning.replace("\n", " ").split(".")
-                             if s.strip()]
-                content = sentences[-1] if sentences else ""
+            content = _gemma_vision_request(
+                httpx, model, b64, structured_prompt,
+                openai_endpoint, ollama_endpoint, timeout,
+            )
 
             if isinstance(content, list):
                 content = " ".join(
@@ -159,18 +152,103 @@ def _gemma_structured_scene_analysis(
             if "```" in raw:
                 parts = raw.split("```")
                 raw = parts[1] if len(parts) > 1 else raw
-                if raw.startswith("json"):
+                if raw.lower().startswith("json"):
                     raw = raw[4:]
             parsed = json.loads(raw.strip())
             per_frame_responses.append(parsed)
         except Exception as exc:
-            _log.debug("  [P3/Gemma] frame structured analysis failed: %s", exc)
+            n_failed += 1
+            _log.debug("  [P3/Gemma] frame analysis failed: %s", exc)
 
     if not per_frame_responses:
-        _log.warning("  [P3/Gemma] No structured responses received — using empty scene")
+        _log.warning(
+            "  [P3/Gemma] No structured responses received (%d/%d frames failed) — "
+            "using empty scene.  Check that the model supports vision inputs.",
+            n_failed, len(sampled),
+        )
         return _empty_scene()
 
     return _aggregate_scene_responses(per_frame_responses)
+
+
+def _gemma_vision_request(
+    httpx: Any,
+    model: str,
+    b64: str,
+    prompt: str,
+    openai_endpoint: str,
+    ollama_endpoint: str,
+    timeout: float,
+) -> str:
+    """Send one image + prompt to the model; return the text content string.
+
+    Strategy:
+      1. Try the OpenAI-compatible endpoint (works for most providers).
+      2. If content is empty (thinking model — all output in *reasoning* tokens),
+         fall back to the Ollama native /api/chat endpoint which bypasses thinking
+         tokens and writes the answer directly to content.
+    """
+    import re as _re
+
+    # ── Strategy 1: OpenAI-compatible ──────────────────────────────────────────
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                {"type": "text", "text": prompt},
+            ],
+        }],
+        "max_tokens": 800,
+        "temperature": 0.1,
+    }
+    resp = httpx.post(openai_endpoint, json=payload, timeout=timeout)
+    resp.raise_for_status()
+    msg = resp.json()["choices"][0]["message"]
+    content = msg.get("content") or ""
+
+    # Flatten list-style content (some providers return [{type,text}, ...])
+    if isinstance(content, list):
+        content = " ".join(
+            p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+        )
+
+    if content.strip():
+        return content
+
+    # ── Strategy 2: Ollama native /api/chat ────────────────────────────────────
+    # gemma4 and other thinking models route all output to reasoning tokens,
+    # leaving content empty on the OpenAI path.  The native Ollama endpoint
+    # uses the images[] array format which bypasses reasoning-only mode.
+    native_payload = {
+        "model": model,
+        "stream": False,
+        "messages": [{
+            "role": "user",
+            "content": prompt,
+            "images": [b64],
+        }],
+    }
+    try:
+        native_resp = httpx.post(ollama_endpoint, json=native_payload, timeout=timeout)
+        native_resp.raise_for_status()
+        native_content = native_resp.json().get("message", {}).get("content", "")
+        if native_content.strip():
+            return native_content
+    except Exception:
+        pass  # Native endpoint not available (non-Ollama provider) — fall through
+
+    # ── Last resort: extract JSON from reasoning tokens ─────────────────────────
+    reasoning = msg.get("reasoning") or msg.get("thinking") or ""
+    if reasoning:
+        # Find the outermost {...} block in the reasoning text
+        match = _re.search(r'\{[\s\S]*\}', reasoning)
+        if match:
+            return match.group()
+
+    return ""
 
 
 def _empty_scene() -> Dict[str, Any]:

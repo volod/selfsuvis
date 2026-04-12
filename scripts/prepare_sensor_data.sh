@@ -19,7 +19,7 @@
 #   Step 15 — GNSS-R / ADS-B      (CYGNSS 1-orbit DDM + OpenSky 1-hour ADS-B)
 #   Step 16 — IMU / Inertial       (EuRoC MAV MH_01 IMU CSV)
 #   Step 17 — Atmospheric          (ERA5 single-level sample via CDS API)
-#   Step 18 — Gas / radiation      (OpenAQ 24-hour CSV + Safecast GeoJSON)
+#   Step 18 — Gas / radiation      (Open-Meteo AQI sample + Safecast GeoJSON)
 #   Step 19 — Acoustic             (ESC-50 sample + xeno-canto bird recordings)
 
 set -euo pipefail
@@ -35,6 +35,26 @@ RESET='\033[0m'
 log()  { echo -e "${GREEN}[prepare_sensor_data]${RESET} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${RESET} $*"; }
 note() { echo -e "${BOLD}[NOTE]${RESET} $*"; }
+
+# ── Video discovery: use the existing video basename as the sensor data key ───
+# Scan data_test/videos/ for a video file first.  If found, generated sidecar
+# files will share that basename so they are ready to use without renaming.
+# Falls back to "sample_mission_042" when no video is present yet.
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_REPO_ROOT="$(cd "$_SCRIPT_DIR/.." && pwd)"
+SENSOR_VIDEO_BASENAME="sample_mission_042"
+_VIDEO_DIR="$_REPO_ROOT/data_test/videos"
+if [[ -d "$_VIDEO_DIR" ]]; then
+  _FOUND="$(ls "$_VIDEO_DIR"/*.mp4 "$_VIDEO_DIR"/*.mov "$_VIDEO_DIR"/*.avi \
+              "$_VIDEO_DIR"/*.mkv 2>/dev/null | head -1 || true)"
+  if [[ -n "$_FOUND" ]]; then
+    _NAME="$(basename "$_FOUND")"
+    SENSOR_VIDEO_BASENAME="${_NAME%.*}"   # strip extension
+    log "Found video: $_FOUND"
+    log "  → sensor sidecars will use basename '${SENSOR_VIDEO_BASENAME}'"
+  fi
+fi
+export SENSOR_VIDEO_BASENAME
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -81,15 +101,29 @@ note "  Then rename to match your video: data/videos/mission_042.iq (float32 I/Q
 echo ""
 write_readme "$DIR" "9" "DeepSig RadioML 2018.01a" \
   "CC BY-SA 4.0 — free for research" \
-  "mission_042.iq (interleaved float32) or mission_042.sigmf-data + .sigmf-meta"
+  "${SENSOR_VIDEO_BASENAME}.iq (interleaved float32) or ${SENSOR_VIDEO_BASENAME}.sigmf-data + .sigmf-meta"
 
-# SigMF reference examples (tiny, public)
-maybe_download \
-  "https://raw.githubusercontent.com/sigmf/SigMF/main/examples/example.sigmf-meta" \
-  "$DIR/example.sigmf-meta"
-maybe_download \
-  "https://raw.githubusercontent.com/sigmf/SigMF/main/examples/example-cf32.sigmf-data" \
-  "$DIR/example.sigmf-data" || true  # may not exist; non-fatal
+# Generate a minimal SigMF reference meta file.
+# (The SigMF repo no longer hosts an examples/ directory — generating locally.)
+_SIGMF_META="$DIR/${SENSOR_VIDEO_BASENAME}.sigmf-meta"
+if [[ ! -f "$_SIGMF_META" ]]; then
+  python3 - "$_SIGMF_META" <<'PYEOF'
+import json, sys
+meta = {
+    "global": {
+        "core:datatype": "cf32_le",
+        "core:sample_rate": 2.4e6,
+        "core:version": "1.2.0",
+        "core:description": "Synthetic I/Q reference — selfsuvis RF sidecar"
+    },
+    "captures": [{"core:sample_start": 0, "core:frequency": 915e6}],
+    "annotations": []
+}
+with open(sys.argv[1], "w") as f:
+    json.dump(meta, f, indent=2)
+print(f"Generated: {sys.argv[1]}")
+PYEOF
+fi
 
 log "Step 9 RF sample directory: $DIR"
 
@@ -104,7 +138,7 @@ note "  Sidecar: data/videos/mission_042.thermal.mp4 (GREY16-encoded radiometric
 echo ""
 write_readme "$DIR" "10" "FLIR ADAS Thermal Dataset" \
   "FLIR Research Use Licence (registration required)" \
-  "mission_042.thermal.mp4 (GREY16 radiometric video) or mission_042.thermal/ (TIFF sequence)"
+  "${SENSOR_VIDEO_BASENAME}.thermal.mp4 (GREY16 radiometric video) or ${SENSOR_VIDEO_BASENAME}.thermal/ (TIFF sequence)"
 
 # KAIST sample link (cannot wget without account; provide note)
 note "  KAIST Multispectral: https://soonminhwang.github.io/rgbt-ped-detection/"
@@ -146,7 +180,7 @@ PYEOF
 
 write_readme "$DIR" "11" "Indian Pines & Salinas Hyperspectral" \
   "Public domain (academic benchmark)" \
-  "mission_042.multispectral/ directory containing per-band GeoTIFF: band_R.tif, band_G.tif, band_RE.tif, band_NIR.tif"
+  "${SENSOR_VIDEO_BASENAME}.multispectral/ directory containing per-band GeoTIFF: band_R.tif, band_G.tif, band_RE.tif, band_NIR.tif"
 log "Step 11 multispectral samples: $DIR"
 
 # ── Step 12: Event Camera ─────────────────────────────────────────────────────
@@ -165,7 +199,7 @@ note "  Install tonic for PyTorch Dataset wrappers:"
 note "    pip install tonic"
 write_readme "$DIR" "12" "N-Caltech101 / DSEC event camera datasets" \
   "N-Caltech101: free for research. DSEC: CC BY 4.0" \
-  "mission_042.events.raw (Prophesee) or mission_042.events.h5 (iniVation)"
+  "${SENSOR_VIDEO_BASENAME}.events.raw (Prophesee) or ${SENSOR_VIDEO_BASENAME}.events.h5 (iniVation)"
 log "Step 12 event camera sample directory: $DIR"
 
 # ── Step 13: LiDAR ────────────────────────────────────────────────────────────
@@ -207,7 +241,7 @@ PYEOF
 
 write_readme "$DIR" "13" "KITTI Odometry LiDAR + SemanticKITTI" \
   "KITTI: non-commercial research licence. SemanticKITTI: CC BY-NC-SA 4.0" \
-  "mission_042.lidar.pcd (merged scan) or mission_042.lidar.mcap (MCAP PointCloud2)"
+  "${SENSOR_VIDEO_BASENAME}.lidar.pcd (merged scan) or ${SENSOR_VIDEO_BASENAME}.lidar.mcap (MCAP PointCloud2)"
 log "Step 13 LiDAR sample directory: $DIR"
 
 # ── Step 14: Radar ────────────────────────────────────────────────────────────
@@ -224,7 +258,7 @@ note "  Install OpenRadar for FMCW signal processing:"
 note "    pip install git+https://github.com/PreSenseRadar/OpenRadar.git"
 write_readme "$DIR" "14" "RADIATE radar + LiDAR + stereo + GPS" \
   "RADIATE: non-commercial research. View-of-Delft: CC BY-NC-SA 4.0" \
-  "mission_042.radar.bin (TI DCA1000 IQ) or mission_042.radar.csv (detections)"
+  "${SENSOR_VIDEO_BASENAME}.radar.bin (TI DCA1000 IQ) or ${SENSOR_VIDEO_BASENAME}.radar.csv (detections)"
 log "Step 14 radar sample directory: $DIR"
 
 # ── Step 15: GNSS-R + Satellite Signals ──────────────────────────────────────
@@ -257,9 +291,10 @@ Each line is a JSON object with fields:
   speed_kts — ground speed (knots)
   heading   — true heading (degrees)
 """
-import json, random, math, pathlib
+import json, random, math, pathlib, sys
 
-out = pathlib.Path(__file__).parent / "sample_mission_042.adsb.jsonl"
+_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
+out = pathlib.Path(__file__).parent / f"{_BASE}.adsb.jsonl"
 rng = random.Random(42)
 
 # Centre of a hypothetical mission area
@@ -284,8 +319,8 @@ with open(out, "w") as f:
 print(f"Written: {out}  ({out.stat().st_size} bytes)")
 PYEOF
 
-python3 "$DIR/generate_adsb_sidecar.py" && \
-  log "Generated synthetic ADS-B sidecar JSONL at $DIR/sample_mission_042.adsb.jsonl"
+python3 "$DIR/generate_adsb_sidecar.py" "$SENSOR_VIDEO_BASENAME" && \
+  log "Generated synthetic ADS-B sidecar JSONL at $DIR/${SENSOR_VIDEO_BASENAME}.adsb.jsonl"
 
 note "  CYGNSS GNSS-R DDMs: https://podaac.jpl.nasa.gov/dataset/CYGNSS_L1_V3.1"
 note "  ESA SMOS: https://earth.esa.int/eogateway/missions/smos"
@@ -295,7 +330,7 @@ note "           or mission_042.adsb.jsonl         (dump1090 aircraft per second
 
 write_readme "$DIR" "15" "CYGNSS GNSS-R + OpenSky ADS-B + MarineCadastre AIS" \
   "CYGNSS: NASA Open Data. OpenSky: CC BY 4.0. MarineCadastre AIS: public domain" \
-  "mission_042.adsb.jsonl (aircraft/sec) or mission_042.gnssr.bin (raw IQ)"
+  "${SENSOR_VIDEO_BASENAME}.adsb.jsonl (aircraft/sec) or ${SENSOR_VIDEO_BASENAME}.gnssr.bin (raw IQ)"
 log "Step 15 GNSS/satellite sample directory: $DIR"
 
 # ── Step 16: IMU / Inertial ───────────────────────────────────────────────────
@@ -306,13 +341,14 @@ log "Step 16 — IMU + Inertial / Barometric Sensing"
 # Generate synthetic IMU + barometer JSONL
 cat > "$DIR/generate_imu_sidecar.py" <<'PYEOF'
 """Generate synthetic IMU + barometer sidecar JSONLs for pipeline testing."""
-import json, math, random, pathlib
+import json, math, random, pathlib, sys
 
+_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
 rng = random.Random(99)
 base = pathlib.Path(__file__).parent
 
 # IMU sidecar (200 Hz for 10 seconds)
-imu_out = base / "sample_mission_042.imu.jsonl"
+imu_out = base / f"{_BASE}.imu.jsonl"
 with open(imu_out, "w") as f:
     for i in range(2000):
         t = i / 200.0
@@ -329,7 +365,7 @@ with open(imu_out, "w") as f:
 print(f"IMU: {imu_out}  (2000 samples @ 200 Hz)")
 
 # Barometer sidecar (5 Hz for 10 seconds)
-baro_out = base / "sample_mission_042.baro.jsonl"
+baro_out = base / f"{_BASE}.baro.jsonl"
 alt_m = 120.0  # starting altitude
 with open(baro_out, "w") as f:
     for i in range(50):
@@ -345,7 +381,7 @@ with open(baro_out, "w") as f:
 print(f"Baro: {baro_out}  (50 samples @ 5 Hz)")
 
 # Wind sidecar (1 Hz for 10 seconds)
-wind_out = base / "sample_mission_042.wind.jsonl"
+wind_out = base / f"{_BASE}.wind.jsonl"
 with open(wind_out, "w") as f:
     for i in range(10):
         f.write(json.dumps({
@@ -357,14 +393,14 @@ with open(wind_out, "w") as f:
 print(f"Wind: {wind_out}  (10 samples @ 1 Hz)")
 PYEOF
 
-python3 "$DIR/generate_imu_sidecar.py"
+python3 "$DIR/generate_imu_sidecar.py" "$SENSOR_VIDEO_BASENAME"
 
 note "  EuRoC MAV: https://rpg.ifi.uzh.ch/docs/IJRR17_Burri.pdf"
 note "  TUM-VI:    https://cvg.cit.tum.de/data/datasets/visual-inertial-dataset"
 note "  Both provide ASL CSV format (timestamp,ax,ay,az,gx,gy,gz)."
 write_readme "$DIR" "16" "EuRoC MAV + TUM-VI IMU datasets" \
   "EuRoC: CC BY-SA 4.0. TUM-VI: non-commercial research" \
-  "mission_042.imu.jsonl (200 Hz) + mission_042.baro.jsonl (5 Hz) + mission_042.wind.jsonl (1 Hz)"
+  "${SENSOR_VIDEO_BASENAME}.imu.jsonl (200 Hz) + ${SENSOR_VIDEO_BASENAME}.baro.jsonl (5 Hz) + ${SENSOR_VIDEO_BASENAME}.wind.jsonl (1 Hz)"
 log "Step 16 IMU sample directory: $DIR"
 
 # ── Step 17: Atmospheric / Environmental ──────────────────────────────────────
@@ -375,10 +411,11 @@ log "Step 17 — Atmospheric / Environmental Sensing"
 # Generate synthetic environmental sidecar
 cat > "$DIR/generate_env_sidecar.py" <<'PYEOF'
 """Generate synthetic atmospheric / environmental sidecar JSONL."""
-import json, random, math, pathlib
+import json, random, math, pathlib, sys
 
+_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
 rng = random.Random(7)
-out = pathlib.Path(__file__).parent / "sample_mission_042.env.jsonl"
+out = pathlib.Path(__file__).parent / f"{_BASE}.env.jsonl"
 
 with open(out, "w") as f:
     for t in range(300):   # 5-minute mission at 1 Hz
@@ -400,14 +437,14 @@ with open(out, "w") as f:
 print(f"Written: {out}  ({out.stat().st_size} bytes)")
 PYEOF
 
-python3 "$DIR/generate_env_sidecar.py"
+python3 "$DIR/generate_env_sidecar.py" "$SENSOR_VIDEO_BASENAME"
 
 note "  ERA5 real data: https://cds.climate.copernicus.eu/ (requires CDS account)"
 note "  Install cdsapi: pip install cdsapi"
 note "  NOAA ISD: https://www.ncei.noaa.gov/products/land-based-station/integrated-surface-database"
 write_readme "$DIR" "17" "ERA5 Reanalysis + NOAA ISD" \
   "ERA5: Copernicus licence (free for research). NOAA ISD: public domain" \
-  "mission_042.env.jsonl (1 Hz: temp_c, humidity_pct, pressure_hpa, wind_speed_ms, wind_dir_deg, solar_w_m2)"
+  "${SENSOR_VIDEO_BASENAME}.env.jsonl (1 Hz: temp_c, humidity_pct, pressure_hpa, wind_speed_ms, wind_dir_deg, solar_w_m2)"
 log "Step 17 atmospheric sample directory: $DIR"
 
 # ── Step 18: Gas / Radiation ──────────────────────────────────────────────────
@@ -415,24 +452,28 @@ DIR="$OUT/step18_gas_radiation"
 mkdir -p "$DIR"
 log "Step 18 — Chemical / Gas / Radiation Sensing"
 
-# OpenAQ sample via public API
-OPENAQ_SAMPLE="$DIR/openaq_sample.json"
-if [[ ! -f "$OPENAQ_SAMPLE" ]]; then
-  log "Querying OpenAQ public API for sample air quality data..."
-  curl -fsSL \
-    "https://api.openaq.org/v2/measurements?limit=100&parameter=pm25&country=GB" \
-    -H "Accept: application/json" \
-    -o "$OPENAQ_SAMPLE" 2>/dev/null || \
-    warn "OpenAQ API request failed. Download manually: https://openaq.org/data/api"
+# Real air quality reference sample — Open-Meteo (free, no API key required).
+# Fetches the last 24 hours of hourly PM2.5, PM10, NO2, CO, and ozone for London.
+# If the request fails (offline / rate-limited) we skip silently; the synthetic
+# sidecar below is sufficient for pipeline testing.
+_AQI_SAMPLE="$DIR/openmeteo_aqi_sample.json"
+if [[ ! -f "$_AQI_SAMPLE" ]]; then
+  log "Fetching Open-Meteo air quality sample (no API key required)..."
+  curl -fsSL --max-time 15 \
+    "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=51.5074&longitude=-0.1278&hourly=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,ozone&timezone=Europe%2FLondon&past_days=1" \
+    -o "$_AQI_SAMPLE" 2>/dev/null \
+    && log "  Open-Meteo AQI sample saved: $_AQI_SAMPLE" \
+    || log "  Open-Meteo request skipped (offline or rate-limited) — synthetic data used."
 fi
 
 # Synthetic gas sidecar
 cat > "$DIR/generate_gas_sidecar.py" <<'PYEOF'
 """Generate synthetic gas / radiation sidecar JSONL for pipeline testing."""
-import json, random, pathlib, math
+import json, random, pathlib, math, sys
 
+_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
 rng = random.Random(42)
-out = pathlib.Path(__file__).parent / "sample_mission_042.gas.jsonl"
+out = pathlib.Path(__file__).parent / f"{_BASE}.gas.jsonl"
 
 # Simulate a mission that flies near a mildly elevated CO2 source
 with open(out, "w") as f:
@@ -451,13 +492,14 @@ with open(out, "w") as f:
 print(f"Written: {out}  ({out.stat().st_size} bytes)")
 PYEOF
 
-python3 "$DIR/generate_gas_sidecar.py"
+python3 "$DIR/generate_gas_sidecar.py" "$SENSOR_VIDEO_BASENAME"
 
+note "  Open-Meteo air quality (free, no key): https://open-meteo.com/en/docs/air-quality-api"
 note "  Safecast radiation data: https://safecast.org/tilemap/"
 note "  Safecast API: https://api.safecast.org/en-US/measurements.json"
-write_readme "$DIR" "18" "OpenAQ air quality + Safecast radiation" \
-  "OpenAQ: CC BY 4.0. Safecast: CC0 public domain" \
-  "mission_042.gas.jsonl (1 Hz: co2_ppm, voc_ppb, no2_ppb, pm25_ug_m3, pm10_ug_m3, dose_rate_usv_h)"
+write_readme "$DIR" "18" "Open-Meteo air quality + Safecast radiation" \
+  "Open-Meteo: CC BY 4.0 (open data). Safecast: CC0 public domain" \
+  "${SENSOR_VIDEO_BASENAME}.gas.jsonl (1 Hz: co2_ppm, voc_ppb, no2_ppb, pm25_ug_m3, pm10_ug_m3, dose_rate_usv_h)"
 log "Step 18 gas/radiation sample directory: $DIR"
 
 # ── Step 19: Acoustic ─────────────────────────────────────────────────────────
@@ -482,11 +524,12 @@ note "           or mission_042.audio_array.h5     (channels × samples, float32
 # Synthetic acoustic metadata sidecar (acoustic event log)
 cat > "$DIR/generate_acoustic_sidecar.py" <<'PYEOF'
 """Generate a synthetic acoustic event log JSONL for pipeline testing."""
-import json, random, pathlib
+import json, random, pathlib, sys
 
+_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
 rng = random.Random(13)
 CLASSES = ["drone_motor", "wind", "bird_call", "vehicle_engine", "human_voice", "silence"]
-out = pathlib.Path(__file__).parent / "sample_mission_042.acoustic_events.jsonl"
+out = pathlib.Path(__file__).parent / f"{_BASE}.acoustic_events.jsonl"
 
 with open(out, "w") as f:
     t = 0.0
@@ -506,10 +549,10 @@ with open(out, "w") as f:
 print(f"Written: {out}  ({out.stat().st_size} bytes)")
 PYEOF
 
-python3 "$DIR/generate_acoustic_sidecar.py"
+python3 "$DIR/generate_acoustic_sidecar.py" "$SENSOR_VIDEO_BASENAME"
 write_readme "$DIR" "19" "ESC-50 + xeno-canto + FSD50K acoustic datasets" \
   "ESC-50: CC BY-NC-SA 3.0. xeno-canto: CC (per recording). FSD50K: CC0/CC BY 4.0" \
-  "mission_042.audio.wav (48 kHz WAV) or mission_042.audio_array.h5 (mic array)"
+  "${SENSOR_VIDEO_BASENAME}.audio.wav (48 kHz WAV) or ${SENSOR_VIDEO_BASENAME}.audio_array.h5 (mic array)"
 log "Step 19 acoustic sample directory: $DIR"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -519,6 +562,8 @@ echo "  Sensor sample data prepared in: $OUT"
 echo ""
 echo "  Directories:"
 ls "$OUT" | sed 's/^/    /'
+echo ""
+echo "  Video basename used for sensor sidecars: ${SENSOR_VIDEO_BASENAME}"
 echo ""
 echo "  Steps requiring manual download (registration required):"
 echo "    Step  9  — DeepSig RadioML 2018.01a  https://www.deepsig.ai/datasets"

@@ -66,7 +66,7 @@ def _detect_backend() -> str:
         return _BACKEND_SAM2
     if cfg in ("sam1", "sam", "segment-anything"):
         return _BACKEND_SAM1
-    # Auto-detect by import availability
+    # Auto-detect by import availability (sam3 preferred, sam2 fallback)
     try:
         import sam3  # type: ignore[import]  # noqa: F401
         return _BACKEND_SAM3
@@ -79,7 +79,16 @@ def _detect_backend() -> str:
         pass
     try:
         import segment_anything  # type: ignore[import]  # noqa: F401
-        return _BACKEND_SAM1
+        # SAM1 requires a manually downloaded checkpoint file.  Without it the
+        # backend cannot load, so treat an unconfigured SAM1 the same as "not
+        # installed" rather than advertising it and then logging a WARNING.
+        if settings.SAM_CHECKPOINT:
+            return _BACKEND_SAM1
+        logger.debug(
+            "segment_anything installed but SAM_CHECKPOINT is not set — "
+            "SAM disabled. Set SAM_CHECKPOINT to a .pth file to enable SAM1, "
+            "or install the sam2/sam3 package for checkpoint-free loading."
+        )
     except ImportError:
         pass
     return _BACKEND_NONE
@@ -173,7 +182,7 @@ class SAMPredictor:
             return None
         try:
             self._predictor = self._load_predictor(backend)
-            logger.info("SAM predictor ready (backend=%s)", backend)
+            logger.info("SAM predictor ready (backend=%s)", self._backend)
         except Exception as exc:
             logger.warning("SAM load failed (backend=%s): %s", backend, exc)
             self._load_failed = True

@@ -35,9 +35,6 @@ def write_search_md(
     results: List[Dict[str, Any]],
     query_t_sec: float,
 ) -> None:
-    if output_path.exists():
-        _log.info("  Skipping %s (already exists)", output_path.name)
-        return
     lines = [
         f"# {model_label} Transformation Test — {video_name}",
         f"",

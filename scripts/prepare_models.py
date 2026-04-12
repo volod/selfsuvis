@@ -470,12 +470,105 @@ def _is_yolo_cached(model_id: str) -> bool:
     return (Path.home() / ".cache" / "ultralytics" / model_file).exists()
 
 
+def _sam3_accessible() -> bool:
+    """Return True only if the SAM3 gated repo files are accessible with the current token.
+
+    model_info() is not sufficient — the model card metadata is public even when
+    files are gated.  We probe by attempting to fetch a tiny sentinel file which
+    hits the same auth gate as the full snapshot.
+    """
+    try:
+        from huggingface_hub import hf_hub_download
+        hf_hub_download(
+            repo_id="facebook/sam3",
+            filename="model_index.json",
+            local_files_only=False,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _sam3_dialog() -> str:
+    """Interactive prompt shown when SAM3 access is not granted.
+
+    Prints instructions, then asks the user what to do next.
+    Returns one of: 'retry' | 'sam2' | 'skip'.
+
+    When stdin is not a TTY (CI, piped output) the function returns 'sam2'
+    immediately so the setup script never blocks.
+    """
+    import sys
+
+    # Non-interactive path — auto-continue without blocking.
+    if not sys.stdin.isatty():
+        return "sam2"
+
+    print()
+    print("  ┌─ SAM3 — gated model ───────────────────────────────────────────┐")
+    print("  │  facebook/sam3 requires HuggingFace access approval.           │")
+    print("  │                                                                 │")
+    print("  │  To unlock SAM3:                                                │")
+    print("  │    1. Visit  https://huggingface.co/facebook/sam3              │")
+    print("  │    2. Click 'Access repository' and accept the licence          │")
+    print("  │    3. Make sure HF_TOKEN is set in .env (Read scope)            │")
+    print("  │    4. Choose [r] Retry below                                    │")
+    print("  │                                                                 │")
+    print("  │  SAM2 (facebook/sam2-hiera-large) is a fully open fallback.    │")
+    print("  └─────────────────────────────────────────────────────────────────┘")
+    print()
+    print("  [s]  Use SAM2 fallback  (default)")
+    print("  [r]  Retry              (after granting access in another tab)")
+    print("  [x]  Skip SAM entirely")
+    print()
+
+    while True:
+        try:
+            raw = input("  Choice [s/r/x]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return "sam2"
+        choice = raw or "s"
+        if choice in ("s", "sam2"):
+            return "sam2"
+        if choice in ("r", "retry"):
+            return "retry"
+        if choice in ("x", "skip"):
+            return "skip"
+        print("  Please enter s, r, or x.")
+
+
 def _download_sam(model_id: str) -> None:
-    """Download SAM3 (or SAM2 fallback) weights from HuggingFace Hub."""
+    """Download SAM3 (or SAM2 fallback) weights from HuggingFace Hub.
+
+    SAM3 is a gated model.  When access is not granted the function shows an
+    interactive dialog (TTY) or auto-continues with SAM2 (non-interactive).
+    """
+    SAM2_FALLBACK = "facebook/sam2-hiera-large"
+    is_sam3 = "sam3" in model_id.lower()
+
+    # For SAM3: probe file access before triggering an expensive snapshot
+    # download that would fail with a confusing 403 partway through.
+    if is_sam3 and not _is_hf_cached(model_id):
+        while not _sam3_accessible():
+            action = _sam3_dialog()
+            if action == "retry":
+                log.info("  Re-checking SAM3 access …")
+                continue          # loop back to _sam3_accessible()
+            elif action == "skip":
+                log.info("SAM — skipped by user choice.")
+                return
+            else:                 # 'sam2'
+                log.info("SAM — using %s (SAM3 access not granted)", SAM2_FALLBACK)
+                model_id = SAM2_FALLBACK
+                is_sam3 = False
+                break
+
     log.info("SAM — model=%s", model_id)
     if _is_hf_cached(model_id):
         log.info("  ✓ SAM already cached — skipping load")
         return
+
     t0 = time.monotonic()
     try:
         from huggingface_hub import snapshot_download
@@ -485,18 +578,15 @@ def _download_sam(model_id: str) -> None:
         )
         log.info("  ✓ SAM ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
     except Exception as exc:
-        if "sam3" in model_id.lower():
-            fallback = "facebook/sam2-hiera-large"
-            log.warning(
-                "  SAM3 download failed (%s) — falling back to %s", exc, fallback
-            )
-            if _is_hf_cached(fallback):
+        if is_sam3:
+            log.info("  SAM3 download failed — falling back to %s", SAM2_FALLBACK)
+            if _is_hf_cached(SAM2_FALLBACK):
                 log.info("  ✓ SAM2 fallback already cached — skipping download")
                 return
             try:
                 from huggingface_hub import snapshot_download as _sd
                 local_dir = _sd(
-                    repo_id=fallback,
+                    repo_id=SAM2_FALLBACK,
                     ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
                 )
                 log.info(
@@ -912,7 +1002,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sam-model", default="facebook/sam3", metavar="MODEL_ID",
                    help=(
                        "SAM model repo ID to cache. "
-                       "Default: facebook/sam3 (falls back to facebook/sam2-hiera-large). "
+                       "Default: facebook/sam3 (falls back to facebook/sam2-hiera-large if access not granted). "
                        "Options: facebook/sam3 | facebook/sam2-hiera-large | "
                        "facebook/sam2-hiera-base-plus"
                    ))

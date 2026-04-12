@@ -130,7 +130,12 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> None:
     """Move CLIP and DINO backbones back to *device* after a large model releases."""
     _log_vram_snapshot(f"before restore models to {device}")
     import gc
+    import os as _os
     import torch as _torch
+    # Expandable segments let the allocator grow existing blocks rather than
+    # searching for a new contiguous region — eliminates most fragmentation OOMs
+    # when moving models on/off GPU between pipeline steps.
+    _os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
     # Free any GPU memory held by objects that were just released before trying to
     # restore the backbones — prevents partial moves caused by transient OOM.
     gc.collect()
@@ -145,17 +150,25 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> None:
             try:
                 backbone.to(device)
             except RuntimeError as exc:
-                # If OOM halfway through .to(), the model is in a mixed-device
-                # state (some params on GPU, others on CPU).  Roll back to a
-                # coherent CPU state and log clearly rather than silently failing.
-                _log.warning(
-                    "  Could not move %s backbone to %s (%s) — rolling back to CPU",
-                    key, device, exc,
-                )
+                # OOM mid-.to() leaves the model in a mixed-device state.
+                # Roll back to CPU first (releases all partially-moved params),
+                # flush the allocator, then retry once — transient fragmentation
+                # clears after the rollback frees the contiguous blocks it needs.
                 try:
                     backbone.cpu()
                 except Exception:
                     pass
+                gc.collect()
+                if _torch.cuda.is_available():
+                    _torch.cuda.empty_cache()
+                try:
+                    backbone.to(device)
+                    _log.debug("  %s backbone moved to %s (retry succeeded)", key, device)
+                except RuntimeError:
+                    _log.warning(
+                        "  Could not move %s backbone to %s (%s) — staying on CPU",
+                        key, device, exc,
+                    )
     try:
         from models.dino_model import _set_dino_xformers_enabled
         _set_dino_xformers_enabled(str(device).startswith("cuda"))

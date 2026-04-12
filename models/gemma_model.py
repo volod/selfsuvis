@@ -195,13 +195,29 @@ class GemmaEmbedder:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _move_inputs_to_device(self, inputs):
-        """Move tensor-like processor outputs to the configured device."""
+    def _input_device(self) -> "torch.device":
+        """Device where the model's embedding layer lives.
+
+        With ``device_map`` (accelerate), individual layers may be placed on
+        different devices.  Inputs must land on the *embedding* layer's device;
+        accelerate's forward hooks move intermediate activations from there
+        automatically.  Sending inputs to ``self._device`` (e.g. ``cuda:0``)
+        when the embedding weight is still on CPU causes the
+        ``index on cuda / weight on cpu`` mismatch that shows up as a warning.
+        """
         try:
-            return inputs.to(self._device)
+            return next(self.model.get_input_embeddings().parameters()).device
+        except Exception:
+            return self._torch.device(self._device)
+
+    def _move_inputs_to_device(self, inputs):
+        """Move tensor-like processor outputs to the embedding layer's device."""
+        target = self._input_device()
+        try:
+            return inputs.to(target)
         except Exception:
             return {
-                k: v.to(self._device) if hasattr(v, "to") else v
+                k: v.to(target) if hasattr(v, "to") else v
                 for k, v in inputs.items()
             }
 
@@ -306,8 +322,9 @@ class GemmaEmbedder:
                 max_length=16,
             )
 
+        target = self._input_device()
         inputs = {
-            k: v.to(self._device) for k, v in inputs.items()
+            k: v.to(target) for k, v in inputs.items()
             if isinstance(v, self._torch.Tensor)
         }
 
@@ -352,7 +369,8 @@ class GemmaEmbedder:
             truncation=True,
             max_length=_MAX_TEXT_TOKENS,
         )
-        inputs = {k: v.to(self._device) for k, v in inputs.items()
+        target = self._input_device()
+        inputs = {k: v.to(target) for k, v in inputs.items()
                   if isinstance(v, self._torch.Tensor)}
 
         with self._torch.no_grad():

@@ -404,12 +404,41 @@ class Settings:
     #                            Leave empty to skip modulation labelling.
     # RF_CLASSIFIER_CLASSES:     JSON list of class names matching classifier output.
     #                            Defaults to 24-class TorchSig NarrowBand vocab.
-    RF_ENABLED = _env("RF_ENABLED", "false").lower() == "true"
+    RF_ENABLED = _env("RF_ENABLED", "true").lower() == "true"
     RF_SAMPLE_RATE = _env_int("RF_SAMPLE_RATE", 1_000_000)
     RF_WINDOW_SEC = _env_float("RF_WINDOW_SEC", 0.5)
     RF_NPERSEG = _env_int("RF_NPERSEG", 256)
     RF_CLASSIFIER_CHECKPOINT = _env("RF_CLASSIFIER_CHECKPOINT", "")
     RF_CLASSIFIER_CLASSES = _env("RF_CLASSIFIER_CLASSES", "")
+
+    # ── Sensor fusion ─────────────────────────────────────────────────────────────
+    # Enable the multi-modal sensor fusion step (fuses THERMAL, LIDAR, GAS,
+    # ACOUSTIC readings with visual detections into a unified frame_facts_json entry).
+    # SENSOR_FUSION_MAX_LAG_MS: max timestamp skew for cross-sensor alignment.
+    SENSOR_FUSION_ENABLED = _env("SENSOR_FUSION_ENABLED", "true").lower() == "true"
+    SENSOR_FUSION_MAX_LAG_MS = _env_int("SENSOR_FUSION_MAX_LAG_MS", 100)
+
+    # ── Thermal (FLIR / LWIR cameras) ────────────────────────────────────────────
+    # When enabled the pipeline will attempt to load a YOLO-nano fine-tuned on the
+    # FLIR ADAS thermal dataset (auto-downloaded from HuggingFace on first run).
+    # THERMAL_MODEL: HuggingFace model ID or local path to a YOLO .pt checkpoint.
+    THERMAL_ENABLED = _env("THERMAL_ENABLED", "true").lower() == "true"
+    THERMAL_MODEL = _env("THERMAL_MODEL", "")
+
+    # ── LiDAR (3-D point-cloud fusion) ───────────────────────────────────────────
+    # Fuses LiDAR point-cloud data (if available alongside the video) into depth
+    # estimates per detected object.  Expects a matching .pcd / .bin sidecar file.
+    LIDAR_ENABLED = _env("LIDAR_ENABLED", "true").lower() == "true"
+
+    # ── Gas / chemical sensors ────────────────────────────────────────────────────
+    # Reads gas sensor readings from a CSV sidecar file and annotates frames with
+    # hazard levels (CO₂, CH₄, VOC, etc.).
+    GAS_ENABLED = _env("GAS_ENABLED", "true").lower() == "true"
+
+    # ── Acoustic sensors ──────────────────────────────────────────────────────────
+    # Runs audio event detection on the video audio track (or a separate WAV
+    # sidecar).  Annotates frames with detected events (gunshot, siren, alarm…).
+    ACOUSTIC_ENABLED = _env("ACOUSTIC_ENABLED", "true").lower() == "true"
 
     # CVAT annotation service (http://localhost:8091 when running via make cvat-up)
     CVAT_URL = _env("CVAT_URL", "http://localhost:8091")
