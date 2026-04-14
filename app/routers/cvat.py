@@ -17,6 +17,8 @@ Annotation workflow:
   4. Annotate frames in CVAT, mark job as completed.
   5. CVAT fires POST /webhook/cvat  → frames updated to al_tag='annotated'.
 """
+from __future__ import annotations
+
 import hashlib
 import hmac
 import json

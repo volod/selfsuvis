@@ -83,7 +83,7 @@ Sidecar fmt: $sidecar
 Place sidecar next to the matching video:
   data/videos/mission_042.<ext>
 
-See docs/learning_path.md Step $step for full integration details.
+See local_path.md and docs/learning_path/03_sensor_steps_09_20.md for full integration details.
 EOF
 }
 

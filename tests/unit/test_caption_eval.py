@@ -209,14 +209,13 @@ def test_automation_roi_includes_caption_null_rate(admin_client):
         [],  # finetune job rows
     ])
 
-    pool = MagicMock()
-    pool.acquire = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=conn),
-        __aexit__=AsyncMock(return_value=False),
-    ))
+    conn.close = AsyncMock()
 
-    with patch("app.routers.admin.get_db_pool", return_value=pool):
-        resp = admin_client.get("/admin/automation-roi")
+    with patch("app.routers.admin.asyncpg") as mock_asyncpg:
+        mock_asyncpg.connect = AsyncMock(return_value=conn)
+        with patch("app.routers.admin.settings") as mock_settings:
+            mock_settings.DATABASE_URL = "postgresql://fake/db"
+            resp = admin_client.get("/admin/automation-roi")
 
     assert resp.status_code == 200
     data = resp.json()

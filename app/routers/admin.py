@@ -24,6 +24,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+import asyncpg
+
 from app.db import get_db_pool
 from app.deps import rate_limit, require_api_key
 from pipeline.core import settings
@@ -242,6 +244,9 @@ async def admin_stats(request: Request) -> Dict[str, Any]:
 # crossings and not manually kicking off reembed sweeps.
 
 _MANUAL_RESTART_MINUTES = 3  # estimated time per manual `docker restart api`
+_LOW_FREQUENCY_THRESHOLD = 0.5   # annotations/week below which automation may not be worth it
+_HIGH_FREQUENCY_THRESHOLD = 2.0  # annotations/week above which automation is clearly valuable
+_MIN_OBSERVATION_DAYS = 7        # minimum days before frequency verdict is meaningful
 
 
 async def _compute_caption_null_rate(conn) -> Optional[float]:
@@ -265,8 +270,77 @@ async def _compute_caption_null_rate(conn) -> Optional[float]:
     return row["null_count"] / row["captionable_total"]
 
 
+async def _fetch_roi_raw_data(conn) -> Dict[str, Any]:
+    """Collect all raw ROI metrics from the DB in a single connection."""
+    import json as _json
+
+    total_annotated = await conn.fetchval(
+        "SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'"
+    ) or 0
+    timeline = await conn.fetchrow(
+        "SELECT MIN(created_at) AS first_at, MAX(created_at) AS last_at "
+        "FROM frames WHERE al_tag = 'annotated'"
+    )
+    campaigns = await conn.fetchval(
+        "SELECT COUNT(DISTINCT TO_CHAR(created_at, 'YYYY-MM')) "
+        "FROM frames WHERE al_tag = 'annotated'"
+    ) or 0
+    ft_rows = await conn.fetch(
+        "SELECT status, progress_json FROM jobs WHERE type = 'supervised_finetune'"
+    )
+    ft_triggered = len(ft_rows)
+    ft_accepted = sum(
+        1 for r in ft_rows
+        if (
+            (r["progress_json"] if isinstance(r["progress_json"], dict)
+             else _json.loads(r["progress_json"] or "{}"))
+            .get("accepted") is True
+        )
+    )
+    reembed_done = await conn.fetchval(
+        "SELECT COUNT(*) FROM jobs WHERE type = 'reembed' AND status = 'finished'"
+    ) or 0
+    return {
+        "total_annotated": total_annotated,
+        "first_at": timeline["first_at"] if timeline else None,
+        "last_at": timeline["last_at"] if timeline else None,
+        "campaigns": campaigns,
+        "ft_triggered": ft_triggered,
+        "ft_accepted": ft_accepted,
+        "reembed_done": reembed_done,
+    }
+
+
+def _compute_roi_verdict(freq_per_week: Optional[float]) -> tuple:
+    """Return (verdict, verdict_detail) given the annotation frequency."""
+    if freq_per_week is None:
+        return (
+            "INSUFFICIENT_DATA",
+            "Less than 7 days of annotation data. Re-check after 4+ weeks of production use.",
+        )
+    if freq_per_week < _LOW_FREQUENCY_THRESHOLD:
+        return (
+            "LOW_FREQUENCY",
+            f"Annotations happen ~{freq_per_week:.1f}×/week. "
+            "Manual `docker restart api` after each fine-tune may be simpler to maintain "
+            "than the auto-trigger pipeline.",
+        )
+    if freq_per_week < _HIGH_FREQUENCY_THRESHOLD:
+        return (
+            "MODERATE_FREQUENCY",
+            f"Annotations happen ~{freq_per_week:.1f}×/week. "
+            "Automation is paying off but the benefit is modest. "
+            "Keep the pipeline; revisit if annotation cadence drops.",
+        )
+    return (
+        "HIGH_FREQUENCY",
+        f"Annotations happen ~{freq_per_week:.1f}×/week. "
+        "Automation is clearly valuable — the compounding improvement loop is active.",
+    )
+
+
 @router.get("/automation-roi", summary="Annotation frequency, finetune trigger rate, ops time saved")
-async def automation_roi(request: Request) -> Dict[str, Any]:
+async def automation_roi() -> Dict[str, Any]:
     """Measure whether the auto-trigger pipeline is paying its maintenance cost.
 
     All metrics are derived from the jobs and frames tables — no extra
@@ -289,115 +363,29 @@ async def automation_roi(request: Request) -> Dict[str, Any]:
                                       HIGH_FREQUENCY | INSUFFICIENT_DATA
         verdict_detail:               plain-English interpretation
     """
-    import json as _json
-
+    if not settings.DATABASE_URL:
+        return {"error": "DATABASE_URL not configured"}
     try:
-        pool = get_db_pool(request)
-        async with pool.acquire() as conn:
-            # Annotated frame count
-            total_annotated = await conn.fetchval(
-                "SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'"
-            ) or 0
-
-            # Annotation timeline: first and last annotation timestamps
-            timeline = await conn.fetchrow(
-                "SELECT MIN(created_at) AS first_at, MAX(created_at) AS last_at "
-                "FROM frames WHERE al_tag = 'annotated'"
-            )
-            first_at = timeline["first_at"] if timeline else None
-            last_at = timeline["last_at"] if timeline else None
-
-            # Number of distinct calendar months with at least one annotation
-            # (proxy for "annotation campaigns")
-            campaigns = await conn.fetchval(
-                "SELECT COUNT(DISTINCT TO_CHAR(created_at, 'YYYY-MM')) "
-                "FROM frames WHERE al_tag = 'annotated'"
-            ) or 0
-
-            # Finetune job stats
-            ft_rows = await conn.fetch(
-                "SELECT status, progress_json FROM jobs "
-                "WHERE type = 'supervised_finetune'"
-            )
-            ft_triggered = len(ft_rows)
-            ft_accepted = sum(
-                1 for r in ft_rows
-                if (
-                    (r["progress_json"] if isinstance(r["progress_json"], dict)
-                     else _json.loads(r["progress_json"] or "{}"))
-                    .get("accepted") is True
-                )
-            )
-
-            # Reembed sweeps completed
-            reembed_done = await conn.fetchval(
-                "SELECT COUNT(*) FROM jobs "
-                "WHERE type = 'reembed' AND status = 'finished'"
-            ) or 0
-
-            d = {
-                "total_annotated": total_annotated,
-                "first_at": first_at,
-                "last_at": last_at,
-                "campaigns": campaigns,
-                "ft_triggered": ft_triggered,
-                "ft_accepted": ft_accepted,
-                "reembed_done": reembed_done,
-            }
+        conn = await asyncpg.connect(settings.DATABASE_URL)
+        try:
+            d = await _fetch_roi_raw_data(conn)
+            caption_null_rate = await _compute_caption_null_rate(conn)
+        finally:
+            await conn.close()
     except Exception as exc:
         return {"error": f"DB query failed: {exc}"}
 
-    # Derived metrics
-    first_at = d["first_at"]
-    last_at = d["last_at"]
+    first_at, last_at = d["first_at"], d["last_at"]
     days_observed: Optional[float] = None
     freq_per_week: Optional[float] = None
-
     if first_at is not None and last_at is not None:
         days_observed = max((last_at - first_at) / 86400.0, 1.0)
-        if days_observed >= 7:
+        if days_observed >= _MIN_OBSERVATION_DAYS:
             freq_per_week = d["total_annotated"] / (days_observed / 7.0)
 
-    ft_triggered = d["ft_triggered"]
-    ft_accepted = d["ft_accepted"]
+    ft_triggered, ft_accepted = d["ft_triggered"], d["ft_accepted"]
     acceptance_rate: Optional[float] = (ft_accepted / ft_triggered) if ft_triggered else None
-    ops_saved_minutes = ft_accepted * _MANUAL_RESTART_MINUTES
-
-    # Verdict
-    if freq_per_week is None:
-        verdict = "INSUFFICIENT_DATA"
-        verdict_detail = (
-            "Less than 7 days of annotation data. Re-check after 4+ weeks of production use."
-        )
-    elif freq_per_week < 0.5:
-        verdict = "LOW_FREQUENCY"
-        verdict_detail = (
-            f"Annotations happen ~{freq_per_week:.1f}×/week. "
-            "Manual `docker restart api` after each fine-tune may be simpler to maintain "
-            "than the auto-trigger pipeline."
-        )
-    elif freq_per_week < 2.0:
-        verdict = "MODERATE_FREQUENCY"
-        verdict_detail = (
-            f"Annotations happen ~{freq_per_week:.1f}×/week. "
-            "Automation is paying off but the benefit is modest. "
-            "Keep the pipeline; revisit if annotation cadence drops."
-        )
-    else:
-        verdict = "HIGH_FREQUENCY"
-        verdict_detail = (
-            f"Annotations happen ~{freq_per_week:.1f}×/week. "
-            "Automation is clearly valuable — the compounding improvement loop is active."
-        )
-
-    # caption_null_rate: fraction of captionable frames missing a caption
-    caption_null_rate: Optional[float] = None
-    try:
-        pool = get_db_pool(request)
-        async with pool.acquire() as conn:
-            caption_null_rate = await _compute_caption_null_rate(conn)
-    except Exception:
-        pass
+    verdict, verdict_detail = _compute_roi_verdict(freq_per_week)
 
     return {
         "total_annotated_frames": d["total_annotated"],
@@ -407,7 +395,7 @@ async def automation_roi(request: Request) -> Dict[str, Any]:
         "finetune_acceptance_rate": round(acceptance_rate, 3) if acceptance_rate is not None else None,
         "model_reloads": ft_accepted,
         "reembed_sweeps_completed": d["reembed_done"],
-        "estimated_ops_minutes_saved": ops_saved_minutes,
+        "estimated_ops_minutes_saved": ft_accepted * _MANUAL_RESTART_MINUTES,
         "first_annotation_at": first_at,
         "last_annotation_at": last_at,
         "days_observed": round(days_observed, 1) if days_observed is not None else None,

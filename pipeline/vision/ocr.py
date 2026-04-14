@@ -44,10 +44,10 @@ from typing import Any, Dict, List, Optional
 
 from PIL import Image
 
-from pipeline.core import get_logger, resolve_device, settings
+from pipeline.core import get_logger, settings
 from pipeline.vision.florence import _best_attn_impl
 
-from .registry import resolve_model_id
+from .registry import auto_select, detect_resources
 
 logger = get_logger(__name__)
 
@@ -70,7 +70,10 @@ _VLM_PREFIXES = (
 
 
 def _resolve_model_id() -> str:
-    return resolve_model_id(settings.OCR_MODEL, "ocr", "microsoft/trocr-base-printed")
+    cfg = (settings.OCR_MODEL or "").strip()
+    if cfg and cfg.lower() != "auto":
+        return cfg
+    return auto_select("ocr", detect_resources()) or "microsoft/trocr-base-printed"
 
 
 class OCRModel:
@@ -510,4 +513,5 @@ def _encode_b64(image: Image.Image) -> str:
 
 
 def _get_device() -> str:
+    from pipeline.core import resolve_device
     return resolve_device()

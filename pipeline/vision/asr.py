@@ -43,9 +43,9 @@ import io
 import warnings
 from typing import Any, Dict, List, Optional
 
-from pipeline.core import get_logger, resolve_device, settings
+from pipeline.core import get_logger, settings
 
-from .registry import resolve_model_id
+from .registry import auto_select, detect_resources
 
 logger = get_logger(__name__)
 
@@ -58,9 +58,32 @@ _WHISPER_PREFIXES = (
 )
 
 
+def _resolve_device() -> str:
+    """Return the device string to use for model loading."""
+    cfg = (settings.DEVICE or "auto").lower()
+    try:
+        import torch  # type: ignore[import-untyped]
+        if cfg == "auto":
+            if torch.cuda.is_available():
+                return "cuda"
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "mps"
+            return "cpu"
+        if cfg in ("cuda", "mps"):
+            return cfg
+        return "cpu"
+    except ImportError:
+        return "cpu"
+
+
 def _resolve_model_id() -> str:
     """Return the model ID to load, resolving ``"auto"`` via GPU detection."""
-    selected = resolve_model_id(settings.ASR_MODEL, "asr", "openai/whisper-large-v3-turbo")
+    cfg = (settings.ASR_MODEL or "").strip()
+    if cfg and cfg.lower() != "auto":
+        selected = cfg
+    else:
+        resources = detect_resources()
+        selected = auto_select("asr", resources) or "openai/whisper-large-v3-turbo"
     if not _supports_native_timestamps(selected):
         fallback = "openai/whisper-large-v3-turbo"
         logger.info("ASR auto-selection skipped unsupported model %s; using %s", selected, fallback)
@@ -147,7 +170,7 @@ class ASRModel:
             import torch
             from transformers import pipeline as hf_pipeline
 
-            device = resolve_device()
+            device = _resolve_device()
             torch_dtype = torch.float16 if settings.USE_FP16 and device != "cpu" else torch.float32
 
             self._pipe = hf_pipeline(

@@ -11,6 +11,11 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
+# Number of hex digits taken from the SHA-256 digest to form a 64-bit Qdrant point ID.
+# Changing this value invalidates all existing Qdrant data — wipe and re-index.
+_POINT_ID_HEX_DIGITS = 16
+
+
 def stable_point_id(*parts: Any) -> int:
     # Uses SHA-256. Changing this function changes all Qdrant point IDs;
     # existing indexed data must be wiped and re-indexed after an upgrade.
@@ -18,7 +23,7 @@ def stable_point_id(*parts: Any) -> int:
     for p in parts:
         h.update(str(p).encode("utf-8"))
         h.update(b"|")
-    return int(h.hexdigest()[:16], 16)
+    return int(h.hexdigest()[:_POINT_ID_HEX_DIGITS], 16)
 
 
 def now_ts() -> float:

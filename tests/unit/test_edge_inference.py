@@ -270,6 +270,9 @@ class _MockOrtSession:
     def get_inputs(self):
         return [self._input]
 
+    def get_providers(self):
+        return ["CPUExecutionProvider"]
+
     def run(self, output_names, input_feed):
         # Return a deterministic embedding based on the sum of the input
         inp = next(iter(input_feed.values()))
@@ -321,11 +324,12 @@ class TestEdgeClassifier(unittest.TestCase):
 
         with patch.dict("sys.modules", {"onnxruntime": ort_mock}):
             from pipeline.training.edge_inference import EdgeClassifier
-            clf = EdgeClassifier(
-                onnx_path="fake.onnx",
-                gallery_path=self.gallery_path,
-                top_k=top_k,
-            )
+            with patch("pipeline.training.edge_inference.os.path.isfile", return_value=True):
+                clf = EdgeClassifier(
+                    onnx_path="fake.onnx",
+                    gallery_path=self.gallery_path,
+                    top_k=top_k,
+                )
         return clf
 
     def test_classify_returns_list_of_tuples(self):
@@ -378,7 +382,8 @@ class TestEdgeClassifier(unittest.TestCase):
 
         with patch.dict("sys.modules", {"onnxruntime": ort_mock}):
             from pipeline.training.edge_inference import EdgeClassifier
-            clf = EdgeClassifier("fake.onnx", gallery_path, top_k=1)
+            with patch("pipeline.training.edge_inference.os.path.isfile", return_value=True):
+                clf = EdgeClassifier("fake.onnx", gallery_path, top_k=1)
 
         img = _make_rgb_image()
         results = clf.classify(img)

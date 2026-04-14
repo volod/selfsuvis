@@ -75,7 +75,9 @@ _ensure_stub("pipeline.global_map_db",
     get_global_map_splats=AsyncMock(),
     register_mission=AsyncMock(),
     get_global_map_origin=AsyncMock(),
-    list_global_maps=AsyncMock())
+    list_global_maps=AsyncMock(),
+    update_mission_splat_path=AsyncMock(),
+    update_global_map_splat=AsyncMock())
 
 # Stub pipeline.sfm
 _ensure_stub("pipeline.sfm", run_sfm=MagicMock())

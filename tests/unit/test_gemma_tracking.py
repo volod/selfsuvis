@@ -19,20 +19,27 @@ def _write_frame(path: Path, color: tuple[int, int, int]) -> None:
     Image.new("RGB", (32, 24), color).save(path)
 
 
+_STUB_MODULE_NAMES = [
+    "pipeline.workflows.local.steps_gemma_tracking",
+    "pipeline",
+    "pipeline.core",
+    "pipeline.vision",
+    "pipeline.vision.rfdetr",
+    "pipeline.workflows",
+    "pipeline.workflows.local",
+    "pipeline.workflows.local._common",
+]
+
+
 def _load_steps_module():
     module_name = "pipeline.workflows.local.steps_gemma_tracking"
     module_path = ROOT / "pipeline/workflows/local/steps_gemma_tracking.py"
 
-    for name in [
-        module_name,
-        "pipeline",
-        "pipeline.core",
-        "pipeline.vision",
-        "pipeline.vision.rfdetr",
-        "pipeline.workflows",
-        "pipeline.workflows.local",
-        "pipeline.workflows.local._common",
-    ]:
+    # Save originals so we can restore them after loading (prevent contamination
+    # of later tests that import real pipeline.core).
+    saved = {k: sys.modules.get(k) for k in _STUB_MODULE_NAMES}
+
+    for name in _STUB_MODULE_NAMES:
         sys.modules.pop(name, None)
 
     pipeline_pkg = types.ModuleType("pipeline")
@@ -107,6 +114,17 @@ def _load_steps_module():
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
+
+    # Restore all stubbed entries except the loaded module itself so that
+    # subsequent tests can import real pipeline.core / pipeline etc.
+    for k, v in saved.items():
+        if k == module_name:
+            continue  # keep the freshly loaded module
+        if v is None:
+            sys.modules.pop(k, None)
+        else:
+            sys.modules[k] = v
+
     return module
 
 

@@ -9,8 +9,13 @@ except (ImportError, ModuleNotFoundError):
 
 from pipeline.core import settings
 
+HIST_BINS = 64
+TILE_RESIZE = 64
+CANNY_LOW_THRESHOLD = 100
+CANNY_HIGH_THRESHOLD = 200
 
-def downsample_gray(img: np.ndarray, size: int = 64) -> np.ndarray:
+
+def downsample_gray(img: np.ndarray, size: int = TILE_RESIZE) -> np.ndarray:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return cv2.resize(gray, (size, size), interpolation=cv2.INTER_AREA)
 
@@ -24,8 +29,8 @@ def mean_intensity(gray: np.ndarray) -> float:
 
 
 def histogram_diff(a: np.ndarray, b: np.ndarray) -> float:
-    hist_a = cv2.calcHist([a], [0], None, [64], [0, 256])
-    hist_b = cv2.calcHist([b], [0], None, [64], [0, 256])
+    hist_a = cv2.calcHist([a], [0], None, [HIST_BINS], [0, 256])
+    hist_b = cv2.calcHist([b], [0], None, [HIST_BINS], [0, 256])
     cv2.normalize(hist_a, hist_a)
     cv2.normalize(hist_b, hist_b)
     diff = cv2.compareHist(hist_a, hist_b, cv2.HISTCMP_BHATTACHARYYA)
@@ -84,13 +89,13 @@ def tile_quality_ok(tile_bgr: np.ndarray) -> bool:
 def sky_haze_suppress(tile_bgr: np.ndarray, gray: np.ndarray) -> bool:
     b, g, r = cv2.split(tile_bgr)
     blue_ratio = float(np.mean((b > 1.15 * r) & (b > 1.15 * g)))
-    edges = cv2.Canny(gray, 100, 200)
+    edges = cv2.Canny(gray, CANNY_LOW_THRESHOLD, CANNY_HIGH_THRESHOLD)
     edge_density = float(np.mean(edges > 0))
     return blue_ratio > settings.SKY_BLUE_RATIO_MAX and edge_density < settings.EDGE_DENSITY_MIN
 
 
 def tile_std(gray: np.ndarray) -> float:
-    small = cv2.resize(gray, (64, 64), interpolation=cv2.INTER_AREA)
+    small = cv2.resize(gray, (TILE_RESIZE, TILE_RESIZE), interpolation=cv2.INTER_AREA)
     return float(np.std(small))
 
 
@@ -102,7 +107,7 @@ def tile_entropy(gray: np.ndarray) -> float:
 
 
 def edge_density(gray: np.ndarray) -> float:
-    edges = cv2.Canny(gray, 100, 200)
+    edges = cv2.Canny(gray, CANNY_LOW_THRESHOLD, CANNY_HIGH_THRESHOLD)
     return float(np.mean(edges > 0))
 
 

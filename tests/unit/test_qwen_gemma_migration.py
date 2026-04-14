@@ -83,7 +83,7 @@ def test_health_check_uses_gemma_url(gemma_settings):
     """_check_health hits the Gemma URL, not the legacy Qwen URL."""
     model = qm.QwenModel()
 
-    with patch("pipeline.qwen_model._health_check_ollama", return_value=True) as mock_hc:
+    with patch("pipeline.vision.qwen._health_check_ollama", return_value=True) as mock_hc:
         model._check_health()
 
     mock_hc.assert_called_once()
@@ -95,7 +95,7 @@ def test_health_check_falls_back_to_qwen_url(qwen_only_settings):
     """_check_health falls back to Qwen URL when GEMMA_API_URL is empty."""
     model = qm.QwenModel()
 
-    with patch("pipeline.qwen_model._health_check_vllm", return_value=True) as mock_hc:
+    with patch("pipeline.vision.qwen._health_check_vllm", return_value=True) as mock_hc:
         model._check_health()
 
     mock_hc.assert_called_once()

@@ -1,4 +1,4 @@
-"""Unit tests for pipeline.gps_extractor."""
+"""Unit tests for pipeline.media.gps."""
 import json
 import os
 from unittest import mock
@@ -104,7 +104,7 @@ def _ffprobe_json(location: str) -> str:
 
 def test_ffprobe_atoms_valid_iso6709():
     with mock.patch(
-        "pipeline.gps_extractor._run_ffprobe",
+        "pipeline.media.gps._run_ffprobe",
         return_value=_ffprobe_json("+47.5577+008.4697+482.123/"),
     ):
         fix = _extract_from_ffprobe_atoms("/fake/video.mp4")
@@ -116,7 +116,7 @@ def test_ffprobe_atoms_valid_iso6709():
 
 def test_ffprobe_atoms_negative_coords():
     with mock.patch(
-        "pipeline.gps_extractor._run_ffprobe",
+        "pipeline.media.gps._run_ffprobe",
         return_value=_ffprobe_json("-33.8688+151.2093+10.0/"),
     ):
         fix = _extract_from_ffprobe_atoms("/fake/video.mp4")
@@ -127,17 +127,17 @@ def test_ffprobe_atoms_negative_coords():
 
 def test_ffprobe_atoms_no_location_tag():
     out = json.dumps({"format": {"tags": {}}})
-    with mock.patch("pipeline.gps_extractor._run_ffprobe", return_value=out):
+    with mock.patch("pipeline.media.gps._run_ffprobe", return_value=out):
         assert _extract_from_ffprobe_atoms("/fake/video.mp4") is None
 
 
 def test_ffprobe_atoms_ffprobe_fails():
-    with mock.patch("pipeline.gps_extractor._run_ffprobe", return_value=None):
+    with mock.patch("pipeline.media.gps._run_ffprobe", return_value=None):
         assert _extract_from_ffprobe_atoms("/fake/video.mp4") is None
 
 
 def test_ffprobe_atoms_invalid_json():
-    with mock.patch("pipeline.gps_extractor._run_ffprobe", return_value="not json"):
+    with mock.patch("pipeline.media.gps._run_ffprobe", return_value="not json"):
         assert _extract_from_ffprobe_atoms("/fake/video.mp4") is None
 
 
@@ -222,7 +222,7 @@ def test_extract_gps_falls_back_to_ffprobe_atoms(tmp_path, monkeypatch):
     ffprobe_out = json.dumps(
         {"format": {"tags": {"com.apple.quicktime.location.ISO6709": "+47.5000+008.0000+100.0/"}}}
     )
-    with mock.patch("pipeline.gps_extractor._run_ffprobe", return_value=ffprobe_out):
+    with mock.patch("pipeline.media.gps._run_ffprobe", return_value=ffprobe_out):
         result = extract_gps(str(video), [500.0, 1000.0])
 
     assert len(result) == 2
@@ -238,7 +238,7 @@ def test_extract_gps_null_fallback(tmp_path, monkeypatch):
     from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_SIDECAR_PATH", "")
 
-    with mock.patch("pipeline.gps_extractor._run_ffprobe", return_value=None):
+    with mock.patch("pipeline.media.gps._run_ffprobe", return_value=None):
         result = extract_gps(str(video), [1000.0, 2000.0, 3000.0])
 
     assert result == [None, None, None]
@@ -267,7 +267,7 @@ def test_extract_gps_returns_same_length(tmp_path, monkeypatch):
     from pipeline.core import config
     monkeypatch.setattr(config.settings, "GPS_SIDECAR_PATH", "")
 
-    with mock.patch("pipeline.gps_extractor._run_ffprobe", return_value=None):
+    with mock.patch("pipeline.media.gps._run_ffprobe", return_value=None):
         timestamps = [100.0, 200.0, 300.0, 400.0, 500.0]
         result = extract_gps(str(video), timestamps)
     assert len(result) == len(timestamps)

@@ -20,7 +20,10 @@ import pytest
 if "pipeline.indexer" not in sys.modules:
     for _name in ("cv2", "skimage", "skimage.metrics"):
         _m = types.ModuleType(_name)
-        _m.__spec__ = type("S", (), {"name": _name, "origin": None})()
+        _m.__spec__ = type("S", (), {"name": _name, "origin": None, "loader": None,
+                                     "submodule_search_locations": None,
+                                     "parent": _name.rsplit(".", 1)[0] if "." in _name else "",
+                                     "has_location": False})()
         sys.modules[_name] = _m
 
 # ── Now import the module under test ─────────────────────────────────────────
@@ -61,7 +64,8 @@ def _build_point(indexer, settings_mock, **kwargs):
         clip_embed=fake_clip,
     )
     defaults.update(kwargs)
-    with patch.object(indexer_mod, "settings", settings_mock):
+    import pipeline.workflows.indexer as _wf_indexer
+    with patch.object(_wf_indexer, "settings", settings_mock):
         return VideoIndexer._build_frame_point(indexer, **defaults)
 
 

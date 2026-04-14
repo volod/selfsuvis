@@ -4,6 +4,7 @@ from typing import Any, List, Optional
 
 import asyncpg
 from PIL import Image
+from pydantic import BaseModel
 from qdrant_client.http import models as qmodels
 
 from app.state import dino_model, store
@@ -12,7 +13,26 @@ from pipeline.core import settings
 logger = logging.getLogger(__name__)
 
 _REEMBED_STATUS_CACHE_TTL_SEC = 2.0
-_reembed_status_cache = {"value": False, "checked_at": 0.0}
+_reembed_status_cache: dict = {"value": False, "checked_at": 0.0}
+
+# Blend weights for CLIP + DINOv3 reranking: clip_score * W_CLIP + dino_score * W_DINO.
+# Must sum to 1.0.  DINOv3 weight is intentionally small since DINOv3 is a
+# discriminative backbone while CLIP scores encode cross-modal text alignment.
+_RERANK_W_CLIP = 0.7
+_RERANK_W_DINO = 0.3
+
+
+class SearchResult(BaseModel):
+    id: int
+    score: float
+    type: str
+    video_id: str
+    segment_id: int
+    t_sec: float
+    thumbnail_path: str
+    frame_path: Optional[str] = None
+    tile_path: Optional[str] = None
+    bbox: Optional[dict] = None
 
 
 def payload_filter(search_type: str) -> Optional[qmodels.Filter]:
@@ -97,10 +117,14 @@ async def search_vectors(
             dino_map = {p.id: p.score for p in dino_scored}
             for r in results:
                 if r["id"] in dino_map:
-                    r["score"] = 0.7 * r["score"] + 0.3 * dino_map[r["id"]]
+                    r["score"] = _RERANK_W_CLIP * r["score"] + _RERANK_W_DINO * dino_map[r["id"]]
             results.sort(key=lambda x: x["score"], reverse=True)
 
     return results[:top_k]
+
+
+def _tile_bbox(payload: dict) -> Optional[dict]:
+    return {"x": payload.get("x"), "y": payload.get("y"), "w": payload.get("w"), "h": payload.get("h")}
 
 
 def format_results(scored: List[qmodels.ScoredPoint]) -> List[dict]:
@@ -108,24 +132,18 @@ def format_results(scored: List[qmodels.ScoredPoint]) -> List[dict]:
     for p in scored:
         payload = p.payload or {}
         result_type = payload.get("type") or "frame"
-        result = {
-            "id": p.id,
-            "score": float(p.score),
-            "type": result_type,
-            "video_id": payload.get("video_id") or "",
-            "segment_id": payload.get("segment_id") or 0,
-            "t_sec": payload.get("t_sec") or 0.0,
-            "thumbnail_path": payload.get("tile_path") or payload.get("frame_path") or "",
-            "frame_path": payload.get("frame_path"),
-            "tile_path": payload.get("tile_path"),
-            "bbox": None,
-        }
-        if result_type == "tile":
-            result["bbox"] = {
-                "x": payload.get("x"),
-                "y": payload.get("y"),
-                "w": payload.get("w"),
-                "h": payload.get("h"),
-            }
-        results.append(result)
+        bbox = _tile_bbox(payload) if result_type == "tile" else None
+        result = SearchResult(
+            id=p.id,
+            score=float(p.score),
+            type=result_type,
+            video_id=payload.get("video_id") or "",
+            segment_id=payload.get("segment_id") or 0,
+            t_sec=payload.get("t_sec") or 0.0,
+            thumbnail_path=payload.get("tile_path") or payload.get("frame_path") or "",
+            frame_path=payload.get("frame_path"),
+            tile_path=payload.get("tile_path"),
+            bbox=bbox,
+        )
+        results.append(result.model_dump())
     return results

@@ -228,7 +228,7 @@ class TestCallIcpFuse:
             "converged": True,
             "message": "",
         }
-        with patch("pipeline.mapper.requests.post") as mock_post:
+        with patch("pipeline.mapping.mapper.requests.post") as mock_post:
             mock_post.return_value.json.return_value = mock_resp
             mock_post.return_value.raise_for_status = MagicMock()
             result = _call_icp_fuse("/src.ply", "/tgt.ply")
@@ -239,14 +239,14 @@ class TestCallIcpFuse:
     def test_returns_none_on_connection_error(self):
         import requests as req_lib
         from pipeline.mapping.mapper import _call_icp_fuse
-        with patch("pipeline.mapper.requests.post",
+        with patch("pipeline.mapping.mapper.requests.post",
                    side_effect=req_lib.exceptions.ConnectionError("refused")):
             result = _call_icp_fuse("/src.ply", "/tgt.ply")
         assert result is None
 
     def test_passes_source_and_target_path(self):
         from pipeline.mapping.mapper import _call_icp_fuse
-        with patch("pipeline.mapper.requests.post") as mock_post:
+        with patch("pipeline.mapping.mapper.requests.post") as mock_post:
             mock_post.return_value.json.return_value = {"status": "no_overlap", "converged": False, "message": ""}
             mock_post.return_value.raise_for_status = MagicMock()
             _call_icp_fuse("/src.ply", "/tgt.ply")
@@ -258,7 +258,7 @@ class TestCallIcpFuse:
     def test_passes_optional_meta(self):
         from pipeline.mapping.mapper import _call_icp_fuse
         src_meta = {"origin_lat": 48.0, "origin_lon": 11.0, "origin_alt": 100.0}
-        with patch("pipeline.mapper.requests.post") as mock_post:
+        with patch("pipeline.mapping.mapper.requests.post") as mock_post:
             mock_post.return_value.json.return_value = {"status": "ok", "converged": True, "message": ""}
             mock_post.return_value.raise_for_status = MagicMock()
             _call_icp_fuse("/src.ply", "/tgt.ply", source_meta=src_meta)
@@ -279,7 +279,7 @@ def _make_sfm_results(n: int = 35) -> List[Dict[str, Any]]:
 class TestRunMapperIcpIntegration:
     def test_icp_results_empty_when_no_targets(self):
         from pipeline.mapping.mapper import run_mapper
-        with patch("pipeline.mapper._train_scene") as mock_train:
+        with patch("pipeline.mapping.mapper._train_scene") as mock_train:
             mock_train.return_value = {
                 "map_status": "success",
                 "splat_path": "/maps/m1/splat.ply",
@@ -298,8 +298,8 @@ class TestRunMapperIcpIntegration:
             "converged": True,
             "message": "",
         }
-        with patch("pipeline.mapper._train_scene") as mock_train, \
-             patch("pipeline.mapper._call_icp_fuse") as mock_fuse:
+        with patch("pipeline.mapping.mapper._train_scene") as mock_train, \
+             patch("pipeline.mapping.mapper._call_icp_fuse") as mock_fuse:
             mock_train.return_value = {
                 "map_status": "success",
                 "splat_path": "/maps/m1/splat.ply",
@@ -319,8 +319,8 @@ class TestRunMapperIcpIntegration:
 
     def test_icp_not_called_on_failed_scene(self):
         from pipeline.mapping.mapper import run_mapper
-        with patch("pipeline.mapper._train_scene") as mock_train, \
-             patch("pipeline.mapper._call_icp_fuse") as mock_fuse:
+        with patch("pipeline.mapping.mapper._train_scene") as mock_train, \
+             patch("pipeline.mapping.mapper._call_icp_fuse") as mock_fuse:
             mock_train.return_value = {
                 "map_status": "failed",
                 "splat_path": None,
@@ -337,8 +337,8 @@ class TestRunMapperIcpIntegration:
     def test_icp_mapper_unavailable_does_not_fail(self):
         """ConnectionError from mapper service is a soft skip — run_mapper still succeeds."""
         from pipeline.mapping.mapper import run_mapper
-        with patch("pipeline.mapper._train_scene") as mock_train, \
-             patch("pipeline.mapper._call_icp_fuse") as mock_fuse:
+        with patch("pipeline.mapping.mapper._train_scene") as mock_train, \
+             patch("pipeline.mapping.mapper._call_icp_fuse") as mock_fuse:
             mock_train.return_value = {
                 "map_status": "success",
                 "splat_path": "/maps/m1/splat.ply",
@@ -358,8 +358,8 @@ class TestRunMapperIcpIntegration:
             "status": "ok", "transform_4x4": [[1,0,0,0]]*4,
             "rmse": 0.02, "fitness": 0.95, "converged": True, "message": "",
         }
-        with patch("pipeline.mapper._train_scene") as mock_train, \
-             patch("pipeline.mapper._call_icp_fuse") as mock_fuse:
+        with patch("pipeline.mapping.mapper._train_scene") as mock_train, \
+             patch("pipeline.mapping.mapper._call_icp_fuse") as mock_fuse:
             mock_train.return_value = {
                 "map_status": "success",
                 "splat_path": "/maps/m1/splat.ply",

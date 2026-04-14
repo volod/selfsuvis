@@ -89,12 +89,12 @@ def test_ttl_expired_vectors_pruned():
     v = _unit([1.0, 0.0, 0.0, 0.0])
 
     t0 = 1000.0
-    with patch("pipeline.recent_index.time") as mock_time:
+    with patch("pipeline.storage.recent_index.time") as mock_time:
         mock_time.time.return_value = t0
         idx.add(v.reshape(1, -1))
 
     # Advance time past TTL
-    with patch("pipeline.recent_index.time") as mock_time:
+    with patch("pipeline.storage.recent_index.time") as mock_time:
         mock_time.time.return_value = t0 + 6.0
         sim = idx.max_cosine(v)
 
@@ -107,12 +107,12 @@ def test_ttl_within_window_vectors_kept():
     v = _unit([1.0, 0.0, 0.0, 0.0])
 
     t0 = 1000.0
-    with patch("pipeline.recent_index.time") as mock_time:
+    with patch("pipeline.storage.recent_index.time") as mock_time:
         mock_time.time.return_value = t0
         idx.add(v.reshape(1, -1))
 
     # Advance time within TTL
-    with patch("pipeline.recent_index.time") as mock_time:
+    with patch("pipeline.storage.recent_index.time") as mock_time:
         mock_time.time.return_value = t0 + 5.0
         sim = idx.max_cosine(v)
 

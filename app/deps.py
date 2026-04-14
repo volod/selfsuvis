@@ -47,32 +47,51 @@ class _TokenBucket:
         return False
 
 
-_limiters: Dict[str, _TokenBucket] = {}
-# Maximum number of distinct client keys tracked simultaneously.
-# When the cap is reached, the oldest entry is evicted (insertion-order LRU).
-# Prevents unbounded memory growth from spoofed/unique source IPs.
-_MAX_LIMITERS = 50_000
+class _RateLimiter:
+    # Maximum number of distinct client keys tracked simultaneously.
+    # When the cap is reached, the oldest entry is evicted (insertion-order LRU).
+    # Prevents unbounded memory growth from spoofed/unique source IPs.
+    MAX_CLIENTS = 50_000
+
+    def __init__(self) -> None:
+        self._limiters: Dict[str, _TokenBucket] = {}
+
+    def _evict_oldest(self) -> None:
+        if len(self._limiters) >= self.MAX_CLIENTS:
+            oldest = next(iter(self._limiters))
+            del self._limiters[oldest]
+
+    def _get_or_create(self, key: str) -> _TokenBucket:
+        bucket = self._limiters.get(key)
+        if bucket is None:
+            self._evict_oldest()
+            bucket = _TokenBucket(
+                capacity=max(1.0, float(settings.RATE_LIMIT_BURST)),
+                refill_rate=float(settings.RATE_LIMIT_PER_MIN) / 60.0,
+                tokens=float(settings.RATE_LIMIT_BURST),
+                last_ts=time.time(),
+            )
+            self._limiters[key] = bucket
+        return bucket
+
+    def check(self, key: str) -> bool:
+        return self._get_or_create(key).allow()
+
+
+_rate_limiter = _RateLimiter()
+
+# Module-level aliases for backward compatibility (tests and external callers).
+_limiters = _rate_limiter._limiters
+_MAX_LIMITERS = _RateLimiter.MAX_CLIENTS
 
 
 def _evict_oldest_limiter() -> None:
-    if len(_limiters) >= _MAX_LIMITERS:
-        oldest = next(iter(_limiters))
-        del _limiters[oldest]
+    _rate_limiter._evict_oldest()
 
 
 def rate_limit(request: Request) -> None:
     if settings.RATE_LIMIT_PER_MIN <= 0:
         return
     key = _get_client_key(request)
-    bucket = _limiters.get(key)
-    if bucket is None:
-        _evict_oldest_limiter()
-        bucket = _TokenBucket(
-            capacity=max(1.0, float(settings.RATE_LIMIT_BURST)),
-            refill_rate=float(settings.RATE_LIMIT_PER_MIN) / 60.0,
-            tokens=float(settings.RATE_LIMIT_BURST),
-            last_ts=time.time(),
-        )
-        _limiters[key] = bucket
-    if not bucket.allow():
+    if not _rate_limiter.check(key):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")

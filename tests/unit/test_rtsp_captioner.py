@@ -203,7 +203,8 @@ async def test_run_stops_on_stop_event():
     fake_cap.read.return_value = (False, None)  # stream ends immediately
     fake_cap.get.return_value = 25.0
 
-    with patch("cv2.VideoCapture", return_value=fake_cap):
+    with patch("cv2.VideoCapture", return_value=fake_cap, create=True), \
+         patch("cv2.CAP_PROP_FPS", 1, create=True):
         # Should return without hanging
         await asyncio.wait_for(captioner.run(stop_event=stop), timeout=2.0)
 
@@ -234,7 +235,8 @@ async def test_run_logs_warning_on_stream_open_failure():
     fake_cap.isOpened.return_value = False
     fake_cap.get.return_value = 25.0
 
-    with patch("cv2.VideoCapture", return_value=fake_cap):
+    with patch("cv2.VideoCapture", return_value=fake_cap, create=True), \
+         patch("cv2.CAP_PROP_FPS", 1, create=True):
         await captioner.run()  # should return without exception
 
     fake_cap.release.assert_not_called()  # never opened, so release not called

@@ -3,6 +3,7 @@ import os
 import time
 import uuid
 from datetime import timedelta
+from enum import Enum
 from typing import Optional
 
 import asyncpg
@@ -22,6 +23,12 @@ from pipeline.storage.missions import (
 )
 
 
+class JobType(str, Enum):
+    INDEX = "index"
+    FINETUNE = "supervised_finetune"
+    REEMBED = "reembed"
+
+
 def _resolve_site_origin(video_path: str, logger) -> tuple:
     """Extract the first GPS fix from a video and look up (or create) its global_map.
 
@@ -33,7 +40,7 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
     mission's own local first-frame origin.
     """
     try:
-        from pipeline.media.gps import extract_gps
+        from pipeline.gps_extractor import extract_gps
         # Request GPS at t=1s; extract_gps will return the nearest available fix
         gps_list = extract_gps(video_path, [1_000.0])
         first_gps = next((g for g in gps_list if g is not None), None)
@@ -45,7 +52,7 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
         return None, None
 
     try:
-        from pipeline.storage.global_maps import get_global_map_origin, get_or_create_global_map
+        from pipeline.global_map_db import get_global_map_origin, get_or_create_global_map
 
         async def _lookup():
             conn = await asyncpg.connect(settings.DATABASE_URL)
@@ -80,7 +87,7 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
     unreachable containers (nerfstudio, mapper, postgres) are logged and skipped.
     """
     try:
-        from pipeline.mapping.sfm import run_sfm
+        from pipeline.sfm import run_sfm
     except ImportError:
         logger.debug("Pass A: pycolmap not installed — skipping SfM")
         return
@@ -100,7 +107,7 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
     )
 
     try:
-        from pipeline.mapping.gps_registration import register_mission_gps
+        from pipeline.gps_registration import register_mission_gps
         keyed_frames = sfm_results
         if index_result.get("frame_records"):
             keyed_frames = []
@@ -123,8 +130,8 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
 
     # 3DGS mapper (requires nerfstudio container — soft skip on ConnectionError)
     try:
-        from pipeline.mapping.mapper import run_mapper
-        from pipeline.storage.global_maps import (
+        from pipeline.mapper import run_mapper
+        from pipeline.global_map_db import (
             get_or_create_global_map,
             get_global_map_splats,
             register_mission,
@@ -228,71 +235,147 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
 # memory and check out on completion.  Stale entries older than
 # GPU_JOB_TIMEOUT_SEC are evicted on every check-in so a crashed worker does
 # not permanently block GPU access.
+#
+# The semaphore is advisory (fail-open): DB errors never block GPU work.
+# Contention is logged so operators are aware.
 
-def _gpu_checkin(job_id: str, job_type: str, conn_url: str, logger) -> bool:
-    """Reserve the GPU for this job.
+class GPULock:
+    """Context manager that registers/deregisters a job in the gpu_jobs table."""
 
-    Returns True if the GPU was successfully reserved (no other active job).
-    Returns False if another job is holding the GPU.
-    """
-    async def _checkin():
-        conn = await asyncpg.connect(conn_url)
+    def __init__(self, job_id: str, job_type: str, conn_url: str, logger):
+        self.job_id = job_id
+        self.job_type = job_type
+        self.conn_url = conn_url
+        self.logger = logger
+
+    async def _checkin(self) -> None:
+        conn = await asyncpg.connect(self.conn_url)
         try:
             now = utcnow()
             stale_cutoff = now - timedelta(seconds=settings.GPU_JOB_TIMEOUT_SEC)
-            # Evict stale entries first
-            evicted = await conn.execute(
-                "DELETE FROM gpu_jobs WHERE started_at < $1", stale_cutoff
-            )
+            evicted = await conn.execute("DELETE FROM gpu_jobs WHERE started_at < $1", stale_cutoff)
             evicted_count = int(evicted.split()[-1])
             if evicted_count:
-                logger.info("GPU isolation: evicted %d stale gpu_jobs entry(s)", evicted_count)
-            # Try to insert (fails if another row exists due to PK uniqueness on
-            # any existing row — we rely on COUNT to detect contention)
+                self.logger.info("GPU isolation: evicted %d stale gpu_jobs entry(s)", evicted_count)
             active = await conn.fetchval("SELECT COUNT(*) FROM gpu_jobs")
             if active > 0:
                 holder = await conn.fetchrow("SELECT job_id, job_type FROM gpu_jobs LIMIT 1")
-                logger.warning(
+                self.logger.warning(
                     "GPU isolation: GPU busy (job_id=%s type=%s) — job %s will proceed anyway "
                     "(consider scaling down concurrent GPU jobs)",
                     holder["job_id"] if holder else "?",
                     holder["job_type"] if holder else "?",
-                    job_id,
+                    self.job_id,
                 )
-                # We insert anyway (the table is informational, not a hard lock)
-                # but log the contention so the operator is aware.
             await conn.execute(
                 "INSERT INTO gpu_jobs (job_id, job_type, worker_id, started_at) "
                 "VALUES ($1, $2, $3, $4) ON CONFLICT (job_id) DO NOTHING",
-                job_id, job_type, settings.WORKER_ID, now,
+                self.job_id, self.job_type, settings.WORKER_ID, now,
             )
-            return True
         finally:
             await conn.close()
 
+    async def _checkout(self) -> None:
+        conn = await asyncpg.connect(self.conn_url)
+        try:
+            await conn.execute("DELETE FROM gpu_jobs WHERE job_id = $1", self.job_id)
+        finally:
+            await conn.close()
+
+    def __enter__(self):
+        try:
+            asyncio.run(self._checkin())
+        except Exception as exc:
+            self.logger.warning("GPU isolation: check-in failed (non-fatal): %s", exc)
+        return self
+
+    def __exit__(self, *_):
+        try:
+            asyncio.run(self._checkout())
+        except Exception as exc:
+            self.logger.warning("GPU isolation: check-out failed (non-fatal): %s", exc)
+
+
+# ── Backward-compat wrappers (used by tests and legacy call sites) ────────────
+
+def _gpu_checkin(job_id: str, job_type: str, conn_url: str, logger) -> bool:
+    """Synchronous wrapper around GPULock._checkin. Always returns True (fail-open)."""
+    lock = GPULock(job_id, job_type, conn_url, logger)
     try:
-        return asyncio.run(_checkin())
+        asyncio.run(lock._checkin())
     except Exception as exc:
         logger.warning("GPU isolation: check-in failed (non-fatal): %s", exc)
-        return True  # fail-open: don't block GPU work on DB errors
+    return True
 
 
 def _gpu_checkout(job_id: str, conn_url: str, logger) -> None:
-    """Release the GPU reservation for this job."""
-    async def _checkout():
-        conn = await asyncpg.connect(conn_url)
-        try:
-            await conn.execute("DELETE FROM gpu_jobs WHERE job_id = $1", job_id)
-        finally:
-            await conn.close()
-
+    """Synchronous wrapper around GPULock._checkout. Fail-open on error."""
+    lock = GPULock(job_id, "unknown", conn_url, logger)
     try:
-        asyncio.run(_checkout())
+        asyncio.run(lock._checkout())
     except Exception as exc:
         logger.warning("GPU isolation: check-out failed (non-fatal): %s", exc)
 
 
 # ── Supervised finetune job handler ─────────────────────────────────────────
+
+_UPSERT_SYSTEM_STATE_SQL = (
+    "INSERT INTO system_state (key, value, updated_at) VALUES ($1, $2, $3) "
+    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at"
+)
+
+_API_RELOAD_TIMEOUT_SEC = 30
+
+
+async def _persist_finetune_acceptance(conn, job_id: str, ckpt_path: str, result: dict, logger) -> str:
+    """Persist watermark, checkpoint provenance, and mark job finished.
+
+    Returns the model_version_id assigned to this checkpoint.
+    """
+    now = utcnow()
+    total_annotated = await conn.fetchval("SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'")
+    model_version_id = f"sup_{job_id[:8]}"
+
+    await conn.execute(_UPSERT_SYSTEM_STATE_SQL, "last_retrain_watermark", str(total_annotated), now)
+    await conn.execute(_UPSERT_SYSTEM_STATE_SQL, "active_dino_checkpoint", ckpt_path, now)
+    await conn.execute(
+        "INSERT INTO model_checkpoints "
+        "(checkpoint_path, model_version_id, annotation_count, best_accuracy, "
+        " distribution_shift, created_at, notes) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (checkpoint_path) DO NOTHING",
+        ckpt_path, model_version_id, total_annotated, result["best_accuracy"],
+        result.get("distribution_shift", 0.0), now, f"finetune job_id={job_id}",
+    )
+    settings.MODEL_VERSION_ID = model_version_id
+    logger.info(
+        "Finetune job id=%s — provenance registered model_version_id=%s "
+        "annotation_count=%d distribution_shift=%.4f",
+        job_id, model_version_id, total_annotated, result.get("distribution_shift", 0.0),
+    )
+    await update_job(conn, job_id, status="finished",
+                     progress={"accepted": True, "best_accuracy": result["best_accuracy"],
+                               "epochs": result["epochs"], "checkpoint": ckpt_path,
+                               "model_version_id": model_version_id},
+                     finished_at=now)
+    return model_version_id
+
+
+def _hot_reload_model(ckpt_path: str, job_id: str, logger) -> None:
+    """Call POST /admin/reload-model to swap DINOv3 weights in the API process."""
+    import httpx
+    api_base = f"http://localhost:{os.environ.get('API_PORT', '8000')}"
+    try:
+        resp = httpx.post(
+            f"{api_base}/admin/reload-model",
+            json={"checkpoint": ckpt_path},
+            headers={"X-API-Key": settings.API_KEY},
+            timeout=_API_RELOAD_TIMEOUT_SEC,
+        )
+        resp.raise_for_status()
+        logger.info("Finetune job id=%s — model reloaded checkpoint=%s", job_id, ckpt_path)
+    except Exception as exc:
+        logger.warning("Finetune job id=%s — reload HTTP call failed: %s", job_id, exc)
+
 
 def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logger) -> None:
     """Run supervised contrastive fine-tuning on CVAT-annotated frames.
@@ -301,7 +384,6 @@ def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logg
     On success: promotes checkpoint, updates system_state.last_retrain_watermark,
     calls POST /admin/reload-model via HTTP.
     """
-    import httpx
     from pipeline.training.supervised import config_from_settings, run_supervised_finetune
 
     def _pg_run(coro):
@@ -311,279 +393,176 @@ def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logg
         cfg = config_from_settings(frames_dir=settings.FRAMES_DIR)
         logger.info("Finetune job started id=%s", job_id)
 
-        async def _mark_running_once():
+        async def _mark_running():
             async with db_pool.acquire() as conn:
                 await update_job(conn, job_id, status="running", started_at=time.time())
 
-        _pg_run(_mark_running_once())
+        _pg_run(_mark_running())
 
-        _gpu_checkin(job_id, "supervised_finetune", conn_url, logger)
-        try:
+        with GPULock(job_id, "supervised_finetune", conn_url, logger):
             result = run_supervised_finetune(cfg)
-        finally:
-            _gpu_checkout(job_id, conn_url, logger)
 
         if not result["accepted"]:
             logger.info(
                 "Finetune job id=%s — checkpoint rejected (accuracy=%.4f < gate=%.4f)",
                 job_id, result["best_accuracy"], settings.SUP_EVAL_GATE_THRESHOLD,
             )
-            async def _mark_finished_rejected_once():
+            async def _mark_rejected():
                 async with db_pool.acquire() as conn:
-                    await update_job(conn, job_id,
-                                     status="finished",
+                    await update_job(conn, job_id, status="finished",
                                      progress={"accepted": False,
                                                "best_accuracy": result["best_accuracy"]},
                                      finished_at=time.time())
-            _pg_run(_mark_finished_rejected_once())
+            _pg_run(_mark_rejected())
             return
 
-        # Checkpoint accepted — hot-reload via admin API
         ckpt_path = result["path"]
-        api_base = f"http://localhost:{os.environ.get('API_PORT', '8000')}"
-        try:
-            resp = httpx.post(
-                f"{api_base}/admin/reload-model",
-                json={"checkpoint": ckpt_path},
-                headers={"X-API-Key": settings.API_KEY},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            logger.info("Finetune job id=%s — model reloaded checkpoint=%s", job_id, ckpt_path)
-        except Exception as exc:
-            logger.warning("Finetune job id=%s — reload HTTP call failed: %s", job_id, exc)
+        _hot_reload_model(ckpt_path, job_id, logger)
 
-        # Update retrain watermark + record provenance + set authoritative checkpoint source
-        async def _update_watermark_and_finish_once():
+        async def _finish_accepted():
             async with db_pool.acquire() as conn:
-                now = utcnow()
-                total_annotated = await conn.fetchval(
-                    "SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'"
-                )
-                # Retrain watermark
-                await conn.execute(
-                    "INSERT INTO system_state (key, value, updated_at) VALUES ($1, $2, $3) "
-                    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
-                    "last_retrain_watermark",
-                    str(total_annotated),
-                    now,
-                )
-                # Authoritative active checkpoint source (single source of truth)
-                await conn.execute(
-                    "INSERT INTO system_state (key, value, updated_at) VALUES ($1, $2, $3) "
-                    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
-                    "active_dino_checkpoint",
-                    ckpt_path,
-                    now,
-                )
-                # Model version provenance registry
-                model_version_id = f"sup_{job_id[:8]}"
-                await conn.execute(
-                    "INSERT INTO model_checkpoints "
-                    "(checkpoint_path, model_version_id, annotation_count, best_accuracy, "
-                    " distribution_shift, created_at, notes) "
-                    "VALUES ($1, $2, $3, $4, $5, $6, $7) "
-                    "ON CONFLICT (checkpoint_path) DO NOTHING",
-                    ckpt_path,
-                    model_version_id,
-                    total_annotated,
-                    result["best_accuracy"],
-                    result.get("distribution_shift", 0.0),
-                    now,
-                    f"finetune job_id={job_id}",
-                )
-                # Update MODEL_VERSION_ID in settings so subsequent indexing is tagged
-                settings.MODEL_VERSION_ID = model_version_id
-                logger.info(
-                    "Finetune job id=%s — provenance registered model_version_id=%s "
-                    "annotation_count=%d distribution_shift=%.4f",
-                    job_id, model_version_id, total_annotated,
-                    result.get("distribution_shift", 0.0),
-                )
-                await update_job(conn, job_id,
-                                 status="finished",
-                                 progress={"accepted": True,
-                                           "best_accuracy": result["best_accuracy"],
-                                           "epochs": result["epochs"],
-                                           "checkpoint": ckpt_path,
-                                           "model_version_id": model_version_id},
-                                 finished_at=now)
+                await _persist_finetune_acceptance(conn, job_id, ckpt_path, result, logger)
 
-        _pg_run(_update_watermark_and_finish_once())
+        _pg_run(_finish_accepted())
         logger.info("Finetune job finished id=%s checkpoint=%s accuracy=%.4f",
                     job_id, ckpt_path, result["best_accuracy"])
 
     except Exception as exc:
         logger.exception("Finetune job failed id=%s error=%s", job_id, exc)
-        async def _mark_error_once():
+
+        async def _mark_error():
             async with db_pool.acquire() as conn:
-                await update_job(conn, job_id, status="error", error=str(exc), finished_at=time.time())
-        _pg_run(_mark_error_once())
+                await update_job(conn, job_id, status="error", error=str(exc),
+                                 finished_at=time.time())
+
+        _pg_run(_mark_error())
 
 
 # ── Reembed job handler ──────────────────────────────────────────────────────
+
+async def _load_reembed_cursor(conn, job_id: str) -> tuple:
+    """Return (cursor, frames_reembedded) restored from stored job progress."""
+    import json as _json
+    row = await conn.fetchrow("SELECT progress_json FROM jobs WHERE id = $1", job_id)
+    progress: dict = {}
+    if row:
+        progress = row["progress_json"] or {}
+        if isinstance(progress, str):
+            progress = _json.loads(progress)
+    raw = progress.get("last_cursor")
+    cursor = (raw[0], raw[1]) if isinstance(raw, list) and len(raw) == 2 else None
+    return cursor, progress.get("frames_reembedded", 0)
+
+
+def _load_batch_images(batch, logger) -> tuple:
+    """Open PIL images for a frame batch, skipping unreadable files.
+
+    Returns (images, valid_rows).
+    """
+    from PIL import Image as PILImage
+    images, valid_rows = [], []
+    for frame_row in batch:
+        try:
+            img = PILImage.open(frame_row["frame_path"]).convert("RGB")
+            images.append(img)
+            valid_rows.append(frame_row)
+        except Exception as exc:
+            logger.debug("Reembed: skipping unreadable frame id=%s err=%s", frame_row["id"], exc)
+    return images, valid_rows
+
+
+def _build_reembed_points(valid_rows, dino_vecs, clip_vecs):
+    """Assemble Qdrant PointStructs from embedding vectors and frame metadata."""
+    from qdrant_client.http import models as qmodels
+    return [
+        qmodels.PointStruct(
+            id=row["qdrant_id"],
+            vector={"clip": clip_vecs[i].tolist(), "dino": dino_vecs[i].tolist()},
+            payload={"frame_id": row["id"], "mission_id": row["mission_id"]},
+        )
+        for i, row in enumerate(valid_rows)
+    ]
+
+
+async def _run_reembed(conn, job_id: str, dino, clip, qdrant, batch_size: int, logger) -> int:
+    """Iterate all frames in cursor order, re-embed, and checkpoint progress.
+
+    Returns the total number of frames re-embedded.
+    """
+    cursor, frames_reembedded = await _load_reembed_cursor(conn, job_id)
+    logger.info("Reembed job started id=%s resuming_from_cursor=%s", job_id, cursor)
+
+    while True:
+        batch = await list_frames_after(conn, cursor, batch_size)
+        if not batch:
+            break
+
+        images, valid_rows = _load_batch_images(batch, logger)
+        if images:
+            dino_vecs = dino.encode_images(images)
+            clip_vecs = clip.encode_images(images)
+            points = _build_reembed_points(valid_rows, dino_vecs, clip_vecs)
+            try:
+                qdrant.upsert_points(points)
+            except Exception as exc:
+                logger.error("Reembed: Qdrant upsert failed cursor=%s err=%s", cursor, exc)
+                cursor_serial = [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None
+                await update_job(conn, job_id, status="error", error=str(exc),
+                                 progress={"last_cursor": cursor_serial,
+                                           "frames_reembedded": frames_reembedded},
+                                 finished_at=time.time())
+                return frames_reembedded
+            frames_reembedded += len(valid_rows)
+
+        last_row = batch[-1]
+        cursor = (last_row["created_at"], last_row["id"])
+        await update_job(conn, job_id,
+                         progress={"last_cursor": [datetime_to_ts(cursor[0]), cursor[1]],
+                                   "frames_reembedded": frames_reembedded})
+        logger.debug("Reembed: cursor=%s frames_reembedded=%d", cursor, frames_reembedded)
+
+    cursor_serial = [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None
+    await update_job(conn, job_id, status="finished",
+                     progress={"last_cursor": cursor_serial,
+                               "frames_reembedded": frames_reembedded},
+                     finished_at=time.time())
+    return frames_reembedded
+
 
 def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> None:
     """Re-embed all indexed frames with the current DINOv3 model.
 
     Processes frames in batches of REEMBED_BATCH_SIZE (default 256).
-    Checkpoints last_offset after each batch so the sweep is resumable.
+    Checkpoints last_cursor after each batch so the sweep is resumable.
     """
+    from models.dino_model import DINOEmbedder
+    from models.openclip_model import OpenCLIPEmbedder
     from pipeline.storage.qdrant import QdrantStore
 
-    batch_size = settings.REEMBED_BATCH_SIZE
-
-    _gpu_checkin(job_id, "reembed", conn_url, logger)
     try:
-        # Load DINO model for embedding
-        from models.dino_model import DINOEmbedder
-        from models.openclip_model import OpenCLIPEmbedder
-        from PIL import Image as PILImage
-
         dino_name = get_dino_model_name(settings.MODEL_NAME)
         if dino_name is None:
             raise ValueError(f"Unsupported DINO model family: {settings.MODEL_NAME}")
         dino = DINOEmbedder(dino_name)
         clip = OpenCLIPEmbedder()
-        qdrant = QdrantStore(
-            clip_dim=clip.image_dim(),
-            dino_dim=dino.image_dim(),
-        )
+        qdrant = QdrantStore(clip_dim=clip.image_dim(), dino_dim=dino.image_dim())
 
-        async def _run_reembed_with_single_conn() -> int:
-            import json
-
+        async def _connect_and_run() -> int:
             conn = await asyncpg.connect(conn_url)
             try:
-                row = await conn.fetchrow("SELECT progress_json FROM jobs WHERE id = $1", job_id)
-                progress = {}
-                if row:
-                    progress = row["progress_json"] or {}
-                    if isinstance(progress, str):
-                        progress = json.loads(progress)
-
-                last_cursor_raw = progress.get("last_cursor")
-                last_cursor = None
-                if isinstance(last_cursor_raw, list) and len(last_cursor_raw) == 2:
-                    last_cursor = (last_cursor_raw[0], last_cursor_raw[1])
-
-                logger.info(
-                    "Reembed job started id=%s resuming_from_cursor=%s",
-                    job_id,
-                    last_cursor,
+                return await _run_reembed(
+                    conn, job_id, dino, clip, qdrant, settings.REEMBED_BATCH_SIZE, logger
                 )
-
-                cursor = tuple(last_cursor) if last_cursor else None
-                frames_reembedded = progress.get("frames_reembedded", 0)
-
-                while True:
-                    batch = await list_frames_after(conn, cursor, batch_size)
-                    if not batch:
-                        break
-
-                    images = []
-                    valid_rows = []
-                    for frame_row in batch:
-                        try:
-                            img = PILImage.open(frame_row["frame_path"]).convert("RGB")
-                            images.append(img)
-                            valid_rows.append(frame_row)
-                        except Exception as exc:
-                            logger.debug(
-                                "Reembed: skipping unreadable frame id=%s err=%s",
-                                frame_row["id"],
-                                exc,
-                            )
-
-                    if images:
-                        dino_vecs = dino.encode_images(images)
-                        clip_vecs = clip.encode_images(images)
-
-                        from qdrant_client.http import models as qmodels
-
-                        points = [
-                            qmodels.PointStruct(
-                                id=frame_row["qdrant_id"],
-                                vector={
-                                    "clip": clip_vecs[i].tolist(),
-                                    "dino": dino_vecs[i].tolist(),
-                                },
-                                payload={
-                                    "frame_id": frame_row["id"],
-                                    "mission_id": frame_row["mission_id"],
-                                },
-                            )
-                            for i, frame_row in enumerate(valid_rows)
-                        ]
-
-                        try:
-                            qdrant.upsert_points(points)
-                        except Exception as exc:
-                            logger.error(
-                                "Reembed: Qdrant upsert failed cursor=%s err=%s",
-                                cursor,
-                                exc,
-                            )
-                            await update_job(
-                                conn,
-                                job_id,
-                                status="error",
-                                error=str(exc),
-                                progress={
-                                    "last_cursor": (
-                                        [datetime_to_ts(cursor[0]), cursor[1]]
-                                        if cursor
-                                        else None
-                                    ),
-                                    "frames_reembedded": frames_reembedded,
-                                },
-                                finished_at=time.time(),
-                            )
-                            return frames_reembedded
-
-                        frames_reembedded += len(valid_rows)
-
-                    last_row = batch[-1]
-                    cursor = (last_row["created_at"], last_row["id"])
-                    await update_job(
-                        conn,
-                        job_id,
-                        progress={
-                            "last_cursor": [datetime_to_ts(cursor[0]), cursor[1]],
-                            "frames_reembedded": frames_reembedded,
-                        },
-                    )
-                    logger.debug(
-                        "Reembed: cursor=%s frames_reembedded=%d",
-                        cursor,
-                        frames_reembedded,
-                    )
-
-                await update_job(
-                    conn,
-                    job_id,
-                    status="finished",
-                    progress={
-                        "last_cursor": (
-                            [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None
-                        ),
-                        "frames_reembedded": frames_reembedded,
-                    },
-                    finished_at=time.time(),
-                )
-                return frames_reembedded
             finally:
                 await conn.close()
 
-        frames_reembedded = asyncio.run(_run_reembed_with_single_conn())
-        logger.info(
-            "Reembed job finished id=%s frames_reembedded=%d",
-            job_id,
-            frames_reembedded,
-        )
+        with GPULock(job_id, "reembed", conn_url, logger):
+            frames_reembedded = asyncio.run(_connect_and_run())
+        logger.info("Reembed job finished id=%s frames_reembedded=%d", job_id, frames_reembedded)
 
     except Exception as exc:
         logger.exception("Reembed job failed id=%s error=%s", job_id, exc)
+
         async def _mark_error():
             conn = await asyncpg.connect(conn_url)
             try:
@@ -591,9 +570,8 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
                                  finished_at=time.time())
             finally:
                 await conn.close()
+
         asyncio.run(_mark_error())
-    finally:
-        _gpu_checkout(job_id, conn_url, logger)
 
 
 # ── Main loop ────────────────────────────────────────────────────────────────
@@ -649,15 +627,15 @@ def main() -> None:
             logger.info("Job claimed id=%s type=%s", job_id, job_type)
 
             # Route by job type
-            if job_type == "supervised_finetune":
+            if job_type == JobType.FINETUNE:
                 handle_finetune_job(job_id, payload, pool, conn_url, logger)
                 continue
 
-            if job_type == "reembed":
+            if job_type == JobType.REEMBED:
                 handle_reembed_job(job_id, payload, conn_url, logger)
                 continue
 
-            if job_type not in (None, "index"):
+            if job_type not in (None, JobType.INDEX):
                 logger.warning("Unknown job type=%s id=%s — marking error", job_type, job_id)
                 _update_job_sync(pool, job_id, status="error",
                                  error=f"unknown job type: {job_type}",
