@@ -190,7 +190,7 @@ Sidecar files consumed (all optional; step degrades gracefully when absent):
 
 Config env vars: `SENSOR_FUSION_ENABLED` (default `false`), `SENSOR_FUSION_MAX_LAG_MS` (default `100`), `THERMAL_MODEL` (auto-resolves to YOLO-nano fine-tuned on FLIR ADAS).
 
-See [`local_path.md`](../local_path.md) for the short path and [`docs/learning_path/03_sensor_steps_09_20.md`](learning_path/03_sensor_steps_09_20.md) for the sensor and fusion deep dive. Steps 10-19 cover individual sensor families by physical principle.
+See [`local_path.md`](local_path.md) for the short path and [`docs/learning_path/03_sensor_steps_09_20.md`](learning_path/03_sensor_steps_09_20.md) for the sensor and fusion deep dive. Steps 10-19 cover individual sensor families by physical principle.
 
 ### Step S — UniDriveVLA expert analysis
 

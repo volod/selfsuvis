@@ -101,7 +101,7 @@ bash scripts/setup_local_full.sh --sensor-data-only # regenerate sensor sidecars
 
 After setup completes, the script prints the exact run command for your configuration.
 
-See [local_path.md](local_path.md) for the short 35-step path and
+See [local_path.md](docs/local_path.md) for the short 35-step path and
 [docs/learning_path/README.md](docs/learning_path/README.md) for the deep-dive study set,
 sidecar naming, and per-sensor guidance.
 
@@ -215,7 +215,7 @@ For each video `<name>.mp4` the pipeline writes to `<output-dir>/<name>/`:
 
 | Document | Contents |
 |---|---|
-| [Local learning path](local_path.md) | Short 35-step essentials plus a realistic day-by-day syllabus |
+| [Local learning path](docs/local_path.md) | Short 35-step essentials plus a realistic day-by-day syllabus |
 | [Learning path deep dives](docs/learning_path/README.md) | Detailed human-oriented explanations for every phase and step group |
 | [Pipeline](docs/pipeline.md) | Agentic pipeline architecture and data flow |
 | [Architecture](docs/architecture.md) | System components and service topology |

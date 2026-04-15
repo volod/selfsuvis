@@ -4,13 +4,13 @@ The old single-file learning path has been split into a short path plus a deep-d
 
 Start here:
 
-- [Short local path](../local_path.md)
+- [Short local path](local_path.md)
 - [Learning path deep dives](learning_path/README.md)
 - [Day-by-day syllabus](learning_path/07_day_by_day_syllabus.md)
 
 Recommended reading order:
 
-1. [Short local path](../local_path.md)
+1. [Short local path](local_path.md)
 2. [Runtime and study guide](learning_path/01_runtime_and_study_guide.md)
 3. [Perception core, Steps 1-8](learning_path/02_perception_core_steps_01_08.md)
 4. [Sensors and fusion, Steps 9-20](learning_path/03_sensor_steps_09_20.md)
