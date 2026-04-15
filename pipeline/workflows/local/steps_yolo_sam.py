@@ -31,7 +31,9 @@ from pipeline.vision.yolo import (
     PRIORITY_VEHICLE,
     PRIORITY_ARTIFICIAL,
 )
-from ._common import _log, _open_frame_image
+from ._common import _log as _pipeline_log, _open_frame_image
+import logging as _logging_mod
+_log = _logging_mod.getLogger("pipeline.local.yolo_sam")
 
 # ── Priority → display color (RGB) ───────────────────────────────────────────
 
@@ -163,9 +165,9 @@ def step_yolo_sam_detection(
             sam_predictor = SAMPredictor()
             sam_available = sam_predictor.is_available()
             if not sam_available:
-                _log.info("  [YOLO+SAM] SAM not available — running detection only")
+                _log.info("SAM not available — running detection only")
         except Exception as exc:
-            _log.debug("  [YOLO+SAM] SAM import failed: %s", exc)
+            _log.debug("SAM import failed: %s", exc)
 
     t0 = time.time()
 
@@ -175,7 +177,7 @@ def step_yolo_sam_detection(
     sampled = frame_list[::step][:_MAX_YOLO_FRAMES]
     n = len(sampled)
     _log.info(
-        "  [YOLO+SAM] Running YOLO11 (%s) on %d/%d frames%s",
+        "Running YOLO11 (%s) on %d/%d frames%s",
         detector.model_id,
         n, n_avail,
         " + SAM2/3 segmentation" if sam_available else "",
@@ -241,7 +243,7 @@ def step_yolo_sam_detection(
                 )
 
         except Exception as exc:
-            _log.debug("  [YOLO+SAM] frame %s failed: %s", fp, exc)
+            _log.debug("frame %s failed: %s", fp, exc)
             detection_results.append({
                 "frame_path": fp,
                 "t_sec": t_sec,
@@ -251,7 +253,7 @@ def step_yolo_sam_detection(
 
     elapsed = time.time() - t0
     _log.info(
-        "  [YOLO+SAM] Done: %d objects in %d frames (human=%d vehicle=%d artificial=%d other=%d) in %.1fs",
+        "Done: %d objects in %d frames (human=%d vehicle=%d artificial=%d other=%d) in %.1fs",
         total_objects, n, human_count, vehicle_count, artificial_count, other_count, elapsed,
     )
 

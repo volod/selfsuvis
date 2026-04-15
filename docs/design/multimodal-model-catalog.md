@@ -291,6 +291,63 @@ WORLD_MODEL_ENABLED=true WORLD_MODEL_CLIP_FRAMES=16 WORLD_MODEL_STORE_EMBED=true
 
 ---
 
+## 9. VLA — Vision-Language-Action Models
+
+VLA models extend VLMs with an **action head**: they produce structured driving-domain
+observations (perception summary, object list, trajectory hint, hazard assessment) in
+addition to free-text descriptions.
+
+The selfsuvis integration uses a thin OpenAI-compatible HTTP adapter (`pipeline/vision/unidrive.py`)
+that works with **any** capable vision LLM served via vLLM or ollama.  The actual
+`owl10/UniDriveVLA_Nusc_Base_Stage3` checkpoint (Qwen3-VL backbone, trained on nuScenes)
+can be used if served via an appropriate bridge; alternatively, any Qwen2.5-VL or other
+vision model can serve the same structured-output schema.
+
+> **Practical note:** The upstream UniDriveVLA checkpoint requires multi-camera nuScenes
+> format for its internal driving stack.  For arbitrary single-camera mission video,
+> **point `--unidrive-api-url` at a Qwen2.5-VL-7B sidecar** — it handles the structured
+> JSON output schema with equal or better quality for non-road domains (aerial, maritime,
+> off-road terrain).
+
+| # | Model ID | Params | VRAM (FP16) | Notes |
+|---|---|---|---|---|
+| 1 | `owl10/UniDriveVLA_Nusc_Base_Stage3` | ~2 B | ~4 GB | Qwen3-VL-2B backbone; nuScenes stage 3 (final) |
+| 2 | `owl10/UniDriveVLA_Nusc_Large_Stage3` | ~8 B | ~16 GB | Qwen3-VL-8B backbone; stronger scene understanding |
+| 3 | `Qwen/Qwen2.5-VL-7B-Instruct` | 7 B | ~14 GB | **Recommended general backend**; handles non-road scenes well |
+| 4 | `Qwen/Qwen2.5-VL-3B-Instruct` | 3 B | ~6 GB | Lower VRAM; good for edge devices |
+| 5 | `Qwen/Qwen2.5-VL-32B-Instruct` | 32 B | ~64 GB | Highest quality; needs A100 |
+
+HuggingFace collection: `https://huggingface.co/collections/owl10/unidrivevla`
+
+**Structured output schema** (returned for every analysed frame):
+
+```json
+{
+  "understanding": {"scene_summary": "...", "traffic_context": "...", "risk_level": "low|medium|high|unknown", "key_agents": []},
+  "perception":    {"objects": [{"label": "...", "count": 1, "salience": "high"}], "drivable_area": "clear|partial|blocked|unknown", "lane_structure": "..."},
+  "planning":      {"recommended_action": "...", "trajectory_hint": "...", "hazards": []},
+  "mixture_of_experts": {"consensus_summary": "...", "expert_agreement": "high|medium|low|unknown", "disagreement_points": []}
+}
+```
+
+**CLI:**
+```bash
+# Point at Qwen2.5-VL sidecar (recommended for non-road missions)
+python main.py --mode local --unidrive-api-url http://localhost:8010/v1 --unidrive-model Qwen/Qwen2.5-VL-7B-Instruct
+
+# Point at actual UniDriveVLA checkpoint (if served via compatible bridge)
+python main.py --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-model owl10/UniDriveVLA_Nusc_Large_Stage3
+
+# Download model weights for local bridge
+python scripts/prepare_models.py --unidrive
+python scripts/prepare_models.py --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Large_Stage3
+
+# Env vars
+UNIDRIVE_ENABLED=true UNIDRIVE_API_URL=http://localhost:8010/v1 UNIDRIVE_MODEL=Qwen/Qwen2.5-VL-7B-Instruct UNIDRIVE_MAX_FRAMES=24
+```
+
+---
+
 ## GPU Resource Guide
 
 Typical selfsuvis worker VRAM budget on a 16 GB GPU (e.g. RTX 4060 Ti / 4080):

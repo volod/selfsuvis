@@ -178,6 +178,7 @@ class Settings:
 
     DEVICE = _env("DEVICE", "auto")
     USE_FP16 = _env("USE_FP16", "true").lower() == "true"
+    LOCAL_CUDA_STAGE_MIN_FREE_VRAM_GB = _env_float("LOCAL_CUDA_STAGE_MIN_FREE_VRAM_GB", 6.0)
 
     SAMPLE_FPS_BASE = float(_env("SAMPLE_FPS_BASE", "2"))
     SAMPLE_FPS_MIN = float(_env("SAMPLE_FPS_MIN", "0.5"))
@@ -316,7 +317,7 @@ class Settings:
     UNIDRIVE_API_URL = _env("UNIDRIVE_API_URL", "")
     UNIDRIVE_BACKEND = _env("UNIDRIVE_BACKEND", "vllm")  # "vllm" or "ollama"
     _unidrive_model_default = (
-        "unidrivevla:base"
+        "qwen2.5vl:7b"
         if _env("UNIDRIVE_BACKEND", "vllm").lower() == "ollama"
         or "11434" in _env("UNIDRIVE_API_URL", "")
         else "owl10/UniDriveVLA_Nusc_Base_Stage3"

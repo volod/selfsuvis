@@ -197,6 +197,15 @@ See [`local_path.md`](local_path.md) for the short path and [`docs/learning_path
 Runs after Qwen in the local pipeline and as an optional sparse enrichment pass in
 production indexing. Requires `UNIDRIVE_API_URL` or `--unidrive-api-url`.
 
+**Adapter design:** `pipeline/vision/unidrive.py` is a thin HTTP adapter that works with
+any OpenAI-compatible vision endpoint.  The structured driving-domain schema is prompted
+from the backend model; no direct model loading occurs in the worker process.
+For non-road missions (aerial, off-road, maritime), use a Qwen2.5-VL-7B sidecar as the
+backend rather than the driving-specific `owl10/UniDriveVLA_Nusc_*` checkpoint.
+
+See [`docs/runbooks/unidrive-api.md`](runbooks/unidrive-api.md) for setup and
+backend selection guidance.
+
 Normalized output schema:
 
 - `understanding`: scene summary, traffic context, risk level, key agents

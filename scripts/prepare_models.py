@@ -73,8 +73,11 @@ Environment
 """
 
 import argparse
+import importlib.util
 import logging
 import os
+import shutil
+import subprocess
 import sys
 import time
 import warnings
@@ -112,9 +115,103 @@ log = logging.getLogger("prepare_models")
 
 _UNIDRIVE_DEFAULT_MODEL = "owl10/UniDriveVLA_Nusc_Base_Stage3"
 _UNIDRIVE_COLLECTION_URL = "https://huggingface.co/collections/owl10/unidrivevla"
+_UNIDRIVE_OLLAMA_FALLBACK_MODEL = "qwen2.5vl:7b"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _has_ollama_installed() -> bool:
+    return shutil.which("ollama") is not None
+
+
+def _has_vllm_installed() -> bool:
+    return importlib.util.find_spec("vllm") is not None
+
+
+def _is_ollama_model_name(model_id: str) -> bool:
+    mid = (model_id or "").strip()
+    return bool(mid) and "/" not in mid
+
+
+def _resolve_unidrive_backend(requested_backend: str, model_id: str) -> str:
+    """Choose the backend used to prepare UniDrive assets."""
+    have_ollama = _has_ollama_installed()
+    have_vllm = _has_vllm_installed()
+    if not have_ollama and not have_vllm:
+        raise RuntimeError(
+            "UniDrive prepare requires at least one backend runtime. "
+            "Install Ollama on this machine or install vllm into the active environment."
+        )
+
+    backend = (requested_backend or "auto").strip().lower()
+    if backend not in {"", "auto", "ollama", "vllm"}:
+        raise ValueError(f"Unsupported UniDrive backend: {requested_backend}")
+    if backend == "ollama":
+        if not have_ollama:
+            raise RuntimeError("UniDrive backend 'ollama' requested, but 'ollama' is not installed on this machine.")
+        return "ollama"
+    if backend == "vllm":
+        if not have_vllm:
+            raise RuntimeError("UniDrive backend 'vllm' requested, but the 'vllm' package is not installed in this environment.")
+        return "vllm"
+
+    # Auto mode: HF UniDrive repos require vLLM-style serving; Ollama-compatible
+    # tags are routed to Ollama when available.
+    if _is_ollama_model_name(model_id):
+        if have_ollama:
+            return "ollama"
+        if have_vllm:
+            return "vllm"
+    if have_vllm:
+        return "vllm"
+    return "ollama"
+
+
+def _resolve_unidrive_prepare_model(model_id: str, backend: str) -> str:
+    """Resolve the model artifact to warm up for the chosen UniDrive backend."""
+    requested = (model_id or "").strip()
+    if backend == "ollama":
+        if requested and _is_ollama_model_name(requested):
+            return requested
+        if requested and requested.startswith("owl10/UniDriveVLA"):
+            log.warning(
+                "UniDriveVLA repo '%s' is published on Hugging Face, not in the Ollama library. "
+                "Using Ollama fallback model '%s' for UniDrive-style sidecar serving.",
+                requested,
+                _UNIDRIVE_OLLAMA_FALLBACK_MODEL,
+            )
+        return _UNIDRIVE_OLLAMA_FALLBACK_MODEL
+    if requested:
+        return requested
+    return _UNIDRIVE_DEFAULT_MODEL
+
+
+def _is_ollama_model_cached(model: str) -> bool:
+    if not _has_ollama_installed():
+        return False
+    result = subprocess.run(
+        ["ollama", "show", model],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _download_ollama_model(model: str) -> None:
+    if not _has_ollama_installed():
+        raise RuntimeError("Cannot pull Ollama model because 'ollama' is not installed.")
+    log.info("Ollama — model=%s", model)
+    if _is_ollama_model_cached(model):
+        log.info("  ✓ Ollama model already present — skipping pull")
+        return
+    t0 = time.monotonic()
+    result = subprocess.run(["ollama", "pull", model], check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ollama pull {model!r} failed. Ensure the Ollama daemon is running and the model tag exists."
+        )
+    log.info("  ✓ Ollama model ready  (%.1fs)", time.monotonic() - t0)
 
 # ── Auth error detection & interactive retry ──────────────────────────────────
 
@@ -433,15 +530,15 @@ def _download_detection(model_id: str) -> None:
 def _download_yolo(model_id: str) -> None:
     """Download YOLO11 weights via ultralytics auto-download.
 
-    ultralytics downloads weights to ``~/.cache/ultralytics/`` on first use.
-    Triggering a dummy load here pre-populates that cache so the demo can
-    start without network access.
+    Weights are stored in ``~/.cache/ultralytics/`` — the full path is passed
+    to the YOLO constructor so ultralytics downloads there instead of cwd.
     """
     model_file = model_id if model_id.endswith(".pt") else f"{model_id}.pt"
     log.info("YOLO11 — model=%s", model_file)
 
-    # Check ultralytics cache: ~/.cache/ultralytics/<model_file>
-    ult_cache = Path.home() / ".cache" / "ultralytics" / model_file
+    # Canonical cache location: ~/.cache/ultralytics/<model_file>
+    ult_cache_dir = Path.home() / ".cache" / "ultralytics"
+    ult_cache = ult_cache_dir / model_file
     if ult_cache.exists():
         log.info("  ✓ YOLO11 already cached at %s — skipping download", ult_cache)
         return
@@ -452,14 +549,16 @@ def _download_yolo(model_id: str) -> None:
         log.warning("  ultralytics not installed — skipping YOLO download (pip install ultralytics)")
         return
 
+    ult_cache_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
     try:
-        model = YOLO(model_file)  # triggers download if not cached
+        # Pass the full cache path so ultralytics downloads there, not to cwd.
+        model = YOLO(str(ult_cache))
         # Run a tiny inference to verify weights are valid.
         import numpy as np
         dummy = np.zeros((64, 64, 3), dtype=np.uint8)
         model(dummy, verbose=False)
-        log.info("  ✓ YOLO11 ready  (%.1fs)  file=%s", time.monotonic() - t0, model_file)
+        log.info("  ✓ YOLO11 ready  (%.1fs)  file=%s", time.monotonic() - t0, ult_cache)
     except Exception as exc:
         log.warning("  YOLO11 download/verification failed: %s", exc)
         raise
@@ -920,7 +1019,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--flash-attn", action="store_true",
                    help="Install flash-attn (CUDA required; uses prebuilt wheel or compiles)")
     p.add_argument("--all",  action="store_true",
-                   help="Download/verify everything (flash-attn + clip + dino + gemma + florence + whisper + ocr + depth + detection + world-model + unidrive + yolo + sam)")
+                   help="Download/verify everything (default when no other flag is given)")
     p.add_argument("--verify", action="store_true",
                    help="Check cache status for all requested models without downloading")
 
@@ -986,6 +1085,13 @@ def _build_parser() -> argparse.ArgumentParser:
                        "UniDriveVLA model repo ID to cache for external bridge / sidecar use. "
                        f"Default: {_UNIDRIVE_DEFAULT_MODEL}"
                    ))
+    p.add_argument("--unidrive-backend", default=os.getenv("UNIDRIVE_BACKEND", "auto"),
+                   choices=["auto", "ollama", "vllm"],
+                   help=(
+                       "Backend used for UniDrive prep. "
+                       "'ollama' pulls an Ollama tag, 'vllm' caches HF weights, "
+                       "'auto' prefers vllm for HF UniDrive repos and Ollama for Ollama tags."
+                   ))
 
     p.add_argument("--yolo", action="store_true",
                    help="Download YOLO11 detection model (step P2; default model: yolo11l.pt ~48 MB)")
@@ -1027,16 +1133,13 @@ def main() -> None:
 
     _any_flag = (args.clip or args.dino or args.gemma or args.flash_attn or args.whisper
                  or args.florence or args.ocr or args.depth or args.detection or args.world_model
-                 or args.unidrive or args.yolo or args.sam)
-    # Auto-include Gemma in the default run when HF_TOKEN + GEMMA_MODEL_ID are configured,
-    # so `python scripts/prepare_models.py` caches everything needed out of the box.
-    _gemma_env_ready = bool(
-        (os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN"))
-        and os.getenv("GEMMA_MODEL_ID")
-    )
-    do_clip        = args.clip        or args.all or not _any_flag
-    do_dino        = args.dino        or args.all or not _any_flag
-    do_gemma       = args.gemma       or args.all or (not _any_flag and _gemma_env_ready)
+                 or args.unidrive or args.yolo or args.sam or args.all)
+    # Default (no flag given) → behave as --all
+    if not _any_flag:
+        args.all = True
+    do_clip        = args.clip        or args.all
+    do_dino        = args.dino        or args.all
+    do_gemma       = args.gemma       or args.all
     do_flash_attn  = args.flash_attn  or args.all
     do_whisper     = args.whisper     or args.all
     do_florence    = args.florence    or args.all
@@ -1063,7 +1166,16 @@ def main() -> None:
     depth_id      = _resolve_hf_model("depth",       args.depth_model)    if do_depth       else ""
     detection_id  = _resolve_hf_model("detection",   args.detection_model) if do_detection  else ""
     world_id      = _resolve_hf_model("world_model", args.world_model_id) if do_world_model else ""
-    unidrive_id   = args.unidrive_model if do_unidrive else ""
+    unidrive_backend = ""
+    unidrive_id = ""
+    if do_unidrive:
+        try:
+            unidrive_backend = _resolve_unidrive_backend(args.unidrive_backend, args.unidrive_model)
+            unidrive_id = _resolve_unidrive_prepare_model(args.unidrive_model, unidrive_backend)
+            log.info("UniDrive prepare backend: %s  model=%s", unidrive_backend, unidrive_id)
+        except Exception as exc:
+            log.error("UniDrive backend resolution failed: %s", exc)
+            sys.exit(1)
 
     # ── Verify mode ───────────────────────────────────────────────────────────
     if args.verify:
@@ -1094,7 +1206,10 @@ def main() -> None:
         if do_world_model and world_id:
             specs.append((f"WorldModel {world_id}", lambda m=world_id: _is_hf_cached(m)))
         if do_unidrive and unidrive_id:
-            specs.append((f"UniDriveVLA {unidrive_id}", lambda m=unidrive_id: _is_hf_cached(m)))
+            if unidrive_backend == "ollama":
+                specs.append((f"UniDriveVLA(Ollama) {unidrive_id}", lambda m=unidrive_id: _is_ollama_model_cached(m)))
+            else:
+                specs.append((f"UniDriveVLA(vLLM) {unidrive_id}", lambda m=unidrive_id: _is_hf_cached(m)))
         if do_yolo:
             ym = args.yolo_model
             specs.append((f"YOLO11 {ym}", lambda m=ym: _is_yolo_cached(m)))
@@ -1221,10 +1336,13 @@ def main() -> None:
             errors.append(("UniDriveVLA", ValueError("no model ID")))
         else:
             try:
-                _with_auth_retry(f"UniDriveVLA ({unidrive_id})", unidrive_id,
-                                 lambda: _download_unidrive(unidrive_id))
+                if unidrive_backend == "ollama":
+                    _download_ollama_model(unidrive_id)
+                else:
+                    _with_auth_retry(f"UniDriveVLA ({unidrive_id})", unidrive_id,
+                                     lambda: _download_unidrive(unidrive_id))
             except Exception as exc:
-                log.error("UniDriveVLA [%s] download failed: %s", unidrive_id, exc)
+                log.error("UniDriveVLA [%s via %s] download failed: %s", unidrive_id, unidrive_backend or "unknown", exc)
                 errors.append(("UniDriveVLA", exc))
 
     if do_yolo:

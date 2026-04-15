@@ -111,6 +111,7 @@ class SAMPredictor:
         self._backend: Optional[str] = None
         self._predictor = None
         self._load_failed = False
+        self._amg = None  # cached SAM2/SAM3 AutomaticMaskGenerator
 
     def is_available(self) -> bool:
         """Return True when SAM is enabled and a backend is installed."""
@@ -152,9 +153,54 @@ class SAMPredictor:
             logger.warning("SAM prediction failed: %s", exc)
             return []
 
+    def get_auto_mask_generator(self, points_per_side: int = 8):
+        """Return a cached automatic mask generator for this SAM backend.
+
+        Uses ``points_per_side=8`` (64 prompts) by default — a 4× reduction
+        vs the 16 (256 prompts) that was causing ~25 min/frame when combined
+        with serial CLIP filtering.  Caches across frames so the generator
+        is not re-instantiated on every call.
+
+        Returns None if no SAM2/SAM3 backend is available.
+        """
+        if self._amg is not None:
+            return self._amg
+        predictor = self._get_predictor()
+        if predictor is None:
+            return None
+        backend_tag, predictor_obj = predictor
+        try:
+            if backend_tag == "sam3":
+                import sam3.automatic_mask_generator as _sam3_amg  # type: ignore
+                amg_cls = getattr(_sam3_amg, "SAM3AutomaticMaskGenerator", None)
+                if amg_cls is None:
+                    amg_cls = getattr(_sam3_amg, "SAMAutomaticMaskGenerator", None)
+                if amg_cls is not None:
+                    self._amg = amg_cls(
+                        predictor_obj.model,
+                        points_per_side=points_per_side,
+                        pred_iou_thresh=0.7,
+                        stability_score_thresh=0.85,
+                        min_mask_region_area=100,
+                    )
+            elif backend_tag == "sam2":
+                from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator  # type: ignore
+                self._amg = SAM2AutomaticMaskGenerator(
+                    predictor_obj.model,
+                    points_per_side=points_per_side,
+                    pred_iou_thresh=0.7,
+                    stability_score_thresh=0.85,
+                    min_mask_region_area=100,
+                )
+        except Exception as exc:
+            logger.debug("SAM AMG init failed: %s", exc)
+            self._amg = None
+        return self._amg
+
     def release(self) -> None:
         """Free GPU memory held by the SAM predictor."""
         self._predictor = None
+        self._amg = None
         gc.collect()
         try:
             import torch

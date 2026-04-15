@@ -120,10 +120,18 @@ sidecar naming, and per-sensor guidance.
 ```bash
 python main.py --mode local \
   --input data_test/videos/drone_mission.mp4 \
-  --gemma-api-url  http://localhost:11434/v1 \
-  --qwen-api-url   http://localhost:11434/v1 \
+  --qwen \
+  --unidrive \
+  --gemma-api-url    http://localhost:11434/v1 \
+  --qwen-api-url     http://localhost:11434/v1 \
+  --unidrive-model   owl10/UniDriveVLA_Nusc_Base_Stage3 \
   --rfdetr-model   base
 ```
+
+This keeps Gemma and Qwen on Ollama, but runs UniDrive locally from cached Hugging Face
+weights when available. `--unidrive-api-url http://localhost:11434/v1` is intentionally
+not shown here because there is no published Ollama UniDriveVLA model; use local HF
+weights or a vLLM sidecar instead.
 
 **Full run — vLLM sidecars** (Qwen2.5-VL + UniDriveVLA, GPU-only):
 
@@ -141,6 +149,8 @@ python -m vllm.entrypoints.openai.api_server \
 # Terminal 3 — pipeline
 .venv/bin/python main.py --mode local \
   --input data_test/videos/drone_mission.mp4 \
+  --qwen \
+  --unidrive \
   --gemma-api-url    http://localhost:11434/v1 \
   --qwen-api-url     http://localhost:8010/v1 \
   --unidrive-api-url http://localhost:8030/v1

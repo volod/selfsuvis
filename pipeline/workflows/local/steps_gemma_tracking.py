@@ -31,7 +31,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from pipeline.core import settings
 from pipeline.vision.rfdetr import RFDETRTracker, _label_matches_any
-from ._common import _log, _open_frame_image
+from ._common import _log as _pipeline_log, _open_frame_image
+import logging as _logging_mod
+_log = _logging_mod.getLogger("pipeline.local.tracking")
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +49,10 @@ _FALLBACK_BBOX = [0.1, 0.1, 0.9, 0.9]
 _FALLBACK_AREA_THRESHOLD = 0.72   # (0.9-0.1)^2 ≈ 0.64; use 0.72 to catch near-fallbacks
 # Render line width relative to image width
 _BOX_WIDTH_RATIO = 0.003
+# Maximum frames on which Path B (SAM AMG) is allowed to run.
+# Path B is expensive (~5-60s per frame depending on hardware); cap it so a
+# scene with all-fallback Gemma bboxes doesn't freeze the pipeline for hours.
+_MAX_PATH_B_FRAMES = 3
 # Priority colours (RGB) — reuse the same scheme as YOLO+SAM step
 _PRIORITY_COLORS = {
     1: (229,  57,  53),   # human → red
@@ -340,49 +346,19 @@ def _get_sam_auto_masks(
 ) -> List[Dict[str, Any]]:
     """Generate candidate masks from SAM in automatic mode.
 
-    Tries the backend-native automatic mask generator first; falls back to a
-    4×4 grid of box prompts via ``SAMPredictor.predict_boxes``.
+    Uses the cached ``SAMPredictor.get_auto_mask_generator()`` (points_per_side=8,
+    64 prompts) so the generator is not re-instantiated on every frame call.
+    Falls back to a 4×4 grid of box prompts when the AMG is unavailable.
 
     Returns list of dicts with keys: ``mask`` (bool ndarray), ``bbox``
     ([x, y, w, h] pixel coords), ``area`` (int), ``score`` (float).
     """
     img_np = np.array(image.convert("RGB"))
-    h_img, w_img = img_np.shape[:2]
 
-    # Try backend-native automatic mask generation first.
+    # Use the SAMPredictor's cached AMG (avoids recreating it every frame).
     try:
         import torch
-        backend_tag, predictor_obj = sam_predictor._predictor
-
-        amg = None
-        if backend_tag == "sam3":
-            try:
-                import sam3.automatic_mask_generator as sam3_amg  # type: ignore
-
-                amg_cls = getattr(sam3_amg, "SAM3AutomaticMaskGenerator", None)
-                if amg_cls is None:
-                    amg_cls = getattr(sam3_amg, "SAMAutomaticMaskGenerator", None)
-                if amg_cls is not None:
-                    amg = amg_cls(
-                        predictor_obj.model,
-                        points_per_side=16,
-                        pred_iou_thresh=0.7,
-                        stability_score_thresh=0.85,
-                        min_mask_region_area=100,
-                    )
-            except Exception:
-                amg = None
-        elif backend_tag == "sam2":
-            from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator  # type: ignore
-
-            amg = SAM2AutomaticMaskGenerator(
-                predictor_obj.model,
-                points_per_side=16,
-                pred_iou_thresh=0.7,
-                stability_score_thresh=0.85,
-                min_mask_region_area=100,
-            )
-
+        amg = sam_predictor.get_auto_mask_generator(points_per_side=8)
         if amg is not None:
             with torch.inference_mode():
                 masks = amg.generate(img_np)
@@ -440,8 +416,9 @@ def _clip_filter_sam_masks(
 ) -> List[Dict[str, Any]]:
     """Filter SAM auto-masks to those semantically matching *target_categories*.
 
-    For each mask: extract the bounding-crop, embed with CLIP, score against all
-    category text embeddings. Keep mask when max cosine similarity ≥ threshold.
+    Encodes all valid mask crops in a **single batched** ``encode_images`` call
+    instead of one call per mask — this was the root cause of ~25 min/frame
+    when SAM AMG produced ~300 masks and CLIP was on CPU.
 
     Attaches ``matched_category`` and ``clip_score`` to passing masks.
     Returns empty list when clip_model is None or no categories given.
@@ -456,15 +433,17 @@ def _clip_filter_sam_masks(
         return []
 
     w_img, h_img = image.size
-    passing: List[Dict[str, Any]] = []
 
-    for mask_info in auto_masks:
+    # ── Pass 1: extract all valid crops and remember their mask indices ────────
+    valid_indices: List[int] = []
+    crops: List[Any] = []  # PIL images
+
+    for i, mask_info in enumerate(auto_masks):
         bbox = mask_info.get("bbox")
         if bbox is None:
             continue
         try:
             x, y, bw, bh = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-            # Clamp to image bounds
             x1 = max(0, x)
             y1 = max(0, y)
             x2 = min(w_img, x + bw)
@@ -474,19 +453,35 @@ def _clip_filter_sam_masks(
             crop = image.crop((x1, y1, x2, y2)).convert("RGB")
             if crop.width < 8 or crop.height < 8:
                 continue
-
-            img_embed = clip_model.encode_images([crop])   # (1, dim)
-            scores = float(np.dot(text_embeds, img_embed[0]).max())
-
-            if scores >= threshold:
-                cat_idx = int(np.argmax(np.dot(text_embeds, img_embed[0])))
-                m = dict(mask_info)
-                m["matched_category"] = target_categories[cat_idx]
-                m["clip_score"] = round(scores, 4)
-                m["source"] = "clip_filtered_automask"
-                passing.append(m)
+            crops.append(crop)
+            valid_indices.append(i)
         except Exception as exc:
-            _log.debug("  [P3/CLIP] mask crop scoring failed: %s", exc)
+            _log.debug("  [P3/CLIP] mask crop extraction failed: %s", exc)
+
+    if not crops:
+        return []
+
+    # ── Pass 2: batch-encode all crops in one forward pass ────────────────────
+    try:
+        img_embeds = clip_model.encode_images(crops)   # (N, dim)
+    except Exception as exc:
+        _log.debug("  [P3/CLIP] batch image encoding failed: %s", exc)
+        return []
+
+    # ── Pass 3: score and filter ───────────────────────────────────────────────
+    # scores_matrix[c, n] = cosine similarity of text[c] vs crop[n]
+    scores_matrix = np.dot(text_embeds, img_embeds.T)  # (C, N)
+    max_scores = scores_matrix.max(axis=0)             # (N,)
+    best_cats = scores_matrix.argmax(axis=0)           # (N,)
+
+    passing: List[Dict[str, Any]] = []
+    for j, orig_idx in enumerate(valid_indices):
+        if max_scores[j] >= threshold:
+            m = dict(auto_masks[orig_idx])
+            m["matched_category"] = target_categories[int(best_cats[j])]
+            m["clip_score"] = round(float(max_scores[j]), 4)
+            m["source"] = "clip_filtered_automask"
+            passing.append(m)
 
     return passing
 
@@ -497,11 +492,14 @@ def _sam_directed_by_gemma(
     sam_predictor: Any,
     clip_model: Any,
     use_auto_mask: bool = True,
+    path_b_allowed: bool = True,
 ) -> List[Dict[str, Any]]:
     """Segment objects identified by Gemma using SAM.
 
     Path A (preferred): use Gemma's rough_bbox as direct box prompts to SAM.
     Path B (fallback):  run SAM auto-mask + CLIP zero-shot filtering.
+                        Only runs when Path A found nothing AND path_b_allowed.
+                        Never used as a supplement to Path A — it is a pure fallback.
 
     Returns list of mask dicts, each with:
         mask (bool ndarray or None), area_norm (float), category (str),
@@ -549,11 +547,12 @@ def _sam_directed_by_gemma(
             _log.debug("  [P3/SAM] Path A box-prompt failed: %s", exc)
 
     # ── Path B: auto-mask + CLIP filtering ────────────────────────────────────
-    # Run when Path A yielded nothing, or as supplement for large-bbox objects
+    # Pure fallback: only runs when Path A produced no masks at all.
+    # NOT used as a supplement — previously, running AMG on every frame (because
+    # abstract Gemma categories like "traffic_flow" always have fallback bboxes,
+    # making len(path_a_bboxes) < len(gemma_objects)) caused 35+ min freezes.
     path_a_found = len(results) > 0
-    path_b_needed = (not path_a_found) or (
-        use_auto_mask and len(path_a_bboxes) < len(gemma_objects)
-    )
+    path_b_needed = (not path_a_found) and use_auto_mask and path_b_allowed
 
     if path_b_needed and categories and clip_model is not None:
         try:
@@ -718,7 +717,7 @@ def step_gemma_directed_tracking(
 
     # ── Sub-step 1: Gemma structured scene analysis ───────────────────────────
     _log.info(
-        "  [P3] Gemma structured scene analysis (up to %d sampled frames, model=%s) ...",
+        "Gemma structured scene analysis (up to %d sampled frames, model=%s) ...",
         _GEMMA_STRUCTURED_SAMPLE_N, gemma_api_model,
     )
     gemma_scene = _gemma_structured_scene_analysis(
@@ -734,7 +733,7 @@ def step_gemma_directed_tracking(
     areas_of_interest = gemma_scene.get("areas_of_interest", [])
 
     _log.info(
-        "  [P3] Scene: %s | priority: %s | objects: %d",
+        "Scene: %s | priority: %s | objects: %d",
         scene_type, tracking_priority, len(gemma_objects),
     )
 
@@ -747,9 +746,9 @@ def step_gemma_directed_tracking(
             sam_predictor = SAMPredictor()
             sam_available = sam_predictor.is_available()
             if not sam_available:
-                _log.info("  [P3] SAM not available — segmentation skipped")
+                _log.info("SAM not available — segmentation skipped")
         except Exception as exc:
-            _log.debug("  [P3] SAM import failed: %s", exc)
+            _log.debug("SAM import failed: %s", exc)
 
     # Sample frames for SAM segmentation (same as Gemma analysis sample)
     n_avail = len(frame_list)
@@ -761,15 +760,24 @@ def step_gemma_directed_tracking(
 
     if sam_available and sam_predictor is not None and gemma_objects:
         _log.info(
-            "  [P3] SAM directed segmentation on %d frames (%d target objects) ...",
+            "SAM directed segmentation on %d frames (%d target objects) ...",
             len(sam_frames), len(gemma_objects),
         )
-        for fp, _t in sam_frames:
+        path_b_frames_used = 0  # track how many frames triggered expensive AMG path
+        for frame_idx, (fp, _t) in enumerate(sam_frames):
+            t_frame = time.time()
+            path_b_ok = path_b_frames_used < _MAX_PATH_B_FRAMES
             try:
                 img = _open_frame_image(fp)
                 masks = _sam_directed_by_gemma(
                     img, gemma_objects, sam_predictor, clip_model,
+                    path_b_allowed=path_b_ok,
                 )
+                # Count how many results came from Path B (AMG) to track the cap
+                for m in masks:
+                    if m.get("source") in ("clip_filtered_automask",):
+                        path_b_frames_used += 1
+                        break
                 # Drop raw numpy masks from JSON-able summary (keep metadata only)
                 mask_summary = [
                     {
@@ -783,9 +791,18 @@ def step_gemma_directed_tracking(
                 ]
                 frame_sam_masks[fp] = mask_summary
                 sam_masks_total += len(masks)
+                _log.info(
+                    "  SAM frame %d/%d: %d masks (%.1fs)%s",
+                    frame_idx + 1, len(sam_frames), len(masks),
+                    time.time() - t_frame,
+                    " [amg]" if any(m.get("source") == "clip_filtered_automask" for m in masks) else "",
+                )
             except Exception as exc:
-                _log.debug("  [P3/SAM] frame %s failed: %s", fp, exc)
-        _log.info("  [P3] SAM total masks: %d across %d frames", sam_masks_total, len(sam_frames))
+                _log.warning("  SAM frame %d/%d failed: %s", frame_idx + 1, len(sam_frames), exc)
+        _log.info(
+            "SAM segmentation done: %d masks across %d frames (%d used AMG fallback)",
+            sam_masks_total, len(sam_frames), path_b_frames_used,
+        )
 
     # ── Sub-step 3: RF-DETR tracking ──────────────────────────────────────────
     n_avail = len(frame_list)
@@ -801,7 +818,7 @@ def step_gemma_directed_tracking(
 
     if tracker.is_enabled():
         _log.info(
-            "  [P3] RF-DETR tracking (%s) on %d/%d frames, target_labels=%s",
+            "RF-DETR tracking (%s) on %d/%d frames, target_labels=%s",
             tracker.model_id, n_track, n_avail, tracking_priority or "(all)",
         )
         tracking_results = tracker.track_sequence(
@@ -820,11 +837,11 @@ def step_gemma_directed_tracking(
                 by_category[lbl] = by_category.get(lbl, 0) + 1
         n_unique_track_ids = len(all_track_ids)
         _log.info(
-            "  [P3] RF-DETR done: %d objects, %d unique tracks in %d frames",
+            "RF-DETR done: %d objects, %d unique tracks in %d frames",
             total_objects, n_unique_track_ids, n_track,
         )
     else:
-        _log.info("  [P3] RF-DETR disabled — tracking skipped")
+        _log.info("RF-DETR disabled — tracking skipped")
         tracking_results = [
             {"frame_path": fp, "t_sec": t, "detections": []}
             for fp, t in track_frames
@@ -850,7 +867,7 @@ def step_gemma_directed_tracking(
             annotated.save(ann_path, quality=88)
             annotated_paths.append(str(ann_path))
         except Exception as exc:
-            _log.debug("  [P3] annotation failed for %s: %s", fp, exc)
+            _log.debug("annotation failed for %s: %s", fp, exc)
 
     # ── Save JSON results ─────────────────────────────────────────────────────
     elapsed = time.time() - t0

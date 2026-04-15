@@ -16,11 +16,22 @@ _DATE_FMT = "%H:%M:%S"
 
 _NOISY_LOGGERS = ("urllib3", "PIL", "filelock", "torch", "timm")
 
+# Logger namespaces that should stay at INFO level.
+# Setting root to WARNING silences SAM2/ultralytics spam; these overrides
+# restore INFO for our own code so progress messages are not lost.
+_PIPELINE_NAMESPACES = ("pipeline", "models", "dinov2", "httpx")
+
 
 def _configure_logging() -> None:
     logging.basicConfig(level=logging.INFO, format=_LOG_FMT, datefmt=_DATE_FMT)
+    # Suppress noisy named third-party loggers
     for name in _NOISY_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
+    # Raise root to WARNING — suppresses SAM2/ultralytics verbose INFO ("root" in output)
+    logging.getLogger().setLevel(logging.WARNING)
+    # Re-pin our own namespaces to INFO so they are not silenced by root's level
+    for ns in _PIPELINE_NAMESPACES:
+        logging.getLogger(ns).setLevel(logging.INFO)
 
 
 def _configure_warnings() -> None:
@@ -32,7 +43,20 @@ def _configure_warnings() -> None:
                             category=FutureWarning)
 
 
-_log = logging.getLogger("local")
+# Apply timm FutureWarning filter at import time so it takes effect before
+# timm is imported anywhere in the process (calling _configure_warnings()
+# later would be too late — the warning fires at timm import time).
+warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
+                        category=FutureWarning)
+
+
+# Apply at import time — pipeline/core/logging may have already called
+# basicConfig, making the _configure_logging() basicConfig call a no-op.
+logging.getLogger().setLevel(logging.WARNING)
+for _ns in _PIPELINE_NAMESPACES:
+    logging.getLogger(_ns).setLevel(logging.INFO)
+
+_log = logging.getLogger("pipeline.local")
 
 
 def _banner(msg: str) -> None:

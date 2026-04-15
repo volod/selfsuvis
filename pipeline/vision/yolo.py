@@ -277,7 +277,12 @@ class YOLODetector:
         try:
             device = _get_device()
             logger.info("Loading YOLO model: %s on %s", self.model_id, device)
-            self._model = YOLO(self.model_id)
+            # Prefer the canonical cache location so the file is never pulled
+            # from (or downloaded to) the current working directory.
+            model_file = self.model_id if self.model_id.endswith(".pt") else f"{self.model_id}.pt"
+            cached = Path.home() / ".cache" / "ultralytics" / model_file
+            model_arg = str(cached) if cached.exists() else model_file
+            self._model = YOLO(model_arg)
             if device == "cuda":
                 self._model.to("cuda")
             logger.info("YOLO model ready: %s", self.model_id)

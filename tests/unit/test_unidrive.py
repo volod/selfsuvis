@@ -1,9 +1,12 @@
 from pathlib import Path
 import sys
+from unittest.mock import patch
+
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from pipeline.vision.unidrive import _parse_unidrive_response
+from pipeline.vision.unidrive import UniDriveVLAModel, _parse_unidrive_response
 from pipeline.workflows.local.steps_report import write_multi_model_comparison_md
 
 
@@ -82,3 +85,30 @@ def test_write_multi_model_comparison_md_writes_expected_sections(tmp_path: Path
     assert "UniDriveVLA" in text
     assert "Qwen" in text
     assert "Gemma dominant scene category" in text
+
+
+def test_unidrive_enabled_in_local_hf_mode(monkeypatch):
+    from pipeline.vision import unidrive as uv
+
+    monkeypatch.setattr(uv.settings, "UNIDRIVE_ENABLED", True)
+    monkeypatch.setattr(uv.settings, "UNIDRIVE_API_URL", "")
+    monkeypatch.setattr(uv.settings, "UNIDRIVE_MODEL", "owl10/UniDriveVLA_Nusc_Base_Stage3")
+
+    model = UniDriveVLAModel()
+
+    assert model.is_enabled() is True
+
+
+def test_unidrive_analyze_frame_uses_local_path_when_api_url_missing(monkeypatch):
+    from pipeline.vision import unidrive as uv
+
+    monkeypatch.setattr(uv.settings, "UNIDRIVE_ENABLED", True)
+    monkeypatch.setattr(uv.settings, "UNIDRIVE_API_URL", "")
+    monkeypatch.setattr(uv.settings, "UNIDRIVE_MODEL", "owl10/UniDriveVLA_Nusc_Base_Stage3")
+
+    model = UniDriveVLAModel()
+    with patch.object(model, "_analyze_local", return_value={"understanding": {}}) as mocked:
+        result = model.analyze_frame(Image.new("RGB", (8, 8)))
+
+    mocked.assert_called_once()
+    assert "understanding" in result

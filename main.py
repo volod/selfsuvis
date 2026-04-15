@@ -6,6 +6,11 @@ Modes:
   stream  — process a live RTSP/device stream
 """
 
+import warnings
+# Suppress third-party deprecation noise before any imports can trigger it.
+warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
+                        category=FutureWarning)
+
 from pipeline.workflows import build_parser
 
 

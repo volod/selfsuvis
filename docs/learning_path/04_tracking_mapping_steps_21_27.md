@@ -247,8 +247,10 @@ For missions involving road networks, vehicle behavior, and outdoor navigation, 
 - Standardized driving-domain taxonomy for cross-mission comparison
 
 **Implementation:**
-- [`pipeline/vision/unidrive.py`](../../pipeline/vision/unidrive.py)
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
+- [`pipeline/vision/unidrive.py`](../../pipeline/vision/unidrive.py) — thin OpenAI-compatible HTTP adapter
+- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py) — `step_unidrive_analysis()`
+- [`pipeline/core/config.py`](../../pipeline/core/config.py) — `UNIDRIVE_*` settings
+- Model prep: `python scripts/prepare_models.py --unidrive`
 
 **Key concepts:**
 
@@ -257,30 +259,53 @@ A VLA extends a VLM (Vision-Language Model) with an action head.
 Where a VLM produces text descriptions, a VLA produces both descriptions and action recommendations.
 UniDriveVLA is trained on large-scale driving datasets; its action head is calibrated for road navigation scenarios.
 
+*Adapter design — why not run UniDriveVLA directly:*
+The upstream UniDriveVLA checkpoint (`owl10/UniDriveVLA_Nusc_Base_Stage3`) is trained on
+multi-camera nuScenes format data.
+It expects a specific input format that does not match arbitrary single-camera mission video.
+The selfsuvis implementation uses a thin HTTP adapter (`UniDriveVLAModel`) that talks to
+any OpenAI-compatible vision endpoint and requests the UniDriveVLA structured output schema.
+This means **any capable VLM** can be the backend — the driving structure comes from the
+prompt, not from the model's training data.
+For non-road missions (aerial, maritime, off-road), point `--unidrive-api-url` at
+a Qwen2.5-VL-7B sidecar, which handles the schema equally well without domain mismatch.
+
 *Domain-specific vs general-purpose reasoning:*
 General VLMs (Qwen, GPT-4V) can reason about any scene but lack calibrated priors for specific domains.
 Domain-specific VLAs have strong priors for their training domain but perform poorly outside it.
 For aerial drone footage of rural terrain, a driving-specific model may be less useful than a general model.
+The adapter pattern lets you swap backends depending on mission type without changing the pipeline.
 
 *Output structure:*
-UniDriveVLA returns structured observations: perception summary, scene graph, and recommended actions.
-The perception summary provides an expert-level description.
-The scene graph describes spatial relationships between detected entities.
-Recommended actions are advisory ("reduce speed", "maintain distance") not commands.
+The adapter normalises any backend response into a four-key schema:
+- `understanding`: scene summary, traffic context, risk level, key agents
+- `perception`: object list with salience, drivable-area estimate, lane structure
+- `planning`: recommended action, trajectory hint, hazards
+- `mixture_of_experts`: consensus summary, expert agreement, disagreement points
+Recommended actions are advisory interpretations ("reduce speed"), not robot commands.
+
+*Backend selection:*
+- Road / urban missions: use `owl10/UniDriveVLA_Nusc_Large_Stage3` if vLLM bridge is available
+- Aerial / off-road / maritime: use `Qwen/Qwen2.5-VL-7B-Instruct` as backend (avoids domain mismatch)
+- Low VRAM (< 8 GB): use `Qwen/Qwen2.5-VL-3B-Instruct`
 
 **Output artifact:**
-`unidrive_analysis.md` in the video output directory: per-frame or per-clip UniDriveVLA structured analysis.
+`unidrive_analysis.md` in the video output directory: per-frame UniDriveVLA structured analysis.
+`multi_model_comparison.md` when both Qwen and UniDrive are enabled (side-by-side comparison).
 
 **Human focus:**
 - Compare `detailed_captions.md` (Qwen) vs `unidrive_analysis.md` (UniDriveVLA) for the same frame: what does the domain expert add?
-- Find a frame where UniDriveVLA's domain-specific training provides a clearly better interpretation than Qwen.
+- Read `pipeline/vision/unidrive.py` and understand how `_build_user_content()` packs image + context into the OpenAI message format.
 - Find a frame where the domain mismatch (driving model on non-driving footage) causes UniDriveVLA to produce wrong or irrelevant output.
+- Try replacing the backend with a Qwen2.5-VL-7B sidecar and compare output quality for aerial footage.
 - Understand that VLA "actions" are advisory interpretations, not robot commands.
 
 **Common failure modes:**
-- UniDriveVLA unavailable or not configured → step skipped; output uses Qwen analysis only.
-- Mission domain does not match training domain (e.g., maritime instead of driving) → output is off-domain.
-- High-altitude aerial footage → driving-domain model interprets vehicles as abstract dots; quality drops.
+- `UNIDRIVE_API_URL` not set → step skipped; output uses Qwen analysis only.  Enable with `--unidrive-api-url`.
+- Backend model is not vision-capable → HTTP 400 or empty response; adapter returns `service_unavailable`.
+- Mission domain does not match backend training domain → off-domain output; switch to a general VLM backend.
+- High-altitude aerial footage with driving-domain model → vehicles interpreted as abstract dots; quality drops.
+- Backend JSON parse failure → adapter records `parse_error: true` and logs the raw response at DEBUG level.
 
 ---
 

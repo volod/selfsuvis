@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import gc
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -55,6 +56,25 @@ _PRIORITY_LABEL = {
     PRIORITY_ARTIFICIAL: "artificial",
     PRIORITY_OTHER:      "other",
 }
+
+
+def _rfdetr_weights_path(variant: str) -> str:
+    """Return the shared RF-DETR checkpoint path outside the repo root."""
+    name = "rf-detr-large.pth" if variant == "large" else "rf-detr-base.pth"
+    cache_dir = Path(settings.DATA_DIR).resolve() / "models" / "rfdetr"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dst = cache_dir / name
+
+    # Backward-compat migration: older rfdetr versions download into the current
+    # working directory using a bare filename. Move that shared weight once.
+    legacy = Path.cwd() / name
+    if not dst.exists() and legacy.exists():
+        try:
+            legacy.replace(dst)
+            logger.info("RFDETRTracker: moved legacy checkpoint %s → %s", legacy, dst)
+        except Exception:
+            pass
+    return str(dst)
 
 
 def _classify_priority(label: str) -> int:
@@ -236,16 +256,17 @@ class RFDETRTracker:
 
     def _load_model(self):
         variant = settings.RFDETR_MODEL.strip().lower()
+        weights_path = _rfdetr_weights_path(variant)
         try:
             if variant == "large":
                 from rfdetr import RFDETRLarge  # type: ignore[import]
-                model = RFDETRLarge()
+                model = RFDETRLarge(pretrain_weights=weights_path)
                 self._model_variant = "large"
             else:
                 from rfdetr import RFDETRBase  # type: ignore[import]
-                model = RFDETRBase()
+                model = RFDETRBase(pretrain_weights=weights_path)
                 self._model_variant = "base"
-            logger.info("RFDETRTracker: loaded rfdetr_%s", self._model_variant)
+            logger.info("RFDETRTracker: loaded rfdetr_%s (weights=%s)", self._model_variant, weights_path)
             return model
         except ImportError as exc:
             raise ImportError(

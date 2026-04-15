@@ -797,6 +797,7 @@ def run_video_pipeline(
         _restore_models_to_gpu,
         _models_on_device,
         _prep_vram_for_step,
+        _guard_min_free_vram,
         _unload_ollama_model,
         _unload_known_sidecars,
         _log_vram_snapshot,
@@ -1384,16 +1385,19 @@ def run_video_pipeline(
     # (I must be joined first so the background thread no longer accesses models).
     # Evict Ollama (reloaded during step R) before restoring CLIP+DINO.
     if device == "cuda" and not clip_dino_on_gpu:
-        if getattr(args, "qwen", False):
-            _qwen_url   = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
-            _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
-            if _qwen_url and _qwen_model:
-                _unload_ollama_model(_qwen_url, _qwen_model)
-        if getattr(args, "unidrive", False):
-            _unidrive_url = getattr(args, "unidrive_api_url", "") or settings.UNIDRIVE_API_URL
-            _unidrive_model = getattr(args, "unidrive_model", "") or settings.UNIDRIVE_MODEL
-            if _unidrive_url and _unidrive_model:
-                _unload_ollama_model(_unidrive_url, _unidrive_model)
+        _qwen_url = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
+        _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
+        _unidrive_url = getattr(args, "unidrive_api_url", "") or settings.UNIDRIVE_API_URL
+        _unidrive_model = getattr(args, "unidrive_model", "") or settings.UNIDRIVE_MODEL
+        _prep_vram_for_step(
+            models,
+            device,
+            extra_sidecars=[
+                (_qwen_url, _qwen_model),
+                (_unidrive_url, _unidrive_model),
+            ],
+            label="base-search restore",
+        )
         _restore_models_to_gpu(models, device)
         clip_dino_on_gpu = _models_on_device(models, device)
     _step(14, _TOTAL_STEPS, "Base model transformation test → base_search.md")
@@ -1520,8 +1524,19 @@ def run_video_pipeline(
         _step(17, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
         student_backbone = None; student_dim = 768
     else:
-        if device == "cuda" and clip_dino_on_gpu:
-            _offload_models_to_cpu(models)
+        if device == "cuda":
+            _prep_vram_for_step(
+                models,
+                device,
+                extra_sidecars=[
+                    (getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL,
+                     getattr(args, "qwen_model", "") or settings.QWEN_MODEL),
+                    (getattr(args, "unidrive_api_url", "") or settings.UNIDRIVE_API_URL,
+                     getattr(args, "unidrive_model", "") or settings.UNIDRIVE_MODEL),
+                ],
+                label="SSL fine-tuning",
+            )
+            _guard_min_free_vram("SSL fine-tuning")
             clip_dino_on_gpu = False
         _step(16, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
         with _Timer(T, "D_finetune"):

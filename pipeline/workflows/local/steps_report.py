@@ -869,6 +869,22 @@ def write_final_stats_md(
         f"Total elapsed: {total_elapsed:.1f}s",
         f"Videos processed: {len(per_video)}",
         f"",
+        f"## Step Timing",
+        f"",
+    ]
+    names = [v.get("name", f"video{i}") for i, v in enumerate(per_video)]
+    header = "| Step | Type | " + " | ".join(names) + " | Total |"
+    sep    = "|------|------|" + "|".join(["-------"] * len(names)) + "|-------|"
+    lines += [header, sep]
+    for key, label, comp_type in _STEP_LABELS:
+        vals = [v.get("timings", {}).get(key, 0.0) for v in per_video]
+        total_step = sum(vals)
+        if total_step == 0 and key not in ("A_extract", "B_index"):
+            continue
+        dur_cells = " | ".join(_fmt_sec(s) for s in vals)
+        lines.append(f"| {label} | {comp_type} | {dur_cells} | **{_fmt_sec(total_step)}** |")
+    lines += [
+        f"",
         f"## Per-Video Summary",
         f"",
         f"| Video | Frames | Index (s) | Finetune loss | Distill loss | SfM poses | Ckpt (MB) |",
@@ -1358,27 +1374,32 @@ def write_agentic_flow_md(
 
 # ── Run statistics printer ────────────────────────────────────────────────────
 
-_STEP_LABELS = [
-    ("A_extract",    "A  Frame extraction"),
-    ("B_index",      "B  Vector store indexing"),
-    ("L_caption",    "L  Scene captioning (Florence-2)"),
-    ("M_asr",        "M  ASR (Whisper)"),
-    ("N_ocr",        "N  OCR (text extraction)"),
-    ("O_depth",      "O  Depth estimation"),
-    ("P_detection",  "P  Object detection"),
-    ("Q_world",      "Q  World model"),
-    ("R_qwen",       "R  Qwen detailed captioning"),
-    ("S_unidrive",   "S  UniDriveVLA expert analysis"),
-    ("C_base_search","C  Base search test"),
-    ("D_finetune",   "D  SSL fine-tuning"),
-    ("E_distill",    "E  Knowledge distillation"),
-    ("F_export",     "F  ONNX export + gallery"),
-    ("G_ft_search",  "G  Fine-tuned search test"),
-    ("H_compare",    "H  Comparison + description"),
-    ("T_multimodel", "T  Multi-model comparison"),
-    ("I_3dmap",      "I  3D map creation"),
-    ("Z_synthesis",  "Z  Video synthesis (ontology + narrative)"),
-    ("AA_agentic",   "AA Agentic flow audit"),
+# (timing_key, step_label, computation_type)
+# Ordered by typical execution sequence.
+_STEP_LABELS: List[Tuple[str, str, str]] = [
+    ("A_extract",         "A   Frame extraction",                  "I/O"           ),
+    ("B_index",           "B   Vector store indexing",             "GPU embed"     ),
+    ("J_gemma",           "J   Gemma multimodal analysis",         "LLM API"       ),
+    ("L_caption",         "L   Scene captioning (Florence-2)",     "GPU vision"    ),
+    ("M_asr",             "M   ASR (Whisper)",                     "GPU speech"    ),
+    ("N_ocr",             "N   OCR (text extraction)",             "LLM API"       ),
+    ("O_depth",           "O   Depth estimation",                  "GPU vision"    ),
+    ("P_detection",       "P   Object detection",                  "GPU vision"    ),
+    ("P2_yolo_sam",       "P2  YOLO11 + SAM2/3 detection",        "GPU vision"    ),
+    ("P3_gemma_tracking", "P3  Gemma directed tracking",           "LLM API+GPU"  ),
+    ("Q_world",           "Q   World model embeddings",            "GPU vision"    ),
+    ("R_qwen",            "R   Qwen detailed captioning",          "LLM API"       ),
+    ("S_unidrive",        "S   UniDriveVLA expert analysis",       "LLM API"       ),
+    ("C_base_search",     "C   Base model search test",            "GPU embed"     ),
+    ("I_3dmap",           "I   3D map (SfM + Gaussian Splat)",     "GPU 3D"        ),
+    ("D_finetune",        "D   SSL DINOv3 fine-tuning",            "GPU train"     ),
+    ("E_distill",         "E   Knowledge distillation",            "GPU train"     ),
+    ("F_export",          "F   ONNX export + gallery",             "CPU"           ),
+    ("G_ft_search",       "G   Fine-tuned search test",            "GPU embed"     ),
+    ("H_compare",         "H   Model comparison + description",    "GPU embed"     ),
+    ("T_multimodel",      "T   Multi-model comparison",            "GPU vision"    ),
+    ("Z_synthesis",       "Z   Video synthesis (ontology+narr.)", "LLM API"       ),
+    ("AA_agentic",        "AA  Agentic flow audit",                "LLM API"       ),
 ]
 
 
@@ -1402,12 +1423,19 @@ def print_run_stats(
 ) -> None:
     from ._common import _banner
 
-    W   = 72
+    # Column widths: step label, computation type, per-video durations, total
+    LABEL_W = 34
+    TYPE_W  = 14
+    DUR_W   = 9
+    n_vids  = len(per_video)
+    W = LABEL_W + TYPE_W + DUR_W * (n_vids + 1) + 2
     SEP = "─" * W
 
-    def _row(label: str, *cols: str) -> str:
-        col_w = max(1, (W - 28) // max(len(cols), 1))
-        return "".join([f"  {label:<26}"] + [f"{c:>{col_w}}" for c in cols])
+    def _row(label: str, comp_type: str, *dur_cols: str) -> str:
+        row = f"  {label:<{LABEL_W}}{comp_type:<{TYPE_W}}"
+        for c in dur_cols:
+            row += f"{c:>{DUR_W}}"
+        return row
 
     _banner("RUN STATISTICS")
     _log.info("  Device       : %s", device.upper())
@@ -1419,24 +1447,48 @@ def print_run_stats(
     _log.info("")
 
     names = [v.get("name", f"video{i}") for i, v in enumerate(per_video)]
-    _log.info("  TIME BREAKDOWN")
-    _log.info("  " + SEP[:W-2])
-    _log.info(_row("Step", *(names + ["TOTAL"])))
-    _log.info("  " + SEP[:W-2])
-    for key, label in _STEP_LABELS:
+    _log.info("  STEP TIMING  (wall-clock per step)")
+    _log.info("  " + SEP)
+    _log.info(_row("Step", "Type", *(names + ["TOTAL"])))
+    _log.info("  " + SEP)
+
+    # Group by computation type for the subtotals
+    by_type: Dict[str, float] = {}
+    col_totals = [0.0] * n_vids
+    grand_total = 0.0
+    for key, label, comp_type in _STEP_LABELS:
         vals = [v.get("timings", {}).get(key, 0.0) for v in per_video]
-        _log.info(_row(label, *[_fmt_sec(s) for s in vals], _fmt_sec(sum(vals))))
-    _log.info("  " + SEP[:W-2])
+        total_step = sum(vals)
+        # Only show rows where at least one video ran this step
+        if total_step > 0 or key in ("A_extract", "B_index"):
+            _log.info(_row(label, comp_type, *[_fmt_sec(s) for s in vals], _fmt_sec(total_step)))
+            for i, s in enumerate(vals):
+                col_totals[i] += s
+            grand_total += total_step
+        by_type[comp_type] = by_type.get(comp_type, 0.0) + total_step
+    _log.info("  " + SEP)
+    _log.info(_row("TOTAL", "", *[_fmt_sec(s) for s in col_totals], _fmt_sec(grand_total)))
+
+    _log.info("  " + SEP)
     pipeline_per_video = [v.get("pipeline_sec", 0.0) for v in per_video]
-    _log.info(_row("Pipeline (steps sum)",
-                   *[_fmt_sec(s) for s in pipeline_per_video],
+    _log.info(_row("Pipeline (steps sum)", "", *[_fmt_sec(s) for s in pipeline_per_video],
                    _fmt_sec(sum(pipeline_per_video))))
     overhead = total_elapsed - sum(pipeline_per_video) - init_elapsed
-    _log.info(_row("Model init", _fmt_sec(init_elapsed), *([""] * (len(per_video) - 1)), ""))
-    _log.info(_row("Overhead (I/O, viewer, etc.)",
-                   *([""] * len(per_video)), _fmt_sec(max(0.0, overhead))))
-    _log.info(_row("WALL CLOCK TOTAL",
-                   *([""] * len(per_video)), _fmt_sec(total_elapsed)))
+    _log.info(_row("Model initialisation", "", _fmt_sec(init_elapsed), *([""] * (n_vids - 1)), ""))
+    _log.info(_row("Overhead (I/O, viewer, etc.)", "", *([""] * n_vids), _fmt_sec(max(0.0, overhead))))
+    _log.info(_row("WALL CLOCK TOTAL", "", *([""] * n_vids), _fmt_sec(total_elapsed)))
+
+    # ── Computation-type subtotals ─────────────────────────────────────────────
+    _log.info("")
+    _log.info("  COMPUTATION TYPE BREAKDOWN  (pipeline steps only)")
+    _log.info("  " + "─" * (TYPE_W + DUR_W + LABEL_W + 2))
+    TYPE_ORDER = ["I/O", "GPU embed", "GPU vision", "GPU speech", "GPU 3D",
+                  "GPU train", "CPU", "LLM API", "LLM API+GPU"]
+    for ct in TYPE_ORDER:
+        t = by_type.get(ct, 0.0)
+        if t > 0:
+            pct = 100.0 * t / max(sum(by_type.values()), 1e-9)
+            _log.info("  %-14s  %s  (%4.1f%%)", ct, _fmt_sec(t), pct)
     _log.info("")
     _log.info("  THROUGHPUT")
     _log.info("  " + SEP[:W-2])

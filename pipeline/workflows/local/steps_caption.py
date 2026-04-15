@@ -11,7 +11,7 @@ from PIL import Image
 
 from pipeline.core import settings
 from ._common import (
-    _log,
+    _log as _pipeline_log,
     _open_frame_image,
     _open_frame_batch,
     _run_batched_frame_inference,
@@ -20,6 +20,9 @@ from ._common import (
     _GEMMA_TEXT_PROBES,
     VideoKnowledge,
 )
+
+# Step-specific logger — appears as "pipeline.local.caption" in log output.
+_log = logging.getLogger("pipeline.local.caption")
 
 try:
     from models.dino_model import DINOEmbedder
@@ -60,6 +63,103 @@ def _log_vram_snapshot(label: str) -> None:
 
 # ── Memory helpers for GPU-constrained machines ───────────────────────────────
 
+def _detect_free_vram_gb() -> float:
+    try:
+        from pipeline.vision.registry import detect_resources  # noqa: PLC0415
+
+        return float(detect_resources().get("free_vram_gb", 0.0) or 0.0)
+    except Exception:
+        return 0.0
+
+
+def _flush_cuda_allocator() -> None:
+    import gc
+
+    gc.collect()
+    try:
+        import torch as _torch
+
+        if _torch.cuda.is_available():
+            try:
+                _torch.cuda.synchronize()
+            except Exception:
+                pass
+            _torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _wait_for_sidecar_vram_release(
+    *,
+    baseline_free_gb: float,
+    unload_count: int,
+    label: str,
+    timeout_sec: float = 20.0,
+    min_expected_gain_gb: float = 1.0,
+) -> None:
+    """Wait briefly for an unload request to turn into free VRAM."""
+    if unload_count <= 0:
+        return
+
+    deadline = time.time() + timeout_sec
+    best_free_gb = baseline_free_gb
+    target_free_gb = baseline_free_gb + min_expected_gain_gb
+    while time.time() < deadline:
+        _flush_cuda_allocator()
+        free_gb = _detect_free_vram_gb()
+        best_free_gb = max(best_free_gb, free_gb)
+        if free_gb >= target_free_gb:
+            _log.info(
+                "  VRAM recovered after %s: free %.1f → %.1f GiB",
+                label,
+                baseline_free_gb,
+                free_gb,
+            )
+            return
+        time.sleep(0.5)
+
+    if best_free_gb > baseline_free_gb:
+        _log.info(
+            "  VRAM partially recovered after %s: free %.1f → %.1f GiB",
+            label,
+            baseline_free_gb,
+            best_free_gb,
+        )
+    else:
+        _log.warning(
+            "  VRAM did not recover after %s within %.0fs; a sidecar may still be resident",
+            label,
+            timeout_sec,
+        )
+
+
+def _guard_min_free_vram(stage: str, min_free_gb: Optional[float] = None) -> float:
+    """Fail fast when a CUDA stage starts without enough free VRAM."""
+    try:
+        from pipeline.vision.registry import detect_resources  # noqa: PLC0415
+
+        resources = detect_resources()
+    except Exception as exc:
+        raise RuntimeError(f"{stage}: could not read VRAM availability: {exc}") from exc
+
+    total_gb = float(resources.get("vram_gb", 0.0) or 0.0)
+    free_gb = float(resources.get("free_vram_gb", 0.0) or 0.0)
+    if total_gb <= 0.0:
+        return free_gb
+
+    required_gb = min_free_gb if min_free_gb is not None else float(
+        getattr(settings, "LOCAL_CUDA_STAGE_MIN_FREE_VRAM_GB", 6.0) or 6.0
+    )
+    required_gb = min(total_gb, max(required_gb, total_gb * 0.35))
+    if free_gb < required_gb:
+        raise RuntimeError(
+            f"{stage}: refusing to start CUDA stage with only {free_gb:.1f} GiB free "
+            f"(required >= {required_gb:.1f} GiB, total {total_gb:.1f} GiB). "
+            "A sidecar model may still be resident in VRAM; unload Ollama/vLLM models and retry."
+        )
+    return free_gb
+
+
 def _offload_models_to_cpu(models: Dict[str, Any]) -> None:
     """Move CLIP and DINO backbones to CPU and flush the CUDA allocator cache.
 
@@ -68,8 +168,6 @@ def _offload_models_to_cpu(models: Dict[str, Any]) -> None:
     correctly once the backbone is moved back by :func:`_restore_models_to_gpu`.
     """
     _log_vram_snapshot("before offload CLIP+DINO to CPU")
-    import gc
-    import torch as _torch
     for key in ("clip", "dino"):
         m = models.get(key)
         if m is None:
@@ -85,10 +183,13 @@ def _offload_models_to_cpu(models: Dict[str, Any]) -> None:
         _set_dino_xformers_enabled(False)
     except Exception:
         pass
-    gc.collect()
-    if _torch.cuda.is_available():
-        _torch.cuda.empty_cache()
-    free_mb = _torch.cuda.mem_get_info(0)[0] / 1024 ** 2 if _torch.cuda.is_available() else 0
+    _flush_cuda_allocator()
+    try:
+        import torch as _torch
+
+        free_mb = _torch.cuda.mem_get_info(0)[0] / 1024 ** 2 if _torch.cuda.is_available() else 0
+    except Exception:
+        free_mb = 0
     _log.info("  CLIP+DINO offloaded to CPU — %.0f MiB free on GPU", free_mb)
     _log_vram_snapshot("after offload CLIP+DINO to CPU")
 
@@ -98,38 +199,47 @@ def _prep_vram_for_step(
     device: str,
     ollama_url: str = "",
     ollama_model: str = "",
+    extra_sidecars: Optional[List[Tuple[str, str]]] = None,
+    label: str = "next step",
 ) -> None:
     """Offload CLIP+DINOv3, evict any Ollama resident, and flush the CUDA allocator.
 
     Call this before loading any local inference model (OCR, depth, detection,
     world model) to maximise available VRAM and avoid OOM on 16 GiB class GPUs.
     """
-    import gc
-    import torch as _torch
     if device != "cuda":
         return
     _log_vram_snapshot("before prep VRAM for next step")
+    baseline_free_gb = _detect_free_vram_gb()
     _offload_models_to_cpu(models)
-    _unload_known_sidecars(
+    unload_count = _unload_known_sidecars(
         [
             (ollama_url, ollama_model),
             (settings.GEMMA_API_URL, settings.GEMMA_API_MODEL),
             (getattr(settings, "QWEN_API_URL", ""), getattr(settings, "QWEN_MODEL", "")),
             (getattr(settings, "REASONING_API_URL", ""), getattr(settings, "REASONING_MODEL", "")),
+            *((extra_sidecars or [])),
         ]
     )
-    gc.collect()
-    if _torch.cuda.is_available():
-        _torch.cuda.empty_cache()
-    free_mb = _torch.cuda.mem_get_info(0)[0] / 1024 ** 2 if _torch.cuda.is_available() else 0
+    _wait_for_sidecar_vram_release(
+        baseline_free_gb=baseline_free_gb,
+        unload_count=unload_count,
+        label=label,
+    )
+    _flush_cuda_allocator()
+    try:
+        import torch as _torch
+
+        free_mb = _torch.cuda.mem_get_info(0)[0] / 1024 ** 2 if _torch.cuda.is_available() else 0
+    except Exception:
+        free_mb = 0
     _log.info("  VRAM cleared for next step — %.0f MiB free", free_mb)
     _log_vram_snapshot("after prep VRAM for next step")
 
 
-def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> None:
+def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> bool:
     """Move CLIP and DINO backbones back to *device* after a large model releases."""
     _log_vram_snapshot(f"before restore models to {device}")
-    import gc
     import os as _os
     import torch as _torch
     # Expandable segments let the allocator grow existing blocks rather than
@@ -138,9 +248,9 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> None:
     _os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
     # Free any GPU memory held by objects that were just released before trying to
     # restore the backbones — prevents partial moves caused by transient OOM.
-    gc.collect()
-    if _torch.cuda.is_available():
-        _torch.cuda.empty_cache()
+    _flush_cuda_allocator()
+    expected = _torch.device(device)
+    restored_all = True
     for key in ("clip", "dino"):
         m = models.get(key)
         if m is None:
@@ -158,9 +268,7 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> None:
                     backbone.cpu()
                 except Exception:
                     pass
-                gc.collect()
-                if _torch.cuda.is_available():
-                    _torch.cuda.empty_cache()
+                _flush_cuda_allocator()
                 try:
                     backbone.to(device)
                     _log.debug("  %s backbone moved to %s (retry succeeded)", key, device)
@@ -169,13 +277,23 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> None:
                         "  Could not move %s backbone to %s (%s) — staying on CPU",
                         key, device, exc,
                     )
+            try:
+                actual = next(backbone.parameters()).device
+            except StopIteration:
+                actual = expected
+            if actual != expected:
+                restored_all = False
     try:
         from models.dino_model import _set_dino_xformers_enabled
-        _set_dino_xformers_enabled(str(device).startswith("cuda"))
+        _set_dino_xformers_enabled(str(device).startswith("cuda") and restored_all)
     except Exception:
         pass
-    _log.info("  CLIP+DINO restored to %s", device)
+    if restored_all:
+        _log.info("  CLIP+DINO restored to %s", device)
+    else:
+        _log.warning("  CLIP+DINO not fully restored to %s; continuing with CPU fallback where needed", device)
     _log_vram_snapshot(f"after restore models to {device}")
+    return restored_all
 
 
 def _models_on_device(models: Dict[str, Any], device: str) -> bool:
@@ -362,9 +480,10 @@ def _unload_ollama_model(api_url: str, model: str) -> bool:
     return False
 
 
-def _unload_known_sidecars(pairs: List[Tuple[str, str]]) -> None:
+def _unload_known_sidecars(pairs: List[Tuple[str, str]]) -> int:
     """Unload all known Ollama sidecars from prior steps/runs when possible."""
     seen: set[Tuple[str, str]] = set()
+    unload_count = 0
     for url, model in pairs:
         if not url or not model:
             continue
@@ -372,7 +491,9 @@ def _unload_known_sidecars(pairs: List[Tuple[str, str]]) -> None:
         if key in seen:
             continue
         seen.add(key)
-        _unload_ollama_model(url, model)
+        if _unload_ollama_model(url, model):
+            unload_count += 1
+    return unload_count
 
 
 # ── Gemma analysis ────────────────────────────────────────────────────────────
@@ -519,7 +640,7 @@ def step_gemma_analysis(
     gemma_captions: List[Dict[str, Any]] = []
     if has_sidecar:
         _log.info(
-            "  [Gemma] Generative scene analysis via sidecar (url=%s  model=%s  frames=%d) ...",
+            "Generative scene analysis via sidecar (url=%s  model=%s  frames=%d) ...",
             effective_api_url, effective_api_model, n,
         )
         for idx, (fp, t_sec) in enumerate(sample_frames):
@@ -530,7 +651,7 @@ def step_gemma_analysis(
             if (idx + 1) % 10 == 0:
                 _log.info("    ... %d/%d frames analysed via Gemma sidecar", idx + 1, n)
         described = sum(1 for c in gemma_captions if c.get("description"))
-        _log.info("  [Gemma] Generative descriptions: %d/%d frames", described, n)
+        _log.info("Generative descriptions: %d/%d frames", described, n)
         task_results["generative_descriptions"] = {
             "description": "Per-frame scene description generated by Gemma sidecar",
             "n_frames": n,
@@ -550,7 +671,7 @@ def step_gemma_analysis(
 
     # For the remaining embedding-based analyses we need a local embedder.
     if not has_local:
-        _log.info("  [Gemma] Skipping embedding analyses (no embedder loaded)")
+        _log.info("Skipping embedding analyses (no embedder loaded)")
         text_query_results: List[Dict[str, Any]] = []
         dino_comparison: Dict[str, Any] = {"available": False, "reason": "no embedder loaded"}
         clip_comparison: Dict[str, Any] = {"available": False, "reason": "GemmaEmbedder not loaded"}
@@ -572,12 +693,12 @@ def step_gemma_analysis(
 
     # Use whichever embedder is loaded (GemmaEmbedder preferred, CLIP fallback).
     gemma: GemmaEmbedder = models["clip"]  # type: ignore[assignment]
-    _log.info("  [Gemma] Embedding analyses using %s", _embedder_name)
+    _log.info("Embedding analyses using %s", _embedder_name)
 
     # 2. Scene change detection via consecutive-frame cosine distance
     gemma_embeds: Optional[np.ndarray] = None
     try:
-        _log.info("  [Gemma] Scene change detection ...")
+        _log.info("Scene change detection ...")
         gemma_embeds = gemma.encode_images(sample_images)
         changes = []
         for i in range(1, n):
@@ -591,14 +712,14 @@ def step_gemma_analysis(
             "threshold": _SCENE_CHANGE_THRESH,
             "changes": changes,
         }
-        _log.info("  [Gemma] Scene changes detected: %d", len(changes))
+        _log.info("Scene changes detected: %d", len(changes))
     except Exception as exc:
         task_results["scene_change_detection"] = {"error": str(exc)}
-        _log.warning("  [Gemma] Scene change detection failed: %s", exc)
+        _log.warning("Scene change detection failed: %s", exc)
 
     # 3. Greedy cosine-based scene clustering
     try:
-        _log.info("  [Gemma] Semantic scene clustering ...")
+        _log.info("Semantic scene clustering ...")
         cl_embeds = gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
         sim_mat   = np.dot(cl_embeds, cl_embeds.T)
         labels    = [-1] * n
@@ -617,14 +738,14 @@ def step_gemma_analysis(
             "n_frames": n,
             "mean_cluster_size": round(n / max(1, cluster_id), 2),
         }
-        _log.info("  [Gemma] Scene clusters: %d from %d frames", cluster_id, n)
+        _log.info("Scene clusters: %d from %d frames", cluster_id, n)
     except Exception as exc:
         task_results["scene_clustering"] = {"error": str(exc)}
-        _log.warning("  [Gemma] Scene clustering failed: %s", exc)
+        _log.warning("Scene clustering failed: %s", exc)
 
     # 4. Zero-shot scene classification via text probe matching
     try:
-        _log.info("  [Gemma] Zero-shot scene classification (%d probes) ...", len(_GEMMA_TEXT_PROBES))
+        _log.info("Zero-shot scene classification (%d probes) ...", len(_GEMMA_TEXT_PROBES))
         clf_frame  = gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
         clf_text   = gemma.encode_texts(_GEMMA_TEXT_PROBES)
         clf_scores = np.dot(clf_frame, clf_text.T)  # (n_frames, n_categories)
@@ -638,15 +759,15 @@ def step_gemma_analysis(
             "n_frames": n,
             "category_distribution": cat_dist,
         }
-        _log.info("  [Gemma] Top category: %s", next(iter(cat_dist)) if cat_dist else "---")
+        _log.info("Top category: %s", next(iter(cat_dist)) if cat_dist else "---")
     except Exception as exc:
         task_results["scene_classification"] = {"error": str(exc)}
-        _log.warning("  [Gemma] Zero-shot classification failed: %s", exc)
+        _log.warning("Zero-shot classification failed: %s", exc)
 
     # 5. Cross-modal text -> frame retrieval
     text_query_results = []
     try:
-        _log.info("  [Gemma] Cross-modal text->frame retrieval (%d probes) ...", len(_GEMMA_TEXT_PROBES))
+        _log.info("Cross-modal text->frame retrieval (%d probes) ...", len(_GEMMA_TEXT_PROBES))
         doc_embeds   = gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
         query_embeds = gemma.encode_texts(_GEMMA_TEXT_PROBES)
         tq_scores    = np.dot(query_embeds, doc_embeds.T)  # (n_queries, n_frames)
@@ -666,21 +787,21 @@ def step_gemma_analysis(
         }
     except Exception as exc:
         task_results["cross_modal_retrieval"] = {"error": str(exc)}
-        _log.warning("  [Gemma] Cross-modal retrieval failed: %s", exc)
+        _log.warning("Cross-modal retrieval failed: %s", exc)
 
     # 6. Temporal video embedding (mean-pool all frames)
     try:
-        _log.info("  [Gemma] Temporal video embedding ...")
+        _log.info("Temporal video embedding ...")
         vid_embed = gemma.encode_images_temporal(sample_images)
         task_results["temporal_embedding"] = {
             "description": "Mean-pool of %d frame embeddings -> single video-level vector" % n,
             "dim": int(vid_embed.shape[1]),
             "n_frames": n,
         }
-        _log.info("  [Gemma] Temporal embedding dim=%d", vid_embed.shape[1])
+        _log.info("Temporal embedding dim=%d", vid_embed.shape[1])
     except Exception as exc:
         task_results["temporal_embedding"] = {"error": str(exc)}
-        _log.warning("  [Gemma] Temporal embedding failed: %s", exc)
+        _log.warning("Temporal embedding failed: %s", exc)
 
     # 7. Gemma vs CLIP comparison — skip when the main embedder IS CLIP (trivial)
     clip_comparison: Dict[str, Any] = {"available": False}
@@ -1238,8 +1359,9 @@ def step_unidrive_analysis(
     client = UniDriveVLAModel()
     _log_vram_snapshot("before UniDrive sidecar use")
     if not client.is_enabled():
-        _log.info("  UniDriveVLA disabled (UNIDRIVE_API_URL not set) — skipping")
-        _log.info("  To enable: --unidrive-api-url http://localhost:8030/v1  (or set UNIDRIVE_API_URL)")
+        _log.info("  UniDriveVLA disabled (no sidecar URL and no usable local HF model) — skipping")
+        _log.info("  To enable sidecar mode: --unidrive-api-url http://localhost:8030/v1")
+        _log.info("  To enable local mode: cache HF weights with scripts/prepare_models.py --unidrive --unidrive-backend vllm")
         return result
 
     max_frames = max(1, int(getattr(settings, "UNIDRIVE_MAX_FRAMES", 24) or 24))
@@ -1252,8 +1374,9 @@ def step_unidrive_analysis(
     }
     domain = knowledge.domain_hint() if knowledge else ""
     _log.info(
-        "Running UniDriveVLA expert analysis on %d sampled frames (model=%s) …",
+        "Running UniDriveVLA expert analysis on %d sampled frames (model=%s backend=%s) …",
         len(sampled_frames), settings.UNIDRIVE_MODEL,
+        getattr(settings, "UNIDRIVE_BACKEND", "vllm"),
     )
     t0 = time.time()
 
@@ -1281,6 +1404,7 @@ def step_unidrive_analysis(
     _log.info("  ✓ UniDriveVLA: %d/%d sampled frames analysed in %.1fs", ok, len(batch_results), elapsed)
     _log_vram_snapshot("after UniDrive sidecar use")
     write_unidrive_analysis_md(out_md, video_name, batch_results, elapsed, settings.UNIDRIVE_MODEL)
+    client.release()
     result.update({
         "skipped": False,
         "results": batch_results,
