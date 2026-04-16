@@ -65,7 +65,8 @@ What information do you lose by decoding only I-frames?
 - Read [`models/openclip_model.py`](../../models/openclip_model.py).
 
 **Pre-reading:**
-- "CLIP: Learning Transferable Visual Models From Natural Language Supervision" — read the Abstract and Introduction.
+- Radford et al., "Learning Transferable Visual Models From Natural Language Supervision" (CLIP, 2021) — Sections 1-3. [arxiv.org/abs/2103.00020](https://arxiv.org/abs/2103.00020)
+- Caron et al., "Emerging Properties in Self-Supervised Vision Transformers" (DINO, 2021) — Abstract and Section 3. [arxiv.org/abs/2104.14294](https://arxiv.org/abs/2104.14294)
 - What is a contrastive objective? What does "image-text alignment" mean geometrically?
 
 **Exercise:**
@@ -109,6 +110,7 @@ What happens if Gemma is unavailable — what exactly goes blank?
 - Read [`pipeline/vision/florence.py`](../../pipeline/vision/florence.py).
 
 **Pre-reading:**
+- Xiao et al., "Florence-2" (2023) — Sections 1-3 (task formulation and FLD-5B dataset). [arxiv.org/abs/2311.06242](https://arxiv.org/abs/2311.06242)
 - What is a task token in a unified VLM formulation?
 - What is Jaccard similarity? How is it used for token overlap?
 
@@ -131,6 +133,8 @@ How is it computed? What threshold governs it?
 - Read [`pipeline/vision/asr.py`](../../pipeline/vision/asr.py).
 
 **Pre-reading:**
+- Radford et al., "Robust Speech Recognition via Large-Scale Weak Supervision" (Whisper, 2022) — Abstract and Section 2.2 (multitask format). [arxiv.org/abs/2212.04356](https://arxiv.org/abs/2212.04356)
+- Li et al., "TrOCR" (2021) — Abstract and Section 2 (architecture). [arxiv.org/abs/2109.10282](https://arxiv.org/abs/2109.10282)
 - What is Voice Activity Detection (VAD)? Why is it used before ASR?
 - What is the difference between scene text OCR and document OCR?
 
@@ -181,6 +185,7 @@ What distinguishes it from a LiDAR range measurement?
 - Read [`pipeline/vision/rf_analyzer.py`](../../pipeline/vision/rf_analyzer.py).
 
 **Pre-reading:**
+- West & O'Shea, "Deep Architectures for Modulation Recognition" (2017) — Abstract and Section 2 (IQ representation). [arxiv.org/abs/1703.09197](https://arxiv.org/abs/1703.09197)
 - What is a complex signal? What are the I and Q components?
 - How does a short-time Fourier transform produce a spectrogram?
 
@@ -203,6 +208,7 @@ What is the physical interpretation of a peak in the spectrogram?
 - Step 12: event cameras — asynchronous events, time surface, no-motion blind spot.
 
 **Pre-reading:**
+- Gallego et al., "Event-based Vision: A Survey" (2022) — Sections 2-3 (event representations: time surfaces, voxel grids). [arxiv.org/abs/1904.08405](https://arxiv.org/abs/1904.08405)
 - What is emissivity? Why does a metal surface appear cold in LWIR even when hot?
 - What is NDVI and what does a value above 0.4 indicate?
 
@@ -270,6 +276,7 @@ Give one example of each that would be useful in a real mission.
 - Read [`pipeline/workflows/local/_common.py`](../../pipeline/workflows/local/_common.py) — `context_for_frame()`.
 
 **Pre-reading:**
+- Geneva et al., "OpenVINS: A Research Platform for Visual-Inertial Estimation" (2020) — Section 2 (EKF state representation and multi-sensor time alignment). [arxiv.org/abs/1908.01012](https://arxiv.org/abs/1908.01012)
 - What is a timestamp alignment window and why is ±2 seconds a reasonable default for 30 fps video?
 - What is the difference between sensor fusion and sensor integration?
 
@@ -299,8 +306,9 @@ Give one realistic example where LiDAR and monocular depth would give opposite s
 - Read [`pipeline/workflows/local/steps_yolo_sam.py`](../../pipeline/workflows/local/steps_yolo_sam.py).
 
 **Pre-reading:**
+- Kirillov et al., "Segment Anything" (SAM, 2023) — Sections 2-3 (task formulation, promptable segmentation). [arxiv.org/abs/2304.02643](https://arxiv.org/abs/2304.02643)
+- Bewley et al., "SORT" (2016) — all four pages. This is the IoU matching algorithm used in `RFDETRTracker`. [arxiv.org/abs/1602.00763](https://arxiv.org/abs/1602.00763)
 - What is Intersection over Union (IoU)? How is it used for both detection quality and tracking matching?
-- What is the Segment Anything Model (SAM) and what kinds of prompts does it accept?
 
 **Exercise:**
 Open `gemma_tracking_summary.md` from an output directory.
@@ -314,27 +322,34 @@ What alternative tracking method would handle fast motion better?
 
 ---
 
-### Day 14 — Temporal Embeddings, Qwen, UniDriveVLA (Steps 23-25)
+### Day 14 — Temporal Embeddings, RSSM Surprise, Qwen, UniDriveVLA (Steps 23-25)
 
 **Topics:**
-- Step 23: clip-level video embeddings vs frame embeddings — what the temporal axis adds.
+- Step 23 part A: clip-level video embeddings vs frame embeddings — what the temporal axis adds.
+- Step 23 part B: RSSM temporal surprise scoring (DreamerV3-inspired). How a lightweight GRU-based world model learns the mission's temporal rhythm and flags frames that break it.
 - Step 24: Qwen multimodal prompt construction, rolling state, JSON parse failure handling.
 - Step 25: VLA models vs VLM models, domain-specific vs general reasoning.
-- Read [`pipeline/vision/qwen.py`](../../pipeline/vision/qwen.py).
+- Read [`models/rssm_model.py`](../../models/rssm_model.py) and [`pipeline/vision/qwen.py`](../../pipeline/vision/qwen.py).
 
 **Pre-reading:**
-- What is an exponential moving average? How is it used in the EMA teacher model?
+- Hafner et al., "Learning Latent Dynamics for Planning from Pixels" (PlaNet, 2019) — Section 3 (RSSM architecture). [arxiv.org/abs/1811.04551](https://arxiv.org/abs/1811.04551)
+- Romero et al., "Dream to Fly" (ICRA 2026) — Abstract and Section III. [rpg.ifi.uzh.ch/docs/ICRA26_Romero.pdf](https://rpg.ifi.uzh.ch/docs/ICRA26_Romero.pdf)
+- Team Qwen, "Qwen2.5-VL Technical Report" (2025) — Section 3 (architecture). [arxiv.org/abs/2502.13923](https://arxiv.org/abs/2502.13923)
+- What is a Recurrent State Space Model (RSSM)? What is the difference between the *posterior* (observed) and *prior* (predicted) latent?
 - What is a VLA (Vision-Language-Action) model and how does it differ from a VLM?
 
 **Exercise:**
-Compare `detailed_captions.md` (Qwen) and `unidrive_analysis.md` (UniDriveVLA) for the same frame.
-Find: one claim that only Qwen makes, one claim that only UniDriveVLA makes, and one claim they agree on.
-Evaluate which claim seems more reliable for each case.
+Inspect `frame_facts_json["rssm"]["surprise_score"]` for a long mission.
+Plot (or print) the surprise scores over time.
+Identify: one cluster of high-surprise frames and one stretch of low-surprise frames.
+Explain the visual content difference between the two clusters.
 
 **Concept checkpoint:**
+What does a high RSSM surprise score mean intuitively?
+Why does the RSSM operate on CLIP embeddings rather than raw pixels?
+What is the EMA fallback and when does it trigger?
 What is the rolling state in `VideoKnowledge._last_qwen`?
 How is it injected into the next frame's context?
-What happens when Qwen returns malformed JSON?
 
 ---
 
@@ -346,8 +361,9 @@ What happens when Qwen returns malformed JSON?
 - Read [`docs/gaussian_splat.md`](../gaussian_splat.md).
 
 **Pre-reading:**
-- What is Structure-from-Motion? What does it require from the input images?
-- What is 3D Gaussian Splatting and how does it differ from NeRF and from traditional mesh reconstruction?
+- Mildenhall et al., "NeRF: Representing Scenes as Neural Radiance Fields" (2020) — Sections 1-3 (implicit radiance field, volume rendering). [arxiv.org/abs/2003.08934](https://arxiv.org/abs/2003.08934)
+- Kerbl et al., "3D Gaussian Splatting for Real-Time Radiance Field Rendering" (2023) — Sections 4-5 (3DGS representation and adaptive density control). [arxiv.org/abs/2308.04079](https://arxiv.org/abs/2308.04079)
+- What does "scale ambiguity" mean in monocular SfM and how does GPS break it?
 
 **Exercise:**
 Run at least three search queries against your mission output.
@@ -366,20 +382,24 @@ What happens if the camera rotates without translating?
 **Topics:**
 - Step 28: DINO self-supervised fine-tuning, student-teacher EMA, augmentation strategy.
 - SSL gate: what it means when the gate triggers.
+- RSSM-guided frame selection: how RSSM surprise scores from Step 23 influence which frames become contrastive pairs in SSL training.
 - Read [`pipeline/workflows/local/steps_ssl.py`](../../pipeline/workflows/local/steps_ssl.py) and [`pipeline/training/ssl.py`](../../pipeline/training/ssl.py).
 
 **Pre-reading:**
-- What is self-supervised learning? How does it differ from supervised learning?
+- Caron et al., "Emerging Properties in Self-Supervised Vision Transformers" (DINO, 2021) — Sections 3-4 (multi-crop and student-teacher EMA). [arxiv.org/abs/2104.14294](https://arxiv.org/abs/2104.14294)
+- Ericsson et al., "Self-Supervised Representation Learning: Introduction, Advances, and Challenges" (2022) — Sections 2-3 (contrastive vs self-distillation). [arxiv.org/abs/2110.09327](https://arxiv.org/abs/2110.09327)
 - What is an exponential moving average (EMA) teacher and why does it produce more stable targets than copying student weights directly?
 
 **Exercise:**
 Inspect the loss curve from an SSL run (ASCII sparkline in the logs or the `loss_history` JSON field).
 Classify the curve: converging, stuck, or oscillating.
 Explain what each pattern indicates about the learning rate or data quality.
+Then compare: do the `needs_annotation` frames selected by the RSSM-enhanced AL score look more informative than frames selected by DINO distance alone?
 
 **Concept checkpoint:**
 Why does DINO not need labels?
 What provides the training signal if no annotations exist?
+How does RSSM surprise improve the quality of SSL contrastive pairs compared to random or DINO-only frame selection?
 
 ---
 
@@ -391,8 +411,9 @@ What provides the training signal if no annotations exist?
 - Read [`pipeline/workflows/local/steps_distill.py`](../../pipeline/workflows/local/steps_distill.py).
 
 **Pre-reading:**
-- What is knowledge distillation? What is "dark knowledge" in the context of soft targets?
-- What is ONNX and what problem does it solve for model deployment?
+- Hinton et al., "Distilling the Knowledge in a Neural Network" (2015) — all five pages. [arxiv.org/abs/1503.02531](https://arxiv.org/abs/1503.02531)
+- ONNX Runtime documentation quickstart: [onnxruntime.ai/docs/get-started/with-python.html](https://onnxruntime.ai/docs/get-started/with-python.html)
+- What is "dark knowledge" in the context of soft targets?
 
 **Exercise:**
 Read `student_model.pt` training details from the logs.
@@ -414,8 +435,9 @@ What metric would you use to measure whether the student preserved the teacher's
 - Read `comparison.md` and `multi_model_comparison.md` from an output directory.
 
 **Pre-reading:**
+- Musgrave et al., "A Metric Learning Reality Check" (2020) — Section 3 (evaluation pitfalls). [arxiv.org/abs/2003.08505](https://arxiv.org/abs/2003.08505)
+- Manning, Raghavan & Schütze, *Introduction to Information Retrieval* — Chapter 8 (P@K, MAP, nDCG). [nlp.stanford.edu/IR-book](https://nlp.stanford.edu/IR-book) — free.
 - What is Precision@K? What is Recall@K? When does one matter more than the other?
-- What is an "ensemble" and why can unanimous ensemble agreement still be wrong?
 
 **Exercise:**
 Find the query with the largest positive delta (fine-tuned improved most) and the query with the largest negative delta (fine-tuned regressed most).
@@ -601,3 +623,86 @@ Use this review as a map for your ongoing learning.
 | Can run a full pipeline and inspect all artifacts | 20 | After Day 20 |
 | Can identify and explain any step's failure modes | 24 | After Day 24 |
 | Can design a new step that fits the architecture | 23 | After Day 23 |
+
+---
+
+## Consolidated Reading List
+
+Organized by depth level. Read in this order if you are starting from scratch. Skip sections where you have strong background.
+
+### Tier 1 — Foundational (read before Week 1)
+
+These establish the mathematical and conceptual vocabulary used throughout the pipeline documentation.
+
+| Resource | Covers | Where to get it |
+|---|---|---|
+| Goodfellow, Bengio & Courville, *Deep Learning* (2016) | CNNs, RNNs, representation learning, optimization | [deeplearningbook.org](https://www.deeplearningbook.org) — free |
+| Prince, *Understanding Deep Learning* (2023) | Modern architectures, transformers, diffusion | [udlbook.github.io/udlbook](https://udlbook.github.io/udlbook) — free |
+| Szeliski, *Computer Vision: Algorithms and Applications* (2022) | Feature extraction, SfM, stereo, optical flow | [szeliski.org/Book](https://szeliski.org/Book) — free |
+| Thrun, Burgard & Fox, *Probabilistic Robotics* (2005) | Bayes filter, KF/EKF/UKF, particle filter, SLAM | University library or MIT Press |
+| Settles, "Active Learning Literature Survey" (2009) | Uncertainty sampling, query-by-committee, BALD | [burrsettles.com/pub/settles.activelearning.pdf](http://burrsettles.com/pub/settles.activelearning.pdf) — free |
+
+### Tier 2 — Core Papers (read during Weeks 1-3, one or two per day)
+
+These are the papers that introduced the models and techniques used directly in the pipeline.
+
+| Paper | Step(s) | arXiv |
+|---|---|---|
+| Vaswani et al., "Attention Is All You Need" (2017) | All transformer-based models | [1706.03762](https://arxiv.org/abs/1706.03762) |
+| Dosovitskiy et al., "An Image is Worth 16×16 Words" (ViT, 2020) | CLIP, DINOv2, Florence-2 backbone | [2010.11929](https://arxiv.org/abs/2010.11929) |
+| Radford et al., "Learning Transferable Visual Models" (CLIP, 2021) | Step 2 | [2103.00020](https://arxiv.org/abs/2103.00020) |
+| Caron et al., "Emerging Properties in Self-Supervised Vision Transformers" (DINO, 2021) | Steps 2, 28 | [2104.14294](https://arxiv.org/abs/2104.14294) |
+| Oquab et al., "DINOv2" (2023) | Steps 2, 28 | [2304.07193](https://arxiv.org/abs/2304.07193) |
+| Xiao et al., "Florence-2" (2023) | Step 4 | [2311.06242](https://arxiv.org/abs/2311.06242) |
+| Radford et al., "Robust Speech Recognition via Large-Scale Weak Supervision" (Whisper, 2022) | Step 5 | [2212.04356](https://arxiv.org/abs/2212.04356) |
+| Li et al., "TrOCR" (2021) | Step 6 | [2109.10282](https://arxiv.org/abs/2109.10282) |
+| Yang et al., "Depth Anything V2" (2024) | Step 7 | [2406.09414](https://arxiv.org/abs/2406.09414) |
+| Lv et al., "RT-DETR" (2023) | Steps 8, 22 | [2304.08069](https://arxiv.org/abs/2304.08069) |
+| Kirillov et al., "Segment Anything" (SAM, 2023) | Step 21 | [2304.02643](https://arxiv.org/abs/2304.02643) |
+| Ravi et al., "SAM 2" (2024) | Step 21 | [2408.00714](https://arxiv.org/abs/2408.00714) |
+| Bewley et al., "SORT" (2016) | Step 22 | [1602.00763](https://arxiv.org/abs/1602.00763) |
+| Hafner et al., "Learning Latent Dynamics for Planning from Pixels" (PlaNet/RSSM, 2019) | Step 23 | [1811.04551](https://arxiv.org/abs/1811.04551) |
+| Hafner et al., "Mastering Diverse Domains through World Models" (DreamerV3, 2023) | Step 23 | [2301.04104](https://arxiv.org/abs/2301.04104) |
+| Romero et al., "Dream to Fly" (ICRA 2026) | Step 23 | [rpg.ifi.uzh.ch/docs/ICRA26_Romero.pdf](https://rpg.ifi.uzh.ch/docs/ICRA26_Romero.pdf) |
+| Team Qwen, "Qwen2.5-VL Technical Report" (2025) | Step 24 | [2502.13923](https://arxiv.org/abs/2502.13923) |
+| Mildenhall et al., "NeRF" (2020) | Step 27 | [2003.08934](https://arxiv.org/abs/2003.08934) |
+| Kerbl et al., "3D Gaussian Splatting" (2023) | Step 27 | [2308.04079](https://arxiv.org/abs/2308.04079) |
+| Chen et al., "SimCLR" (2020) | Step 28 — context | [2002.05709](https://arxiv.org/abs/2002.05709) |
+| He et al., "MAE" (2021) | Step 28 — context | [2111.06377](https://arxiv.org/abs/2111.06377) |
+| Hinton et al., "Distilling the Knowledge in a Neural Network" (2015) | Step 29 | [1503.02531](https://arxiv.org/abs/1503.02531) |
+| Gou et al., "Knowledge Distillation: A Survey" (2021) | Step 29 | [2006.05525](https://arxiv.org/abs/2006.05525) |
+
+### Tier 3 — Deep Dives (read during Week 4 and beyond)
+
+These go deeper into specific subsystems or provide the broader research context.
+
+| Resource | Topic |
+|---|---|
+| Gallego et al., "Event-based Vision: A Survey" (2022) — [1904.08405](https://arxiv.org/abs/1904.08405) | Event cameras (Step 12) |
+| Qi et al., "PointNet" (2017) — [1612.00593](https://arxiv.org/abs/1612.00593) | LiDAR 3D perception (Step 13) |
+| Barfoot, *State Estimation for Robotics* (Cambridge, 2017) | IMU fusion, SE(3) pose (Steps 16, 27) |
+| Hartley & Zisserman, *Multiple View Geometry in Computer Vision* (2004) | SfM fundamentals (Step 27) |
+| Bommasani et al., "On the Opportunities and Risks of Foundation Models" (2021) — [2108.07258](https://arxiv.org/abs/2108.07258) | Architecture-level context for all steps |
+| Musgrave et al., "A Metric Learning Reality Check" (2020) — [2003.08505](https://arxiv.org/abs/2003.08505) | Evaluation methodology (Steps 31-33) |
+| Park et al., "Generative Agents" (2023) — [2304.03442](https://arxiv.org/abs/2304.03442) | Agent memory design (Step 35 / VideoKnowledge) |
+| Mialon et al., "Augmented Language Models" (2023) — [2302.07842](https://arxiv.org/abs/2302.07842) | Tool use and retrieval in LLM systems |
+| Nagel et al., "A White Paper on Neural Network Quantization" (2021) — [2106.08295](https://arxiv.org/abs/2106.08295) | INT8 quantization for ONNX export (Step 30) |
+
+### HuggingFace quick-reference
+
+| Component | Documentation page |
+|---|---|
+| Transformers library | [huggingface.co/docs/transformers](https://huggingface.co/docs/transformers) |
+| CLIP | [/model_doc/clip](https://huggingface.co/docs/transformers/model_doc/clip) |
+| DINOv2 | [/model_doc/dinov2](https://huggingface.co/docs/transformers/model_doc/dinov2) |
+| Florence-2 | [huggingface.co/microsoft/Florence-2-large](https://huggingface.co/microsoft/Florence-2-large) |
+| Whisper | [/model_doc/whisper](https://huggingface.co/docs/transformers/model_doc/whisper) |
+| TrOCR | [/model_doc/trocr](https://huggingface.co/docs/transformers/model_doc/trocr) |
+| DPT (depth) | [/model_doc/dpt](https://huggingface.co/docs/transformers/model_doc/dpt) |
+| Depth Anything V2 | [depth-anything/Depth-Anything-V2-Large](https://huggingface.co/depth-anything/Depth-Anything-V2-Large) |
+| RT-DETR | [/model_doc/rt_detr](https://huggingface.co/docs/transformers/model_doc/rt_detr) |
+| SAM2 | [/model_doc/sam2](https://huggingface.co/docs/transformers/model_doc/sam2) |
+| VideoMAE | [/model_doc/videomae](https://huggingface.co/docs/transformers/model_doc/videomae) |
+| Qwen2.5-VL | [Qwen/Qwen2.5-VL-7B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct) |
+| Optimum (ONNX) | [huggingface.co/docs/optimum](https://huggingface.co/docs/optimum) |
+| Datasets | [huggingface.co/docs/datasets](https://huggingface.co/docs/datasets) |

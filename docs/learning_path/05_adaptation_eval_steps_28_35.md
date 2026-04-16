@@ -28,6 +28,12 @@ A mission with industrial equipment, military vehicles, or unusual terrain is fa
 Self-supervised fine-tuning narrows this distribution gap using the mission data itself, without requiring any human labels.
 Even 20-50 training epochs on a single mission's frames often produces measurable improvement in retrieval recall.
 
+**RSSM-guided frame selection for SSL:**
+Step 23 computes a per-frame RSSM temporal surprise score (DreamerV3-inspired) for each frame.
+The SSL fine-tuning contrastive loss improves most when the positive pairs are diverse — temporally-novel frames carry richer learning signal than repetitive background frames.
+Frames tagged `needs_annotation` (high `al_score` combining RSSM surprise + DINO distance + caption confidence) are the best candidates for contrastive pairs in the "temporal" augmentation approach.
+This creates a virtuous cycle: RSSM → better AL tags → better SSL training data → better fine-tuned backbone → better edge models (hydrated ONNX exports at Step 30).
+
 **Implementation:**
 - [`pipeline/workflows/local/steps_ssl.py`](../../pipeline/workflows/local/steps_ssl.py)
 - [`pipeline/training/ssl.py`](../../pipeline/training/ssl.py)
@@ -114,6 +120,11 @@ For embedding distillation (used here), temperature scaling is applied different
 *Teacher-student capacity gap:*
 If the student is too small relative to the teacher, it cannot fit the teacher's knowledge.
 The practical rule: student should be at least 1/4 the parameter count of the teacher for good distillation.
+
+*RSSM → better teacher quality:*
+The RSSM surprise-guided AL scoring (Step 23) ensures the SSL teacher (Step 28) was fine-tuned on the most informative frames.
+A teacher trained on temporally-diverse, high-surprise frames transfers richer mission-specific knowledge to the student.
+The hydrated ONNX model exported at Step 30 is therefore better calibrated to the mission's actual visual distribution.
 
 **Output artifact:**
 Student model checkpoint: `student_model.pt` in the video output directory.
@@ -372,8 +383,12 @@ Exclude: model outputs that directly contradicted another model or failed qualit
 
 *Active learning tags:*
 Frames tagged `needs_annotation` (high `active_learning_score`) are surfaced in the report as priority labeling candidates.
-The report includes the score formula: `0.6 × DINOv3_dist + 0.4 × (1 - caption_confidence)`.
-High score = the model was uncertain about this frame; human labeling here will improve future fine-tuning the most.
+The score formula depends on whether the RSSM ran in Step 23:
+
+- **With RSSM** (default, `DREAMER_ENABLED=true`): `0.35 × DINOv3_dist + 0.25 × (1 - caption_confidence) + 0.40 × rssm_surprise`
+- **Without RSSM**: `0.60 × DINOv3_dist + 0.40 × (1 - caption_confidence)`
+
+High score = the model was uncertain or temporally surprised by this frame; human labeling here will improve future fine-tuning the most.
 
 *Change detection summary:*
 If the same GPS area was covered in a prior mission, the change detection table shows which objects or regions changed.
@@ -489,3 +504,94 @@ Good engineering requires all four.
 - [Agentic knowledge flow](06_agentic_knowledge_flow.md)
 - [Runtime and study guide](01_runtime_and_study_guide.md)
 - [Pipeline architecture](../pipeline.md)
+
+---
+
+## Learning Resources — Adaptation, Distillation, and Evaluation (Steps 28-35)
+
+The central theme of this phase is the feedback loop: observation → representation → improvement. Resources are ordered basics → deep dive.
+
+---
+
+### Step 28 — SSL DINOv3 Fine-Tuning
+
+**Why it matters:** Fine-tuning without labels is the key property that allows this pipeline to adapt to any new domain (underwater, Arctic, industrial) with zero human annotation cost. The RSSM-guided frame selection means the training set consists of the most temporally informative frames, not random samples.
+
+**Basics — Self-supervised learning**
+- Ericsson et al., "Self-Supervised Representation Learning: Introduction, Advances, and Challenges" (IEEE Signal Processing Magazine, 2022). The most accessible survey of the SSL landscape: contrastive methods (SimCLR, MoCo), self-distillation (BYOL, DINO), and masked image modelling (MAE). Read this before the individual papers. [arxiv.org/abs/2110.09327](https://arxiv.org/abs/2110.09327)
+
+**Core papers — DINO and DINOv2**
+- Caron et al., "Emerging Properties in Self-Supervised Vision Transformers" (DINO, 2021). The student-teacher EMA architecture used in `pipeline/training/ssl.py`. Section 3 (self-distillation with no labels) and the appendix (multi-crop augmentation details) are required reading before modifying any SSL hyperparameter. [arxiv.org/abs/2104.14294](https://arxiv.org/abs/2104.14294)
+- Oquab et al., "DINOv2: Learning Robust Visual Features without Supervision" (Meta AI, 2023). Section 3.1 (curated data pipeline) is the key difference from DINO v1 — the importance of data curation for SSL quality has direct implications for what the pipeline's RSSM-selected frames provide. [arxiv.org/abs/2304.07193](https://arxiv.org/abs/2304.07193)
+
+**Context — related self-supervised methods worth knowing**
+- Chen et al., "A Simple Framework for Contrastive Learning of Visual Representations" (SimCLR, 2020). The contrastive learning baseline. Understanding SimCLR's collapse problem (without stop-gradient or momentum) makes DINO's design choices principled. [arxiv.org/abs/2002.05709](https://arxiv.org/abs/2002.05709)
+- He et al., "Masked Autoencoders Are Scalable Vision Learners" (MAE, 2021). Masked image modelling — the alternative SSL paradigm to self-distillation. MAE trains faster on large datasets; DINO produces better dense features at small dataset sizes like a single mission. [arxiv.org/abs/2111.06377](https://arxiv.org/abs/2111.06377)
+
+**HuggingFace**
+- HuggingFace Trainer documentation: [huggingface.co/docs/transformers/main_classes/trainer](https://huggingface.co/docs/transformers/main_classes/trainer) — the API used by `steps_ssl.py`.
+
+---
+
+### Step 29 — Knowledge Distillation
+
+**Why it matters:** Distillation is how the pipeline converts a large fine-tuned teacher into a small student deployable on edge hardware. Soft targets — the teacher's full probability distribution over embeddings — carry "dark knowledge" about inter-class similarity that hard labels discard.
+
+**Basics**
+- Hinton et al., "Distilling the Knowledge in a Neural Network" (2015). The original paper. Five pages. The key insight is that the teacher's softmax output at temperature T > 1 reveals relative similarity between incorrect classes — information that a hard label (argmax) destroys. Read this before any distillation framework. [arxiv.org/abs/1503.02531](https://arxiv.org/abs/1503.02531)
+
+**Survey**
+- Gou et al., "Knowledge Distillation: A Survey" (IJCV, 2021). Classifies 40+ distillation methods by what is distilled (logits, features, relations, structure) and how (offline, online, self-distillation). Section 4 (feature-based distillation) is most relevant to the pipeline's embedding-space distillation. [arxiv.org/abs/2006.05525](https://arxiv.org/abs/2006.05525)
+
+**Deep dive**
+- Romero et al., "FitNets: Hints for Thin Deep Nets" (2014). Feature-matching distillation — the basis for hint regression used when the student and teacher have mismatched architectures. [arxiv.org/abs/1412.6550](https://arxiv.org/abs/1412.6550)
+- Tian et al., "Contrastive Representation Distillation" (CRD, 2019). Distillation as mutual information maximisation — outperforms standard logit-matching for visual representations. [arxiv.org/abs/1910.10699](https://arxiv.org/abs/1910.10699)
+
+---
+
+### Step 30 — ONNX Export and Gallery Build
+
+**Why it matters:** ONNX is the portability layer between PyTorch research code and any edge runtime (TensorRT, ONNX Runtime, CoreML, TFLite). Getting the dynamic axes right — so that batch size and image size are not hardcoded — is the difference between an ONNX export that deploys and one that silently fails on non-standard input sizes.
+
+**Basics**
+- ONNX specification and operator set: [onnx.ai/onnx/intro](https://onnx.ai/onnx/intro). Start with the operator set reference — every PyTorch op must map to one or more ONNX ops. Ops that don't have ONNX equivalents (or have conditional implementations) are the source of export failures.
+- HuggingFace Optimum documentation: [huggingface.co/docs/optimum](https://huggingface.co/docs/optimum). The recommended way to export HuggingFace models to ONNX. Handles dynamic axes, input validation, and numerical equivalence checks automatically.
+
+**Core reference**
+- ONNX Runtime documentation: [onnxruntime.ai/docs](https://onnxruntime.ai/docs). The primary inference runtime. Pay attention to execution providers (CPU, CUDA, TensorRT, DirectML) and the InferenceSession API — directly used in the gallery search path.
+
+**Deep dive**
+- Han et al., "A Survey on Model Compression and Acceleration for Deep Learning" (2015). Reviews pruning, quantization, and factorization in addition to distillation — maps the full space of model compression that ONNX export enables. [arxiv.org/abs/1710.09282](https://arxiv.org/abs/1710.09282)
+- Nagel et al., "A White Paper on Neural Network Quantization" (Qualcomm AI Research, 2021). The most rigorous treatment of INT8 quantization: symmetric vs asymmetric, per-tensor vs per-channel, calibration methods. Directly relevant when post-processing ONNX exports for INT8 inference. [arxiv.org/abs/2106.08295](https://arxiv.org/abs/2106.08295)
+
+---
+
+### Steps 31-33 — Retrieval Evaluation and Model Comparison
+
+**Why it matters:** Precision@K and Recall@K are only honest if the query set was designed before looking at the retrieval results. Post-hoc query design — choosing queries that the fine-tuned model happens to get right — produces metrics that look like improvement but measure nothing.
+
+**Basics — Information retrieval metrics**
+- Manning, Raghavan & Schütze, *Introduction to Information Retrieval* (Cambridge, 2008). Chapter 8 (evaluation in information retrieval): Precision@K, Mean Average Precision (MAP), nDCG. Freely at [nlp.stanford.edu/IR-book](https://nlp.stanford.edu/IR-book).
+- Musgrave et al., "A Metric Learning Reality Check" (ECCV, 2020). The paper that empirically showed most reported metric learning improvements vanish under standardized evaluation. Directly relevant to interpreting Precision@K deltas. [arxiv.org/abs/2003.08505](https://arxiv.org/abs/2003.08505)
+
+**Core paper**
+- Babenko et al., "Neural Codes for Image Retrieval" (2014). The foundational paper on using deep features for image retrieval — establishes the baseline expectation for how embedding quality maps to retrieval performance. [arxiv.org/abs/1404.1777](https://arxiv.org/abs/1404.1777)
+
+**Deep dive**
+- Johnson et al., "Billion-scale Similarity Search with GPUs" (FAISS, 2017). Beyond correctness: the computational tradeoffs in approximate nearest-neighbour search. Understanding HNSW vs IVF vs flat index performance curves is required before tuning Qdrant collection parameters. [arxiv.org/abs/1702.08734](https://arxiv.org/abs/1702.08734)
+
+---
+
+### Steps 34-35 — Synthesis, Reporting, and Agentic Audit
+
+**Why it matters:** The synthesis report is the human-readable output of the entire pipeline. Its quality determines whether an operator can make decisions from it. The audit step is the provenance chain — without it, a hallucinated synthesis claim is indistinguishable from a grounded one.
+
+**Basics — LLM output evaluation**
+- Bubeck et al., "Sparks of Artificial General Intelligence: Early Experiments with GPT-4" (Microsoft Research, 2023). Section 2.5 (evaluation methodology) discusses how to distinguish genuine capability from pattern-matched output — directly applicable to evaluating synthesis quality. [arxiv.org/abs/2303.12528](https://arxiv.org/abs/2303.12528)
+
+**Core paper — Provenance and attribution**
+- Gao et al., "Enabling Large Language Models to Generate Text with Citations" (ALCE, 2023). Attribution of generated claims to source documents — the theoretical framework for the agentic audit's claim-tracing design. [arxiv.org/abs/2305.14627](https://arxiv.org/abs/2305.14627)
+
+**Deep dive — Agentic systems**
+- Weng, "LLM-powered Autonomous Agents" (Lilian Weng's blog, 2023). The clearest system-level description of tool-use, memory, and planning in LLM agents — directly maps to `VideoKnowledge` (memory), the step runner (planning), and the audit step (provenance). [lilianweng.github.io/posts/2023-06-23-agent](https://lilianweng.github.io/posts/2023-06-23-agent)
+- Mialon et al., "Augmented Language Models: a Survey" (Meta AI, 2023). Comprehensive survey of tool use, retrieval augmentation, and grounding — the design space the pipeline's agentic flow occupies. [arxiv.org/abs/2302.07842](https://arxiv.org/abs/2302.07842)

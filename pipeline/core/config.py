@@ -388,6 +388,29 @@ class Settings:
     WORLD_MODEL_CLIP_FRAMES = _env_int("WORLD_MODEL_CLIP_FRAMES", 8)
     WORLD_MODEL_STORE_EMBED = _env("WORLD_MODEL_STORE_EMBED", "false").lower() == "true"
 
+    # ── DreamerV3 RSSM temporal surprise scoring ──────────────────────────────
+    # Lightweight Recurrent State Space Model inspired by:
+    #   Romero et al., "Dream to Fly", ICRA 2026 (rpg.ifi.uzh.ch/docs/ICRA26_Romero.pdf)
+    # Operates on pre-computed CLIP embedding sequences — no GPU required.
+    # Per-frame surprise score (how unexpected was this frame given prior context?)
+    # is fed into the active learning formula:
+    #   al_score = 0.35*dino + 0.25*(1-caption_conf) + 0.40*rssm_surprise
+    # instead of the baseline:
+    #   al_score = 0.60*dino + 0.40*(1-caption_conf)
+    # Enables better SSL fine-tuning frame selection → better hydrated edge models.
+    #
+    # DREAMER_ENABLED:       master switch (default true; lightweight, CPU-only)
+    # DREAMER_HIDDEN_DIM:    RSSM GRU hidden state dimension (default 256)
+    # DREAMER_LATENT_DIM:    stochastic latent z_k dimension (default 32)
+    # DREAMER_TRAIN_STEPS:   online gradient steps per mission (default 20)
+    # DREAMER_STORE_TEMPORAL: store recurrent state h_k in frame_facts_json
+    #   (default false — only stores surprise_score and method)
+    DREAMER_ENABLED = _env("DREAMER_ENABLED", "true").lower() == "true"
+    DREAMER_HIDDEN_DIM = _env_int("DREAMER_HIDDEN_DIM", 256)
+    DREAMER_LATENT_DIM = _env_int("DREAMER_LATENT_DIM", 32)
+    DREAMER_TRAIN_STEPS = _env_int("DREAMER_TRAIN_STEPS", 20)
+    DREAMER_STORE_TEMPORAL = _env("DREAMER_STORE_TEMPORAL", "false").lower() == "true"
+
     # ── RF signal analysis (TorchSig) ─────────────────────────────────────────
     # Analyzes IQ recordings captured alongside mission video.
     # Stores per-frame signal metrics in frame_facts_json["rf_signal"].

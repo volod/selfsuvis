@@ -366,7 +366,11 @@ def _get_init_points(
                 pts, cols = pts[idx], cols[idx]
             return pts, cols
 
-    # Fallback / free mode: scatter Gaussians around camera centres
+    # Fallback / free mode: scatter Gaussians in FRONT of camera centres.
+    # The free-pose cameras look along world +Z (identity rotation from
+    # _make_free_poses), so Gaussians must have z_world > 0.  Initialising at
+    # z≈0 places all splats at the camera plane — they are behind or exactly at
+    # the near clip, never rendered, and produce zero gradient.
     centres = []
     for f in frames:
         R = np.array(f["pose_json"]["R"], dtype=np.float32)
@@ -374,12 +378,15 @@ def _get_init_points(
         centres.append(-R.T @ t)
     centres = np.array(centres, dtype=np.float32)
     centroid = centres.mean(axis=0)
-    spread   = max(float(np.std(centres)), 0.05)
+    xy_spread = max(float(np.std(centres[:, :2])), 0.3)
 
     rng = np.random.default_rng(42)
-    noise = rng.standard_normal((_N_FREE_INIT, 3)).astype(np.float32) * spread * 0.6
-    pts   = centroid + noise
-    cols  = np.full((len(pts), 3), 0.5, dtype=np.float32)
+    # Place Gaussians in a frustum volume: z in [0.5, 3.0], x/y spread around centroid
+    z_vals = rng.uniform(0.5, 3.0, _N_FREE_INIT).astype(np.float32)
+    x_vals = centroid[0] + rng.standard_normal(_N_FREE_INIT).astype(np.float32) * xy_spread
+    y_vals = centroid[1] + rng.standard_normal(_N_FREE_INIT).astype(np.float32) * xy_spread * 0.6
+    pts  = np.stack([x_vals, y_vals, z_vals], axis=1)
+    cols = np.full((len(pts), 3), 0.5, dtype=np.float32)
     return pts, cols
 
 

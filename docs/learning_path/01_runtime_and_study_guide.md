@@ -91,3 +91,64 @@ That order mirrors the move from raw evidence to higher-level reasoning.
 - For Steps 21-27: [04_tracking_mapping_steps_21_27.md](04_tracking_mapping_steps_21_27.md)
 - For Steps 28-35: [05_adaptation_eval_steps_28_35.md](05_adaptation_eval_steps_28_35.md)
 - For context accumulation: [06_agentic_knowledge_flow.md](06_agentic_knowledge_flow.md)
+
+---
+
+## Learning Resources — Foundations
+
+This pipeline sits at the intersection of computer vision, NLP, robotics, and systems engineering.
+The resources below are organized basics → deep dive. Sections map to the five layers of the mental model.
+
+---
+
+### Layer 1 — Representation: how machines see
+
+**Basics**
+- Goodfellow, Bengio & Courville, *Deep Learning* (MIT Press, 2016). Chapters 9 (CNNs) and 15 (representation learning) are the conceptual base for every embedding step in this pipeline. Freely available at [deeplearningbook.org](https://www.deeplearningbook.org).
+- Zhang et al., *Dive into Deep Learning* — interactive textbook with runnable notebooks. Chapter 8 (RNNs) and Chapter 11 (attention) are directly relevant to temporal models. Freely at [d2l.ai](https://d2l.ai).
+
+**Deep dive**
+- Dosovitskiy et al., "An Image is Worth 16×16 Words: Transformers for Image Recognition at Scale" (2020). Foundational paper for ViT, which underpins CLIP, DINOv2, Florence-2, and every other large vision model in this pipeline. [arxiv.org/abs/2010.11929](https://arxiv.org/abs/2010.11929)
+- Vaswani et al., "Attention Is All You Need" (2017). The architecture underlying every transformer in this pipeline. [arxiv.org/abs/1706.03762](https://arxiv.org/abs/1706.03762)
+
+---
+
+### Layer 2 — System design: multimodal pipelines at scale
+
+**Basics**
+- Szeliski, *Computer Vision: Algorithms and Applications* (2nd ed., 2022). Covers feature extraction, matching, SfM, and dense reconstruction — the substrate for Steps 1, 27. Freely at [szeliski.org/Book](https://szeliski.org/Book).
+- Prince, *Understanding Deep Learning* (2023). Concise, mathematically precise treatment of modern architectures. Freely at [udlbook.github.io/udlbook](https://udlbook.github.io/udlbook).
+
+**Deep dive**
+- Bommasani et al., "On the Opportunities and Risks of Foundation Models" (Stanford HAI, 2021). Maps the landscape of large pre-trained models and their downstream use — directly applicable to every step that loads a pre-trained backbone. [arxiv.org/abs/2108.07258](https://arxiv.org/abs/2108.07258)
+
+---
+
+### Layer 3 — Robotics context: why spatial memory matters
+
+**Basics**
+- Thrun, Burgard & Fox, *Probabilistic Robotics* (MIT Press, 2005). Chapters 2-4 (probability, Kalman filter, particle filter). The conceptual grounding for sensor fusion and pose estimation.
+- Barfoot, *State Estimation for Robotics* (Cambridge, 2017). Rigorous treatment of SE(3) pose representation, EKF, and batch nonlinear least squares. Directly relevant to Steps 15-16 (IMU, GPS) and pycolmap (Step 27).
+
+**Deep dive**
+- Cadena et al., "Past, Present, and Future of Simultaneous Localization and Mapping: Toward the Robust-Perception Age" (IEEE TRO, 2016). Survey of SLAM up to the deep-learning era — gives context for why pycolmap does what it does. [arxiv.org/abs/1606.05830](https://arxiv.org/abs/1606.05830)
+
+---
+
+### Layer 4 — Self-improvement loop: active learning and continual adaptation
+
+**Basics**
+- Settles, "Active Learning Literature Survey" (2009). The authoritative introduction to uncertainty sampling, query-by-committee, and information-theoretic selection — the conceptual basis for `al_tag`. Available at [burrsettles.com/pub/settles.activelearning.pdf](http://burrsettles.com/pub/settles.activelearning.pdf).
+
+**Deep dive**
+- Ren et al., "A Survey of Deep Active Learning" (2021). Covers neural-network-specific active learning strategies including learned uncertainty, core-set selection, and BALD. [arxiv.org/abs/2009.00236](https://arxiv.org/abs/2009.00236)
+
+---
+
+### HuggingFace ecosystem entry point
+
+The pipeline's Python models (CLIP, DINOv2, Florence-2, Whisper, SAM, Qwen) all load via HuggingFace Transformers or HuggingFace Hub. The following pages are the authoritative API references:
+- Transformers library overview: [huggingface.co/docs/transformers](https://huggingface.co/docs/transformers)
+- Model Hub (search, filter by task): [huggingface.co/models](https://huggingface.co/models)
+- Datasets (for training data): [huggingface.co/docs/datasets](https://huggingface.co/docs/datasets)
+- Optimum (ONNX export, quantization): [huggingface.co/docs/optimum](https://huggingface.co/docs/optimum)

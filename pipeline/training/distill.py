@@ -522,9 +522,13 @@ class GemmaVisionTeacher(torch.nn.Module):
         embs = self._embedder.encode_images(pils)   # numpy (B, dim)
         return torch.from_numpy(embs).to(x.device)
 
-    def parameters(self, recurse: bool = True):
-        # Teacher is always frozen — yield nothing so param count = 0
-        return iter([])
+    # Note: do NOT override parameters() here.  KnowledgeDistiller freezes the
+    # teacher by calling p.requires_grad_(False) on every parameter it finds via
+    # the normal parameters() iterator.  Hiding parameters() would cause the
+    # compression ratio to be reported as "0×" (teacher=0M) since no params
+    # are enumerated.  The teacher is never passed to an optimizer anyway —
+    # only student.parameters() and _proj.parameters() are added to the
+    # optimizer group.
 
 
 def run_distillation(

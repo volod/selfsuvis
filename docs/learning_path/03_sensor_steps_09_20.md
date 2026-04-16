@@ -682,3 +682,198 @@ A system that trusts a failed sensor is more dangerous than one with no sensor a
 - [Tracking and mapping: Steps 21-27](04_tracking_mapping_steps_21_27.md)
 - [Pipeline architecture](../pipeline.md)
 - [Day-by-day syllabus](07_day_by_day_syllabus.md)
+
+---
+
+## Learning Resources — Sensors and Fusion (Steps 9-20)
+
+Resources are ordered basics → deep dive. Physical measurement sections include the underlying principles because understanding what a sensor actually measures is the prerequisite for understanding when and why it fails.
+
+---
+
+### Step 9 — RF and Software-Defined Radio
+
+**Why it matters:** RF sensing is the only modality that detects emitters invisible to all optical sensors. A drone carrying a radio transceiver, a communications relay, or a radar altimeter will appear in IQ data when it is invisible to RGB.
+
+**Basics**
+- Ettus Research, *USRP B200/B210 Getting Started Guide* — introduces IQ sampling, bandwidth, center frequency, and gain. Directly applicable to any SDR-based data source.
+- Proakis & Salehi, *Communication Systems Engineering* (2nd ed., Prentice Hall, 2001). Chapter 2 (signals and systems in the frequency domain) and Chapter 6 (bandpass signals, IQ representation) are the minimum background.
+
+**Core paper and library**
+- TorchSig documentation and tutorials: [torchsig.com](https://torchsig.com). The library used in Step 9. Tutorial notebooks explain IQ preprocessing, spectrogram generation, and CNN-based signal classification.
+- West & O'Shea, "Deep Architectures for Modulation Recognition" (2017). Seminal paper establishing deep learning for automatic modulation classification (AMC) — the direct predecessor to TorchSig's model zoo. [arxiv.org/abs/1703.09197](https://arxiv.org/abs/1703.09197)
+
+**Deep dive**
+- O'Shea & Hoydis, "An Introduction to Deep Learning for the Physical Layer" (2017). Treats the whole communication chain as an autoencoder — a unifying framework for understanding why DNNs work on IQ data. [arxiv.org/abs/1702.00832](https://arxiv.org/abs/1702.00832)
+
+---
+
+### Step 10 — Thermal and Infrared Imaging
+
+**Why it matters:** A thermal camera detects emitted radiation (not reflected light), so it works at night, through smoke, and reveals heat signatures invisible to RGB. Spatial alignment with RGB is non-trivial: optics differ, and a calibration error of 5 pixels destroys cross-modal IoU thresholds.
+
+**Basics**
+- Vollmer & Möllmann, *Infrared Thermal Imaging: Fundamentals, Research and Applications* (Wiley-VCH, 2017). Chapters 1-3 cover the Planck curve, emissivity, and the 8-14 µm LWIR atmospheric window. The minimum physics background before working with radiometric cameras.
+- FLIR Lepton 3.5 Application Note — explains radiometric vs non-radiometric output modes, FFC (flat-field correction), and pseudo-colour palettes. Available from Teledyne FLIR.
+
+**Core paper**
+- Treible et al., "CATS: A Color and Thermal Stereo Benchmark" (2017). Benchmark for RGB-thermal alignment and cross-modal object detection — directly relevant to the IoU ≥ 0.4 threshold used in `cross_modal_detections`. [arxiv.org/abs/1801.09558](https://arxiv.org/abs/1801.09558)
+
+**Deep dive**
+- Zhang et al., "Multispectral Fusion for Object Detection with Cyclic Fuse-and-Refine Blocks" (2019). State-of-the-art RGB-thermal fusion for pedestrian detection. Explains mid-fusion vs late-fusion architectures. [arxiv.org/abs/2007.03539](https://arxiv.org/abs/2007.03539)
+
+---
+
+### Step 11 — Multispectral and Hyperspectral Imaging
+
+**Why it matters:** Spectral indices (NDVI, NDWI, NDSI) encode physical properties that are invisible to RGB and thermal. NDVI < 0 on vegetation that looked healthy to RGB is an early drought indicator — the kind of change detection that drives the pipeline's repeat-mission value.
+
+**Basics**
+- NASA Earth Observatory — "How to Interpret a False-Color Satellite Image." Builds intuition for what each band combination reveals before working with index formulas. [earthobservatory.nasa.gov](https://earthobservatory.nasa.gov/features/FalseColor)
+- Rouse et al., "Monitoring Vegetation Systems in the Great Plains with ERTS" (1974). The original NDVI paper. Two pages. Read it — it establishes the (NIR - R) / (NIR + R) ratio that every modern precision-agriculture pipeline still uses.
+
+**Core paper**
+- Audebert et al., "Deep Learning for Classification of Hyperspectral Data: A Comparative Review" (2019). Comprehensive survey of CNN, RNN, and GAN approaches to hyperspectral classification — maps the current methods landscape. [arxiv.org/abs/1904.10674](https://arxiv.org/abs/1904.10674)
+
+**Deep dive**
+- Signoroni et al., "Deep Learning Meets Hyperspectral Image Analysis: A Multidisciplinary Review" (2019). Covers the continuum from multispectral (4-12 bands) to hyperspectral (100s of bands). [arxiv.org/abs/1903.02176](https://arxiv.org/abs/1903.02176)
+
+---
+
+### Step 12 — Event Cameras (Neuromorphic Sensing)
+
+**Why it matters:** Event cameras respond to per-pixel brightness changes asynchronously, with microsecond latency and 120 dB dynamic range. They are the only sensor that can reliably track a propeller or a fast-moving object without motion blur — and they go "blind" to static scenes, which is the exact inverse of RGB failure modes.
+
+**Basics**
+- Lichtsteiner et al., "A 128×128 120 dB 15 µs Latency Asynchronous Temporal Contrast Vision Sensor" (2008). The original Dynamic Vision Sensor (DVS) paper. Four pages that explain the event polarity convention and the temporal contrast mechanism used in every event camera since.
+- The Prophesee Metavision SDK documentation — the primary open-source toolkit for event data preprocessing, time-surface generation, and event-to-frame conversion. [docs.prophesee.ai](https://docs.prophesee.ai)
+
+**Core survey**
+- Gallego et al., "Event-based Vision: A Survey" (IEEE TPAMI, 2022). The definitive reference: covers event representations (time surfaces, voxel grids, event frames), reconstruction, optical flow, SLAM, and object recognition. 50 pages, but Sections 2-4 are the essential reading. [arxiv.org/abs/1904.08405](https://arxiv.org/abs/1904.08405)
+
+**Deep dive**
+- Gehrig et al., "E-RAFT: Dense Optical Flow from Event Cameras" (3DV, 2021). Shows how event streams enable sub-millisecond optical flow — the temporal resolution that makes event cameras compelling for drone guidance. [arxiv.org/abs/2108.10552](https://arxiv.org/abs/2108.10552)
+
+---
+
+### Step 13 — LiDAR and Active Ranging
+
+**Why it matters:** LiDAR provides metric range — the only modality (alongside radar and sonar) with absolute depth at a specific point. A point cloud from one pass registered to a point cloud from a second pass directly reveals structural changes (new obstacles, missing structures).
+
+**Basics**
+- Velodyne LiDAR HDL-64E User Manual. Explains the rotating mirror mechanism, azimuth/elevation grid, return intensity, and dual-return modes. The physical model is the same for solid-state variants.
+- PCL (Point Cloud Library) documentation: [pointclouds.org/documentation](https://pointclouds.org/documentation). The reference library for point cloud preprocessing, filtering (VoxelGrid, PassThrough), and ground-plane segmentation (RANSAC, progressive morphological filter).
+
+**Core paper**
+- Zhou & Tuzel, "VoxelNet: End-to-End Learning for Point Cloud Based 3D Object Detection" (2018). Explains voxel-based 3D feature extraction — the architecture class underlying all deep LiDAR detectors. Useful for understanding the data structure even if not running VoxelNet. [arxiv.org/abs/1711.06396](https://arxiv.org/abs/1711.06396)
+
+**Deep dive**
+- Qi et al., "PointNet: Deep Learning on Point Sets for 3D Classification and Segmentation" (2017). The foundational paper for learning directly from unordered point clouds without voxelization. [arxiv.org/abs/1612.00593](https://arxiv.org/abs/1612.00593)
+- Zhang et al., "Deep Learning on Point Clouds: Towards 3D Perception" (survey, 2019). Maps all major 3D perception architectures (PointNet, VoxelNet, PointPillars, SECOND) and benchmarks. [arxiv.org/abs/1912.12033](https://arxiv.org/abs/1912.12033)
+
+---
+
+### Step 14 — Radar (FMCW, Doppler, SAR)
+
+**Why it matters:** Radar penetrates fog, rain, and smoke. FMCW radar provides both range and radial velocity (Doppler) in the same chirp — the only sensor that simultaneously knows where an object is and how fast it is approaching. This is safety-critical for any weather-degraded mission.
+
+**Basics**
+- Mahafza, *Radar Systems Analysis and Design Using MATLAB* (3rd ed., CRC Press, 2013). Chapters 1-3 (radar equation, range resolution) and Chapter 7 (FMCW) are the minimum background. The range-resolution formula `δR = c/(2B)` and velocity resolution `δv = λ/(2T)` tell you what your radar hardware can and cannot resolve before writing any code.
+- Texas Instruments, "Introduction to mmWave Sensing: FMCW Radars" (application note mmWAVE-SDK). Four pages, equations and intuition. Start here for FMCW specifics.
+
+**Core paper**
+- Caesar et al., "nuScenes: A Multimodal Dataset for Autonomous Driving" (2020). Not a radar paper per se, but the dataset and evaluation protocol that established how radar integrates with LiDAR and camera in a joint perception stack — directly relevant to the multi-modal fusion design in Step 20. [arxiv.org/abs/1929.02165](https://arxiv.org/abs/1929.02165) — note: correct arXiv ID is [1929.02165](https://arxiv.org/abs/1929.02165).
+
+**Deep dive**
+- Ouaknine et al., "CARRADA Dataset: Camera and Automotive Radar with Range-Angle-Doppler Annotations" (2020). Explains the range-Doppler, range-angle, and angle-Doppler tensor representations. [arxiv.org/abs/2005.01667](https://arxiv.org/abs/2005.01667)
+
+---
+
+### Step 15 — GNSS-R and Satellite Signal Reception
+
+**Why it matters:** GPS position is the spatial anchor for every cross-mission comparison. Without GPS, change detection degrades to per-video comparisons without geographic registration. GNSS-R is a secondary path that uses reflected GNSS signals as a passive radar — surface roughness and soil moisture from opportunistic bistatic geometry.
+
+**Basics**
+- IS-GPS-200 (Interface Specification, current revision). The authoritative document on GPS signal structure, C/A code, navigation message, and dilution of precision (DOP). Section 3 is the key reference for understanding HDOP/VDOP.
+- u-blox, "GPS Compendium" (application note GPS-X-02007). 175-page accessible introduction to GPS, differential correction, and RTK. Freely downloadable from u-blox.
+
+**Core paper**
+- Larson et al., "GPS Multipath and Its Use for Studying Earth Surfaces" (2009). Explains the GNSS-R technique — how multipath interference in geodetic receivers encodes soil moisture and snow depth. The physical basis for Step 15's `gnssr.bin` processing. [doi: 10.2174/1876825300902010001]
+
+**Deep dive**
+- Gleason & Gebre-Egziabher, *GNSS Applications and Methods* (Artech House, 2009). Covers SBAS, RTK, and GNSS-R in a unified framework — useful for understanding the full capability envelope.
+
+---
+
+### Step 16 — Inertial and Barometric Sensing
+
+**Why it matters:** IMU data underpins every dead-reckoning pose estimate between GPS fixes. The bias drift challenge is quantitative: a consumer-grade MEMS gyroscope drifts ~1 deg/s — ten seconds of GPS gap means 10° of heading error if the filter is not correctly modelled.
+
+**Basics**
+- Titterton & Weston, *Strapdown Inertial Navigation Technology* (2nd ed., IET, 2004). Chapters 3-5 (accelerometers, gyroscopes, error sources). The standard reference for IMU noise models (Allan variance, bias instability, angle random walk).
+- Madgwick, "An efficient orientation filter for inertial and inertial/magnetic sensor arrays" (2010). The complementary filter used in most AHRS (attitude and heading reference systems) running on embedded hardware. 10 pages. [x-io.co.uk/res/doc/madgwick_internal_report.pdf](https://x-io.co.uk/res/doc/madgwick_internal_report.pdf)
+
+**Core paper**
+- Forster et al., "IMU Preintegration on Manifold for Efficient Visual-Inertial Maximum-a-Posteriori Estimation" (IJRR, 2017). The preintegration theory used by VINS-Mono and ORB-SLAM3 — explains how to combine IMU and camera data without linearisation errors. [arxiv.org/abs/1512.02363](https://arxiv.org/abs/1512.02363)
+
+**Deep dive**
+- Barfoot, *State Estimation for Robotics* (Cambridge, 2017). The mathematically rigorous treatment of Lie groups (SO(3), SE(3)), batch nonlinear least squares, and the Kalman filter as a special case. Chapter 9 (IMU integration on manifold) is directly applicable.
+
+---
+
+### Step 17 — Atmospheric and Environmental Sensing
+
+**Why it matters:** Weather conditions do not just affect human comfort — they quantitatively degrade every sensor. The `weather_factor` in the fusion confidence formula (`SENSOR_FUSION_MAX_LAG_MS`) exists because high humidity attenuates RF, wind causes motion blur, and rain floods radar with clutter. Ignoring weather produces overconfident fusion outputs.
+
+**Basics**
+- WMO, *Guide to Instruments and Methods of Observation* (WMO-No. 8, 2018). The authoritative reference for temperature, humidity, wind, and pressure measurement principles. Chapter 1 covers sensor types, calibration, and uncertainty quantification.
+- Campbellsci application notes on atmospheric sensor calibration — practical notes for the specific sensor models commonly attached to UAS platforms.
+
+**Deep dive**
+- Heinle et al., "Automatic cloud classification of whole sky images" (2010). Example of the vision-based weather classification that feeds atmospheric context in Step 17. [doi: 10.5194/amt-3-557-2010]
+
+---
+
+### Step 18 — Chemical, Gas, and Radiation Sensing
+
+**Why it matters:** A gas sensor reading of CO > 50 ppm or dose_rate > 1 µSv/h is a hard safety trigger in the pipeline — it overrides `al_score` and forces `al_tag = "needs_annotation"` regardless of visual uncertainty. Understanding sensor response time and cross-sensitivity is required to interpret these readings correctly.
+
+**Basics**
+- Figaro Inc., "Gas Sensor Fundamentals" (application note). Explains MOS (metal oxide semiconductor) sensor response curves, cross-sensitivity, and temperature compensation.
+- Alphasense, "EC4 Series 4-electrode sensor design and circuit configuration." Explains electrochemical gas sensor operation for CO, NO₂, O₃ — the sensor types most common on small UAS.
+
+**Core paper**
+- De Vito et al., "On-field calibration of an electronic nose for benzene estimation in an urban pollution monitoring scenario" (Sensors & Actuators B, 2008). Demonstrates the drift and cross-sensitivity problems that make raw gas sensor readings unreliable without co-located calibration — motivates why the pipeline logs raw readings and relies on threshold flags rather than calibrated ppm values.
+
+---
+
+### Step 19 — Acoustic Sensing
+
+**Why it matters:** Acoustic sensing captures events invisible to all optical sensors: aircraft passing overhead, structural impacts, propeller distress. The primary challenge is propeller noise masking — at 2m distance from a quadrotor, propeller SPL (~100 dB) saturates most microphones at acoustic events of interest.
+
+**Basics**
+- Google, "YAMNet: A Pretrained Deep Net that Works with the AudioSet Dataset" — model card and API: [tfhub.dev/google/yamnet/1](https://tfhub.dev/google/yamnet/1). YAMNet classifies 521 audio event classes; understanding its class hierarchy is required for interpreting Step 19 outputs.
+- Virtanen et al., "Computational Analysis of Sound Scenes and Events" (Springer, 2018). Chapter 2 (MFCC features) and Chapter 5 (sound event detection) cover the feature extraction and detection methods used in acoustic steps.
+
+**Core paper**
+- Gemmeke et al., "AudioSet: An ontology and human-labeled dataset for audio events" (ICASSP, 2017). The training dataset and ontology that YAMNet is trained on. Understanding the class hierarchy explains which outdoor acoustic events the model will and won't catch. [doi: 10.1109/ICASSP.2017.7952261]
+
+**Deep dive**
+- Kong et al., "PANNs: Large-Scale Pretrained Audio Neural Networks for Audio Pattern Recognition" (2020). The large-scale audio representation model family — the audio equivalent of CLIP for audio. [arxiv.org/abs/1912.10211](https://arxiv.org/abs/1912.10211)
+
+---
+
+### Step 20 — Sensor Fusion
+
+**Why it matters:** This is the step where all sensor hypotheses are reconciled. The fusion output determines which frames are flagged for annotation and which pose source is trusted. Getting this wrong (e.g., trusting a GPS-only pose with HDOP > 4 in a canyon) cascades into incorrect global map entries and wrong change detections on future missions.
+
+**Basics**
+- Thrun, Burgard & Fox, *Probabilistic Robotics* (MIT Press, 2005). Chapters 3-4 (Gaussian filters, Kalman filter, extended Kalman filter). These are the conceptual foundation for every fusion filter in this pipeline. Available through most university library systems.
+- Julier & Uhlmann, "A New Extension of the Kalman Filter to Nonlinear Systems" (1997). The UKF paper — explains why EKF linearisation fails for highly nonlinear pose estimation and what the unscented transform does instead. [doi: 10.1117/12.280797]
+
+**Core paper**
+- Geneva et al., "OpenVINS: A Research Platform for Visual-Inertial Estimation" (ICRA, 2020). Describes the EKF-based visual-inertial fusion system most similar to what `pose_source: ekf_imu_gps` represents. [arxiv.org/abs/1908.01012](https://arxiv.org/abs/1908.01012)
+
+**Deep dive**
+- Huang, "Review and Analysis of Multi-sensor Fusion Approaches for Autonomous Ground Vehicles" (2019). Survey of tight vs loose coupling, graph-based vs filter-based, and multi-hypothesis fusion — directly maps to the `pose_source` selection logic in the pipeline. [arxiv.org/abs/1906.02971](https://arxiv.org/abs/1906.02971)
+- Sun et al., "Scalability in Perception for Autonomous Driving" (2020). The nuScenes/Waymo ecosystem that established multi-sensor detection evaluation metrics — context for why `cross_modal_agreement` is a meaningful quality signal. [arxiv.org/abs/1912.00844](https://arxiv.org/abs/1912.00844)

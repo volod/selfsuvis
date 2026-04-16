@@ -215,3 +215,53 @@ To understand the agentic part of the pipeline, read these in order:
 - [Tracking and mapping: Steps 21-27](04_tracking_mapping_steps_21_27.md)
 - [Adaptation and audit: Steps 28-35](05_adaptation_eval_steps_28_35.md)
 - [Pipeline architecture](../pipeline.md)
+
+---
+
+## Learning Resources — Agentic Knowledge Flow
+
+The `VideoKnowledge` class is an episodic memory store with a rolling state mechanism — a specific implementation of the broader problem of how AI agents accumulate and consume structured evidence. Resources below go from cognitive-science foundations to current engineering practice.
+
+---
+
+### Memory and context management in language models
+
+**Basics**
+- Weng, "LLM-powered Autonomous Agents" (Lilian Weng's blog, 2023). The best non-paper introduction to the four components of an AI agent: memory, planning, tools, and action. The "memory" section maps directly to `VideoKnowledge`'s per-frame evidence store. [lilianweng.github.io/posts/2023-06-23-agent](https://lilianweng.github.io/posts/2023-06-23-agent)
+- Vaswani et al., "Attention Is All You Need" (2017). The transformer attention mechanism is fundamentally a learned read/write to a key-value memory. Understanding attention as memory access clarifies why context window length limits are a hard engineering constraint. [arxiv.org/abs/1706.03762](https://arxiv.org/abs/1706.03762)
+
+**Core paper**
+- Park et al., "Generative Agents: Interactive Simulacra of Human Behavior" (Stanford, 2023). The most concrete implementation of an agent memory system with retrieve, reflect, and plan operations. `VideoKnowledge.context_for_frame()` is a simpler version of their retrieval-augmented context construction. [arxiv.org/abs/2304.03442](https://arxiv.org/abs/2304.03442)
+
+**Deep dive**
+- Packer et al., "MemGPT: Towards LLMs as Operating Systems" (2023). Treats the LLM context window as a CPU register file with explicit page-in/page-out of external memory — the architecture that would replace `VideoKnowledge`'s flat dict if the pipeline scaled to very long missions. [arxiv.org/abs/2310.08560](https://arxiv.org/abs/2310.08560)
+
+---
+
+### Rolling state and temporal context propagation
+
+**Basics**
+- Hochreiter & Schmidhuber, "Long Short-Term Memory" (Neural Computation, 1997). The LSTM architecture is the classical solution to the problem that `_last_qwen` solves manually: propagating relevant state forward while forgetting irrelevant state. Understanding LSTM gates makes the risks of `VideoKnowledge`'s unbounded error propagation explicit. [doi: 10.1162/neco.1997.9.8.1735]
+
+**Core paper**
+- Dai et al., "Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context" (2019). Segment-level recurrence with cached hidden states — the mechanism that `_last_qwen` approximates with a dictionary. The paper's analysis of why fixed-window attention fails on long sequences directly applies to long-mission Qwen runs. [arxiv.org/abs/1901.02860](https://arxiv.org/abs/1901.02860)
+
+---
+
+### Context contamination: grounding and attribution
+
+**Why it matters:** The five contamination risks in `VideoKnowledge` (wrong domain hint, stale Qwen state, garbled OCR, misaligned ASR, wrong depth) all share a common structure: a wrong input at step N poisons every downstream consumer without any error signal. This is the core reliability problem in any pipeline that chains LLM outputs.
+
+**Core paper**
+- Maynez et al., "On Faithfulness and Factuality in Abstractive Summarization" (ACL, 2020). Defines the distinction between intrinsic hallucination (contradicts source) and extrinsic hallucination (adds information not in source). The audit step (Step 35) detects both types. [arxiv.org/abs/2005.00661](https://arxiv.org/abs/2005.00661)
+
+**Deep dive**
+- Min et al., "FActScoring: Fine-grained Atomic Evaluation of Factual Precision in Long-form Text Generation" (2023). Per-claim factuality scoring — the automated equivalent of what the agentic audit does manually. [arxiv.org/abs/2305.14251](https://arxiv.org/abs/2305.14251)
+
+---
+
+### Practical tooling for agentic pipelines
+
+- LangChain documentation: [python.langchain.com](https://python.langchain.com). The most widely used framework for chaining LLM calls with tools and memory. Understanding LangChain's `ConversationBufferWindowMemory` and `VectorStoreRetrieverMemory` clarifies the design space that `VideoKnowledge` occupies.
+- LlamaIndex documentation: [docs.llamaindex.ai](https://docs.llamaindex.ai). Focused on retrieval-augmented generation — the approach most relevant to the query path in this pipeline.
+- Mialon et al., "Augmented Language Models: a Survey" (Meta AI, 2023). Unified framework for tools, retrieval, and memory in LLMs. [arxiv.org/abs/2302.07842](https://arxiv.org/abs/2302.07842)

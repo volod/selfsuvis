@@ -161,9 +161,6 @@ def step_base_model_search_test(
     out_md = video_dir / "base_search.md"
     qfp, qt = _pick_query_frame(frame_list)
     _log.info("Query frame: %s (t=%.2fs)", Path(qfp).name, qt)
-    if out_md.exists():
-        _log.info("  Skipping %s (already exists)", out_md.name)
-        return {"results": [], "query_frame": qfp, "query_t_sec": qt}
     use_dino = models.get("dino") is not None
     t0        = time.time()
     query_vec = _embed_query(qfp, models, use_dino=use_dino)
@@ -192,9 +189,6 @@ def step_finetuned_model_search_test(
     """Step G: search with fine-tuned DINO, write finetuned_search.md."""
     from .steps_report import write_search_md
     out_md = video_dir / "finetuned_search.md"
-    if out_md.exists():
-        _log.info("  Skipping %s (already exists)", out_md.name)
-        return {"results": [], "infer_ms": 0.0}
     use_dino = models.get("dino") is not None
     t0        = time.time()
     query_vec = _embed_query(query_frame, models, use_dino=use_dino)

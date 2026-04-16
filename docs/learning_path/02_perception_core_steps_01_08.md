@@ -411,3 +411,144 @@ If any of those lines is missing or clearly wrong, trace it back to the step tha
 - [Runtime and study guide](01_runtime_and_study_guide.md)
 - [Sensors and fusion: Steps 9-20](03_sensor_steps_09_20.md)
 - [Agentic knowledge flow](06_agentic_knowledge_flow.md)
+
+---
+
+## Learning Resources — Perception Core (Steps 1-8)
+
+Resources are ordered basics → deep dive within each topic. All papers are freely accessible via arXiv unless noted.
+
+---
+
+### Step 1 — Frame extraction and video representation
+
+**Why it matters:** Choosing FPS and understanding GOP structure determines what the entire pipeline sees. A wrong FPS silently degrades everything downstream without any error.
+
+**Basics**
+- FFmpeg documentation — the authoritative reference for every ffmpeg flag used in `pipeline/ffmpeg_utils.py`. Start with the [Filtering Guide](https://ffmpeg.org/ffmpeg-filters.html) and the `select` filter.
+- Richardson, *H.264 and MPEG-4 Video Compression* (Wiley, 2003). Chapter 3 (I/P/B frame structure) explains why dense extraction at high FPS is dominated by I-frame decoding costs.
+
+**Deep dive**
+- Zhu et al., "Video Feature Learning by Densely Sampling Fine-Grained Clips" — motivation for why fixed-FPS sampling misses short events. Context for choosing adaptive vs fixed extraction. [arxiv.org/abs/1912.13516](https://arxiv.org/abs/1912.13516)
+
+---
+
+### Step 2 — CLIP and DINOv2 embeddings
+
+**Why it matters:** Every retrieval query and AL score depends on the quality of these embeddings. Understanding their geometry — what CLIP aligns, what DINO captures — determines what search queries will and won't work.
+
+**Basics**
+- The OpenAI CLIP blog post "CLIP: Connecting Text and Images" is the clearest non-technical introduction. Explains zero-shot transfer, the 400M image-text training set, and the dual encoder architecture.
+- HuggingFace CLIP docs: [huggingface.co/docs/transformers/model_doc/clip](https://huggingface.co/docs/transformers/model_doc/clip) — API reference and code examples for image/text feature extraction.
+
+**Core papers**
+- Radford et al., "Learning Transferable Visual Models From Natural Language Supervision" (OpenAI, 2021). The CLIP paper. Section 3 (contrastive pre-training) and Section 4 (zero-shot transfer) are essential. [arxiv.org/abs/2103.00020](https://arxiv.org/abs/2103.00020)
+- Caron et al., "Emerging Properties in Self-Supervised Vision Transformers" (DINO v1, 2021). Explains why DINO features produce sharp semantic segmentation without supervision — directly relevant to understanding why `dino_dist` is a good novelty signal. [arxiv.org/abs/2104.14294](https://arxiv.org/abs/2104.14294)
+- Oquab et al., "DINOv2: Learning Robust Visual Features without Supervision" (Meta AI, 2023). DINOv2 scales DINO with curated data and distillation. Sections 3-4 explain the training recipe that makes DINOv2 features so transferable. [arxiv.org/abs/2304.07193](https://arxiv.org/abs/2304.07193)
+
+**Deep dive**
+- OpenCLIP repository — open-source reimplementation of CLIP with many pre-trained checkpoints. The pipeline uses OpenCLIP. [github.com/mlfoundations/open_clip](https://github.com/mlfoundations/open_clip)
+- HuggingFace DINOv2 docs: [huggingface.co/docs/transformers/model_doc/dinov2](https://huggingface.co/docs/transformers/model_doc/dinov2)
+- Cherti et al., "Reproducible Scaling Laws for Contrastive Language-Image Learning" (2022). Systematic study of how CLIP performance scales with data and compute — useful for choosing between OpenCLIP checkpoint variants. [arxiv.org/abs/2212.07143](https://arxiv.org/abs/2212.07143)
+
+**Vector search**
+- Qdrant documentation: [qdrant.tech/documentation](https://qdrant.tech/documentation) — covers collection configuration, named vectors (how `clip` and `dino` coexist), HNSW index parameters, and payload filtering.
+- Johnson et al., "Billion-scale Similarity Search with GPUs" (FAISS, 2017). Conceptual basis for approximate nearest-neighbour search. [arxiv.org/abs/1702.08734](https://arxiv.org/abs/1702.08734)
+
+---
+
+### Step 3 — Gemma multimodal analysis
+
+**Why it matters:** Gemma's scene classification populates `domain_hint`, which conditions every downstream captioner. A wrong domain hint silently degrades all subsequent language outputs.
+
+**Basics**
+- HuggingFace Gemma docs: [huggingface.co/docs/transformers/model_doc/gemma](https://huggingface.co/docs/transformers/model_doc/gemma) — architecture overview and generation API.
+- Gemma 2 technical report (Google DeepMind, 2024). Describes the Gemma 2 architecture, training data, and evaluation. [arxiv.org/abs/2408.00118](https://arxiv.org/abs/2408.00118)
+
+**Deep dive**
+- Achiam et al., "GPT-4 Technical Report" (OpenAI, 2023). Section 4 (visual inputs) explains how vision-language models process images alongside text — the same architecture used by Gemma 4 multimodal. [arxiv.org/abs/2303.08774](https://arxiv.org/abs/2303.08774)
+- Liu et al., "Visual Instruction Tuning" (LLaVA, 2023). How visual tokens are projected into a language model's token space — the mechanism behind every VLM in this pipeline. [arxiv.org/abs/2304.08485](https://arxiv.org/abs/2304.08485)
+
+---
+
+### Step 4 — Florence-2 scene captioning
+
+**Why it matters:** Florence-2 is the primary captioner for all production frames. Its captions feed into text search, active learning scoring, and the context string for Qwen.
+
+**Basics**
+- HuggingFace Florence-2 model page: [huggingface.co/microsoft/Florence-2-large](https://huggingface.co/microsoft/Florence-2-large) — task tokens, expected input format, and output parsing.
+
+**Core paper**
+- Xiao et al., "Florence-2: Advancing a Unified Representation for a Variety of Vision Tasks" (Microsoft, 2023). The key novelty is a single seq2seq model trained on a unified task formulation (`<TASK_TOKEN> image → text`). Section 3 explains the FLD-5B dataset construction, which is why Florence-2 generalises so well to new domains. [arxiv.org/abs/2311.06242](https://arxiv.org/abs/2311.06242)
+
+**Deep dive**
+- Li et al., "BLIP-2: Bootstrapping Language-Image Pre-training with Frozen Image Encoders and Large Language Models" (Salesforce, 2023). Explains the Q-Former bridging mechanism between vision encoder and language model — the conceptual predecessor to Florence-2's architecture. [arxiv.org/abs/2301.12597](https://arxiv.org/abs/2301.12597)
+- Alayrac et al., "Flamingo: a Visual Language Model for Few-Shot Learning" (DeepMind, 2022). Gated cross-attention for injecting visual features into frozen LLMs — shows the design space Florence-2 operates in. [arxiv.org/abs/2204.14198](https://arxiv.org/abs/2204.14198)
+
+---
+
+### Step 5 — Whisper ASR transcription
+
+**Why it matters:** ASR output is the only speech channel. On drone footage it is often absent (propeller noise), but on vehicle or body-worn cameras it frequently contains the operator's observations — high-quality signal when present.
+
+**Basics**
+- HuggingFace Whisper docs: [huggingface.co/docs/transformers/model_doc/whisper](https://huggingface.co/docs/transformers/model_doc/whisper) — pipeline API, language parameter, long-form transcription chunking.
+- Silero VAD — the voice activity detector used before Whisper. [github.com/snakers4/silero-vad](https://github.com/snakers4/silero-vad)
+
+**Core paper**
+- Radford et al., "Robust Speech Recognition via Large-Scale Weak Supervision" (OpenAI, 2022). Whisper's key contribution is training on 680K hours of weakly-supervised web audio. Section 2.2 (multitask format) explains why a single model handles transcription, translation, and language identification. [arxiv.org/abs/2212.04356](https://arxiv.org/abs/2212.04356)
+
+**Deep dive**
+- Gulati et al., "Conformer: Convolution-augmented Transformer for Speech Recognition" (Google, 2020). The backbone architecture combining local convolution with global attention — used in most modern ASR encoders. [arxiv.org/abs/2005.08100](https://arxiv.org/abs/2005.08100)
+
+---
+
+### Step 6 — OCR text extraction
+
+**Why it matters:** Visible text (road signs, equipment labels, GPS overlays) provides unambiguous semantic anchors. A frame with a readable sign is trivially localizable; the same frame without OCR is opaque.
+
+**Basics**
+- HuggingFace TrOCR docs: [huggingface.co/docs/transformers/model_doc/trocr](https://huggingface.co/docs/transformers/model_doc/trocr) — printed vs handwritten variants, expected preprocessing.
+- PaddleOCR documentation: [paddlepaddle.github.io/PaddleOCR](https://paddlepaddle.github.io/PaddleOCR/en/index.html) — the most practically capable OCR toolkit for scene text.
+
+**Core paper**
+- Li et al., "TrOCR: Transformer-based Optical Character Recognition with Pre-trained Models" (Microsoft, 2021). End-to-end transformer OCR: ViT encoder + language model decoder. Section 3.2 shows why pre-training on synthetic data then fine-tuning on real scene text works so well. [arxiv.org/abs/2109.10282](https://arxiv.org/abs/2109.10282)
+
+**Deep dive**
+- Liao et al., "Real-Time Scene Text Detection with Differentiable Binarization" (DBNet, 2019). The detection model behind many scene-text pipelines. Explains why text detection is harder than object detection (arbitrary orientation, variable aspect ratio). [arxiv.org/abs/1911.08947](https://arxiv.org/abs/1911.08947)
+
+---
+
+### Step 7 — Monocular depth estimation
+
+**Why it matters:** Depth provides the one signal pure color cannot: relative distance. A near/far label on a frame enables spatial reasoning in later steps (is this object in the path or far away?). The key limitation is that monocular depth is scale-ambiguous — there is no metric.
+
+**Basics**
+- HuggingFace Depth Anything V2 model page: [huggingface.co/depth-anything/Depth-Anything-V2-Large](https://huggingface.co/depth-anything/Depth-Anything-V2-Large)
+- HuggingFace DPT docs (MiDaS): [huggingface.co/docs/transformers/model_doc/dpt](https://huggingface.co/docs/transformers/model_doc/dpt)
+
+**Core paper**
+- Yang et al., "Depth Anything V2" (2024). Trained on 595K synthetic labeled images and 62M unlabeled real images using pseudo-labels. Figure 3 shows the dramatic gap between V1 and V2 on reflective and transparent surfaces — the typical failure modes in outdoor scenes. [arxiv.org/abs/2406.09414](https://arxiv.org/abs/2406.09414)
+
+**Deep dive**
+- Ranftl et al., "Towards Robust Monocular Depth Estimation: Mixing Datasets for Zero-Shot Cross-Dataset Transfer" (MiDaS, 2020). Explains scale-and-shift-invariant loss — why training on mixed datasets generalizes to unseen domains without requiring metric GT. [arxiv.org/abs/1907.01341](https://arxiv.org/abs/1907.01341)
+- Eigen et al., "Depth Map Prediction from a Single Image using a Multi-Scale Deep Network" (NYU, 2014). The foundational paper that established monocular depth estimation as a learnable task. Useful for understanding the historical trajectory and current limitations. [arxiv.org/abs/1406.2283](https://arxiv.org/abs/1406.2283)
+
+---
+
+### Step 8 — Object detection
+
+**Why it matters:** Detection feeds the entity inventory — the list of observed categories that conditions every subsequent reasoning step. Missed categories are silent gaps; false positives contaminate the context.
+
+**Basics**
+- Ultralytics YOLO11 documentation: [docs.ultralytics.com/models/yolo11](https://docs.ultralytics.com/models/yolo11/) — training, inference, and model export API.
+- HuggingFace RT-DETR docs: [huggingface.co/docs/transformers/model_doc/rt_detr](https://huggingface.co/docs/transformers/model_doc/rt_detr)
+
+**Core papers**
+- Redmon et al., "You Only Look Once: Unified, Real-Time Object Detection" (YOLOv1, 2016). The original YOLO paper establishes the single-pass, grid-based detection paradigm. Read this before any YOLO variant to understand what the architecture optimizes and what it sacrifices. [arxiv.org/abs/1506.02640](https://arxiv.org/abs/1506.02640)
+- Zhao et al., "DETReg: Unsupervised Pre-Training with Region Priors for Object Detection" (2021). Explains DETR-family detectors (encoder-decoder transformer, bipartite matching loss) — the family RT-DETR belongs to. [arxiv.org/abs/2106.04550](https://arxiv.org/abs/2106.04550)
+- Lv et al., "DETRs Beat YOLOs on Real-time Object Detection" (RT-DETR, 2023). Why RT-DETR closes the speed gap with YOLO while retaining DETR's set-prediction properties — directly relevant to understanding the detection step. [arxiv.org/abs/2304.08069](https://arxiv.org/abs/2304.08069)
+
+**Deep dive**
+- Lin et al., "Feature Pyramid Networks for Object Detection" (FPN, 2017). Multi-scale feature fusion — present in every modern detector including YOLO11. [arxiv.org/abs/1612.03144](https://arxiv.org/abs/1612.03144)
+- Lin et al., "Focal Loss for Dense Object Detection" (RetinaNet, 2017). Focal loss addresses class imbalance in one-stage detectors — explains why background examples don't dominate the gradient. [arxiv.org/abs/1708.02002](https://arxiv.org/abs/1708.02002)

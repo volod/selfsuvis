@@ -59,7 +59,13 @@ _PRIORITY_LABEL = {
 
 
 def _rfdetr_weights_path(variant: str) -> str:
-    """Return the shared RF-DETR checkpoint path outside the repo root."""
+    """Return the shared RF-DETR checkpoint path outside the repo root.
+
+    Also pre-downloads the weights when missing.  rfdetr's
+    ``download_pretrain_weights`` only matches by bare filename, so passing an
+    absolute path to it silently no-ops.  We bypass that by calling the
+    underlying ``_download_file`` directly with our absolute destination path.
+    """
     name = "rf-detr-large.pth" if variant == "large" else "rf-detr-base.pth"
     cache_dir = Path(settings.DATA_DIR).resolve() / "models" / "rfdetr"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -74,6 +80,24 @@ def _rfdetr_weights_path(variant: str) -> str:
             logger.info("RFDETRTracker: moved legacy checkpoint %s → %s", legacy, dst)
         except Exception:
             pass
+
+    # Pre-download if still missing.  rfdetr.download_pretrain_weights() does an
+    # exact-match lookup by bare filename, so it silently skips absolute paths.
+    # We look up the asset ourselves and call _download_file with our target path.
+    if not dst.exists():
+        try:
+            from rfdetr.assets.model_weights import ModelWeights  # type: ignore[import]
+            from rfdetr.util.files import _download_file           # type: ignore[import]
+            asset = ModelWeights.from_filename(name)
+            if asset is not None:
+                logger.info("RFDETRTracker: downloading %s → %s", name, dst)
+                _download_file(url=asset.url, filename=str(dst),
+                               expected_md5=asset.md5_hash)
+            else:
+                logger.warning("RFDETRTracker: no asset entry for %s — will let rfdetr attempt download", name)
+        except Exception as exc:
+            logger.warning("RFDETRTracker: pre-download failed (%s) — rfdetr will retry on load", exc)
+
     return str(dst)
 
 

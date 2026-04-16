@@ -74,6 +74,11 @@ python scripts/migrate_postgres.py
 | `RFDETR_ENABLED` / `RFDETR_MODEL` | `true` / `base` | Gemma-directed RF-DETR tracking stage |
 | `RFDETR_CONFIDENCE` | `0.35` | RF-DETR detection threshold before tracking |
 | `WORLD_MODEL_ENABLED` / `WORLD_MODEL` | `false` / `nvidia/Cosmos-1.0-Autoregressive-4B` | Clip-level world-model embeddings |
+| `DREAMER_ENABLED` | `true` | DreamerV3-inspired RSSM temporal surprise scoring for AL |
+| `DREAMER_HIDDEN_DIM` | `256` | RSSM GRU hidden state dimension |
+| `DREAMER_LATENT_DIM` | `32` | RSSM stochastic latent z_k dimension |
+| `DREAMER_TRAIN_STEPS` | `20` | Online gradient steps per mission |
+| `DREAMER_STORE_TEMPORAL` | `false` | Store recurrent state h_k in frame_facts_json |
 
 ## Mapping and spatial queries
 

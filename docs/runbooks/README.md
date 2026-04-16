@@ -15,7 +15,7 @@ Operations runbooks for every model in the local pipeline.
 | [detection-hf.md](detection-hf.md) | P — HF object detection (RT-DETR / Grounding DINO) | No (`DETECTION_ENABLED`) | Local weights |
 | [yolo-sam.md](yolo-sam.md) | P2 — YOLO11 detection + SAM2/3 segmentation | Yes | Local weights |
 | [rfdetr-tracking.md](rfdetr-tracking.md) | P3 — Gemma-directed RF-DETR tracking | Yes (requires Gemma) | Local weights + Gemma sidecar |
-| [world-model.md](world-model.md) | Q — World model video embeddings | No (`WORLD_MODEL_ENABLED`) | Local weights |
+| [world-model.md](world-model.md) | Q — World model video embeddings + RSSM temporal surprise | Partial (`DREAMER_ENABLED=true`; world model off) | Local weights + CPU RSSM |
 | [qwen-api.md](qwen-api.md) | R — Qwen2.5-VL detailed captioning | Optional | Ollama / vLLM sidecar |
 | [unidrive-api.md](unidrive-api.md) | S — UniDriveVLA expert analysis | No (`UNIDRIVE_ENABLED`) | Any OpenAI-compatible sidecar |
 
@@ -47,6 +47,6 @@ python scripts/prepare_models.py --all
 | P | HF object detection | [detection-hf.md](detection-hf.md) |
 | P2 | YOLO11 + SAM2/3 | [yolo-sam.md](yolo-sam.md) |
 | P3 | Gemma-directed RF-DETR tracking | [rfdetr-tracking.md](rfdetr-tracking.md) |
-| Q | World model embeddings | [world-model.md](world-model.md) |
+| Q | World model embeddings + RSSM temporal surprise | [world-model.md](world-model.md) |
 | R | Qwen2.5-VL detailed captioning | [qwen-api.md](qwen-api.md) |
 | S | UniDriveVLA expert analysis | [unidrive-api.md](unidrive-api.md) |

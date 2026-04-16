@@ -1266,7 +1266,7 @@ def run_video_pipeline(
         _prep_vram_for_step(models, device)
         clip_dino_on_gpu = False
         with _Timer(T, "Q_world"):
-            world_result = step_world_model_pass(frame_list, video_name, video_dir)
+            world_result = step_world_model_pass(frame_list, video_name, video_dir, models=models)
     else:
         T["Q_world"] = 0.0
     if not world_result.get("skipped"):

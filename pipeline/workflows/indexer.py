@@ -13,6 +13,7 @@ from qdrant_client.http import models as qmodels
 
 from models.openclip_model import OpenCLIPEmbedder
 from models.dino_model import DINOEmbedder
+from models.rssm_model import RSSMEmbedder
 from pipeline.core import RateTimer, ensure_dir, get_dino_model_name, get_logger, settings, stable_point_id
 from pipeline.media import extract_audio, extract_frames, map_subtitles_to_frames
 from pipeline.media.heuristics import (
@@ -81,6 +82,12 @@ class VideoIndexer:
         self.rf_analyzer = RFSignalAnalyzer() if settings.RF_ENABLED else None
         # RF-DETR tracker is initialised lazily inside _run_gemma_directed_tracking_pass
         self.rfdetr_tracker = None
+        # RSSM temporal world model (DreamerV3-inspired, CPU-friendly)
+        self.rssm_embedder = RSSMEmbedder(
+            hidden_dim=settings.DREAMER_HIDDEN_DIM,
+            latent_dim=settings.DREAMER_LATENT_DIM,
+            train_steps=settings.DREAMER_TRAIN_STEPS,
+        ) if settings.DREAMER_ENABLED else None
         self.phash_lru = PhashLRU(settings.PHASH_LRU_SIZE, settings.PHASH_HAMMING_MAX)
         self.recent_index = RecentEmbeddingIndex(
             dim=self.clip_model.image_dim(),
@@ -253,6 +260,7 @@ class VideoIndexer:
             "ocr_text": None,        # filled by OCR pass
             "al_score": None,
             "al_tag": "none",
+            "_clip_embed": embed,    # temporary — used by RSSM/AL pass, stripped before DB write
             "cvat_label": None,
             "pose_status": "pending",
             "pose_json": None,
@@ -446,6 +454,12 @@ class VideoIndexer:
         # ── UniDriveVLA expert pass (understanding/perception/planning) ──────
         if frame_records and self.unidrive_model and self.unidrive_model.is_enabled():
             self._run_unidrive_pass(frame_records)
+
+        # ── RSSM temporal surprise + active learning tagging ─────────────────
+        # Runs after all enrichment passes so caption_confidence is available.
+        # Populates al_score and al_tag in frame_records; strips _clip_embed.
+        if frame_records:
+            self._run_al_rssm_pass(frame_records)
 
         self.logger.info(
             "Indexing complete video_id=%s segments=%s frames=%s tiles=%s",
@@ -898,6 +912,118 @@ class VideoIndexer:
                 fj.update(result)
                 rec["frame_facts_json"] = fj
         self.logger.info("World model pass complete")
+
+    def _run_al_rssm_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Compute active learning scores and assign al_tags.
+
+        Integrates DreamerV3-inspired RSSM temporal surprise scoring
+        (Romero et al., ICRA 2026) with the existing DINOv3-dist + caption
+        confidence signal.
+
+        Step 1 — collect per-frame data:
+            - CLIP embeddings (stored temporarily in frame_records["_clip_embed"])
+            - caption confidences (from Florence/Gemma captioning pass)
+
+        Step 2 — RSSM temporal surprise (when DREAMER_ENABLED=true):
+            Train a lightweight RSSM online on the mission's CLIP sequence,
+            then compute surprise_k = cosine_distance(predicted_z̃_k, actual_z_k).
+            Stores rssm_surprise in frame_facts_json["rssm"].
+
+        Step 3 — active learning scoring:
+            With RSSM:    al_score = 0.35*dino + 0.25*(1-conf) + 0.40*surprise
+            Without RSSM: al_score = 0.60*dino + 0.40*(1-conf)
+
+        Step 4 — strip temporary _clip_embed fields before DB write.
+        """
+        import numpy as np
+        from pipeline.analysis.active_learning import assign_al_tags, fit_kmeans, dino_distances_from_centroids
+
+        n = len(frame_records)
+        self.logger.info("AL+RSSM pass: %d frames", n)
+
+        # ── Collect CLIP embeds (written temporarily during _process_frame) ──
+        clip_embeds_list = []
+        valid_indices = []
+        for i, rec in enumerate(frame_records):
+            emb = rec.pop("_clip_embed", None)
+            if emb is not None:
+                clip_embeds_list.append(emb.astype(np.float32))
+                valid_indices.append(i)
+
+        caption_confidences = [
+            float(rec.get("caption_confidence") or 0.5)
+            for rec in frame_records
+        ]
+
+        # ── Compute dino-proxy distance via CLIP k-means centroid distance ──
+        # Uses CLIP embeddings as proxy when DINOv3 is not separately embedded.
+        # The k-means distance captures per-frame novelty relative to the
+        # mission's overall embedding distribution.
+        dino_dists = [0.5] * n  # fallback
+        if clip_embeds_list:
+            try:
+                all_embeds = np.stack(clip_embeds_list)
+                kmeans = fit_kmeans(all_embeds, n_clusters=min(20, len(clip_embeds_list)))
+                centroid_dists = dino_distances_from_centroids(all_embeds, kmeans.cluster_centers_)
+                for rank, idx in enumerate(valid_indices):
+                    dino_dists[idx] = float(centroid_dists[rank])
+            except Exception as exc:
+                self.logger.debug("AL k-means failed (%s) — using uniform dino_dists", exc)
+
+        # ── RSSM temporal surprise ────────────────────────────────────────────
+        rssm_surprises: Optional[List[float]] = None
+        if self.rssm_embedder is not None and clip_embeds_list:
+            try:
+                import time
+                t0 = time.time()
+                all_embeds = np.stack(clip_embeds_list)
+                rssm_result = self.rssm_embedder.encode_sequence(all_embeds)
+                surprises_arr = rssm_result["surprise_scores"]
+                method = rssm_result.get("method", "unknown")
+                elapsed = time.time() - t0
+                self.logger.info(
+                    "RSSM pass complete: method=%s hidden=%d latent=%d elapsed=%.2fs",
+                    method, rssm_result["hidden_dim"], rssm_result["latent_dim"], elapsed,
+                )
+                # Map back from valid_indices to full frame_records
+                rssm_surprises = [0.5] * n
+                for rank, idx in enumerate(valid_indices):
+                    rssm_surprises[idx] = float(surprises_arr[rank])
+                # Store RSSM metadata in frame_facts_json
+                for rank, idx in enumerate(valid_indices):
+                    rec = frame_records[idx]
+                    fj = rec.get("frame_facts_json") or {}
+                    if not isinstance(fj, dict):
+                        fj = {}
+                    rssm_entry: Dict[str, Any] = {
+                        "surprise_score": float(surprises_arr[rank]),
+                        "method": method,
+                        "model": rssm_result.get("model", "RSSMEmbedder"),
+                    }
+                    if settings.DREAMER_STORE_TEMPORAL and "recurrent_states" in rssm_result:
+                        rssm_entry["recurrent_state"] = rssm_result["recurrent_states"][rank].tolist()
+                    fj["rssm"] = rssm_entry
+                    rec["frame_facts_json"] = fj
+            except Exception as exc:
+                self.logger.warning("RSSM temporal surprise failed (%s) — skipping", exc)
+
+        # ── Assign AL scores and tags ─────────────────────────────────────────
+        scores, tags = assign_al_tags(
+            dino_dists,
+            caption_confidences,
+            rssm_surprises=rssm_surprises,
+        )
+        for rec, score, tag in zip(frame_records, scores, tags):
+            rec["al_score"] = float(score)
+            rec["al_tag"] = tag
+
+        needs = tags.count("needs_annotation")
+        novel = tags.count("novel")
+        formula = "rssm+dino+caption" if rssm_surprises is not None else "dino+caption"
+        self.logger.info(
+            "AL tagging complete: needs_annotation=%d novel=%d none=%d formula=%s",
+            needs, novel, n - needs - novel, formula,
+        )
 
     def _run_florence_pass(self, frame_records: List[Dict[str, Any]]) -> None:
         """Caption all kept frames with Florence-2 and update Qdrant payloads.

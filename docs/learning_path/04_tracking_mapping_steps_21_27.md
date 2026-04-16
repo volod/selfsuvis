@@ -122,52 +122,91 @@ This allows later steps (Qwen, report generator) to query what was being tracked
 ---
 
 <a id="step-23-world-model-video-embeddings"></a>
-## Step 23. World model video embeddings
+## Step 23. World model video embeddings + RSSM temporal surprise
 
 **What it does:**
-Encode short video clips (groups of consecutive frames) into temporal embeddings that capture motion and appearance jointly.
-Compute clip-level similarity to find recurring scene patterns across the mission.
+Two complementary temporal passes run here:
 
-**Why it matters:**
-Frame embeddings (Step 2) lose temporal information: a frame at rest and the same frame mid-motion look identical to CLIP.
-Video embeddings encode the temporal evolution — what changed, how fast, what direction.
-This allows:
-- Clip-level retrieval ("find another moment like this 10-second sequence")
-- Temporal anomaly detection ("this clip is unusual compared to the rest of the mission")
-- Scene segmentation at clip granularity rather than frame granularity
+1. **Heavy world model** (`WORLD_MODEL_ENABLED=true`): Encode short video clips (groups of consecutive kept frames) into temporal embeddings that capture motion and appearance jointly using a large pre-trained video model (V-JEPA2, VideoMAEv2, Cosmos, etc.).
+
+2. **RSSM temporal surprise** (`DREAMER_ENABLED=true`, always on by default): Train a lightweight Recurrent State Space Model (RSSM) on the mission's CLIP embedding sequence, then compute a per-frame *surprise score* — how unexpected was each frame given the RSSM's prediction from prior context?
+
+**Why the RSSM matters:**
+The RSSM surprise signal is derived from the DreamerV3 architecture (Romero et al., ICRA 2026, "Dream to Fly: Model-Based Reinforcement Learning for Vision-Based Drone Flight"). In the original paper, the RSSM is used to train a drone control policy entirely in an imagined latent world. Here, the key insight is repurposed for passive video analysis:
+
+> A frame with high RSSM surprise was unexpected given the video's recent temporal context. These frames are the most informative for annotation — they represent genuinely novel scenes, abrupt environment changes, or unusual events that a static per-frame distance metric would miss.
+
+**RSSM architecture (lightweight, CPU-only):**
+```
+Encoder:   CLIP_embed (512-d) → Linear → [μ_k, log σ²_k] → z_k (32-d, reparameterized)
+Recurrent: GRU(z_k, h_{k-1}) → h_k (256-d recurrent state)
+Dynamics:  Linear(h_k) → z̃_{k+1} (predicted next latent)
+Surprise:  cosine_distance(z̃_k, z_k) — the prediction error
+```
+
+Online training: 20 gradient steps on the current mission's CLIP embeddings. No pre-trained weights. ~50ms on CPU for a typical mission.
+
+**Impact on hydrated edge models (Steps 28–30):**
+The RSSM surprise score feeds directly into the active learning formula:
+```
+With RSSM:    al_score = 0.35×dino_dist + 0.25×(1-caption_confidence) + 0.40×rssm_surprise
+Without RSSM: al_score = 0.60×dino_dist + 0.40×(1-caption_confidence)
+```
+The 40% weight on RSSM surprise means temporally-novel frames — scene transitions, first appearances of new objects, environment changes — rank higher in the annotation queue. Better-selected training frames → better SSL fine-tuning (Step 28) → better distilled edge models (Step 29) → more accurate hydrated ONNX exports (Step 30).
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
-- [`pipeline/vision/world.py`](../../pipeline/vision/world.py)
+- [`models/rssm_model.py`](../../models/rssm_model.py) — `RSSMEmbedder`: encoder, GRU, dynamics, online training
+- [`pipeline/analysis/active_learning.py`](../../pipeline/analysis/active_learning.py) — `assign_al_tags` with `rssm_surprises` parameter
+- [`pipeline/workflows/indexer.py`](../../pipeline/workflows/indexer.py) — `_run_al_rssm_pass`, `_run_world_model_pass`
+- [`pipeline/vision/world.py`](../../pipeline/vision/world.py) — `WorldModel` (heavy video backbone)
+
+**RSSM output stored in `frame_facts_json["rssm"]`:**
+```json
+{
+  "surprise_score": 0.82,
+  "method": "rssm",
+  "model": "RSSMEmbedder"
+}
+```
+When `DREAMER_STORE_TEMPORAL=true`, also stores the 256-d recurrent state `h_k` for downstream temporal similarity search.
 
 **Key concepts:**
 
 *Temporal vs spatial features:*
 CLIP and DINO process one frame at a time.
-Video models (Video-CLIP, VideoMAE, InternVideo) process a stack of frames simultaneously.
-The temporal axis adds information about: optical flow direction, object motion trajectories, scene transitions.
+Video models (V-JEPA2, VideoMAEv2) process a stack of frames simultaneously.
+The RSSM adds a third perspective: sequential prediction — what should come next based on what came before?
 
-*Clip chunking:*
-The pipeline divides the frame sequence into clips of N frames (configurable).
-Each clip gets one embedding.
-Short clips (N=4) are more temporally local; long clips (N=32) capture longer-range motion patterns.
+*Why RSSM runs on CLIP embeddings, not raw pixels:*
+The original DreamerV3 encodes raw pixels. Here we operate in CLIP embedding space because:
+1. CLIP embeddings are already computed (zero extra cost)
+2. They carry rich semantic features that matter for annotation priority
+3. The RSSM stays CPU-friendly (~100K parameters vs hundreds of millions for pixel-space models)
 
-*Clip similarity:*
-Two clips are similar if their video embeddings are close in cosine distance.
-This enables finding repetitive patterns (e.g., repeated passes over the same area) or finding the most anomalous clip in the mission.
+*Surprise ≠ motion:*
+A high-surprise frame is not necessarily one with a lot of motion.
+A sudden appearance of a new object type, a lighting change, or an environment transition produces high surprise even with slow camera motion.
+Low-surprise frames may have fast motion through a uniform environment (fields, water) — the RSSM has learned to predict these.
+
+*EMA fallback:*
+If PyTorch is unavailable, the RSSM falls back to an exponential moving average (EMA) of CLIP embeddings. The surprise signal degrades gracefully to a simpler temporal novelty measure.
 
 **Output artifact:**
-Per-clip embedding array (saved as `.npy`), clip metadata with `{start_frame, end_frame, start_t, end_t, embedding_id}`.
+Per-frame `rssm_surprise` in `frame_facts_json["rssm"]`.
+Per-frame `al_score` and `al_tag` populated in `frames` table (written to PostgreSQL by worker).
+World model clip embeddings in `frame_facts_json["world_model"]` when `WORLD_MODEL_ENABLED=true`.
 
 **Human focus:**
-- Understand the fundamental difference between frame embeddings and video embeddings: what information is added by the temporal axis.
-- Learn when temporal embeddings help retrieval vs when frame embeddings are sufficient (static scenes vs dynamic scenes).
-- Know the clip length vs temporal resolution tradeoff.
+- Understand the intuition: the RSSM learns the video's temporal rhythm and flags frames that break it.
+- Learn how this connects to active learning: frames worth annotating are those where the model's predictions fail, not just frames that look different from a random average.
+- Know when RSSM surprise helps most: long monotonous missions where DINO distance is uniformly low, but specific frames mark important environmental transitions.
+- Compare a run with `DREAMER_ENABLED=true` vs `DREAMER_ENABLED=false`: check whether the top-scored `needs_annotation` frames correspond better to actual scene changes.
 
 **Common failure modes:**
-- Video model not available → step skipped; only frame-level embeddings exist.
-- Very short video → not enough frames to form meaningful clips.
-- Highly repetitive mission footage (e.g., camera hovering in place) → all clips are nearly identical; no useful temporal variation.
+- Very short mission (< 10 frames) → RSSM has insufficient sequence for training; falls back to EMA.
+- First frame always has surprise=0 (no prior context to predict from); this is expected.
+- Highly repetitive mission → RSSM surprise is uniformly low; DINO distance dominates the AL score.
+- PyTorch unavailable → EMA fallback activates; surprise signal is coarser but still useful.
 
 ---
 
@@ -444,3 +483,121 @@ Adaptation is only valuable if you know what the baseline is and where it fails.
 - [Adaptation and audit: Steps 28-35](05_adaptation_eval_steps_28_35.md)
 - [Agentic knowledge flow](06_agentic_knowledge_flow.md)
 - [3D Gaussian Splat](../gaussian_splat.md)
+
+---
+
+## Learning Resources — Tracking, Mapping, and Temporal Reasoning (Steps 21-27)
+
+Resources are ordered basics → deep dive. The common thread across this phase is learning to reason about *structure* — spatial, temporal, and semantic — rather than per-frame snapshots.
+
+---
+
+### Step 21 — YOLO + SAM Detection and Segmentation
+
+**Why it matters:** SAM is the pivot from bounding-box thinking to pixel-level instance understanding. The pipeline uses SAM masks to decouple *what* is in the scene from *where* it is at pixel resolution — the prerequisite for tracking that survives partial occlusion.
+
+**Basics**
+- Meta AI SAM2 project page and demo: [ai.meta.com/sam2](https://ai.meta.com/sam2). Interactive demo builds intuition for prompt types (point, box, mask) before reading the code.
+- HuggingFace SAM2 docs: [huggingface.co/docs/transformers/model_doc/sam2](https://huggingface.co/docs/transformers/model_doc/sam2)
+
+**Core papers**
+- Kirillov et al., "Segment Anything" (Meta AI, 2023). The SAM-1 paper. Section 2 (task and model) explains the promptable segmentation formulation and the SA-1B dataset (1B masks). The ambiguity design (returning multiple masks for ambiguous prompts) is directly relevant to understanding SAM's behaviour on the box-prompt path. [arxiv.org/abs/2304.02643](https://arxiv.org/abs/2304.02643)
+- Ravi et al., "SAM 2: Segment Anything in Images and Videos" (Meta AI, 2024). Adds streaming memory (object pointers stored across frames) for video segmentation. Section 3.2 (memory bank) explains the temporal propagation mechanism. [arxiv.org/abs/2408.00714](https://arxiv.org/abs/2408.00714)
+
+**Deep dive**
+- He et al., "Mask R-CNN" (2017). Historical context: the first strong instance segmentation model. Reading it makes SAM's design simplifications (no class prediction, no instance limit) deliberate and principled rather than accidental. [arxiv.org/abs/1703.06870](https://arxiv.org/abs/1703.06870)
+
+---
+
+### Step 22 — Gemma Directed Tracking and RF-DETR
+
+**Why it matters:** Language-guided tracking is the architectural answer to the question "which objects matter for this mission?" A general-purpose tracker maintains all tracks with equal priority; Gemma's `tracking_priority` list encodes mission-specific semantics into the tracker.
+
+**Basics**
+- RF-DETR documentation and model zoo: [github.com/roboflow/rf-detr](https://github.com/roboflow/rf-detr). Start with the inference quickstart before reading the tracking integration.
+
+**Core paper**
+- Cai et al., "RF-DETR: DETR-based Object Detector Fine-Tuned via Radio Frequency Sensing" — the model used for tracking in Step 22. RT-DETR backbone with Roboflow fine-tuning optimizations.
+- Bewley et al., "Simple Online and Realtime Tracking" (SORT, 2016). The greedy IoU matching algorithm that underpins the track-ID assignment in `RFDETRTracker`. Two pages — read this to understand exactly what happens at IoU < 0.45 (a new track ID is assigned). [arxiv.org/abs/1602.00763](https://arxiv.org/abs/1602.00763)
+
+**Deep dive**
+- Zhang et al., "ByteTrack: Multi-Object Tracking by Associating Every Detection Box" (2022). The current state-of-the-art in multi-object tracking — explains detection confidence thresholding and low-confidence track recovery. Directly relevant to understanding SORT's failure modes at speed. [arxiv.org/abs/2110.06864](https://arxiv.org/abs/2110.06864)
+- Cao et al., "OC-SORT: Observation-Centric SORT on Video Wild" (2022). Addresses the SORT limitation of track fragmentation during occlusion — the exact scenario where `RFDETRTracker`'s IoU < 0.45 produces false new track IDs. [arxiv.org/abs/2203.14360](https://arxiv.org/abs/2203.14360)
+
+---
+
+### Step 23 — World Models and RSSM Temporal Surprise
+
+**Why it matters:** Temporal surprise from the RSSM carries 40% of the active learning signal. A frame that is visually unremarkable (low DINO distance) but temporally surprising (the RSSM did not predict it) represents a genuine scene transition the static metrics miss — exactly the frames most valuable for annotation.
+
+**Basics — World Models**
+- Schmidhuber, "A Possibility for Implementing Curiosity and Boredom in Model-Building Neural Controllers" (1991). The original two-page paper proposing prediction error as an intrinsic curiosity signal — the conceptual ancestor of RSSM surprise. Understanding this paper makes the pipeline's `rssm_surprise` intuitive rather than mechanical.
+- Ha & Schmidhuber, "World Models" (2018). Blog-post-length paper with visual explanations of an MDN-RNN world model and a learned controller. The clearest non-mathematical introduction to the world model paradigm. [arxiv.org/abs/1803.10122](https://arxiv.org/abs/1803.10122)
+
+**Core papers — RSSM lineage**
+- Hafner et al., "Learning Latent Dynamics for Planning from Pixels" (PlaNet, 2019). The paper that introduced the RSSM architecture: encoder, GRU recurrent model, dynamics predictor, decoder. Section 3 (RSSM) maps directly to `models/rssm_model.py`. [arxiv.org/abs/1811.04551](https://arxiv.org/abs/1811.04551)
+- Hafner et al., "Mastering Diverse Domains through World Models" (DreamerV3, 2023). The current pinnacle of the Dreamer line: symlog predictions, KL balancing, free bits. Section 2 (world model) is the architectural reference for the RSSM hyperparameters (`DREAMER_HIDDEN_DIM`, `DREAMER_LATENT_DIM`). [arxiv.org/abs/2301.04104](https://arxiv.org/abs/2301.04104)
+- Romero et al., "Dream to Fly: Model-Based Reinforcement Learning for Vision-Based Drone Flight" (ICRA 2026). The direct inspiration for the temporal surprise signal in this pipeline. Section III (RSSM for drone perception) and Section IV (experiments) show that RSSM surprise identifies genuinely novel flight situations. [rpg.ifi.uzh.ch/docs/ICRA26_Romero.pdf](https://rpg.ifi.uzh.ch/docs/ICRA26_Romero.pdf)
+
+**Basics — Heavy world models (WORLD_MODEL_ENABLED)**
+- HuggingFace VideoMAE docs: [huggingface.co/docs/transformers/model_doc/videomae](https://huggingface.co/docs/transformers/model_doc/videomae)
+- Wang et al., "VideoMAE: Masked Autoencoders are Data-Efficient Learners for Self-Supervised Video Pre-Training" (2022). The pre-training method for the `MCG-NJU/videomae` checkpoints. Section 3 (tube masking) explains why 90% masking ratio works for video but not images. [arxiv.org/abs/2203.12602](https://arxiv.org/abs/2203.12602)
+
+**Deep dive**
+- NVIDIA Cosmos technical blog (2024). Describes the 4B physical world model underlying `nvidia/Cosmos-1.0-Autoregressive-4B`. The autoregressive token prediction approach differs fundamentally from the RSSM continuous latent approach — understanding both clarifies when each is appropriate.
+
+---
+
+### Step 24 — Qwen Detailed Captioning
+
+**Why it matters:** Qwen receives the richest context of any model in the pipeline — the full `context_for_frame()` string with prior description, segment, audio, visible text, depth, objects, and prior frame state. Its output is the densest single-frame reasoning artifact and the primary source for the synthesis step.
+
+**Basics**
+- HuggingFace Qwen2.5-VL model page: [huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct). Model card covers context length, vision token encoding, and recommended inference parameters.
+- Qwen2.5-VL system prompt and JSON response guidelines — the README on the model page gives concrete examples of structured output prompting.
+
+**Core paper**
+- Bai et al., "Qwen-VL: A Frontier Large Vision-Language Model with Versatile Abilities" (2023). Explains the visual token compression (4:1 reduction via cross-attention), bounding-box grounding, and multi-task instruction tuning. [arxiv.org/abs/2308.12966](https://arxiv.org/abs/2308.12966)
+
+**Deep dive**
+- Team Qwen, "Qwen2.5-VL Technical Report" (2025). Updated architecture: dynamic resolution, Temporal Vision Transformer (TVT), and video-specific improvements. Section 3 (model architecture) and Section 5 (evaluation) are the key sections. [arxiv.org/abs/2502.13923](https://arxiv.org/abs/2502.13923)
+
+---
+
+### Step 25 — UniDriveVLA Expert Analysis
+
+**Why it matters:** UniDriveVLA is a Vision-Language-Action model trained specifically on driving scenarios. Its `planning` output (recommended action, trajectory hint, hazards) is qualitatively different from VLM descriptions — it reasons about what to *do*, not just what is *there*.
+
+**Basics**
+- See the runbook: [docs/runbooks/unidrive-api.md](../runbooks/unidrive-api.md) — backend selection, setup, and expected output schema.
+- Chen et al., "DriveVLM: The Convergence of Autonomous Driving and Large Vision-Language Models" (2024). Explains the design space for VLAs on driving data and why domain-specific fine-tuning on NuScenes-style annotations outperforms general VLMs. [arxiv.org/abs/2402.12289](https://arxiv.org/abs/2402.12289)
+
+**Core paper**
+- Sima et al., "DriveLLM: Charting the Path Toward Full Autonomous Driving with Large Language Models" (2023). Maps the four-component output (understanding, perception, planning, metacognition) that UniDriveVLA's schema normalizes. [arxiv.org/abs/2312.09245](https://arxiv.org/abs/2312.09245)
+
+**Deep dive**
+- Shao et al., "SparseOccupancy and Planning" — occupancy-based world representation that underlies advanced VLA planning outputs.
+- Waymo, "Scaling Self-Supervised End-to-End Driving with Robust Reward Labels" (2024). Shows how large-scale pretraining on real driving data produces emergent planning capabilities — relevant for non-road missions where UniDriveVLA is replaced with Qwen. [arxiv.org/abs/2405.10314](https://arxiv.org/abs/2405.10314)
+
+---
+
+### Steps 26 and 27 — 3D Mapping: SfM and Gaussian Splatting
+
+**Why it matters:** Step 27 produces the spatial scaffold that turns this pipeline from a video analysis tool into a persistent spatial memory system. A mission with valid 3DGS output can be visualized, re-queried from arbitrary viewpoints, and compared geometrically to future missions.
+
+**Basics — Structure-from-Motion**
+- Hartley & Zisserman, *Multiple View Geometry in Computer Vision* (2nd ed., Cambridge, 2004). Chapters 7 (fundamental matrix), 9 (essential matrix), and 18 (affine and projective reconstruction). The mathematical foundation for everything pycolmap does. Available through most university library systems.
+- Szeliski, *Computer Vision: Algorithms and Applications* (2nd ed., 2022). Chapter 7 (feature detection, description, matching) and Chapter 11 (structure from motion). Accessible alternative to Hartley & Zisserman.
+
+**Core paper — SfM**
+- Schönberger & Frahm, "Structure-from-Motion Revisited" (CVPR, 2016). The COLMAP paper — the algorithm underlying pycolmap. Section 3 (incremental SfM) explains the initialization heuristic, the bundle adjustment schedule, and the outlier filtering that determines whether a reconstruction succeeds or degenerates. This is the required reading before debugging `pose_status = failed`.
+
+**Basics — Neural Radiance Fields and Gaussian Splatting**
+- Mildenhall et al., "NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis" (2020). The NeRF paper — the predecessor to 3DGS. Understanding the implicit radiance field representation (and why it is slow) makes the 3DGS explicit-primitive approach clearly motivated. [arxiv.org/abs/2003.08934](https://arxiv.org/abs/2003.08934)
+
+**Core paper — 3DGS**
+- Kerbl et al., "3D Gaussian Splatting for Real-Time Radiance Field Rendering" (SIGGRAPH, 2023). The 3DGS paper. Section 4 (3D Gaussian representation), Section 5 (adaptive density control), and Section 6 (fast differentiable rasterizer) are the three technical contributions. [arxiv.org/abs/2308.04079](https://arxiv.org/abs/2308.04079)
+
+**Deep dive**
+- Luiten et al., "Dynamic 3D Gaussians: Tracking by Persistent Dynamic View Synthesis" (2023). Extends 3DGS to dynamic scenes — relevant for missions with moving objects. Shows how track IDs from Step 22 could in principle be used to initialize dynamic Gaussian groups. [arxiv.org/abs/2308.09713](https://arxiv.org/abs/2308.09713)
+- nerfstudio documentation: [docs.nerf.studio](https://docs.nerf.studio). The training and export pipeline wrapping splatfacto. Pay attention to `ns-train splatfacto --help` for the parameters that control splat quality vs. training time.

@@ -143,7 +143,7 @@ The local full-analysis flow combines local models and sidecar-backed models for
 |------|----|-------------|
 | 21 | P2  | YOLO11 + SAM2/3 detection and segmentation |
 | 22 | P3  | Gemma 4 directed tracking |
-| 23 | Q   | World model video embeddings |
+| 23 | Q   | World model video embeddings + RSSM temporal surprise scoring |
 | 24 | R   | Qwen VLM detailed captioning |
 | 25 | S   | UniDriveVLA expert analysis |
 | 26 | C   | Base model transformation test |

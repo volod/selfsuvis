@@ -2,8 +2,16 @@
 
 Computes per-frame uncertainty scores and assigns al_tags for the annotation queue.
 
-Score formula:
+Score formula (without RSSM):
     al_score = 0.6 * dino_dist + 0.4 * (1 - caption_confidence)
+
+Score formula (with RSSM temporal surprise, DREAMER_ENABLED=true):
+    al_score = 0.35 * dino_dist + 0.25 * (1 - caption_confidence) + 0.40 * rssm_surprise
+
+The RSSM surprise signal is derived from the DreamerV3 world model architecture
+(Romero et al., ICRA 2026, "Dream to Fly"). It measures how unexpected a frame
+was given the RSSM's prediction from prior context — capturing temporal novelty
+that pure per-frame distance metrics miss.
 
 Tags:
     needs_annotation — top-K uncertain frames per mission (high combined score)
@@ -23,15 +31,36 @@ from pipeline.core.config import settings
 
 _DINO_WEIGHT = 0.6
 _CAPTION_WEIGHT = 0.4
+# Weights when RSSM surprise signal is available (must sum to 1.0)
+_DINO_WEIGHT_RSSM = 0.35
+_CAPTION_WEIGHT_RSSM = 0.25
+_RSSM_WEIGHT = 0.40
 _DEFAULT_NOVEL_THRESHOLD = 0.7  # dino_dist above this (outside top-K) → novel
 
 
-def compute_al_score(dino_dist: float, caption_confidence: float) -> float:
+def compute_al_score(
+    dino_dist: float,
+    caption_confidence: float,
+    rssm_surprise: Optional[float] = None,
+) -> float:
     """Compute active learning score for a single frame.
 
     Higher score means more uncertain / informative for annotation.
-    Both inputs are expected in [0, 1].
+    All inputs are expected in [0, 1].
+
+    When *rssm_surprise* is provided, the score uses the three-signal formula
+    that weights temporal surprise (DreamerV3 RSSM) more heavily:
+        score = 0.35 * dino_dist + 0.25 * (1 - caption_confidence) + 0.40 * rssm_surprise
+
+    Without *rssm_surprise*, falls back to the original two-signal formula:
+        score = 0.6 * dino_dist + 0.4 * (1 - caption_confidence)
     """
+    if rssm_surprise is not None:
+        return (
+            _DINO_WEIGHT_RSSM * float(dino_dist)
+            + _CAPTION_WEIGHT_RSSM * (1.0 - float(caption_confidence))
+            + _RSSM_WEIGHT * float(rssm_surprise)
+        )
     return _DINO_WEIGHT * float(dino_dist) + _CAPTION_WEIGHT * (1.0 - float(caption_confidence))
 
 
@@ -40,6 +69,7 @@ def assign_al_tags(
     caption_confidences: List[float],
     top_k: Optional[int] = None,
     novel_threshold: float = _DEFAULT_NOVEL_THRESHOLD,
+    rssm_surprises: Optional[List[float]] = None,
 ) -> Tuple[List[float], List[str]]:
     """Compute al_scores and assign al_tags for a batch of frames from one mission.
 
@@ -48,6 +78,9 @@ def assign_al_tags(
         caption_confidences: Florence-2 caption confidence per frame (0–1).
         top_k: Number of frames tagged 'needs_annotation'. Defaults to settings.AL_TAG_K.
         novel_threshold: Minimum dino_dist to tag a frame as 'novel' (beyond top-K).
+        rssm_surprises: Optional per-frame RSSM temporal surprise scores (0–1).
+            When provided, uses the three-signal formula (DreamerV3-enhanced AL).
+            Must be the same length as dino_dists, or None.
 
     Returns:
         (al_scores, al_tags) — same length as inputs.
@@ -59,9 +92,15 @@ def assign_al_tags(
     if n == 0:
         return [], []
 
-    scores = [
-        compute_al_score(d, c) for d, c in zip(dino_dists, caption_confidences)
-    ]
+    if rssm_surprises is not None and len(rssm_surprises) == n:
+        scores = [
+            compute_al_score(d, c, s)
+            for d, c, s in zip(dino_dists, caption_confidences, rssm_surprises)
+        ]
+    else:
+        scores = [
+            compute_al_score(d, c) for d, c in zip(dino_dists, caption_confidences)
+        ]
     tags = ["none"] * n
 
     # Sort indices by score descending; top-K → needs_annotation
