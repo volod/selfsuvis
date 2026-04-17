@@ -164,7 +164,7 @@ services added to `docker/docker-compose.yml`.
 - `tests/unit/test_splat_transform.py` — 27 tests (quat math + apply_transform + merge +
   _fuse_splat_files); all passing.
 **Worker wiring — DONE:**
-- `scripts/migrate_postgres.py`: `ALTER TABLE missions ADD COLUMN IF NOT EXISTS splat_path TEXT` —
+- `src/selfsuvis/scripts/migrate_postgres.py`: `ALTER TABLE missions ADD COLUMN IF NOT EXISTS splat_path TEXT` —
   required for `get_global_map_splats` JOIN to find registered mission splats.
 - `pipeline/global_map_db.py`: `update_mission_splat_path(conn, mission_id, splat_path)` —
   sets `missions.splat_path` after nerfstudio produces a splat; enables discovery by future missions.
@@ -214,7 +214,7 @@ worker badge, queue depth metric, job status breakdown, al_tag bar chart.
     `update:task` with `state=completed`; sets `al_tag='annotated'` via cvat_tasks lookup.
   - `GET /admin/cvat/frames` — frames with `al_tag=needs_annotation|novel|any` for task creation.
   - `POST /admin/cvat/task` — registers cvat_task_id → frame_id mapping.
-- `scripts/migrate_postgres.py`: Added `cvat_tasks (cvat_task_id, frame_id PK)` table.
+- `src/selfsuvis/scripts/migrate_postgres.py`: Added `cvat_tasks (cvat_task_id, frame_id PK)` table.
 - `pipeline/config.py`: Added `CVAT_URL`, `CVAT_WEBHOOK_SECRET`.
 - `tests/unit/test_cvat_webhook.py`: 17 tests, all passing.
 **Annotation workflow:** GET /admin/cvat/frames → create CVAT task → POST /admin/cvat/task →
@@ -234,7 +234,7 @@ annotate in CVAT → job completed → webhook fires → al_tag='annotated'.
   - `run_finetune(cfg)` — training loop with AdamW + CosineAnnealingLR; saves per-epoch checkpoints
     (`dino_ssl_{epoch:03d}.pt`) and best checkpoint (`dino_ssl_best.pt`).
   - `config_from_settings()` — builds FinetuneConfig from env vars / pipeline.core.config.
-- `scripts/finetune_dino.py` — CLI entry point with all config as flags; `--approach temporal|augment`.
+- `src/selfsuvis/scripts/finetune_dino.py` — CLI entry point with all config as flags; `--approach temporal|augment`.
 - `pipeline/config.py`: added `SSL_CHECKPOINT_DIR`, `SSL_FINETUNE_EPOCHS`, `SSL_FINETUNE_LR`,
   `SSL_FINETUNE_BATCH_SIZE`, `SSL_FINETUNE_FREEZE_BLOCKS`, `SSL_FINETUNE_TEMPERATURE`,
   `SSL_FINETUNE_APPROACH`, `DINO_CHECKPOINT` env vars.
@@ -246,10 +246,10 @@ annotate in CVAT → job completed → webhook fires → al_tag='annotated'.
 **Usage:**
 ```bash
 # Fine-tune for 10 epochs using temporal pairs (GPU recommended)
-python scripts/finetune_dino.py --frames-dir data/frames --output-dir data/checkpoints
+python -m selfsuvis.scripts.finetune_dino --frames-dir data/frames --output-dir data/checkpoints
 
 # CPU smoke-test with augmentation pairs
-python scripts/finetune_dino.py --approach augment --epochs 2 --batch-size 8 --device cpu
+python -m selfsuvis.scripts.finetune_dino --approach augment --epochs 2 --batch-size 8 --device cpu
 
 # Deploy fine-tuned model
 export DINO_CHECKPOINT=data/checkpoints/dino_ssl_best.pt
@@ -263,7 +263,7 @@ the robot's edge compute (Jetson Orin, Hailo-8, or CPU-only ARM SBC) to identify
 mission-typical objects in real time.
 
 **Pipeline:**
-1. **ONNX export** (`scripts/export_onnx.py`) — load `dino_ssl_best.pt`, trace through
+1. **ONNX export** (`src/selfsuvis/scripts/export_onnx.py`) — load `dino_ssl_best.pt`, trace through
    `torch.onnx.export`, validate output parity vs PyTorch forward pass.
 2. **Prototype classifier head** — a cosine-similarity nearest-neighbour classifier over
    a small gallery of mission-typical object embeddings (no GPU, no retraining required).
@@ -275,7 +275,7 @@ mission-typical objects in real time.
 4. **Edge inference wrapper** (`pipeline/edge_inference.py`) — `EdgeClassifier`:
    loads quantized ONNX model + gallery NPZ; exposes `classify(image_pil) → List[(label, score)]`;
    no PyTorch dependency at inference time (ONNX Runtime only).
-5. **Calibration script** (`scripts/build_gallery.py`) — scans `data/frames/` for
+5. **Calibration script** (`src/selfsuvis/scripts/build_gallery.py`) — scans `data/frames/` for
    representative frames per category (user-supplied label → frame-path mapping or
    interactive selection), embeds them, saves to `data/gallery/`.
 
@@ -287,15 +287,15 @@ The nearest-neighbour head requires only a handful of labelled examples per cate
 **Edge deployment:**
 ```bash
 # 1. Export
-python scripts/export_onnx.py --checkpoint data/checkpoints/dino_ssl_best.pt \
+python -m selfsuvis.scripts.export_onnx --checkpoint data/checkpoints/dino_ssl_best.pt \
     --output data/models/dino_edge.onnx
 
 # 2. Quantize (needs ~500 calibration frames, runs on dev machine)
-python scripts/export_onnx.py --quantize --calibration-dir data/frames \
+python -m selfsuvis.scripts.export_onnx --quantize --calibration-dir data/frames \
     --output data/models/dino_edge_int8.onnx
 
 # 3. Build gallery (run on dev machine, ship gallery NPZ to robot)
-python scripts/build_gallery.py --frames-dir data/frames \
+python -m selfsuvis.scripts.build_gallery --frames-dir data/frames \
     --labels vehicle:data/frames/vid1/frame_0010.jpg,... \
     --output data/gallery/mission_objects.npz
 
@@ -310,7 +310,7 @@ labels = clf.classify(frame_pil)   # [(label, score), ...]
 `onnxruntime` (CPU) or `onnxruntime-gpu` (Jetson); `onnxruntime-tools` for quantization.
 
 **Implemented:**
-- `scripts/export_onnx.py` — torch → ONNX export (`torch.onnx.export`, opset 17, dynamic batch);
+- `src/selfsuvis/scripts/export_onnx.py` — torch → ONNX export (`torch.onnx.export`, opset 17, dynamic batch);
   `--validate` flag runs PyTorch ↔ ONNX parity check (max abs diff < 1e-3);
   `--quantize` + `--calibration-dir` runs static INT8 quantization via `onnxruntime.quantization`.
 - `pipeline/edge_inference.py` — `EdgeClassifier`: loads (quantized) ONNX + gallery NPZ;
@@ -318,7 +318,7 @@ labels = clf.classify(frame_pil)   # [(label, score), ...]
   cosine-sim descending; `from_torch()` classmethod for dev/testing without ONNX.
   `build_gallery()` — embeds representative frames per label, saves `embeddings/labels/label_names`
   NPZ; works with ONNX or PyTorch backbone; validates all paths upfront.
-- `scripts/build_gallery.py` — CLI: `--onnx` or `--checkpoint`; `--labels label:path,...` or
+- `src/selfsuvis/scripts/build_gallery.py` — CLI: `--onnx` or `--checkpoint`; `--labels label:path,...` or
   `--labels-file` (JSON/YAML); outputs NPZ to `--output`.
 - `pipeline/config.py`: `EDGE_MODELS_DIR`, `EDGE_GALLERY_DIR`, `EDGE_ONNX_PATH`,
   `EDGE_GALLERY_PATH`, `EDGE_TOP_K` env vars.
@@ -347,7 +347,7 @@ derived from self-supervised objectives alone. Completes the active learning loo
     AdamW + CosineAnnealingLR; per-epoch + best checkpoint saves (`dino_sup_best.pt`).
   - `config_from_settings()` — reads `SUP_FINETUNE_*` env vars; inherits `DINO_CHECKPOINT` as
     `ssl_checkpoint` warm-start.
-- `scripts/supervised_finetune_dino.py` — CLI entry point; `--ssl-checkpoint` for warm-start.
+- `src/selfsuvis/scripts/supervised_finetune_dino.py` — CLI entry point; `--ssl-checkpoint` for warm-start.
 - `pipeline/config.py`: added `SUP_CHECKPOINT_DIR`, `SUP_FINETUNE_EPOCHS`, `SUP_FINETUNE_LR`,
   `SUP_FINETUNE_BATCH_SIZE`, `SUP_FINETUNE_FREEZE_BLOCKS`, `SUP_FINETUNE_TEMPERATURE`.
 - `tests/unit/test_supervised_finetune.py`: 26 tests (SupConLoss maths, gradient flow, CvatAnnotationParser,
@@ -356,9 +356,9 @@ derived from self-supervised objectives alone. Completes the active learning loo
 **Usage:**
 ```bash
 # Fine-tune supervised from exported CVAT XML and local frames
-python scripts/supervised_finetune_dino.py \
-  --frames-dir data_test/cvat_frames \
-  --cvat-xml   data_test/cvat_annotations.xml \
+python -m selfsuvis.scripts.supervised_finetune_dino \
+  --frames-dir data/cvat_frames \
+  --cvat-xml   data/cvat_annotations.xml \
     --output-dir data/checkpoints/supervised \
     --ssl-checkpoint data/checkpoints/dino_ssl_best.pt
 
@@ -438,7 +438,7 @@ curl -X POST /index/rtsp \
 **Implemented:**
 - `pipeline/config.py`: `ROBOT_ID` env var (default `"robot_0"`) — identifies the robot
   running this worker instance.
-- `scripts/migrate_postgres.py`: `ALTER TABLE missions ADD COLUMN IF NOT EXISTS robot_id TEXT NOT NULL DEFAULT 'robot_0'`; index on `robot_id`. Idempotent.
+- `src/selfsuvis/scripts/migrate_postgres.py`: `ALTER TABLE missions ADD COLUMN IF NOT EXISTS robot_id TEXT NOT NULL DEFAULT 'robot_0'`; index on `robot_id`. Idempotent.
 - `pipeline/indexer.py`: `index_video` + `_build_frame_point` + `_index_tiles` all accept
   `robot_id`; stored in every Qdrant frame and tile payload as `robot_id`.
 - `worker/main.py`: passes `robot_id=settings.ROBOT_ID` to `index_video`.
@@ -605,7 +605,7 @@ The webhook handler calls it without `await`-level exception propagation; CVAT a
 ### ✅ [P2][S] Add retrain watermark to prevent infinite retrigger after threshold is crossed — DONE
 **What:** Store `last_retrain_watermark` (annotated frame count at last successful fine-tune) in a `system_state` DB table or as a `settings`-namespaced row. Only trigger fine-tuning when `total_annotated - last_retrain_watermark >= MIN_NEW_ANNOTATED_SINCE_RETRAIN` (new config var, default 100). Worker updates watermark after successful job completion.
 **Implemented:**
-- `scripts/migrate_postgres.py`: `CREATE TABLE IF NOT EXISTS system_state (key TEXT PK, value TEXT)`.
+- `src/selfsuvis/scripts/migrate_postgres.py`: `CREATE TABLE IF NOT EXISTS system_state (key TEXT PK, value TEXT)`.
   Initial `last_retrain_watermark=0` row inserted if absent.
 - `pipeline/config.py`: `MIN_NEW_ANNOTATED_SINCE_RETRAIN` env var (default 100).
 - `app/routers/cvat.py` `_maybe_trigger_finetune`: reads `system_state.last_retrain_watermark`;
@@ -626,7 +626,7 @@ The webhook handler calls it without `await`-level exception propagation; CVAT a
 **Context:** Codex outside voice finding. Not needed for v1 single-developer deployment. Required before production multi-user use.
 **Effort:** M (human: 3 days / CC: 1h)
 **Priority:** P3
-**Implemented:** `model_checkpoints` table in `scripts/migrate_postgres.py` (checkpoint_path, model_version_id, annotation_count, best_accuracy, distribution_shift, created_at, notes). `MODEL_VERSION_ID` env var in `pipeline/config.py` (default `"base"`). `model_version_id` added to Qdrant frame payload in `pipeline/indexer.py` `_build_frame_point()`. Worker `handle_finetune_job()` inserts provenance row and updates `settings.MODEL_VERSION_ID` to `sup_{job_id[:8]}` after accepted checkpoint.
+**Implemented:** `model_checkpoints` table in `src/selfsuvis/scripts/migrate_postgres.py` (checkpoint_path, model_version_id, annotation_count, best_accuracy, distribution_shift, created_at, notes). `MODEL_VERSION_ID` env var in `pipeline/config.py` (default `"base"`). `model_version_id` added to Qdrant frame payload in `pipeline/indexer.py` `_build_frame_point()`. Worker `handle_finetune_job()` inserts provenance row and updates `settings.MODEL_VERSION_ID` to `sup_{job_id[:8]}` after accepted checkpoint.
 
 ---
 
@@ -662,7 +662,7 @@ The webhook handler calls it without `await`-level exception propagation; CVAT a
 **Context:** Codex outside voice finding. Not needed on CPU-only. Critical on shared GPU machines.
 **Effort:** S (human: 4h / CC: 20min)
 **Priority:** P3
-**Implemented:** `gpu_jobs` table in `scripts/migrate_postgres.py`; `_gpu_checkin()`/`_gpu_checkout()` in `worker/main.py`; wired into `handle_finetune_job()` (wraps `run_supervised_finetune` in try/finally) and `handle_reembed_job()` (full try/finally). Fail-open on DB error; stale entries evicted on every check-in; contention logged as warning. `WORKER_ID` and `GPU_JOB_TIMEOUT_SEC` config in `pipeline/config.py`.
+**Implemented:** `gpu_jobs` table in `src/selfsuvis/scripts/migrate_postgres.py`; `_gpu_checkin()`/`_gpu_checkout()` in `worker/main.py`; wired into `handle_finetune_job()` (wraps `run_supervised_finetune` in try/finally) and `handle_reembed_job()` (full try/finally). Fail-open on DB error; stale entries evicted on every check-in; contention logged as warning. `WORKER_ID` and `GPU_JOB_TIMEOUT_SEC` config in `pipeline/config.py`.
 
 ---
 
@@ -744,11 +744,11 @@ nerfstudio's `pg_advisory_xact_lock` in `pipeline/global_map_db.py` is unrelated
 ---
 
 ### ✅ [P3][S] Backfill script: flag irrecoverable missing-file frames — DONE
-**What:** The `scripts/backfill_captions.py` skip-missing-file logic (log warning + continue) permanently leaves frames with `caption=NULL` when their disk file is gone. Add a `caption_skip_reason TEXT` column (or reuse a JSON field) to mark these rows as `"file_missing"` so they aren't silently re-skipped on every backfill run without explanation.
+**What:** The `src/selfsuvis/scripts/backfill_captions.py` skip-missing-file logic (log warning + continue) permanently leaves frames with `caption=NULL` when their disk file is gone. Add a `caption_skip_reason TEXT` column (or reuse a JSON field) to mark these rows as `"file_missing"` so they aren't silently re-skipped on every backfill run without explanation.
 **Why:** The resume-safe logic (skip already-captioned rows) has no equivalent for "tried and failed because file missing." Operators running backfill see a log warning but the DB shows `caption=NULL` indistinguishably from "not yet processed." Over time, the null rate metric (`caption_null_rate`) becomes misleading — it includes frames that will never get captions.
 **Implemented:**
-- `scripts/migrate_postgres.py`: `ALTER TABLE frames ADD COLUMN IF NOT EXISTS caption_skip_reason TEXT` (also added to `CREATE TABLE` definition).
-- `scripts/backfill_captions.py`: `_fetch_pending_batch` now filters `AND caption_skip_reason IS NULL`; `_mark_skip_reason()` sets `caption_skip_reason='file_missing'` for unreadable files; `--dry-run` reports both pending and already-skipped counts.
+- `src/selfsuvis/scripts/migrate_postgres.py`: `ALTER TABLE frames ADD COLUMN IF NOT EXISTS caption_skip_reason TEXT` (also added to `CREATE TABLE` definition).
+- `src/selfsuvis/scripts/backfill_captions.py`: `_fetch_pending_batch` now filters `AND caption_skip_reason IS NULL`; `_mark_skip_reason()` sets `caption_skip_reason='file_missing'` for unreadable files; `--dry-run` reports both pending and already-skipped counts.
 
 ---
 
@@ -899,7 +899,7 @@ Use `scripts/validate_qwen_serving.py` as the template for the 50-frame validati
 
 ---
 
-### ✅ [P3][S] `scripts/validate_ssl_improvement.py` — multi-video SSL eval harness (gate for Phase 3) — DONE
+### ✅ [P3][S] `src/selfsuvis/scripts/validate_ssl_improvement.py` — multi-video SSL eval harness (gate for Phase 3) — DONE
 **What:** SSL validation script that measures ΔR@1 pre/post SSL fine-tuning across ≥3 diverse videos.
 
 Diversity requirements (all required, no substitutions):
@@ -925,7 +925,7 @@ Methodology: 3 seeds per video; median ΔR@1 used. Gate: ΔR@1 > +0.02 on at lea
 **Why:** Language-grounded SSL targets may improve retrieval for text-query use cases where DINOv3 self-supervised targets are vocabulary-blind.
 **Effort:** M (human: 2 days / CC: ~1.5h)
 **Priority:** P3 — CONDITIONED on SSL gate: ΔR@1 > +0.02 on ≥2/3 test videos. If gate fails: skip; DINOv3→EfficientViT baseline (Phase 2) is the production edge model.
-**Depends on:** `scripts/validate_ssl_improvement.py` passes gate
+**Depends on:** `src/selfsuvis/scripts/validate_ssl_improvement.py` passes gate
 
 ---
 

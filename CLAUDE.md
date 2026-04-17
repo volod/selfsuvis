@@ -33,7 +33,7 @@ make logs          # Stream logs (last 100 lines)
 ### PostgreSQL migration (first run or after wipe)
 ```bash
 # After `make up postgres` starts, run once:
-python scripts/migrate_postgres.py   # creates all tables
+python -m selfsuvis.scripts.migrate_postgres   # creates all tables
 # Reset Qdrant if switching MODEL_NAME or re-indexing from scratch:
 scripts/reset_qdrant.sh
 ```
@@ -188,5 +188,5 @@ Critical env vars:
 - cv2-free unit tests: `test_utils.py`, `test_utils_path.py`, `test_dedup.py`, `test_job_db.py`, `test_downloader.py`, `test_config.py`, `test_deps.py`, `test_net_utils.py`, `test_ffmpeg.py`.
 - New unit tests to write (from eng review): `test_gps_utils.py`, `test_active_learning.py`, `test_job_db_postgres.py`, `test_change_detection.py`, `test_report_generator.py`.
 - New integration tests to write: `test_robot_api.py`, `test_migration.py`.
-- Integration tests use `data_test/` and `cache_test/` volumes (not `data/`) to avoid polluting dev data.
-- Containers run as the current host `UID`/`GID` to avoid root-owned files in `data_test`.
+- Integration tests use `data/` and `cache_test/` volumes.
+- Containers run as the current host `UID`/`GID` to avoid root-owned files in `data/`.

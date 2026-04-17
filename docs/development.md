@@ -47,9 +47,9 @@ Auto-fix:
 
 - **Never commit to `main` directly.** Open a PR; linear issue number in branch name.
 - **Never commit secrets.** `.env` is git-ignored. Use `.env.sample` for documentation.
-- **Data directories are git-ignored.** `data/`, `data_test/`, `cache_test/` are excluded.
+- **Data directories are git-ignored.** `data/`, `cache_test/` are excluded.
   Add large assets via DVC or document manual download steps in scripts.
-- **Test data lives in `data_test/`**, not `data/`. Integration tests use `cache_test/`.
+- **Integration tests use `data/` and `cache_test/`.** Videos go in `data/videos/`.
 - **One migration per PR** that touches the DB schema. Migration script goes in `scripts/`.
 - **Sensor steps degrade gracefully.** Missing sidecar → step is skipped, pipeline continues.
 

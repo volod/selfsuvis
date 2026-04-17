@@ -63,7 +63,7 @@ python -m vllm.entrypoints.openai.api_server \
   --model Qwen/Qwen2.5-VL-7B-Instruct \
   --port 8010
 
-python main.py --mode local --qwen-api-url http://localhost:8010/v1
+selfsuvis --mode local --qwen-api-url http://localhost:8010/v1
 ```
 
 ### Ollama sidecar
@@ -72,7 +72,7 @@ python main.py --mode local --qwen-api-url http://localhost:8010/v1
 ollama pull qwen2.5vl:7b
 ollama serve   # default port 11434
 
-python main.py --mode local \
+selfsuvis --mode local \
   --qwen-api-url http://localhost:11434/v1 \
   --qwen-model qwen2.5vl:7b
 ```
@@ -80,7 +80,7 @@ python main.py --mode local \
 ### Compact model for low VRAM
 
 ```bash
-python main.py --mode local \
+selfsuvis --mode local \
   --qwen-api-url http://localhost:8010/v1 \
   --qwen-model Qwen/Qwen2.5-VL-3B-Instruct
 ```
@@ -113,7 +113,7 @@ gate — frames without recognizable objects are skipped to save API quota and l
 
 Disable pre-screening (send all frames to Qwen):
 ```bash
-QWEN_CLIP_THRESHOLD=0.0 python main.py --mode local --qwen-api-url ...
+QWEN_CLIP_THRESHOLD=0.0 selfsuvis --mode local --qwen-api-url ...
 ```
 
 ---

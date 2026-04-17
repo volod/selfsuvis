@@ -13,10 +13,11 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 RUN python -m venv "$VIRTUAL_ENV"
-COPY requirements/requirements_mapper.txt ./requirements/
+COPY pyproject.toml README.md ./
 # open3d installs cleanly; visualization deps (dash, flask, ipython) are
 # pulled in automatically and unused — no way to exclude them via pip.
-RUN pip install --no-cache-dir -r requirements/requirements_mapper.txt
+COPY src/ ./src/
+RUN pip install --no-cache-dir ".[mapper]"
 
 FROM python:3.10-slim
 
@@ -32,9 +33,4 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 COPY --from=builder /opt/venv /opt/venv
-COPY pipeline ./pipeline
-COPY mapper ./mapper
-
-ENV PYTHONPATH=/app
-
-CMD ["python", "mapper/main.py"]
+CMD ["python", "-m", "selfsuvis.mapper"]

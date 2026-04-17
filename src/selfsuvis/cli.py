@@ -1,0 +1,34 @@
+"""Entry point for the selfsuvis CLI.
+
+Modes:
+  local   — run the full local analysis / training orchestration
+  file    — process a video file or directory (default)
+  stream  — process a live RTSP/device stream
+"""
+
+import warnings
+warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
+                        category=FutureWarning)
+
+from selfsuvis.pipeline.workflows import build_parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.mode == "local":
+        from selfsuvis.pipeline.workflows import apply_local_env  # noqa: PLC0415
+        apply_local_env(args)
+        from selfsuvis.pipeline.workflows import run_local  # noqa: PLC0415
+        run_local(args)
+    elif args.mode == "file":
+        from selfsuvis.pipeline.workflows import run_file_mode  # noqa: PLC0415
+        run_file_mode(args)
+    else:
+        from selfsuvis.pipeline.workflows import run_stream_mode  # noqa: PLC0415
+        run_stream_mode(args)
+
+
+if __name__ == "__main__":
+    main()

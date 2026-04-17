@@ -1,0 +1,136 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "selfsuvis"
+version = "0.1.0"
+description = "Outdoor autonomy perception stack — spatial memory engine for robotics"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # Web / API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.27",
+    "streamlit>=1.37",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+    "requests>=2.31",
+    # Data / ML (CPU-only core)
+    "numpy>=1.26",
+    "pillow>=10.2",
+    "scikit-image>=0.22",
+    "scikit-learn>=1.4",
+    "plyfile>=0.9",
+    "tqdm>=4.66",
+    "onnxruntime>=1.18",  # CPU base; install_requirements.sh upgrades to onnxruntime-gpu on CUDA machines
+    "onnxscript>=0.1",
+    # NLP / LLM
+    "transformers>=4.47,<4.54",
+    "accelerate>=0.26",
+    "faster-whisper>=1.0",
+    "sentencepiece>=0.1.99",
+    "tiktoken>=0.6",
+    # Storage / DB
+    "qdrant-client>=1.8",
+    "asyncpg>=0.29",
+    "pydantic>=2.8",
+    "python-dotenv>=1.0",
+    # AI service clients
+    "openai>=1.0",
+    "google-genai>=1.0",
+    # Utilities
+    "psutil>=5.9",
+    "verovio>=3.12",
+]
+
+[project.optional-dependencies]
+# Full vision stack — requires CUDA for training/inference at speed.
+# torch is NOT listed here; install_requirements.sh handles it with the
+# correct CUDA wheel index (pytorch.org/whl/cuXXX).
+vision = [
+    "torchvision>=0.16",
+    "open-clip-torch>=2.24",
+    "opencv-python>=4.10",
+    "ultralytics>=8.3",
+    "xformers>=0.0.35",
+    "sam3",
+    "sam2",
+    "segment-anything>=1.0",
+    "rfdetr>=1.1",
+    "gsplat>=1.4",   # CUDA JIT kernels compiled on first use; CPU machines skip gracefully
+    "faiss-cpu>=1.8",
+    "pycolmap>=4.0",
+    "ninja>=1.13",   # build tool for CUDA extension compilation
+]
+# Mapper service (ICP fusion only — no GPU, no torch).
+mapper = [
+    "numpy>=1.26",
+    "open3d>=0.18",
+    "plyfile>=0.9",
+    "scipy>=1.10",
+    "python-dotenv>=1.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.27",
+    "asyncpg>=0.29",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+selfsuvis         = "selfsuvis.cli:main"
+selfsuvis-env     = "selfsuvis.scripts.generate_env:main"
+selfsuvis-migrate = "selfsuvis.scripts.migrate_postgres:main"
+selfsuvis-models  = "selfsuvis.scripts.prepare_models:main"
+selfsuvis-export  = "selfsuvis.scripts.export_onnx:main"
+selfsuvis-gallery = "selfsuvis.scripts.build_gallery:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"selfsuvis.app" = ["templates/**/*"]
+"selfsuvis" = ["env/*.env"]
+
+# ── pytest ────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::FutureWarning",
+]
+markers = [
+    "slow: marks tests as slow (deselect with -m 'not slow')",
+    "integration: requires running Docker services",
+]
+
+# ── ruff ─────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+# ── pyright ──────────────────────────────────────────────────────────────────
+[tool.pyright]
+pythonVersion = "3.10"
+pythonPlatform = "Linux"
+pythonPath = "src"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+
+# ── coverage ─────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["src/selfsuvis"]
+omit = ["*/tests/*", "*/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true

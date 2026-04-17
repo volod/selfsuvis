@@ -75,7 +75,7 @@ ollama pull gemma4:e4b
 ollama serve   # default port 11434
 
 # Run pipeline with Gemma captioning + P3 tracking
-python main.py --mode local --gemma-api-url http://localhost:11434/v1
+selfsuvis --mode local --gemma-api-url http://localhost:11434/v1
 ```
 
 ### vLLM sidecar
@@ -85,7 +85,7 @@ python -m vllm.entrypoints.openai.api_server \
   --model google/gemma-4-4b-it \
   --port 8000
 
-python main.py --mode local \
+selfsuvis --mode local \
   --gemma-api-url http://localhost:8000/v1 \
   --gemma-model google/gemma-4-4b-it
 ```
@@ -93,7 +93,7 @@ python main.py --mode local \
 ### Disable Gemma entirely (Florence-only captioning)
 
 ```bash
-python main.py --mode local   # GEMMA_API_URL unset → Florence handles all captions
+selfsuvis --mode local   # GEMMA_API_URL unset → Florence handles all captions
 ```
 
 ---
@@ -127,7 +127,7 @@ To disable Gemma captioning and use Florence for all frames:
 GEMMA_API_URL=
 
 # Or omit --gemma-api-url flag
-python main.py --mode local
+selfsuvis --mode local
 ```
 
 Pipeline logs confirm which captioner is active:

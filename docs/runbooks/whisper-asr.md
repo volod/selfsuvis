@@ -56,10 +56,10 @@ When `ASR_MODEL=auto`, the pipeline reads available VRAM and selects:
 
 ```bash
 # Enable with auto model selection
-ASR_ENABLED=true python main.py --mode local
+ASR_ENABLED=true selfsuvis --mode local
 
 # Explicit model + language
-ASR_ENABLED=true ASR_MODEL=openai/whisper-large-v3-turbo ASR_LANGUAGE=en python main.py --mode local
+ASR_ENABLED=true ASR_MODEL=openai/whisper-large-v3-turbo ASR_LANGUAGE=en selfsuvis --mode local
 
 # Download weights
 python scripts/prepare_models.py --asr

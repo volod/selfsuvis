@@ -17,7 +17,7 @@ of the CLIP embeddings — no depth sensor required.
 
 ## Prerequisites
 
-`gsplat` is included in `requirements_prod.txt` and installed by `make venv`.
+`gsplat` is declared in `pyproject.toml` under the `vision` extra and installed by `make venv`.
 Verify the install:
 
 ```bash
@@ -58,7 +58,7 @@ Controls: left-drag to orbit · right-drag to pan · scroll to zoom
 **Option C — point cloud only (no gsplat required):**
 
 ```bash
-python main.py --mode local --view-npz <output-dir>/<video-name>/3d_map/sparse_map.npz
+selfsuvis --mode local --view-npz <output-dir>/<video-name>/3d_map/sparse_map.npz
 ```
 
 This opens a matplotlib 3D scatter plot of the sparse SfM/PCA point cloud.
@@ -67,7 +67,7 @@ Useful for quick inspection on machines without a GPU.
 ## Skipping Step 27
 
 ```bash
-python main.py --mode local --input <video.mp4> --no-gsplat
+selfsuvis --mode local --input <video.mp4> --no-gsplat
 ```
 
 ## Training parameters

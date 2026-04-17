@@ -44,33 +44,33 @@ _asyncpg_stub = _ensure_stub("asyncpg", connect=AsyncMock())
 
 # Import the REAL pipeline.global_map_db now (while asyncpg stub is in place)
 # so Groups A/B/C test the real code, not a stub.
-import pipeline.storage.global_maps as _real_global_map_db  # noqa: E402
+import selfsuvis.pipeline.storage.global_maps as _real_global_map_db  # noqa: E402
 
 # Stub pipeline.indexer to avoid cv2 import (worker.main imports it)
-_indexer_stub = _make_stub("pipeline.indexer")
+_indexer_stub = _make_stub("selfsuvis.pipeline.indexer")
 _indexer_stub.VideoIndexer = MagicMock()  # type: ignore[attr-defined]
 
 # Stub pipeline.job_db
-_make_stub("pipeline.job_db",
+_make_stub("selfsuvis.pipeline.job_db",
     init_db=MagicMock(), fetch_and_claim_next_pending=MagicMock(), update_job=MagicMock())
 
 # Stub pipeline.processed_db
-_make_stub("pipeline.processed_db",
+_make_stub("selfsuvis.pipeline.processed_db",
     init_db=MagicMock(), get_by_hash=MagicMock(), upsert=MagicMock())
 
 # Stub pipeline.utils
-_ensure_stub("pipeline.utils", file_sha256=MagicMock(), resolve_allowed_path=MagicMock())
+_ensure_stub("selfsuvis.pipeline.utils", file_sha256=MagicMock(), resolve_allowed_path=MagicMock())
 
 # Stub pipeline.downloader
-_ensure_stub("pipeline.downloader", download_url=MagicMock())
+_ensure_stub("selfsuvis.pipeline.downloader", download_url=MagicMock())
 
 # Stub pipeline.gps_registration
-_ensure_stub("pipeline.gps_registration",
+_ensure_stub("selfsuvis.pipeline.gps_registration",
     register_mission_gps=MagicMock(), gps_to_enu=MagicMock())
 
 # NOTE: pipeline.global_map_db is already in sys.modules (real module imported above).
 # _ensure_stub will NOT overwrite it, so worker.main will use the real module too.
-_ensure_stub("pipeline.global_map_db",
+_ensure_stub("selfsuvis.pipeline.global_map_db",
     get_or_create_global_map=AsyncMock(),
     get_global_map_splats=AsyncMock(),
     register_mission=AsyncMock(),
@@ -80,12 +80,12 @@ _ensure_stub("pipeline.global_map_db",
     update_global_map_splat=AsyncMock())
 
 # Stub pipeline.sfm
-_ensure_stub("pipeline.sfm", run_sfm=MagicMock())
+_ensure_stub("selfsuvis.pipeline.sfm", run_sfm=MagicMock())
 # pipeline.mapper is NOT stubbed at module level — worker.main imports it
 # lazily inside _run_pass_a, so no stub is needed here.
 
 # Stub pipeline.gps_extractor
-_ensure_stub("pipeline.gps_extractor", extract_gps=MagicMock())
+_ensure_stub("selfsuvis.pipeline.gps_extractor", extract_gps=MagicMock())
 
 # Stub app.state to avoid live Qdrant connect (needed by robot router)
 _state_stub = MagicMock()
@@ -93,7 +93,7 @@ _state_stub.clip_model = MagicMock()
 _state_stub.clip_model.embed_dim = 512
 _state_stub.qdrant_store = MagicMock()
 _state_stub.qdrant_store.collection_name = "test"
-sys.modules.setdefault("app.state", _state_stub)
+sys.modules.setdefault("selfsuvis.app.state", _state_stub)
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +274,7 @@ class TestGetOrCreateGlobalMapProximity(unittest.IsolatedAsyncioTestCase):
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from app.routers.robot import router as robot_router  # noqa: E402
+from selfsuvis.app.routers.robot import router as robot_router  # noqa: E402
 
 _app = FastAPI()
 _app.include_router(robot_router)
@@ -283,8 +283,8 @@ _client = TestClient(_app)
 
 class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
 
-    @patch("app.routers.robot.qdrant_store")
-    @patch("app.routers.robot.clip_model")
+    @patch("selfsuvis.app.routers.robot.qdrant_store")
+    @patch("selfsuvis.app.routers.robot.clip_model")
     def test_global_map_id_present_adds_field_condition(self, mock_clip, mock_qdrant_store):
         """global_map_id in request → FieldCondition(key='global_map_id') in filter."""
         mock_clip.embed_dim = 512
@@ -301,8 +301,8 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         keys = [c.key for c in qf.must if hasattr(c, "key")]
         self.assertIn("global_map_id", keys)
 
-    @patch("app.routers.robot.qdrant_store")
-    @patch("app.routers.robot.clip_model")
+    @patch("selfsuvis.app.routers.robot.qdrant_store")
+    @patch("selfsuvis.app.routers.robot.clip_model")
     def test_global_map_id_absent_omits_condition(self, mock_clip, mock_qdrant_store):
         """No global_map_id in request → no global_map_id condition in filter."""
         mock_clip.embed_dim = 512
@@ -319,8 +319,8 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         keys = [c.key for c in qf.must if hasattr(c, "key")]
         self.assertNotIn("global_map_id", keys)
 
-    @patch("app.routers.robot.qdrant_store")
-    @patch("app.routers.robot.clip_model")
+    @patch("selfsuvis.app.routers.robot.qdrant_store")
+    @patch("selfsuvis.app.routers.robot.clip_model")
     def test_global_map_id_combined_with_robot_ids(self, mock_clip, mock_qdrant_store):
         """global_map_id + robot_ids → both conditions present."""
         mock_clip.embed_dim = 512
@@ -338,8 +338,8 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         self.assertIn("global_map_id", keys)
         self.assertIn("robot_id", keys)
 
-    @patch("app.routers.robot.qdrant_store")
-    @patch("app.routers.robot.clip_model")
+    @patch("selfsuvis.app.routers.robot.qdrant_store")
+    @patch("selfsuvis.app.routers.robot.clip_model")
     def test_global_map_id_in_enu_path(self, mock_clip, mock_qdrant_store):
         """ENU path + global_map_id → condition present."""
         mock_clip.embed_dim = 512
@@ -356,8 +356,8 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         keys = [c.key for c in qf.must if hasattr(c, "key")]
         self.assertIn("global_map_id", keys)
 
-    @patch("app.routers.robot.qdrant_store")
-    @patch("app.routers.robot.clip_model")
+    @patch("selfsuvis.app.routers.robot.qdrant_store")
+    @patch("selfsuvis.app.routers.robot.clip_model")
     def test_response_global_map_id_none_when_not_provided(self, mock_clip, mock_qdrant_store):
         """global_map_id in response is None when not provided in request."""
         mock_clip.embed_dim = 512
@@ -372,8 +372,8 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         data = resp.json()
         self.assertIsNone(data.get("global_map_id"))
 
-    @patch("app.routers.robot.qdrant_store")
-    @patch("app.routers.robot.clip_model")
+    @patch("selfsuvis.app.routers.robot.qdrant_store")
+    @patch("selfsuvis.app.routers.robot.clip_model")
     def test_response_global_map_id_int_when_provided(self, mock_clip, mock_qdrant_store):
         """global_map_id in response equals the provided value."""
         mock_clip.embed_dim = 512
@@ -495,7 +495,7 @@ class TestIndexVideoSiteEnuOrigin(unittest.TestCase):
 class TestResolveSiteOrigin(unittest.TestCase):
 
     def _get_fn(self):
-        import worker.main as wm
+        import selfsuvis.worker.main as wm
         return wm._resolve_site_origin
 
     def _make_logger(self):
@@ -509,7 +509,7 @@ class TestResolveSiteOrigin(unittest.TestCase):
         """No GPS in video → returns (None, None)."""
         fn = self._get_fn()
         logger = self._make_logger()
-        with patch("pipeline.gps_extractor.extract_gps", return_value=[None, None]):
+        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=[None, None]):
             result = fn("/tmp/vid.mp4", logger)
         self.assertEqual(result, (None, None))
         logger.debug.assert_called()
@@ -518,7 +518,7 @@ class TestResolveSiteOrigin(unittest.TestCase):
         """GPS extraction raising an exception → (None, None), no crash."""
         fn = self._get_fn()
         logger = self._make_logger()
-        with patch("pipeline.gps_extractor.extract_gps", side_effect=RuntimeError("ffprobe fail")):
+        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", side_effect=RuntimeError("ffprobe fail")):
             result = fn("/tmp/vid.mp4", logger)
         self.assertEqual(result, (None, None))
 
@@ -527,7 +527,7 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fn = self._get_fn()
         logger = self._make_logger()
         gps = [{"lat": 48.0, "lon": 11.0, "alt": 100.0}]
-        with patch("pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
             with patch("asyncpg.connect", side_effect=ConnectionRefusedError("no DB")):
                 result = fn("/tmp/vid.mp4", logger)
         self.assertEqual(result, (None, None))
@@ -540,11 +540,11 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fake_conn = AsyncMock()
         fake_conn.close = AsyncMock()
 
-        with patch("pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
-                with patch("pipeline.global_map_db.get_or_create_global_map",
+                with patch("selfsuvis.pipeline.global_map_db.get_or_create_global_map",
                            new_callable=AsyncMock, return_value=7):
-                    with patch("pipeline.global_map_db.get_global_map_origin",
+                    with patch("selfsuvis.pipeline.global_map_db.get_global_map_origin",
                                new_callable=AsyncMock, return_value=(48.0, 11.0, 100.0)):
                         result = fn("/tmp/vid.mp4", logger)
 
@@ -560,11 +560,11 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fake_conn = AsyncMock()
         fake_conn.close = AsyncMock()
 
-        with patch("pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
-                with patch("pipeline.global_map_db.get_or_create_global_map",
+                with patch("selfsuvis.pipeline.global_map_db.get_or_create_global_map",
                            new_callable=AsyncMock, return_value=99):
-                    with patch("pipeline.global_map_db.get_global_map_origin",
+                    with patch("selfsuvis.pipeline.global_map_db.get_global_map_origin",
                                new_callable=AsyncMock, return_value=(48.0, 11.0, 0.0)):
                         fn("/tmp/vid.mp4", logger)
 
@@ -579,11 +579,11 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fake_conn = AsyncMock()
         fake_conn.close = AsyncMock()
 
-        with patch("pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
-                with patch("pipeline.global_map_db.get_or_create_global_map",
+                with patch("selfsuvis.pipeline.global_map_db.get_or_create_global_map",
                            new_callable=AsyncMock, return_value=5):
-                    with patch("pipeline.global_map_db.get_global_map_origin",
+                    with patch("selfsuvis.pipeline.global_map_db.get_global_map_origin",
                                new_callable=AsyncMock, return_value=None):
                         gmap_id, origin = fn("/tmp/vid.mp4", logger)
 
@@ -598,11 +598,11 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fake_conn = AsyncMock()
         fake_conn.close = AsyncMock()
 
-        with patch("pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
-                with patch("pipeline.global_map_db.get_or_create_global_map",
+                with patch("selfsuvis.pipeline.global_map_db.get_or_create_global_map",
                            new_callable=AsyncMock, return_value=1):
-                    with patch("pipeline.global_map_db.get_global_map_origin",
+                    with patch("selfsuvis.pipeline.global_map_db.get_global_map_origin",
                                new_callable=AsyncMock, return_value=(1.0, 2.0, 3.0)):
                         fn("/tmp/vid.mp4", logger)
 

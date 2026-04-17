@@ -5,6 +5,10 @@ The pipeline shifts from "what is in this frame?" to "what persists across frame
 
 The core move is from frame-wise snapshots to temporal continuity and spatial geometry.
 
+Note: these step numbers are part of the broader conceptual learning path.
+In the current local runner, the corresponding capabilities are grouped into the 23
+top-level execution steps documented in [`pipeline.md`](../pipeline.md).
+
 ---
 
 <a id="step-21-yolo--sam-detection-and-segmentation"></a>
@@ -24,9 +28,9 @@ This step provides pixel-level masks that enable:
 - Semantic graph building: objects with masks can be connected spatially ("vehicle A is to the left of building B").
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_yolo_sam.py`](../../pipeline/workflows/local/steps_yolo_sam.py)
-- [`pipeline/vision/yolo.py`](../../pipeline/vision/yolo.py)
-- [`pipeline/vision/sam.py`](../../pipeline/vision/sam.py)
+- [`pipeline/workflows/local/steps_yolo_sam.py`](../../src/selfsuvis/pipeline/workflows/local/steps_yolo_sam.py)
+- [`pipeline/vision/yolo.py`](../../src/selfsuvis/pipeline/vision/yolo.py)
+- [`pipeline/vision/sam.py`](../../src/selfsuvis/pipeline/vision/sam.py)
 
 **Key concepts:**
 
@@ -83,8 +87,8 @@ If Gemma determines "this is a vehicle convoy", tracking focuses on vehicles and
 This is the step where reasoning starts directing perception, not just describing it.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_gemma_tracking.py`](../../pipeline/workflows/local/steps_gemma_tracking.py)
-- [`pipeline/vision/rfdetr.py`](../../pipeline/vision/rfdetr.py) — `RFDETRTracker`
+- [`pipeline/workflows/local/steps_gemma_tracking.py`](../../src/selfsuvis/pipeline/workflows/local/steps_gemma_tracking.py)
+- [`pipeline/vision/rfdetr.py`](../../src/selfsuvis/pipeline/vision/rfdetr.py) — `RFDETRTracker`
 
 **Key concepts:**
 
@@ -155,10 +159,10 @@ Without RSSM: al_score = 0.60×dino_dist + 0.40×(1-caption_confidence)
 The 40% weight on RSSM surprise means temporally-novel frames — scene transitions, first appearances of new objects, environment changes — rank higher in the annotation queue. Better-selected training frames → better SSL fine-tuning (Step 28) → better distilled edge models (Step 29) → more accurate hydrated ONNX exports (Step 30).
 
 **Implementation:**
-- [`models/rssm_model.py`](../../models/rssm_model.py) — `RSSMEmbedder`: encoder, GRU, dynamics, online training
-- [`pipeline/analysis/active_learning.py`](../../pipeline/analysis/active_learning.py) — `assign_al_tags` with `rssm_surprises` parameter
-- [`pipeline/workflows/indexer.py`](../../pipeline/workflows/indexer.py) — `_run_al_rssm_pass`, `_run_world_model_pass`
-- [`pipeline/vision/world.py`](../../pipeline/vision/world.py) — `WorldModel` (heavy video backbone)
+- [`models/rssm_model.py`](../../src/selfsuvis/models/rssm_model.py) — `RSSMEmbedder`: encoder, GRU, dynamics, online training
+- [`pipeline/analysis/active_learning.py`](../../src/selfsuvis/pipeline/analysis/active_learning.py) — `assign_al_tags` with `rssm_surprises` parameter
+- [`pipeline/workflows/indexer.py`](../../src/selfsuvis/pipeline/workflows/indexer.py) — `_run_al_rssm_pass`, `_run_world_model_pass`
+- [`pipeline/vision/world.py`](../../src/selfsuvis/pipeline/vision/world.py) — `WorldModel` (heavy video backbone)
 
 **RSSM output stored in `frame_facts_json["rssm"]`:**
 ```json
@@ -231,9 +235,9 @@ Qwen receives not just the image but accumulated context from every earlier step
 The output is not a caption but a structured observation: a reasoning result that downstream steps can consume directly.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
-- [`pipeline/vision/qwen.py`](../../pipeline/vision/qwen.py)
-- [`pipeline/workflows/local/_common.py`](../../pipeline/workflows/local/_common.py) — `VideoKnowledge.context_for_frame()` and `update_qwen_state()`
+- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
+- [`pipeline/vision/qwen.py`](../../src/selfsuvis/pipeline/vision/qwen.py)
+- [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `VideoKnowledge.context_for_frame()` and `update_qwen_state()`
 
 **Key concepts:**
 
@@ -286,9 +290,9 @@ For missions involving road networks, vehicle behavior, and outdoor navigation, 
 - Standardized driving-domain taxonomy for cross-mission comparison
 
 **Implementation:**
-- [`pipeline/vision/unidrive.py`](../../pipeline/vision/unidrive.py) — thin OpenAI-compatible HTTP adapter
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py) — `step_unidrive_analysis()`
-- [`pipeline/core/config.py`](../../pipeline/core/config.py) — `UNIDRIVE_*` settings
+- [`pipeline/vision/unidrive.py`](../../src/selfsuvis/pipeline/vision/unidrive.py) — thin OpenAI-compatible HTTP adapter
+- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — `step_unidrive_analysis()`
+- [`pipeline/core/config.py`](../../src/selfsuvis/pipeline/core/config.py) — `UNIDRIVE_*` settings
 - Model prep: `python scripts/prepare_models.py --unidrive`
 
 **Key concepts:**
@@ -364,7 +368,7 @@ The test result is the baseline that Step 31 (post-fine-tuning search test) will
 Without this step, you cannot know whether fine-tuning improved anything.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_embed.py`](../../pipeline/workflows/local/steps_embed.py)
+- [`pipeline/workflows/local/steps_embed.py`](../../src/selfsuvis/pipeline/workflows/local/steps_embed.py)
 
 **Key concepts:**
 
@@ -418,8 +422,8 @@ A 3D map enables:
 - Robot pose advisory: `POST /query/pose` uses the map to answer "what should I expect to see here?"
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_map.py`](../../pipeline/workflows/local/steps_map.py)
-- [`pipeline/mapping/`](../../pipeline/mapping)
+- [`pipeline/workflows/local/steps_map.py`](../../src/selfsuvis/pipeline/workflows/local/steps_map.py)
+- [`pipeline/mapping/`](../../src/selfsuvis/pipeline/mapping)
 - [`docs/gaussian_splat.md`](../gaussian_splat.md)
 
 **Key concepts:**

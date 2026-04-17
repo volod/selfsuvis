@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pytest
 
-from tests.integration.conftest import PipelineMockConn, make_frame_record
+from tests.support.db import PipelineMockConn, make_frame_record
 
 
 def run(coro):
@@ -44,7 +44,7 @@ def _frames_with_al(
     novel_threshold: float = 0.7,
 ) -> tuple[List[Dict[str, Any]], List[float], List[str]]:
     """Create *n* synthetic frames, assign AL tags, and return (frame_records, scores, tags)."""
-    from pipeline.analysis.active_learning import assign_al_tags
+    from selfsuvis.pipeline.analysis.active_learning import assign_al_tags
 
     dino_dists = [float(i) / (n - 1) if n > 1 else 0.5 for i in range(n)]
     cap_confs = [1.0 - d for d in dino_dists]
@@ -73,7 +73,7 @@ def _frames_with_al(
 
 def test_al_tags_persisted_correctly():
     """AL tags computed by assign_al_tags survive the round-trip through replace_frames."""
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     conn = PipelineMockConn()
     frames, scores, tags = _frames_with_al("m1", n=6, top_k=2)
@@ -92,8 +92,8 @@ def test_al_tags_persisted_correctly():
 
 def test_al_tags_none_for_low_uncertainty():
     """Frames with low dino_dist and high caption confidence get tag='none'."""
-    from pipeline.analysis.active_learning import assign_al_tags
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.analysis.active_learning import assign_al_tags
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     conn = PipelineMockConn()
     # All frames highly certain: dino_dist≈0, confidence≈1
@@ -118,8 +118,8 @@ def test_al_tags_none_for_low_uncertainty():
 
 def test_al_novel_tag_assigned_above_threshold():
     """Frames with dino_dist ≥ novel_threshold (outside top-K) get tag='novel'."""
-    from pipeline.analysis.active_learning import assign_al_tags
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.analysis.active_learning import assign_al_tags
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     conn = PipelineMockConn()
     # Frame 0: top-K candidate (high score), frame 1: high dist but rank 2+ → novel
@@ -142,8 +142,8 @@ def test_al_novel_tag_assigned_above_threshold():
 
 def test_al_score_ordering_matches_score_field():
     """al_score values in DB match what assign_al_tags computed."""
-    from pipeline.analysis.active_learning import assign_al_tags
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.analysis.active_learning import assign_al_tags
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     conn = PipelineMockConn()
     dino_dists = [0.1, 0.5, 0.9]
@@ -193,7 +193,7 @@ def _ref_query_fn(ref_frames: List[Dict[str, Any]]):
 
 def test_detect_changes_across_missions():
     """Two missions at the same location with different embeddings → change detected."""
-    from pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     ref = _make_cd_frame("ref_f1", "mission_old", seed=0)
     new = _make_cd_frame("new_f1", "mission_new", seed=99)  # orthogonal → high dist
@@ -214,7 +214,7 @@ def test_detect_changes_across_missions():
 
 def test_detect_changes_skips_same_mission_frames():
     """Frames the same mission are never flagged as changes."""
-    from pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     ref = _make_cd_frame("f_old", "same_mission", seed=0)
     new = _make_cd_frame("f_new", "same_mission", seed=99)
@@ -230,7 +230,7 @@ def test_detect_changes_skips_same_mission_frames():
 
 def test_detect_changes_no_gps_frame_skipped():
     """Frames without GPS coordinates are silently skipped."""
-    from pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     new_frame = {
         "frame_id": "no_gps",
@@ -251,7 +251,7 @@ def test_detect_changes_no_gps_frame_skipped():
 
 def test_detect_changes_below_threshold_no_event():
     """Identical embeddings → cosine distance ≈ 0 → no change event."""
-    from pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     emb = _make_embedding(42).tolist()
     ref = {"frame_id": "ref", "mission_id": "m_old", "embedding": emb, "gps": {"lat": 47.0, "lon": 8.0}}
@@ -268,7 +268,7 @@ def test_detect_changes_below_threshold_no_event():
 
 def test_detect_changes_multiple_refs_picks_closest():
     """With multiple reference frames detect_changes picks the closest one."""
-    from pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     emb_new = _make_embedding(42)
     # ref_a: orthogonal to emb_new (high distance)
@@ -296,7 +296,7 @@ def test_detect_changes_multiple_refs_picks_closest():
 
 def test_detect_changes_empty_new_frames():
     """No new frames → no changes."""
-    from pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     changes = detect_changes(
         new_frames=[],
@@ -309,7 +309,7 @@ def test_detect_changes_empty_new_frames():
 
 def test_detect_changes_no_references_no_event():
     """No reference frames in the query_fn → nothing to compare → no change."""
-    from pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     new = _make_cd_frame("new_f", "m_new", seed=1)
 
@@ -324,7 +324,7 @@ def test_detect_changes_no_references_no_event():
 
 def test_detect_changes_change_score_in_event():
     """Change event carries the cosine distance as change_score."""
-    from pipeline.analysis.change_detection import detect_changes, cosine_distance
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes, cosine_distance
 
     emb_new = _make_embedding(0)
     emb_ref = _make_embedding(99)
@@ -351,7 +351,7 @@ def test_detect_changes_change_score_in_event():
 
 def test_semantic_diff_vehicle_count_change():
     """compute_semantic_diff detects a change in vehicle count."""
-    from pipeline.analysis.change_detection import compute_semantic_diff
+    from selfsuvis.pipeline.analysis.change_detection import compute_semantic_diff
 
     ref_facts = {"vehicle_groups": [{"count": 2, "type": "car"}]}
     new_facts = {"vehicle_groups": [{"count": 5, "type": "car"}]}
@@ -366,7 +366,7 @@ def test_semantic_diff_vehicle_count_change():
 
 def test_semantic_diff_road_condition_change():
     """compute_semantic_diff detects road_condition transitions."""
-    from pipeline.analysis.change_detection import compute_semantic_diff
+    from selfsuvis.pipeline.analysis.change_detection import compute_semantic_diff
 
     diff = compute_semantic_diff(
         {"road_condition": "clear"},
@@ -380,7 +380,7 @@ def test_semantic_diff_road_condition_change():
 
 def test_semantic_diff_no_change_empty():
     """Identical facts → empty diff dict."""
-    from pipeline.analysis.change_detection import compute_semantic_diff
+    from selfsuvis.pipeline.analysis.change_detection import compute_semantic_diff
 
     facts = {
         "vehicle_groups": [{"count": 3}],
@@ -394,7 +394,7 @@ def test_semantic_diff_no_change_empty():
 
 def test_detect_changes_populates_semantic_diff():
     """When both frames have frame_facts_json, semantic_diff_json is set on the event."""
-    from pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     ref_facts = {"vehicle_groups": [{"count": 1}], "road_condition": "clear"}
     new_facts = {"vehicle_groups": [{"count": 4}], "road_condition": "wet"}
@@ -417,7 +417,7 @@ def test_detect_changes_populates_semantic_diff():
 
 def test_detect_changes_no_facts_semantic_diff_none():
     """When facts are missing, semantic_diff_json is None."""
-    from pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     ref = _make_cd_frame("ref", "m_old", seed=0)   # no facts
     new = _make_cd_frame("new", "m_new", seed=99)   # no facts
@@ -439,7 +439,7 @@ def test_detect_changes_no_facts_semantic_diff_none():
 @pytest.fixture
 def report_dir(tmp_path, monkeypatch):
     """Point DATA_DIR at tmp_path so report files land somewhere writable."""
-    import pipeline.core.config as cfg
+    import selfsuvis.pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "DATA_DIR", str(tmp_path))
     return tmp_path
 
@@ -457,7 +457,7 @@ def _sample_frames(mission_id: str = "m1") -> List[Dict[str, Any]]:
 
 def test_report_writer_creates_file(report_dir):
     """write_mission_report creates summary.html under DATA_DIR/reports/mission_id/."""
-    from pipeline.workflows.reporting import write_mission_report
+    from selfsuvis.pipeline.workflows.reporting import write_mission_report
 
     path = write_mission_report("mission-42", _sample_frames())
 
@@ -468,7 +468,7 @@ def test_report_writer_creates_file(report_dir):
 
 def test_report_html_contains_mission_id(report_dir):
     """Generated HTML references the mission_id in the <title> and <h1>."""
-    from pipeline.workflows.reporting import write_mission_report
+    from selfsuvis.pipeline.workflows.reporting import write_mission_report
 
     write_mission_report("mission-X", _sample_frames())
     html_path = os.path.join(str(report_dir), "reports", "mission-X", "summary.html")
@@ -479,7 +479,7 @@ def test_report_html_contains_mission_id(report_dir):
 
 def test_report_al_tag_distribution(report_dir):
     """HTML contains correct counts for each AL tag."""
-    from pipeline.workflows.reporting import write_mission_report
+    from selfsuvis.pipeline.workflows.reporting import write_mission_report
 
     write_mission_report("m-dist", _sample_frames())
     html_path = os.path.join(str(report_dir), "reports", "m-dist", "summary.html")
@@ -493,7 +493,7 @@ def test_report_al_tag_distribution(report_dir):
 
 def test_report_frame_count_in_html(report_dir):
     """HTML reports the correct total frame count."""
-    from pipeline.workflows.reporting import write_mission_report
+    from selfsuvis.pipeline.workflows.reporting import write_mission_report
 
     frames = _sample_frames()
     write_mission_report("m-cnt", frames)
@@ -505,7 +505,7 @@ def test_report_frame_count_in_html(report_dir):
 
 def test_report_duration_in_html(report_dir):
     """HTML shows the max t_sec as duration."""
-    from pipeline.workflows.reporting import write_mission_report
+    from selfsuvis.pipeline.workflows.reporting import write_mission_report
 
     write_mission_report("m-dur", _sample_frames())
     html_path = os.path.join(str(report_dir), "reports", "m-dur", "summary.html")
@@ -517,7 +517,7 @@ def test_report_duration_in_html(report_dir):
 
 def test_report_captions_escaped(report_dir):
     """Captions with HTML-special characters are escaped."""
-    from pipeline.workflows.reporting import write_mission_report
+    from selfsuvis.pipeline.workflows.reporting import write_mission_report
 
     frames = [{"frame_path": "/f.jpg", "caption": "<script>alert(1)</script>",
                "al_tag": "none", "al_score": 0.0, "t_sec": 0.0}]
@@ -531,7 +531,7 @@ def test_report_captions_escaped(report_dir):
 
 def test_report_sorted_by_score_descending(report_dir):
     """Frames appear in the HTML ordered by al_score descending."""
-    from pipeline.workflows.reporting import generate_summary_html
+    from selfsuvis.pipeline.workflows.reporting import generate_summary_html
 
     frames = [
         {"frame_path": "/frames/low.jpg", "caption": "low", "al_tag": "none",
@@ -547,7 +547,7 @@ def test_report_sorted_by_score_descending(report_dir):
 
 def test_report_empty_frames(report_dir):
     """write_mission_report handles an empty frame list gracefully."""
-    from pipeline.workflows.reporting import write_mission_report
+    from selfsuvis.pipeline.workflows.reporting import write_mission_report
 
     path = write_mission_report("m-empty", [])
     content = open(path).read()
@@ -562,8 +562,8 @@ def test_report_empty_frames(report_dir):
 
 def test_worker_job_loop_end_to_end():
     """Simulates the worker: create → claim → mission upsert → frames → finish."""
-    from pipeline.storage.jobs import create_job, fetch_and_claim_next_pending, update_job
-    from pipeline.storage.missions import (
+    from selfsuvis.pipeline.storage.jobs import create_job, fetch_and_claim_next_pending, update_job
+    from selfsuvis.pipeline.storage.missions import (
         mark_mission_finished,
         replace_frames,
         upsert_mission,
@@ -613,8 +613,8 @@ def test_worker_job_loop_end_to_end():
 
 def test_worker_marks_job_error_on_failure():
     """Worker records error status when indexing fails."""
-    from pipeline.storage.jobs import create_job, fetch_and_claim_next_pending, update_job
-    from pipeline.storage.missions import mark_mission_finished, upsert_mission
+    from selfsuvis.pipeline.storage.jobs import create_job, fetch_and_claim_next_pending, update_job
+    from selfsuvis.pipeline.storage.missions import mark_mission_finished, upsert_mission
 
     conn = PipelineMockConn()
 
@@ -645,7 +645,7 @@ def test_worker_marks_job_error_on_failure():
 
 def test_worker_second_job_waits_for_first():
     """Two pending jobs: first is claimed, second remains pending."""
-    from pipeline.storage.jobs import create_job, fetch_and_claim_next_pending
+    from selfsuvis.pipeline.storage.jobs import create_job, fetch_and_claim_next_pending
 
     conn = PipelineMockConn()
     run(create_job(conn, "job-a", {"video_id": "va"}))
@@ -661,7 +661,7 @@ def test_worker_second_job_waits_for_first():
 
 def test_worker_no_pending_returns_none():
     """fetch_and_claim_next_pending returns None when queue is empty."""
-    from pipeline.storage.jobs import fetch_and_claim_next_pending
+    from selfsuvis.pipeline.storage.jobs import fetch_and_claim_next_pending
 
     conn = PipelineMockConn()
     result = run(fetch_and_claim_next_pending(conn))
@@ -675,12 +675,12 @@ def test_worker_no_pending_returns_none():
 
 def test_al_to_report_round_trip(tmp_path, monkeypatch):
     """Full pipeline: AL scoring → DB persistence → HTML report generated correctly."""
-    import pipeline.core.config as cfg
+    import selfsuvis.pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "DATA_DIR", str(tmp_path))
 
-    from pipeline.analysis.active_learning import assign_al_tags
-    from pipeline.storage.missions import replace_frames
-    from pipeline.workflows.reporting import generate_summary_html
+    from selfsuvis.pipeline.analysis.active_learning import assign_al_tags
+    from selfsuvis.pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.workflows.reporting import generate_summary_html
 
     conn = PipelineMockConn()
 
@@ -726,8 +726,8 @@ def test_al_to_report_round_trip(tmp_path, monkeypatch):
 
 def test_multi_mission_change_detection_pipeline():
     """Two missions; detect_changes finds a change between them, respects mission boundary."""
-    from pipeline.analysis.change_detection import detect_changes
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.analysis.change_detection import detect_changes
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     conn = PipelineMockConn()
 

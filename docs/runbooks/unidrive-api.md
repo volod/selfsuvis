@@ -60,7 +60,7 @@ ollama pull qwen2.5vl:7b
 ollama serve   # default port 11434
 
 # Run pipeline
-python main.py --mode local \
+selfsuvis --mode local \
   --unidrive-api-url http://localhost:11434/v1 \
   --unidrive-model qwen2.5vl:7b
 ```
@@ -72,7 +72,7 @@ python -m vllm.entrypoints.openai.api_server \
   --model Qwen/Qwen2.5-VL-7B-Instruct \
   --port 8010
 
-python main.py --mode local \
+selfsuvis --mode local \
   --unidrive-api-url http://localhost:8010/v1 \
   --unidrive-model Qwen/Qwen2.5-VL-7B-Instruct
 ```
@@ -90,7 +90,7 @@ python -m vllm.entrypoints.openai.api_server \
   --trust-remote-code \
   --port 8030
 
-python main.py --mode local \
+selfsuvis --mode local \
   --unidrive-api-url http://localhost:8030/v1 \
   --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
 ```

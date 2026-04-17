@@ -27,7 +27,7 @@ _state_stub = MagicMock()
 _state_stub.clip_model = MagicMock()
 _state_stub.qdrant_store = MagicMock()
 _state_stub.dino_model = None
-sys.modules.setdefault("app.state", _state_stub)
+sys.modules.setdefault("selfsuvis.app.state", _state_stub)
 
 
 # ── App fixture ───────────────────────────────────────────────────────────────
@@ -36,8 +36,8 @@ sys.modules.setdefault("app.state", _state_stub)
 def client(tmp_path, monkeypatch):
     """TestClient for the index router with auth bypassed and DB mocked."""
     from fastapi import FastAPI
-    from app.routers.index import router
-    from app.deps import require_api_key, rate_limit
+    from selfsuvis.app.routers.index import router
+    from selfsuvis.app.deps import require_api_key, rate_limit
 
     app = FastAPI()
 
@@ -49,7 +49,7 @@ def client(tmp_path, monkeypatch):
     app.include_router(router)
 
     # Point VIDEOS_DIR at tmp_path so uploads land somewhere writable
-    import pipeline.core.config as cfg
+    import selfsuvis.pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "VIDEOS_DIR", str(tmp_path))
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(tmp_path))
     monkeypatch.setattr(cfg.settings, "MAX_UPLOAD_BYTES", 10 * 1024 * 1024)
@@ -79,8 +79,8 @@ def test_upload_video_creates_pending_job(client, tmp_path):
     """Uploading a .mp4 file creates a pending job and returns job_id."""
     fake_video = b"\x00" * 64  # minimal fake mp4 bytes
 
-    with patch("app.routers.index.create_job") as mock_cj, \
-         patch("app.routers.index.get_db_pool") as mock_pool:
+    with patch("selfsuvis.app.routers.index.create_job") as mock_cj, \
+         patch("selfsuvis.app.routers.index.get_db_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
         mock_cj.return_value = None
 
@@ -117,8 +117,8 @@ def test_upload_video_no_file_no_path_returns_400(client):
 
 def test_index_url_creates_job_with_url_in_payload(client):
     """POST /index/url enqueues a job whose payload contains video_url."""
-    with patch("app.routers.index.create_job") as mock_cj, \
-         patch("app.routers.index.get_db_pool") as mock_pool:
+    with patch("selfsuvis.app.routers.index.create_job") as mock_cj, \
+         patch("selfsuvis.app.routers.index.get_db_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
         mock_cj.return_value = None
 
@@ -151,8 +151,8 @@ def test_index_url_no_stream_url_returns_422(client):
 
 def test_index_rtsp_sets_ingest_mode_in_payload(client):
     """RTSP job payload has ingest_mode='rtsp'."""
-    with patch("app.routers.index.create_job") as mock_cj, \
-         patch("app.routers.index.get_db_pool") as mock_pool:
+    with patch("selfsuvis.app.routers.index.create_job") as mock_cj, \
+         patch("selfsuvis.app.routers.index.get_db_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
         mock_cj.return_value = None
 
@@ -169,8 +169,8 @@ def test_index_rtsp_sets_ingest_mode_in_payload(client):
 
 def test_index_rtsp_duration_propagated_to_payload(client):
     """Optional duration_sec is forwarded into the job payload."""
-    with patch("app.routers.index.create_job") as mock_cj, \
-         patch("app.routers.index.get_db_pool") as mock_pool:
+    with patch("selfsuvis.app.routers.index.create_job") as mock_cj, \
+         patch("selfsuvis.app.routers.index.get_db_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
         mock_cj.return_value = None
 
@@ -186,8 +186,8 @@ def test_index_rtsp_duration_propagated_to_payload(client):
 
 def test_index_rtsp_mission_id_propagated(client):
     """Explicit mission_id is forwarded into the job payload."""
-    with patch("app.routers.index.create_job") as mock_cj, \
-         patch("app.routers.index.get_db_pool") as mock_pool:
+    with patch("selfsuvis.app.routers.index.create_job") as mock_cj, \
+         patch("selfsuvis.app.routers.index.get_db_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
         mock_cj.return_value = None
 
@@ -205,7 +205,7 @@ def test_index_rtsp_mission_id_propagated(client):
 
 def test_index_dir_creates_one_job_per_video(client, tmp_path, monkeypatch):
     """Each video file in the allowed directory gets its own job."""
-    import pipeline.core.config as cfg
+    import selfsuvis.pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(tmp_path))
 
     (tmp_path / "a.mp4").write_bytes(b"\x00" * 16)
@@ -217,8 +217,8 @@ def test_index_dir_creates_one_job_per_video(client, tmp_path, monkeypatch):
     async def _fake_cj(conn, job_id, payload, job_type="index"):
         created_jobs.append(payload)
 
-    with patch("app.routers.index.create_job", side_effect=_fake_cj), \
-         patch("app.routers.index.get_db_pool") as mock_pool:
+    with patch("selfsuvis.app.routers.index.create_job", side_effect=_fake_cj), \
+         patch("selfsuvis.app.routers.index.get_db_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
 
         resp = client.post("/index/dir", data={"dir_path": str(tmp_path)})
@@ -231,7 +231,7 @@ def test_index_dir_creates_one_job_per_video(client, tmp_path, monkeypatch):
 
 def test_index_dir_disallowed_path_returns_403(client, tmp_path, monkeypatch, tmp_path_factory):
     """A path outside ALLOWED_INDEX_PATHS returns 403."""
-    import pipeline.core.config as cfg
+    import selfsuvis.pipeline.core.config as cfg
     allowed = tmp_path_factory.mktemp("allowed")
     forbidden = tmp_path_factory.mktemp("forbidden")
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(allowed))
@@ -248,7 +248,7 @@ def test_precheck_known_file_returns_duplicate(client, tmp_path):
     video.write_bytes(b"\xAB" * 64)
 
     # Simulate the file being in the processed_files cache
-    with patch("app.routers.index.get_by_hash", return_value={"video_id": "existing-v1", "status": "processed"}):
+    with patch("selfsuvis.app.routers.index.get_by_hash", return_value={"video_id": "existing-v1", "status": "processed"}):
         resp = client.post("/index/precheck", data={"file_path": str(video)})
 
     assert resp.status_code == 200
@@ -261,7 +261,7 @@ def test_precheck_new_file_returns_new(client, tmp_path):
     video = tmp_path / "fresh.mp4"
     video.write_bytes(b"\xCC" * 64)
 
-    with patch("app.routers.index.get_by_hash", return_value=None):
+    with patch("selfsuvis.app.routers.index.get_by_hash", return_value=None):
         resp = client.post("/index/precheck", data={"file_path": str(video)})
 
     assert resp.status_code == 200
@@ -272,13 +272,13 @@ def test_precheck_new_file_returns_new(client, tmp_path):
 
 def test_precheck_dir_returns_status_per_file(client, tmp_path, monkeypatch):
     """precheck_dir scans the directory and returns one result per video."""
-    import pipeline.core.config as cfg
+    import selfsuvis.pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(tmp_path))
 
     (tmp_path / "a.mp4").write_bytes(b"\x00" * 32)
     (tmp_path / "b.mp4").write_bytes(b"\x11" * 32)
 
-    with patch("app.routers.index.get_by_hash", return_value=None):
+    with patch("selfsuvis.app.routers.index.get_by_hash", return_value=None):
         resp = client.post(
             "/index/precheck_dir",
             data={"dir_path": str(tmp_path), "enqueue": "false"},
@@ -292,7 +292,7 @@ def test_precheck_dir_returns_status_per_file(client, tmp_path, monkeypatch):
 
 def test_precheck_dir_enqueue_creates_jobs_for_new_files(client, tmp_path, monkeypatch):
     """precheck_dir with enqueue=true creates jobs for 'new' files."""
-    import pipeline.core.config as cfg
+    import selfsuvis.pipeline.core.config as cfg
     monkeypatch.setattr(cfg.settings, "ALLOWED_INDEX_PATHS", str(tmp_path))
 
     (tmp_path / "new_clip.mp4").write_bytes(b"\x22" * 32)
@@ -302,9 +302,9 @@ def test_precheck_dir_enqueue_creates_jobs_for_new_files(client, tmp_path, monke
     async def _fake_cj(conn, job_id, payload, job_type="index"):
         created_jobs.append(job_id)
 
-    with patch("app.routers.index.get_by_hash", return_value=None), \
-         patch("app.routers.index.create_job", side_effect=_fake_cj), \
-         patch("app.routers.index.get_db_pool") as mock_pool:
+    with patch("selfsuvis.app.routers.index.get_by_hash", return_value=None), \
+         patch("selfsuvis.app.routers.index.create_job", side_effect=_fake_cj), \
+         patch("selfsuvis.app.routers.index.get_db_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
 
         resp = client.post(

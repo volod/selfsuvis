@@ -25,8 +25,17 @@ Follow these steps in order — each one is a prerequisite for the next.
 
 ### Step 1 — Environment variables (.env)
 
-Copy `.env.sample` to `.env` and fill in your secrets **before running anything else**.
-The setup script sources `.env` automatically.
+Generate `.env` from the packaged environment preset before running anything else.
+The generator uses current system resources by default and can be overridden with
+flags or interactive prompts.
+
+```bash
+selfsuvis-env --env dev
+# or:
+selfsuvis-env --interactive
+```
+
+Manual fallback:
 
 ```bash
 cp .env.sample .env
@@ -110,16 +119,16 @@ sidecar naming, and per-sensor guidance.
 **Minimal run** (Steps 1–9, no sidecar servers needed):
 
 ```bash
-.venv/bin/python main.py --mode local \
-  --input data_test/videos/drone_mission.mp4 \
+selfsuvis --mode local \
+  --input data/videos/drone_mission.mp4 \
   --no-qdrant
 ```
 
 **Full run — Ollama sidecars + all sensor steps** (sensor steps on by default):
 
 ```bash
-python main.py --mode local \
-  --input data_test/videos/drone_mission.mp4 \
+selfsuvis --mode local \
+  --input data/videos/drone_mission.mp4 \
   --qwen \
   --unidrive \
   --gemma-api-url    http://localhost:11434/v1 \
@@ -147,8 +156,8 @@ python -m vllm.entrypoints.openai.api_server \
   --port 8030 --max-model-len 4096
 
 # Terminal 3 — pipeline
-.venv/bin/python main.py --mode local \
-  --input data_test/videos/drone_mission.mp4 \
+selfsuvis --mode local \
+  --input data/videos/drone_mission.mp4 \
   --qwen \
   --unidrive \
   --gemma-api-url    http://localhost:11434/v1 \
@@ -187,7 +196,7 @@ data/videos/mission.audio.wav       # Step 19 — acoustic (48 kHz WAV)
 To regenerate sidecars for a different video:
 
 ```bash
-cp /path/to/my_mission.mp4 data_test/videos/
+cp /path/to/my_mission.mp4 data/videos/
 bash scripts/setup_local_full.sh --sensor-data-only
 ```
 

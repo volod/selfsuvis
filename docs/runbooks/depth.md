@@ -50,10 +50,10 @@ available VRAM with a 2 GB safety margin.
 
 ```bash
 # Enable with auto model selection
-DEPTH_ENABLED=true python main.py --mode local
+DEPTH_ENABLED=true selfsuvis --mode local
 
 # Explicit model
-DEPTH_ENABLED=true DEPTH_MODEL=depth-anything/Depth-Anything-V2-Large-hf python main.py --mode local
+DEPTH_ENABLED=true DEPTH_MODEL=depth-anything/Depth-Anything-V2-Large-hf selfsuvis --mode local
 
 # Download weights
 python scripts/prepare_models.py --depth

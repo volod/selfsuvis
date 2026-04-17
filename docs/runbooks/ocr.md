@@ -62,10 +62,10 @@ frames with informative text: road signs, vehicle plates, displays, documents.
 
 ```bash
 # Enable with auto model selection
-OCR_ENABLED=true python main.py --mode local
+OCR_ENABLED=true selfsuvis --mode local
 
 # Explicit model
-OCR_ENABLED=true OCR_MODEL=ucaslcl/GOT-OCR2_0 python main.py --mode local
+OCR_ENABLED=true OCR_MODEL=ucaslcl/GOT-OCR2_0 selfsuvis --mode local
 
 # Download weights
 python scripts/prepare_models.py --ocr
@@ -76,7 +76,7 @@ python scripts/prepare_models.py --ocr
 ```bash
 # If Qwen sidecar is already running, point OCR at it too
 OCR_ENABLED=true OCR_API_URL=http://localhost:8010/v1 OCR_MODEL=Qwen/Qwen2.5-VL-7B-Instruct \
-  python main.py --mode local
+  selfsuvis --mode local
 ```
 
 ---

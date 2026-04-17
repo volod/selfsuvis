@@ -10,7 +10,7 @@
 #   Step 1a— Install sensor-specific Python packages (open3d, filterpy, …)
 #   Step 2 — Download HuggingFace model weights for each pipeline step
 #   Step 3 — Install Ollama and pull LLM/VLM sidecar models
-#   Step 4 — Create data_test/ layout, download test video, generate sensor sidecars
+#   Step 4 — Create data/ layout, download test video, generate sensor sidecars
 #   Step 5 — Start Docker stack (Qdrant + PostgreSQL) and run DB migration
 #   Step 6 — Confirm test video path for run-command summary
 #   Summary— Print the exact run command(s) for your configuration
@@ -52,9 +52,9 @@
 # AFTER SETUP:
 #   The script prints the exact run command at the end.
 #   Minimal run (Steps 1–9):
-#     .venv/bin/python main.py --mode local --input <video.mp4> --no-qdrant
+#     selfsuvis --mode local --input <video.mp4> --no-qdrant
 #   Full run (all 35 steps, Ollama + sensors):
-#     SENSOR_FUSION_ENABLED=true RF_ENABLED=true ... .venv/bin/python main.py ...
+#     SENSOR_FUSION_ENABLED=true RF_ENABLED=true ... selfsuvis ...
 #
 # TROUBLESHOOTING:
 #   "Permission denied" on Docker:
@@ -64,7 +64,7 @@
 #   Ollama pull fails (timeout):
 #     ollama pull <model>   (run manually, then re-run this script)
 #   PostgreSQL migration fails on first try:
-#     python scripts/migrate_postgres.py   (postgres may need a few more seconds)
+#     python -m selfsuvis.scripts.migrate_postgres   (postgres may need a few more seconds)
 #   HuggingFace 401 on Gemma:
 #     Visit https://huggingface.co/google/gemma-3-4b-it and accept the licence
 #     then set HF_TOKEN and re-run
@@ -139,15 +139,15 @@ PIP=".venv/bin/pip"
 # =============================================================================
 if $SENSOR_DATA_ONLY; then
   section "Sensor data only mode — skipping model and environment setup"
-  mkdir -p data_test/videos data_test/sensors data_test/frames \
-           data_test/tiles data_test/maps data_test/reports cache_test
-  bash scripts/prepare_sensor_data.sh data_test/sensors
+  mkdir -p data/videos data/sensors data/frames \
+           data/tiles data/maps data/reports cache_test
+  bash scripts/prepare_sensor_data.sh data/sensors
   echo ""
-  log "Done. Sensor sample data is in data_test/sensors/"
-  _VB="$(ls data_test/videos/*.mp4 data_test/videos/*.mov 2>/dev/null | head -1 || true)"
+  log "Done. Sensor sample data is in data/sensors/"
+  _VB="$(ls data/videos/*.mp4 data/videos/*.mov 2>/dev/null | head -1 || true)"
   _VB="${_VB:+$(basename "${_VB%.*}")}"
   _VB="${_VB:-<video-basename>}"
-  log "Sidecars are named after your video: data_test/sensors/step16_imu/${_VB}.imu.jsonl"
+  log "Sidecars are named after your video: data/sensors/step16_imu/${_VB}.imu.jsonl"
   exit 0
 fi
 
@@ -185,8 +185,8 @@ log "uv OK: $(uv --version)"
 # STEP 1: PYTHON VIRTUAL ENVIRONMENT
 #
 # Creates .venv in the repo root and installs all production + dev dependencies
-# from requirements/requirements_dev.txt.  The install script auto-detects your
-# CUDA version and installs the matching PyTorch wheels.
+# from pyproject.toml extras (`vision,dev`). The install script auto-detects
+# your CUDA version and installs the matching PyTorch wheels.
 #
 # If .venv already exists this step is skipped to avoid reinstalling everything
 # on subsequent runs.  To force a clean reinstall:
@@ -206,7 +206,7 @@ if [[ ! -d .venv ]]; then
   # install_requirements.sh installs deps and selects the correct PyTorch wheel
   # for your CUDA version (falls back to CPU-only torch if no GPU found)
   log "Installing Python dependencies (may take 5–10 minutes)..."
-  bash scripts/install_requirements.sh requirements/requirements_dev.txt .venv
+  bash scripts/install_requirements.sh vision,dev .venv
   log ".venv ready."
 else
   log ".venv already exists — skipping. (rm -rf .venv to reinstall)"
@@ -215,7 +215,7 @@ fi
 # =============================================================================
 # STEP 1a: SENSOR-SPECIFIC PYTHON PACKAGES
 #
-# These packages are not in requirements_dev.txt because they are optional —
+# These packages are not in pyproject.toml because they are optional —
 # the core pipeline runs without them.  Install them here so all 35 sensor
 # steps work out of the box.
 #
@@ -276,7 +276,7 @@ fi
 
 # SAM3 (preferred) with SAM2 fallback — installed separately because:
 #   1. sam3 pulls in decord/pycocotools which can fail on some systems
-#   2. If either failed during the bulk requirements install, they need a retry
+#   2. If either failed during the bulk dependency install, they need a retry
 #   3. sam3 is the preferred backend; sam2 is the open fallback
 if ! "$PYTHON" -c "import sam3" 2>/dev/null; then
   log "Installing SAM3 (preferred SAM backend)..."
@@ -347,58 +347,58 @@ section "Step 2 — HuggingFace model weights"
 
 # Core: OpenCLIP + DINOv3 (always required — used by Steps 1–2 for all embeddings)
 log "Downloading OpenCLIP + DINOv3 (core embeddings)..."
-"$PYTHON" scripts/prepare_models.py
+"$PYTHON" -m selfsuvis.scripts.prepare_models
 
 # Step 4: Florence-2-large for per-keyframe scene captioning.
 # Loads locally into the same GPU process as DINOv3 / CLIP.
 # If Ollama is running and VRAM is tight, the pipeline evicts Ollama before loading.
 log "Downloading Florence-2 (Step 4 — scene captioning)..."
-"$PYTHON" scripts/prepare_models.py --florence
+"$PYTHON" -m selfsuvis.scripts.prepare_models --florence
 
 # Step 5: Whisper large-v3-turbo for audio transcription.
 # Aligned subtitle text is injected into Qwen captioning prompts (Step 24).
 log "Downloading Whisper ASR (Step 5 — speech-to-text)..."
-"$PYTHON" scripts/prepare_models.py --whisper
+"$PYTHON" -m selfsuvis.scripts.prepare_models --whisper
 
 # Step 6: OCR model auto-selected by available VRAM.
 # On 8 GB VRAM → Phi-3.5-mini-instruct; on 16+ GB → DeepSeek-VL.
 log "Downloading OCR model (Step 6 — text extraction from frames)..."
-"$PYTHON" scripts/prepare_models.py --ocr
+"$PYTHON" -m selfsuvis.scripts.prepare_models --ocr
 
 # Step 7: Apple DepthPro for monocular per-pixel depth estimation.
 # Depth percentiles are stored in frame_facts_json["depth"] and used by
 # sensor fusion (Step 20) to cross-validate LiDAR range measurements.
 log "Downloading Depth model (Step 7 — monocular depth estimation)..."
-"$PYTHON" scripts/prepare_models.py --depth
+"$PYTHON" -m selfsuvis.scripts.prepare_models --depth
 
 # Step 8: HuggingFace RT-DETR or Grounding DINO for open-vocabulary detection.
 # This is a second detection pass separate from YOLO (Step 21).
 log "Downloading RT-DETR / Grounding DINO (Step 8 — HF object detection)..."
-"$PYTHON" scripts/prepare_models.py --detection
+"$PYTHON" -m selfsuvis.scripts.prepare_models --detection
 
 # Step 21: YOLO11l — priority-aware detection (human > vehicle > artificial > other).
 # Weights are tiny (~48 MB) but needed before SAM mask refinement can run.
 log "Downloading YOLO11l (Step 21 — object detection)..."
-"$PYTHON" scripts/prepare_models.py --yolo
+"$PYTHON" -m selfsuvis.scripts.prepare_models --yolo
 
 # Step 21: SAM3 / SAM2 — refines each YOLO bounding box into a pixel-level mask.
 # Also used by Gemma directed tracking (Step 22) for SAM-prompted segmentation.
 log "Downloading SAM3/SAM2 (Step 21 — segmentation masks)..."
-"$PYTHON" scripts/prepare_models.py --sam
+"$PYTHON" -m selfsuvis.scripts.prepare_models --sam
 
 # Step 23: Cosmos-1.0 world model — encodes entire video clips as temporal embeddings.
 # Used for scene-level search and training data selection.
 # NOTE: This model is gated on HuggingFace. If HF_TOKEN is not set, this step
 # will prompt you to accept the licence and authenticate.
 log "Downloading Cosmos world model (Step 23 — video clip embeddings)..."
-"$PYTHON" scripts/prepare_models.py --world-model \
+"$PYTHON" -m selfsuvis.scripts.prepare_models --world-model \
   || warn "World model download failed — Step 23 will be skipped. Re-run with HF_TOKEN set."
 
 # Step 25: UniDriveVLA — expert autonomous-driving analysis.
 # Produces four blocks: understanding / perception / planning / mixture_of_experts.
 # Source: https://github.com/xiaomi-research/unidrivevla
 log "Downloading UniDriveVLA (Step 25 — expert driving analysis)..."
-"$PYTHON" scripts/prepare_models.py --unidrive \
+"$PYTHON" -m selfsuvis.scripts.prepare_models --unidrive \
   || warn "UniDriveVLA download failed — Step 25 will be skipped."
 
 # Step 3 / 22: Gemma 4 open-weight (gated, requires HF_TOKEN).
@@ -407,7 +407,7 @@ log "Downloading UniDriveVLA (Step 25 — expert driving analysis)..."
 # Ollama pulls are handled in Step 3 and do not require HF_TOKEN.
 if [[ -n "$HF_TOKEN" ]]; then
   log "Downloading Gemma 4 open-weight (Steps 3, 22) — requires HF_TOKEN (~8 GiB)..."
-  HF_TOKEN="$HF_TOKEN" "$PYTHON" scripts/prepare_models.py --gemma
+  HF_TOKEN="$HF_TOKEN" "$PYTHON" -m selfsuvis.scripts.prepare_models --gemma
 else
   warn "HF_TOKEN not set — skipping direct Gemma weight download."
   warn "Gemma will run via Ollama (Step 3 below).  To enable HF weights:"
@@ -502,20 +502,20 @@ fi
 # =============================================================================
 # STEP 4: TEST DATA — DIRECTORIES, VIDEO, AND SENSOR SIDECARS
 #
-# Creates the full data_test/ layout expected by the pipeline, downloads a
+# Creates the full data/ layout expected by the pipeline, downloads a
 # public-domain outdoor test video, and generates sensor sidecar files keyed
 # to that video's basename.
 #
 # Directory layout created:
-#   data_test/videos/     — input video(s)
-#   data_test/sensors/    — per-step sensor sidecars
-#   data_test/frames/     — keyframe output (written by pipeline)
-#   data_test/tiles/      — tile output (written by pipeline)
-#   data_test/maps/       — 3DGS / splat output (written by pipeline)
-#   data_test/reports/    — HTML mission summaries (written by pipeline)
+#   data/videos/     — input video(s)
+#   data/sensors/    — per-step sensor sidecars
+#   data/frames/     — keyframe output (written by pipeline)
+#   data/tiles/      — tile output (written by pipeline)
+#   data/maps/       — 3DGS / splat output (written by pipeline)
+#   data/reports/    — HTML mission summaries (written by pipeline)
 #   cache_test/           — integration-test cache volume
 #
-# Test video (auto-downloaded if data_test/videos/ is empty):
+# Test video (auto-downloaded if data/videos/ is empty):
 #   Primary:  US Highway 60 drone flyover — real vehicles on a divided highway,
 #             desert terrain, trees, road markings (~27 MB, archive.org, public domain)
 #   Fallback: Archer Lodge suburban aerial — roads, buildings, trees, carpark (~15 MB)
@@ -523,8 +523,8 @@ fi
 #
 # Sensor sidecars (Steps 9–19) are generated with the video's basename so they
 # are immediately usable without renaming:
-#   data_test/sensors/step16_imu/<video>.imu.jsonl
-#   data_test/sensors/step17_atmospheric/<video>.env.jsonl
+#   data/sensors/step16_imu/<video>.imu.jsonl
+#   data/sensors/step17_atmospheric/<video>.env.jsonl
 #   … etc.
 #
 # Steps requiring manual dataset download (free, registration only):
@@ -537,27 +537,27 @@ fi
 # =============================================================================
 section "Step 4 — Test data (directories + video + sensor sidecars)"
 
-# ── 4a: Create the full data_test directory layout ───────────────────────────
-log "Creating data_test/ layout..."
+# ── 4a: Create the full data/ directory layout ───────────────────────────────
+log "Creating data/ layout..."
 mkdir -p \
-  data_test/videos \
-  data_test/sensors \
-  data_test/frames \
-  data_test/tiles \
-  data_test/maps \
-  data_test/reports \
+  data/videos \
+  data/sensors \
+  data/frames \
+  data/tiles \
+  data/maps \
+  data/reports \
   cache_test
 log "Directories ready."
 
-# ── 4b: Download a test video if data_test/videos/ is empty ─────────────────
-_FOUND_VIDEO="$(ls data_test/videos/*.mp4 data_test/videos/*.mov \
-                   data_test/videos/*.avi data_test/videos/*.mkv \
+# ── 4b: Download a test video if data/videos/ is empty ─────────────────
+_FOUND_VIDEO="$(ls data/videos/*.mp4 data/videos/*.mov \
+                   data/videos/*.avi data/videos/*.mkv \
                    2>/dev/null | head -1 || true)"
 
 if [[ -n "$_FOUND_VIDEO" ]]; then
   log "Test video found: $_FOUND_VIDEO"
 else
-  _DEST="data_test/videos/drone_mission.mp4"
+  _DEST="data/videos/drone_mission.mp4"
   _DOWNLOADED=false
 
   # Primary and fallback: real drone footage from Internet Archive (public domain).
@@ -595,11 +595,11 @@ else
             -t 10 -c:v libx264 -preset fast \
             "$_DEST" 2>/dev/null \
             && { _FOUND_VIDEO="$_DEST"; } \
-            || warn "ffmpeg generation failed — add a .mp4 to data_test/videos/ and re-run."
+            || warn "ffmpeg generation failed — add a .mp4 to data/videos/ and re-run."
         }
     else
       warn "ffmpeg not found — cannot generate a synthetic video."
-      warn "Add any .mp4 or .mov to data_test/videos/ and re-run."
+      warn "Add any .mp4 or .mov to data/videos/ and re-run."
     fi
   fi
 fi
@@ -630,12 +630,12 @@ if [[ -n "$_FOUND_VIDEO" ]] && command -v ffprobe >/dev/null 2>&1; then
 fi
 
 # ── 4c: Generate sensor sidecars keyed to the video's basename ───────────────
-# prepare_sensor_data.sh auto-detects the video in data_test/videos/ and names
+# prepare_sensor_data.sh auto-detects the video in data/videos/ and names
 # all generated sidecar files after its basename (e.g. drone_mission.imu.jsonl).
 # Steps requiring manual download print instructions and create empty placeholder dirs.
 log "Generating sensor sample data (Steps 9–19)..."
-bash scripts/prepare_sensor_data.sh data_test/sensors
-log "Sensor data ready in data_test/sensors/"
+bash scripts/prepare_sensor_data.sh data/sensors
+log "Sensor data ready in data/sensors/"
 
 # =============================================================================
 # STEP 5: DOCKER SERVICES (Qdrant + PostgreSQL)
@@ -712,16 +712,16 @@ else
 
       if ! $_PG_READY; then
         warn "PostgreSQL did not become ready within 30 s."
-        warn "Retry migration manually: DATABASE_URL=postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis python scripts/migrate_postgres.py"
+        warn "Retry migration manually: DATABASE_URL=postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis python -m selfsuvis.scripts.migrate_postgres"
       else
         log "PostgreSQL is ready — running database migration..."
         # Force localhost so the migration works from the host regardless of
         # what DATABASE_URL is set to in .env (which may use 'postgres:5432',
         # the Docker-internal hostname only resolvable inside the container network).
         DATABASE_URL="postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis" \
-          "$PYTHON" scripts/migrate_postgres.py \
+          "$PYTHON" -m selfsuvis.scripts.migrate_postgres \
           && log "Migration complete." \
-          || warn "Migration failed — retry: DATABASE_URL=postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis python scripts/migrate_postgres.py"
+          || warn "Migration failed — retry: DATABASE_URL=postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis python -m selfsuvis.scripts.migrate_postgres"
       fi
     fi
   fi
@@ -734,7 +734,7 @@ fi
 # final path so the summary section can print an accurate run command.
 #
 # To use your own footage instead:
-#   cp /path/to/drone_mission.mp4 data_test/videos/
+#   cp /path/to/drone_mission.mp4 data/videos/
 #   bash scripts/setup_local_full.sh --sensor-data-only   # regenerate sidecars
 #
 # Free outdoor footage (no login):
@@ -743,15 +743,15 @@ fi
 # =============================================================================
 section "Step 6 — Confirm test video"
 
-TEST_VIDEO="$(ls data_test/videos/*.mp4 data_test/videos/*.mov \
-               data_test/videos/*.avi data_test/videos/*.mkv \
+TEST_VIDEO="$(ls data/videos/*.mp4 data/videos/*.mov \
+               data/videos/*.avi data/videos/*.mkv \
                2>/dev/null | head -1 || true)"
 
 if [[ -n "$TEST_VIDEO" ]]; then
   log "Test video: $TEST_VIDEO"
 else
-  warn "No video found in data_test/videos/ — run commands below will need --input updated."
-  TEST_VIDEO="data_test/videos/drone_mission.mp4"
+  warn "No video found in data/videos/ — run commands below will need --input updated."
+  TEST_VIDEO="data/videos/drone_mission.mp4"
 fi
 
 # =============================================================================
@@ -772,13 +772,13 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo -e "${BOLD}1. Minimal run (Steps 1–9, no sidecar servers needed):${RESET}"
-echo "   .venv/bin/python main.py --mode local \\"
+echo "   selfsuvis --mode local \\"
 echo "     --input $TEST_VIDEO \\"
 echo "     --no-qdrant"
 echo ""
 
 echo -e "${BOLD}2. Full run — Ollama sidecars + all sensor steps${RESET} (sensor steps on by default):"
-echo "   .venv/bin/python main.py --mode local \\"
+echo "   selfsuvis --mode local \\"
 echo "     --input $TEST_VIDEO \\"
 if [[ -n "$OLLAMA_FLAG" ]]; then
   echo "     $OLLAMA_FLAG \\"
@@ -801,7 +801,7 @@ echo "     --model owl10/UniDriveVLA_Nusc_Base_Stage3 \\"
 echo "     --port ${VLLM_PORT_UNIDRIVE} --max-model-len 4096"
 echo ""
 echo "   # Terminal 3 — pipeline:"
-echo "   .venv/bin/python main.py --mode local \\"
+echo "   selfsuvis --mode local \\"
 echo "     --input $TEST_VIDEO \\"
 echo "     --gemma-api-url    ${OLLAMA_HOST}/v1 \\"
 echo "     --qwen-api-url     http://localhost:${VLLM_PORT_QWEN}/v1 \\"
@@ -823,8 +823,8 @@ echo "   ${TEST_VIDEO%.mp4}.env.jsonl       # Step 17 — atmospheric"
 echo "   ${TEST_VIDEO%.mp4}.gas.jsonl       # Step 18 — gas/radiation"
 echo "   ${TEST_VIDEO%.mp4}.audio.wav       # Step 19 — acoustic (48 kHz)"
 echo ""
-echo "   Generated sample sidecars are in data_test/sensors/"
-echo "   Copy them to data_test/videos/ and rename to match your video basename."
+echo "   Generated sample sidecars are in data/sensors/"
+echo "   Copy them to data/videos/ and rename to match your video basename."
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Reference: local_path.md + docs/learning_path/README.md"

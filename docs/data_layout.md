@@ -30,9 +30,9 @@ data/maps/{mission_id}/scene-0/splat.ply
 data/maps/{mission_id}/colmap/
 ```
 
-Integration tests use `data_test/` and `cache_test/` instead of the main runtime directories.
+Integration tests use `data/` and `cache_test/` directories.
 
-Legacy SQLite files are no longer part of the runtime path. Schema state lives in PostgreSQL and is created by `scripts/migrate_postgres.py`.
+Legacy SQLite files are no longer part of the runtime path. Schema state lives in PostgreSQL and is created by `src/selfsuvis/scripts/migrate_postgres.py`.
 
 ---
 [← Examples](examples.md) | [Performance →](performance.md)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REQ_FILE=${1:-requirements/requirements_dev.txt}
+DEPENDENCY_GROUPS=${1:-vision,dev}
 VENV_PATH=${2:-.venv}
 
 if [[ ! -d "$VENV_PATH" ]]; then
@@ -11,6 +11,17 @@ fi
 
 # Ensure pip is available in the venv (uv-created venvs do not include it by default)
 uv pip install --python "$VENV_PATH" pip
+
+case "$DEPENDENCY_GROUPS" in
+  requirements/requirements_prod.txt) DEPENDENCY_GROUPS="vision" ;;
+  requirements/requirements_test.txt|requirements/requirements_dev.txt) DEPENDENCY_GROUPS="vision,dev" ;;
+  requirements/requirements_mapper.txt) DEPENDENCY_GROUPS="mapper" ;;
+esac
+
+PACKAGE_SPEC="."
+if [[ -n "$DEPENDENCY_GROUPS" ]]; then
+  PACKAGE_SPEC=".[${DEPENDENCY_GROUPS}]"
+fi
 
 detect_cuda_version() {
   local cuda_version=""
@@ -59,8 +70,9 @@ map_cuda_to_torch_index() {
   esac
 }
 
-# Install deps; opencv-python>=4.10 supports numpy 2.x (see requirements_prod.txt)
-uv pip install --python "$VENV_PATH" -r "$REQ_FILE"
+# Install the package plus extras from pyproject.toml, which is the single
+# source of truth for Python dependencies.
+uv pip install --python "$VENV_PATH" -e "$PACKAGE_SPEC"
 
 CUDA_VERSION=$(detect_cuda_version)
 
@@ -104,7 +116,7 @@ else
 fi
 
 # ── TensorRT + onnxruntime-gpu ─────────────────────────────────────────────────
-# onnxruntime-gpu replaces the CPU-only onnxruntime installed from requirements.
+# onnxruntime-gpu replaces the CPU-only onnxruntime installed from pyproject.toml.
 # It adds CUDAExecutionProvider and TensorrtExecutionProvider, giving the fastest
 # ONNX inference on NVIDIA GPUs.  TensorRT must also be present at runtime for
 # TensorrtExecutionProvider to activate; we install it from NVIDIA's PyPI index.

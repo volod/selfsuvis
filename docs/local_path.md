@@ -1,6 +1,6 @@
 # Local Learning Path
 
-This is the short version of the local `python main.py --mode local` study path.
+This is the short version of the local `selfsuvis --mode local` study path.
 Use it when you want the essentials for each step first, then jump into deeper material only where needed.
 
 Deep-dive entry points:

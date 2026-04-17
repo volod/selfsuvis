@@ -1,6 +1,6 @@
 # Configuration
 
-Defaults live in `env/dev.env`, `env/test.env`, and `env/prod.env`. Set `APP_ENV=dev|test|prod` to pick one, then override individual values with environment variables. The authoritative source is [`pipeline/core/config.py`](/home/vola/src/selfsuvis/pipeline/core/config.py).
+Defaults live in `env/dev.env`, `env/test.env`, and `env/prod.env`. Set `APP_ENV=dev|test|prod` to pick one, then override them with a project-root `.env` or exported environment variables. Generate a resource-aware root `.env` with `selfsuvis-env --env dev`. The authoritative source is [`pipeline/core/config.py`](/home/vola/src/selfsuvis/pipeline/core/config.py).
 
 ## Core storage and paths
 
@@ -19,7 +19,7 @@ Defaults live in `env/dev.env`, `env/test.env`, and `env/prod.env`. Set `APP_ENV
 Initialize PostgreSQL after first startup:
 
 ```bash
-python scripts/migrate_postgres.py
+python -m selfsuvis.scripts.migrate_postgres
 ```
 
 ## Retrieval and indexing

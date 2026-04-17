@@ -19,8 +19,8 @@ If you oversample, cost rises across all downstream models.
 The FPS choice is also the implicit temporal resolution of the entire pipeline.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_embed.py`](../../pipeline/workflows/local/steps_embed.py) — `step_extract_frames()`
-- [`pipeline/media/frames.py`](../../pipeline/media/frames.py)
+- [`pipeline/workflows/local/steps_embed.py`](../../src/selfsuvis/pipeline/workflows/local/steps_embed.py) — `step_extract_frames()`
+- [`pipeline/media/frames.py`](../../src/selfsuvis/pipeline/media/frames.py)
 
 **Key concept: why FFmpeg, not raw decoding?**
 FFmpeg handles codec quirks, variable frame rates, B-frames, and container metadata.
@@ -56,10 +56,10 @@ Every search query, similarity comparison, and later evaluation step operates on
 Getting them wrong poisons the retrieval signal for the rest of the pipeline.
 
 **Implementation:**
-- [`models/openclip_model.py`](../../models/openclip_model.py) — `OpenCLIPEmbedder`
-- [`models/dino_model.py`](../../models/dino_model.py) — `DINOEmbedder`
-- [`pipeline/workflows/local/steps_embed.py`](../../pipeline/workflows/local/steps_embed.py)
-- [`pipeline/storage/qdrant.py`](../../pipeline/storage/qdrant.py)
+- [`models/openclip_model.py`](../../src/selfsuvis/models/openclip_model.py) — `OpenCLIPEmbedder`
+- [`models/dino_model.py`](../../src/selfsuvis/models/dino_model.py) — `DINOEmbedder`
+- [`pipeline/workflows/local/steps_embed.py`](../../src/selfsuvis/pipeline/workflows/local/steps_embed.py)
+- [`pipeline/storage/qdrant.py`](../../src/selfsuvis/pipeline/storage/qdrant.py)
 
 **Key concepts:**
 
@@ -112,9 +112,9 @@ Without Gemma analysis, Qwen and Florence see no scene context and must reason e
 With Gemma analysis, they receive a domain hint like `"Dominant scene: road | Known objects: truck, car | Visual transitions: 3"`.
 
 **Implementation:**
-- [`models/gemma_model.py`](../../models/gemma_model.py) — `GemmaEmbedder`
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
-- [`pipeline/workflows/local/_common.py`](../../pipeline/workflows/local/_common.py) — `VideoKnowledge.add_gemma()`
+- [`models/gemma_model.py`](../../src/selfsuvis/models/gemma_model.py) — `GemmaEmbedder`
+- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
+- [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `VideoKnowledge.add_gemma()`
 
 **Key concepts:**
 
@@ -159,9 +159,9 @@ Every later reasoning step that needs "what is happening visually" can use these
 The captions are also how the pipeline builds scene segments (groups of temporally adjacent frames with similar content).
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
-- [`pipeline/vision/florence.py`](../../pipeline/vision/florence.py)
-- [`pipeline/vision/factory.py`](../../pipeline/vision/factory.py)
+- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
+- [`pipeline/vision/florence.py`](../../src/selfsuvis/pipeline/vision/florence.py)
+- [`pipeline/vision/factory.py`](../../src/selfsuvis/pipeline/vision/factory.py)
 
 **Key concepts:**
 
@@ -212,9 +212,9 @@ pilot callouts, operator radio communications, GPS coordinates announced aloud, 
 Without ASR, the pipeline is blind to everything spoken.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
-- [`pipeline/vision/asr.py`](../../pipeline/vision/asr.py)
-- [`pipeline/media/audio.py`](../../pipeline/media/audio.py)
+- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
+- [`pipeline/vision/asr.py`](../../src/selfsuvis/pipeline/vision/asr.py)
+- [`pipeline/media/audio.py`](../../src/selfsuvis/pipeline/media/audio.py)
 
 **Key concepts:**
 
@@ -261,8 +261,8 @@ A frame showing "Sector 7 Checkpoint" resolves location ambiguity that no captio
 HUD overlays, road signs, building names, vehicle markings, and instrument panels are all invisible to embedding models but readable by OCR.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
-- [`pipeline/vision/ocr.py`](../../pipeline/vision/ocr.py)
+- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
+- [`pipeline/vision/ocr.py`](../../src/selfsuvis/pipeline/vision/ocr.py)
 
 **Key concepts:**
 
@@ -305,8 +305,8 @@ A shallow scene (high near ratio) implies close-range inspection or a cluttered 
 This prior guides Qwen's spatial reasoning and flags frames where real SfM mapping may be critical.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
-- [`pipeline/vision/depth.py`](../../pipeline/vision/depth.py)
+- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
+- [`pipeline/vision/depth.py`](../../src/selfsuvis/pipeline/vision/depth.py)
 
 **Key concepts:**
 
@@ -353,8 +353,8 @@ Where CLIP captures "what does this scene look like?", detection captures "what 
 The entity inventory from this step enriches the domain hint passed to Qwen.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
-- [`pipeline/vision/detection.py`](../../pipeline/vision/detection.py)
+- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
+- [`pipeline/vision/detection.py`](../../src/selfsuvis/pipeline/vision/detection.py)
 
 **Key concepts:**
 

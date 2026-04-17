@@ -88,19 +88,19 @@ python scripts/prepare_models.py --sam
 
 ```bash
 # Default (YOLO11l + SAM2/3 auto)
-python main.py --mode local
+selfsuvis --mode local
 
 # Disable SAM (faster, no masks)
-python main.py --mode local --no-sam
+selfsuvis --mode local --no-sam
 
 # Disable both YOLO and SAM
-python main.py --mode local --no-yolo --no-sam
+selfsuvis --mode local --no-yolo --no-sam
 
 # Higher-quality YOLO
-YOLO_MODEL=yolo11x python main.py --mode local
+YOLO_MODEL=yolo11x selfsuvis --mode local
 
 # Faster YOLO
-YOLO_MODEL=yolo11n python main.py --mode local
+YOLO_MODEL=yolo11n selfsuvis --mode local
 ```
 
 ---

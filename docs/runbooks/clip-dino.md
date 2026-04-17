@@ -54,13 +54,13 @@ All prior indexed frames become incompatible — full re-index required.
 
 ```bash
 # Default (CLIP only, ViT-B/16 openai)
-python main.py --mode local
+selfsuvis --mode local
 
 # CLIP + DINOv3 dual embedding
-MODEL_NAME=dinov3 python main.py --mode local
+MODEL_NAME=dinov3 selfsuvis --mode local
 
 # Larger CLIP for better retrieval quality
-OPENCLIP_MODEL=ViT-L-14 OPENCLIP_PRETRAINED=openai python main.py --mode local
+OPENCLIP_MODEL=ViT-L-14 OPENCLIP_PRETRAINED=openai selfsuvis --mode local
 
 # Download / warm model cache
 python scripts/prepare_models.py --clip --dino

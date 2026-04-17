@@ -49,10 +49,10 @@ Gemma skips or when `GEMMA_API_URL` is unset. Every indexed frame gets a caption
 
 ```bash
 # Default: Florence-2-large loaded locally
-python main.py --mode local
+selfsuvis --mode local
 
 # Smaller model for low-VRAM machines
-FLORENCE_MODEL=microsoft/Florence-2-base python main.py --mode local
+FLORENCE_MODEL=microsoft/Florence-2-base selfsuvis --mode local
 
 # Download weights
 python scripts/prepare_models.py --florence
@@ -69,7 +69,7 @@ python -m vllm.entrypoints.openai.api_server \
   --port 8020
 
 # Point pipeline at sidecar (no local VRAM used)
-FLORENCE_API_URL=http://localhost:8020/v1 python main.py --mode local
+FLORENCE_API_URL=http://localhost:8020/v1 selfsuvis --mode local
 ```
 
 ---
@@ -116,7 +116,7 @@ name (e.g. `florence-2-large:v1:fp16`). Bump to `v2` when changing the prompt or
 post-processing logic so existing captions can be distinguished from new ones.
 
 ```bash
-FLORENCE_PROMPT_VERSION=v2 python main.py --mode local
+FLORENCE_PROMPT_VERSION=v2 selfsuvis --mode local
 ```
 
 ---

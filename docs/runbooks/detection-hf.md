@@ -58,13 +58,13 @@ Detection is **disabled by default** (`DETECTION_ENABLED=false`).
 
 ```bash
 # Enable with auto model
-DETECTION_ENABLED=true python main.py --mode local
+DETECTION_ENABLED=true selfsuvis --mode local
 
 # Open-vocabulary with custom labels
 DETECTION_ENABLED=true \
   DETECTION_MODEL=IDEA-Research/grounding-dino-base \
   DETECTION_LABELS="vehicle,person,weapon,container,antenna" \
-  python main.py --mode local
+  selfsuvis --mode local
 
 # Download weights
 python scripts/prepare_models.py --detection

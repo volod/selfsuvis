@@ -12,6 +12,10 @@ You cannot evaluate improvement with the same process that produced the improvem
 Steps 28-31 are the adapt-then-measure loop.
 Steps 32-35 are the human-facing outputs of that loop.
 
+Note: these numbers are conceptual study buckets, not the current literal top-level
+step numbers in `src/selfsuvis/pipeline/workflows/local/runner.py`. The current local
+runner groups this phase into fewer top-level runtime steps.
+
 ---
 
 <a id="step-28-ssl-dino-fine-tuning"></a>
@@ -35,8 +39,8 @@ Frames tagged `needs_annotation` (high `al_score` combining RSSM surprise + DINO
 This creates a virtuous cycle: RSSM → better AL tags → better SSL training data → better fine-tuned backbone → better edge models (hydrated ONNX exports at Step 30).
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_ssl.py`](../../pipeline/workflows/local/steps_ssl.py)
-- [`pipeline/training/ssl.py`](../../pipeline/training/ssl.py)
+- [`pipeline/workflows/local/steps_ssl.py`](../../src/selfsuvis/pipeline/workflows/local/steps_ssl.py)
+- [`pipeline/training/ssl.py`](../../src/selfsuvis/pipeline/training/ssl.py)
 
 **Key concepts:**
 
@@ -101,8 +105,8 @@ Distillation transfers the teacher's learned structure into a smaller architectu
 The student does not need raw pixels from the mission: it learns from the teacher's output on those pixels.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_distill.py`](../../pipeline/workflows/local/steps_distill.py)
-- [`pipeline/training/distill.py`](../../pipeline/training/distill.py)
+- [`pipeline/workflows/local/steps_distill.py`](../../src/selfsuvis/pipeline/workflows/local/steps_distill.py)
+- [`pipeline/training/distill.py`](../../src/selfsuvis/pipeline/training/distill.py)
 
 **Key concepts:**
 
@@ -162,7 +166,7 @@ ONNX (Open Neural Network Exchange) is the standard intermediate format for depl
 The gallery is the pre-computed embedding index that allows real-time search without re-embedding every frame on each query.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_distill.py`](../../pipeline/workflows/local/steps_distill.py)
+- [`pipeline/workflows/local/steps_distill.py`](../../src/selfsuvis/pipeline/workflows/local/steps_distill.py)
 
 **Key concepts:**
 
@@ -218,7 +222,7 @@ The fine-tuned model might:
 Step 31 is the only honest measure of whether Steps 28-30 were worth doing.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_embed.py`](../../pipeline/workflows/local/steps_embed.py)
+- [`pipeline/workflows/local/steps_embed.py`](../../src/selfsuvis/pipeline/workflows/local/steps_embed.py)
 
 **Key concepts:**
 
@@ -265,8 +269,8 @@ Gemma scene analysis, Florence captions, ASR text, Qwen structured observations,
 This is where the pipeline becomes a product rather than a tool.
 
 **Implementation:**
-- [`pipeline/workflows/local/runner.py`](../../pipeline/workflows/local/runner.py)
-- [`pipeline/workflows/local/steps_report.py`](../../pipeline/workflows/local/steps_report.py)
+- [`pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py)
+- [`pipeline/workflows/local/steps_report.py`](../../src/selfsuvis/pipeline/workflows/local/steps_report.py)
 
 **Key concepts:**
 
@@ -320,7 +324,7 @@ Disagreement is often more informative than agreement:
 - Systematic disagreement between Florence and Qwen across many frames may indicate that one model's prompting is wrong for this domain.
 
 **Implementation:**
-- [`pipeline/workflows/local/runner.py`](../../pipeline/workflows/local/runner.py)
+- [`pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py)
 
 **Key concepts:**
 
@@ -371,8 +375,8 @@ All previous steps produce machine-readable intermediate artifacts.
 Step 34 assembles them into something a person can read in 10-15 minutes and use to make operational decisions.
 
 **Implementation:**
-- [`pipeline/workflows/local/runner.py`](../../pipeline/workflows/local/runner.py)
-- [`pipeline/report_generator.py`](../../pipeline/report_generator.py)
+- [`pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py)
+- [`pipeline/report_generator.py`](../../src/selfsuvis/pipeline/report_generator.py)
 
 **Key concepts:**
 
@@ -435,7 +439,7 @@ With an audit trail:
 - An engineer can diagnose failures by following the provenance chain backward.
 
 **Implementation:**
-- [`pipeline/workflows/local/runner.py`](../../pipeline/workflows/local/runner.py)
+- [`pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py)
 - [`docs/pipeline.md`](../pipeline.md)
 
 **Key concepts:**

@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data venv venv-cuda venv-pip docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs
+.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs
 
 # Default target: show help when no target is given
 help:
@@ -8,17 +8,19 @@ help:
 	@echo ""
 	@echo "  Stack (Docker)"
 	@echo "  ---------------"
-	@echo "  make up              Start main stack + mapper ICP service (docker-compose.override.yml auto-loaded)
-  make cvat-up         Start CVAT annotation service (http://localhost:8091)
-  make cvat-down       Stop CVAT services
-  make cvat-admin      Create CVAT superuser (first-time setup)
-  make mapper-logs     Stream mapper (ICP fusion) container logs"
+	@echo "  make up              Start main stack + mapper ICP service (docker-compose.override.yml auto-loaded)"
+	@echo "  make cvat-up         Start CVAT annotation service (http://localhost:8091)"
+	@echo "  make cvat-down       Stop CVAT services"
+	@echo "  make cvat-admin      Create CVAT superuser (first-time setup)"
+	@echo "  make mapper-logs     Stream mapper (ICP fusion) container logs"
 	@echo "  make down            Stop all containers"
 	@echo "  make logs            Stream container logs (last 100 lines)"
 	@echo "  make docker-check    Check that Docker daemon is reachable (run if you get permission denied)"
 	@echo ""
 	@echo "  Local dev (venv)"
 	@echo "  -----------------"
+	@echo "  make env             Generate a resource-aware root .env from the dev preset"
+	@echo "  make env-interactive Generate .env with interactive prompts"
 	@echo "  make venv            Create .venv, install deps; auto-detects CUDA via nvidia-smi (requires uv on PATH)"
 	@echo "  make venv-cuda       Same as venv but forces CUDA wheel install (use if nvidia-smi is absent but GPU present)"
 	@echo "  make venv-pip        Install pip into an existing .venv (e.g. after uv venv .venv)"
@@ -39,7 +41,7 @@ help:
 	@echo "  ----------------"
 	@echo "  Docker permission denied:  sudo usermod -aG docker \$$USER  then log out and back in (or newgrp docker)"
 	@echo "  GPU driver error:           sudo ./scripts/install_nvidia_docker.sh  or  make test-no-gpu"
-	@echo "  Unable to open database:   sudo chown -R \$$(id -u):\$$(id -g) data_test cache_test"
+	@echo "  Unable to open database:   sudo chown -R \$$(id -u):\$$(id -g) data cache_test"
 	@echo "  Root-owned data/cache:    make fix-data"
 	@echo ""
 	@echo "  Run  make <target>  or  make help  to show this again."
@@ -58,16 +60,22 @@ down: docker-check
 logs: docker-check
 	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml logs -f --tail=100
 
+env:
+	$(if $(wildcard .venv/bin/python),.venv/bin/python -m selfsuvis.scripts.generate_env --env dev,python -m selfsuvis.scripts.generate_env --env dev)
+
+env-interactive:
+	$(if $(wildcard .venv/bin/python),.venv/bin/python -m selfsuvis.scripts.generate_env --interactive,python -m selfsuvis.scripts.generate_env --interactive)
+
 venv:
 	uv venv .venv
 	./scripts/ensure_venv_pip.sh .venv
-	./scripts/install_requirements.sh requirements/requirements_dev.txt .venv
+	./scripts/install_requirements.sh vision,dev .venv
 
 # Force CUDA torch wheels regardless of nvidia-smi detection (use when GPU is present but nvidia-smi absent)
 venv-cuda:
 	uv venv .venv
 	./scripts/ensure_venv_pip.sh .venv
-	FORCE_CUDA=1 ./scripts/install_requirements.sh requirements/requirements_dev.txt .venv
+	FORCE_CUDA=1 ./scripts/install_requirements.sh vision,dev .venv
 
 # Install pip into existing .venv (when uv created it without pip)
 venv-pip:
@@ -95,7 +103,7 @@ docker-check:
 # Ensure test data dirs exist and are owned by current user (avoids "unable to open database file")
 # Uses a one-off container so chown works even when dirs were previously created by Docker as root
 test-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data_test cache_test && chown $$HOST_UID:$$HOST_GID data_test cache_test' 2>/dev/null && echo "Test directories data_test and cache_test are ready." || (mkdir -p data_test cache_test && echo "Created data_test and cache_test. If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) data_test cache_test")
+	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data cache_test && chown $$HOST_UID:$$HOST_GID data cache_test' 2>/dev/null && echo "Test directories data and cache_test are ready." || (mkdir -p data cache_test && echo "Created data and cache_test. If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) data cache_test")
 
 # Integration tests (require API + worker + Qdrant). Runs docker-check first. Uses GPU by default.
 test: docker-check test-dirs

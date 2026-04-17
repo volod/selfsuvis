@@ -14,7 +14,7 @@ Later steps query `context_for_frame(t_sec)` or `domain_hint()` to receive all p
 
 The main accumulator is implemented in:
 
-- [`pipeline/workflows/local/_common.py`](../../pipeline/workflows/local/_common.py) — `VideoKnowledge` class
+- [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `VideoKnowledge` class
 
 ---
 
@@ -196,10 +196,10 @@ If you see a wrong synthesis output, start with the audit document.
 
 To understand the agentic part of the pipeline, read these in order:
 
-1. [`pipeline/workflows/local/_common.py`](../../pipeline/workflows/local/_common.py) — `VideoKnowledge` class and `context_for_frame()`
-2. [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py) — how Florence, ASR, OCR, depth, and detection deposit into `VideoKnowledge`
-3. [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py) — how Qwen queries `context_for_frame()` and updates rolling state
-4. [`pipeline/workflows/local/runner.py`](../../pipeline/workflows/local/runner.py) — the top-level orchestration and the `VideoKnowledge` lifecycle
+1. [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `VideoKnowledge` class and `context_for_frame()`
+2. [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — how Florence, ASR, OCR, depth, and detection deposit into `VideoKnowledge`
+3. [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — how Qwen queries `context_for_frame()` and updates rolling state
+4. [`pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py) — the top-level orchestration and the `VideoKnowledge` lifecycle
 
 ## Questions To Ask While Reading
 

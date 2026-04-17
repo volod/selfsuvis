@@ -21,8 +21,8 @@ Sudden frequency occupation or jamming signatures can indicate activity that no 
 For drone missions, detecting interference in control-link bands (2.4 GHz, 5.8 GHz) is a safety signal.
 
 **Implementation:**
-- [`pipeline/vision/rf_analyzer.py`](../../pipeline/vision/rf_analyzer.py)
-- [`scripts/prepare_sensor_data.sh`](../../scripts/prepare_sensor_data.sh)
+- [`pipeline/vision/rf_analyzer.py`](../../src/selfsuvis/pipeline/vision/rf_analyzer.py)
+- [`scripts/prepare_sensor_data.sh`](../../src/selfsuvis/scripts/prepare_sensor_data.sh)
 
 **Key concepts:**
 
@@ -75,7 +75,7 @@ living agents behind foliage or at night, engine heat in parked vehicles, heat l
 A vehicle that looks inactive in visible light may show a running engine in thermal.
 
 **Implementation:**
-- [`pipeline/vision/factory.py`](../../pipeline/vision/factory.py) — sensor adapter registration
+- [`pipeline/vision/factory.py`](../../src/selfsuvis/pipeline/vision/factory.py) — sensor adapter registration
 - Thermal frames are processed as grayscale imagery with specialized normalization
 - Sidecar files: `.seq` (FLIR), `.tiff` 16-bit, or proprietary drone thermal stream
 
@@ -618,7 +618,7 @@ Agreement across modalities increases confidence.
 Disagreement across modalities is informative: it either means one sensor is wrong or that something is genuinely strange.
 
 **Implementation:**
-- [`pipeline/workflows/local/_common.py`](../../pipeline/workflows/local/_common.py) — `VideoKnowledge` accumulator
+- [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `VideoKnowledge` accumulator
 - Timestamp alignment: each sensor stream is resampled or nearest-matched to the frame `t_sec` grid
 - Lag tolerance: configurable per-sensor offset to account for processing delay
 

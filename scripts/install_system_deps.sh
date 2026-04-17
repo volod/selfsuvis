@@ -19,8 +19,7 @@ for arg in "$@"; do
       echo "  --with-python  Also install Python 3 and python3-venv / python3-pip."
       echo ""
       echo "After running this script, create a venv and install Python deps:"
-      echo "  python3 -m venv .venv && . .venv/bin/activate"
-      echo "  pip install -r requirements/requirements_prod.txt -r requirements/requirements_test.txt"
+      echo "  make venv"
       exit 0
       ;;
   esac
@@ -135,12 +134,10 @@ echo "  System dependencies installed"
 echo "=============================================="
 if [[ "$WITH_PYTHON" == true ]]; then
   echo "Python was installed. Next steps:"
-  echo "  python3 -m venv .venv && . .venv/bin/activate"
-  echo "  pip install -r requirements/requirements_prod.txt -r requirements/requirements_test.txt"
+  echo "  make venv"
 else
   echo "Next steps: ensure Python 3.10+ is installed, then create a venv and install deps:"
-  echo "  python3 -m venv .venv && . .venv/bin/activate"
-  echo "  pip install -r requirements/requirements_prod.txt -r requirements/requirements_test.txt"
+  echo "  make venv"
 fi
 echo ""
 echo "To run the full stack with Docker instead: make up"

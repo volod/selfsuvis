@@ -5,8 +5,9 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 RUN python -m venv "$VIRTUAL_ENV"
-COPY requirements/ ./requirements/
-RUN pip install --no-cache-dir -r requirements/requirements_prod.txt
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir ".[vision]"
 
 FROM python:3.10-slim
 
@@ -15,8 +16,4 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 COPY --from=builder /opt/venv /opt/venv
-COPY ui ./ui
-
-ENV PYTHONPATH=/app
-
-CMD ["streamlit", "run", "ui/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+CMD ["python", "-m", "selfsuvis.ui", "--server.port", "8501", "--server.address", "0.0.0.0"]

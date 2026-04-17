@@ -5,8 +5,9 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 RUN python -m venv "$VIRTUAL_ENV"
-COPY requirements/ ./requirements/
-RUN pip install --no-cache-dir -r requirements/requirements_prod.txt
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir ".[vision]"
 
 FROM python:3.10-slim
 
@@ -15,10 +16,4 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 COPY --from=builder /opt/venv /opt/venv
-COPY app ./app
-COPY models ./models
-COPY pipeline ./pipeline
-
-ENV PYTHONPATH=/app
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "selfsuvis.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

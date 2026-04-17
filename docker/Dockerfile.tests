@@ -5,8 +5,9 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 RUN python -m venv "$VIRTUAL_ENV"
-COPY requirements/ ./requirements/
-RUN pip install --no-cache-dir -r requirements/requirements_test.txt
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir ".[vision,dev]"
 
 FROM python:3.10-slim
 
@@ -15,13 +16,9 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 COPY --from=builder /opt/venv /opt/venv
-COPY app ./app
-COPY models ./models
-COPY pipeline ./pipeline
 COPY tests ./tests
 COPY docker/pytest.ini /app/pytest.ini
 
-ENV PYTHONPATH=/app
 ENV PYTEST_CACHE_DIR=/tmp/.pytest_cache
 
 # Run only API integration tests (unit tests need cv2/libGL and are run via make test-unit)

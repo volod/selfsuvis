@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from tests.integration.conftest import PipelineMockConn, make_frame_record
+from tests.support.db import PipelineMockConn, make_frame_record
 
 
 def run(coro):
@@ -33,7 +33,7 @@ def conn():
 # ── upsert_mission ────────────────────────────────────────────────────────────
 
 def test_upsert_mission_creates_record(conn):
-    from pipeline.storage.missions import upsert_mission
+    from selfsuvis.pipeline.storage.missions import upsert_mission
 
     run(upsert_mission(
         conn,
@@ -58,7 +58,7 @@ def test_upsert_mission_creates_record(conn):
 
 
 def test_upsert_mission_updates_existing(conn):
-    from pipeline.storage.missions import upsert_mission
+    from selfsuvis.pipeline.storage.missions import upsert_mission
 
     run(upsert_mission(
         conn, mission_id="m1", video_id="v1", video_path="/v1.mp4",
@@ -77,7 +77,7 @@ def test_upsert_mission_updates_existing(conn):
 
 
 def test_upsert_mission_null_gps_origin(conn):
-    from pipeline.storage.missions import upsert_mission
+    from selfsuvis.pipeline.storage.missions import upsert_mission
 
     run(upsert_mission(
         conn, mission_id="m2", video_id="v2", video_path="/v2.mp4",
@@ -92,7 +92,7 @@ def test_upsert_mission_null_gps_origin(conn):
 # ── replace_frames ────────────────────────────────────────────────────────────
 
 def test_replace_frames_inserts_new_records(conn):
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     frames = [
         make_frame_record("f1", "m1", t_sec=1.0),
@@ -107,7 +107,7 @@ def test_replace_frames_inserts_new_records(conn):
 
 
 def test_replace_frames_clears_existing_for_mission(conn):
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     # Insert initial frames
     run(replace_frames(conn, "m1", [make_frame_record("old1", "m1")]))
@@ -120,7 +120,7 @@ def test_replace_frames_clears_existing_for_mission(conn):
 
 
 def test_replace_frames_does_not_remove_other_missions_frames(conn):
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     run(replace_frames(conn, "m1", [make_frame_record("f_m1", "m1")]))
     run(replace_frames(conn, "m2", [make_frame_record("f_m2", "m2")]))
@@ -132,7 +132,7 @@ def test_replace_frames_does_not_remove_other_missions_frames(conn):
 
 
 def test_replace_frames_with_empty_list_clears_mission(conn):
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     run(replace_frames(conn, "m1", [make_frame_record("f1", "m1")]))
     run(replace_frames(conn, "m1", []))
@@ -142,7 +142,7 @@ def test_replace_frames_with_empty_list_clears_mission(conn):
 
 
 def test_replace_frames_stores_gps_json(conn):
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     frame = make_frame_record("f1", "m1", gps_lat=47.5, gps_lon=8.5)
     run(replace_frames(conn, "m1", [frame]))
@@ -153,7 +153,7 @@ def test_replace_frames_stores_gps_json(conn):
 
 
 def test_replace_frames_stores_al_tag(conn):
-    from pipeline.storage.missions import replace_frames
+    from selfsuvis.pipeline.storage.missions import replace_frames
 
     frame = make_frame_record("f1", "m1", al_tag="needs_annotation", al_score=0.87)
     run(replace_frames(conn, "m1", [frame]))
@@ -165,7 +165,7 @@ def test_replace_frames_stores_al_tag(conn):
 # ── mark_mission_finished ─────────────────────────────────────────────────────
 
 def test_mark_mission_finished_sets_done_status(conn):
-    from pipeline.storage.missions import mark_mission_finished, upsert_mission
+    from selfsuvis.pipeline.storage.missions import mark_mission_finished, upsert_mission
 
     run(upsert_mission(
         conn, mission_id="m1", video_id="v1", video_path="/v.mp4",
@@ -178,7 +178,7 @@ def test_mark_mission_finished_sets_done_status(conn):
 
 
 def test_mark_mission_finished_with_error_message(conn):
-    from pipeline.storage.missions import mark_mission_finished, upsert_mission
+    from selfsuvis.pipeline.storage.missions import mark_mission_finished, upsert_mission
 
     run(upsert_mission(
         conn, mission_id="m1", video_id="v1", video_path="/v.mp4",
@@ -193,7 +193,7 @@ def test_mark_mission_finished_with_error_message(conn):
 
 
 def test_mark_mission_finished_sets_pose_status(conn):
-    from pipeline.storage.missions import mark_mission_finished, upsert_mission
+    from selfsuvis.pipeline.storage.missions import mark_mission_finished, upsert_mission
 
     run(upsert_mission(
         conn, mission_id="m1", video_id="v1", video_path="/v.mp4",
@@ -208,7 +208,7 @@ def test_mark_mission_finished_sets_pose_status(conn):
 # ── apply_gps_registration ────────────────────────────────────────────────────
 
 def test_apply_gps_registration_updates_enu_origin(conn):
-    from pipeline.storage.missions import apply_gps_registration, upsert_mission
+    from selfsuvis.pipeline.storage.missions import apply_gps_registration, upsert_mission
 
     run(upsert_mission(
         conn, mission_id="m1", video_id="v1", video_path="/v.mp4",
@@ -225,7 +225,7 @@ def test_apply_gps_registration_updates_enu_origin(conn):
 
 
 def test_apply_gps_registration_propagates_frame_poses(conn):
-    from pipeline.storage.missions import apply_gps_registration, replace_frames
+    from selfsuvis.pipeline.storage.missions import apply_gps_registration, replace_frames
 
     run(replace_frames(conn, "m1", [
         make_frame_record("f1", "m1"),
@@ -244,7 +244,7 @@ def test_apply_gps_registration_propagates_frame_poses(conn):
 # ── list_frames_after ─────────────────────────────────────────────────────────
 
 def test_list_frames_after_no_cursor_returns_first_page(conn):
-    from pipeline.storage.missions import list_frames_after, replace_frames
+    from selfsuvis.pipeline.storage.missions import list_frames_after, replace_frames
 
     frames = [make_frame_record(f"f{i}", "m1", t_sec=float(i)) for i in range(5)]
     run(replace_frames(conn, "m1", frames))
@@ -254,7 +254,7 @@ def test_list_frames_after_no_cursor_returns_first_page(conn):
 
 
 def test_list_frames_after_returns_all_when_limit_large(conn):
-    from pipeline.storage.missions import list_frames_after, replace_frames
+    from selfsuvis.pipeline.storage.missions import list_frames_after, replace_frames
 
     frames = [make_frame_record(f"f{i}", "m1") for i in range(4)]
     run(replace_frames(conn, "m1", frames))
@@ -264,8 +264,8 @@ def test_list_frames_after_returns_all_when_limit_large(conn):
 
 
 def test_list_frames_after_cursor_paginates(conn):
-    from pipeline.storage.missions import list_frames_after, replace_frames
-    from pipeline.core.utils import utcnow
+    from selfsuvis.pipeline.storage.missions import list_frames_after, replace_frames
+    from selfsuvis.pipeline.core.utils import utcnow
 
     now = utcnow()
     frames = [make_frame_record(f"f{i}", "m1") for i in range(6)]
@@ -288,7 +288,7 @@ def test_list_frames_after_cursor_paginates(conn):
 
 
 def test_list_frames_after_empty_table_returns_empty(conn):
-    from pipeline.storage.missions import list_frames_after
+    from selfsuvis.pipeline.storage.missions import list_frames_after
 
     result = run(list_frames_after(conn, cursor=None, limit=10))
     assert result == []
@@ -298,8 +298,8 @@ def test_list_frames_after_empty_table_returns_empty(conn):
 
 def test_full_mission_lifecycle(conn):
     """pending → indexing → done, with frames and GPS registration."""
-    from pipeline.storage.jobs import create_job, fetch_and_claim_next_pending, update_job
-    from pipeline.storage.missions import (
+    from selfsuvis.pipeline.storage.jobs import create_job, fetch_and_claim_next_pending, update_job
+    from selfsuvis.pipeline.storage.missions import (
         apply_gps_registration,
         list_frames_after,
         mark_mission_finished,

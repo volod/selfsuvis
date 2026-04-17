@@ -3,28 +3,65 @@
 This guide explains how to approach the repo as a human learner.
 The goal is not only to run the pipeline once, but to understand why each stage exists and how evidence moves through the stack.
 
+## Who This Is For
+
+This guide is for a person who needs one of these outcomes:
+
+- understand the repo well enough to modify it
+- debug a bad local run without guessing
+- explain the pipeline to another engineer or operator
+- learn the perception stack without reading every file in order
+
+If you only want to run the system, use [`README.md`](../README.md) and [`local_path.md`](../local_path.md).
+If you want to understand the system, start here.
+
 ## Source Of Truth
 
 For runtime behavior, the main local source is:
 
-- [`pipeline/workflows/local/runner.py`](../../pipeline/workflows/local/runner.py)
+- [`src/selfsuvis/pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py)
 
 Supporting step modules live here:
 
-- [`pipeline/workflows/local/steps_embed.py`](../../pipeline/workflows/local/steps_embed.py)
-- [`pipeline/workflows/local/steps_caption.py`](../../pipeline/workflows/local/steps_caption.py)
-- [`pipeline/workflows/local/steps_yolo_sam.py`](../../pipeline/workflows/local/steps_yolo_sam.py)
-- [`pipeline/workflows/local/steps_gemma_tracking.py`](../../pipeline/workflows/local/steps_gemma_tracking.py)
-- [`pipeline/workflows/local/steps_map.py`](../../pipeline/workflows/local/steps_map.py)
-- [`pipeline/workflows/local/steps_ssl.py`](../../pipeline/workflows/local/steps_ssl.py)
-- [`pipeline/workflows/local/steps_distill.py`](../../pipeline/workflows/local/steps_distill.py)
-- [`pipeline/workflows/local/steps_report.py`](../../pipeline/workflows/local/steps_report.py)
+- [`src/selfsuvis/pipeline/workflows/local/steps_embed.py`](../../src/selfsuvis/pipeline/workflows/local/steps_embed.py)
+- [`src/selfsuvis/pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
+- [`src/selfsuvis/pipeline/workflows/local/steps_yolo_sam.py`](../../src/selfsuvis/pipeline/workflows/local/steps_yolo_sam.py)
+- [`src/selfsuvis/pipeline/workflows/local/steps_gemma_tracking.py`](../../src/selfsuvis/pipeline/workflows/local/steps_gemma_tracking.py)
+- [`src/selfsuvis/pipeline/workflows/local/steps_map.py`](../../src/selfsuvis/pipeline/workflows/local/steps_map.py)
+- [`src/selfsuvis/pipeline/workflows/local/steps_ssl.py`](../../src/selfsuvis/pipeline/workflows/local/steps_ssl.py)
+- [`src/selfsuvis/pipeline/workflows/local/steps_distill.py`](../../src/selfsuvis/pipeline/workflows/local/steps_distill.py)
+- [`src/selfsuvis/pipeline/workflows/local/steps_report.py`](../../src/selfsuvis/pipeline/workflows/local/steps_report.py)
 
-The 35-step learning path is broader than the runner implementation itself. That is intentional:
+The learning path is broader than the runner implementation itself. That is intentional:
 
 - the runner is the execution path
 - the learning path is the conceptual path
-- some conceptual steps are grouped or partially optional in code
+- some conceptual steps are grouped or optional in code
+
+Current reality:
+
+- the local runner executes **23 top-level steps**
+- the learning path sometimes uses a more granular conceptual breakdown
+- production indexing is a different execution path from local full-analysis
+
+Treat these as three different views of the same system, not as contradictions.
+
+## Current Codebase Shape
+
+The repo uses a `src/` layout. The package roots you should keep in your head are:
+
+```text
+src/selfsuvis/app
+src/selfsuvis/models
+src/selfsuvis/pipeline
+src/selfsuvis/scripts
+src/selfsuvis/worker
+tests/
+docs/
+```
+
+Do not mentally map the project as top-level `pipeline/`, `models/`, and `worker/` folders anymore.
+Some older prose still uses those names conceptually, but the code lives under `src/selfsuvis/...`.
 
 ## Best Mental Model
 
@@ -36,15 +73,19 @@ Read the system in five layers:
 4. Structured reasoning: tracking, temporal embeddings, multimodal experts, map building
 5. Adaptation and audit: SSL, distillation, export, evaluation, final synthesis
 
+That model is still the easiest way to think about the pipeline even though the current
+runner is organized as 23 top-level execution steps.
+
 ## How A Human Should Study It
 
 Do not start by reading every file.
 Use this order instead:
 
-1. Run or inspect one local mission output directory.
-2. Read `local_path.md`.
-3. Read the deep-dive doc for the phase you care about.
-4. Open the code modules only after you know what question you are trying to answer.
+1. Generate or inspect one real local mission output directory.
+2. Read [`architecture.md`](../architecture.md) and [`pipeline.md`](../pipeline.md).
+3. Read [`local_path.md`](../local_path.md).
+4. Read the deep-dive doc for the phase you care about.
+5. Open the code modules only after you know what question you are trying to answer.
 
 Good questions:
 
@@ -59,6 +100,19 @@ Weak questions:
 - What does every line do?
 - Which model is coolest?
 - Can I memorize all options before I run anything?
+
+## What Changed Recently
+
+If you are returning to the repo after an older version, these are the changes that matter most:
+
+- the project now uses `pyproject.toml` as the dependency source of truth
+- environment bootstrapping is centered on `selfsuvis-env`
+- tests are now mostly organized to mirror `src/selfsuvis/`
+- the architecture now explicitly includes:
+  - semantic environment graph generation
+  - Gemma-directed tracking
+  - UniDriveVLA expert analysis
+  - resource-aware `.env` generation
 
 ## What To Inspect After A Real Run
 
@@ -76,6 +130,16 @@ A strong first pass is to inspect artifacts in this order:
 
 That order mirrors the move from raw evidence to higher-level reasoning.
 
+If Gemma-directed tracking is enabled, add:
+
+10. `gemma_tracking_summary.md`
+11. `gemma_tracking_results.json`
+
+If semantic graphing is enabled, add:
+
+12. `3d_map/semantic_environment_graph.json`
+13. `3d_map/semantic_environment_graph.md`
+
 ## Practical Study Rules
 
 - Study outputs before internals.
@@ -83,6 +147,18 @@ That order mirrors the move from raw evidence to higher-level reasoning.
 - Separate representation problems from reasoning problems.
 - Separate “this step exists in the repo” from “this step is currently enabled in my run”.
 - Keep notes on inputs, outputs, and failure modes for each step.
+
+## Human Route Through The Repo
+
+If you want a practical code-reading order, use this:
+
+1. `src/selfsuvis/pipeline/workflows/local/runner.py`
+2. `src/selfsuvis/pipeline/workflows/local/_common.py`
+3. `src/selfsuvis/pipeline/workflows/indexer.py`
+4. one deep-dive file from `docs/learning_path/`
+5. the specific implementation module for the stage you care about
+
+That keeps you moving from orchestration to evidence flow to specialized internals.
 
 ## Where To Go Next
 

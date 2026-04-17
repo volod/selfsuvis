@@ -22,12 +22,12 @@ No specialized knowledge required.
 
 **Topics:**
 - Read `README.md` end-to-end.
-- Read [`local_path.md`](../local_path.md): the 35-step table.
+- Read [`local_path.md`](../local_path.md): the fast study map of the current pipeline.
 - Inspect one output directory from a previous run (or ask someone to share one).
 
 **Exercise:**
 List every artifact you find in the output directory and guess which step produced it.
-Check against the pipeline architecture in `CLAUDE.md`.
+Check against [`pipeline.md`](../pipeline.md) and [`architecture.md`](../architecture.md).
 
 **Concept checkpoint:**
 Can you describe the pipeline in two sentences — what goes in and what comes out?
@@ -39,7 +39,7 @@ Can you describe the pipeline in two sentences — what goes in and what comes o
 **Topics:**
 - Step 1: how FFmpeg extracts frames from video.
 - FPS, keyframes, and video container timestamps.
-- Read [`pipeline/media/frames.py`](../../pipeline/media/frames.py).
+- Read [`pipeline/media/frames.py`](../../src/selfsuvis/pipeline/media/frames.py).
 
 **Pre-reading:**
 - FFmpeg documentation on `-r` flag and `-vf select` filter.
@@ -62,7 +62,7 @@ What information do you lose by decoding only I-frames?
 - Step 2: CLIP and DINOv3 embeddings.
 - Cosine similarity: what it measures and why it is preferred over Euclidean distance for embeddings.
 - Qdrant vs in-memory fallback.
-- Read [`models/openclip_model.py`](../../models/openclip_model.py).
+- Read [`models/openclip_model.py`](../../src/selfsuvis/models/openclip_model.py).
 
 **Pre-reading:**
 - Radford et al., "Learning Transferable Visual Models From Natural Language Supervision" (CLIP, 2021) — Sections 1-3. [arxiv.org/abs/2103.00020](https://arxiv.org/abs/2103.00020)
@@ -84,7 +84,7 @@ Why does DINOv3 not use text? What does this difference mean for retrieval?
 **Topics:**
 - Step 3: Gemma scene classification, change detection, and scene clustering.
 - `VideoKnowledge.add_gemma()` and `domain_hint()`.
-- Read [`pipeline/workflows/local/_common.py`](../../pipeline/workflows/local/_common.py) — the `VideoKnowledge` class.
+- Read [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — the `VideoKnowledge` class.
 
 **Pre-reading:**
 - What is zero-shot classification? How does CLIP-based zero-shot classification work?
@@ -107,7 +107,7 @@ What happens if Gemma is unavailable — what exactly goes blank?
 **Topics:**
 - Step 4: Florence-2 architecture, task tokens, and prompt-conditioned captioning.
 - Caption drift and scene segmentation via Jaccard overlap.
-- Read [`pipeline/vision/florence.py`](../../pipeline/vision/florence.py).
+- Read [`pipeline/vision/florence.py`](../../src/selfsuvis/pipeline/vision/florence.py).
 
 **Pre-reading:**
 - Xiao et al., "Florence-2" (2023) — Sections 1-3 (task formulation and FLD-5B dataset). [arxiv.org/abs/2311.06242](https://arxiv.org/abs/2311.06242)
@@ -130,7 +130,7 @@ How is it computed? What threshold governs it?
 **Topics:**
 - Step 5: Whisper speech recognition, timestamps, and the VAD tradeoff.
 - Step 6: OCR for scene text, confidence filtering, and failure modes.
-- Read [`pipeline/vision/asr.py`](../../pipeline/vision/asr.py).
+- Read [`pipeline/vision/asr.py`](../../src/selfsuvis/pipeline/vision/asr.py).
 
 **Pre-reading:**
 - Radford et al., "Robust Speech Recognition via Large-Scale Weak Supervision" (Whisper, 2022) — Abstract and Section 2.2 (multitask format). [arxiv.org/abs/2212.04356](https://arxiv.org/abs/2212.04356)
@@ -154,7 +154,7 @@ Why does a too-wide window cause "context contamination"?
 **Topics:**
 - Step 7: monocular depth estimation — relative vs metric depth, depth zones, failure modes.
 - Step 8: object detection — fixed vs open vocabulary, NMS, entity inventory.
-- Read [`pipeline/vision/depth.py`](../../pipeline/vision/depth.py) and [`pipeline/vision/detection.py`](../../pipeline/vision/detection.py).
+- Read [`pipeline/vision/depth.py`](../../src/selfsuvis/pipeline/vision/depth.py) and [`pipeline/vision/detection.py`](../../src/selfsuvis/pipeline/vision/detection.py).
 
 **Pre-reading:**
 - What is monocular depth estimation? Why is it inherently ambiguous (scale ambiguity)?
@@ -182,7 +182,7 @@ What distinguishes it from a LiDAR range measurement?
 
 **Topics:**
 - Step 9: IQ data, spectrograms, SNR, spectral flatness, occupied bandwidth.
-- Read [`pipeline/vision/rf_analyzer.py`](../../pipeline/vision/rf_analyzer.py).
+- Read [`pipeline/vision/rf_analyzer.py`](../../src/selfsuvis/pipeline/vision/rf_analyzer.py).
 
 **Pre-reading:**
 - West & O'Shea, "Deep Architectures for Modulation Recognition" (2017) — Abstract and Section 2 (IQ representation). [arxiv.org/abs/1703.09197](https://arxiv.org/abs/1703.09197)
@@ -273,7 +273,7 @@ Give one example of each that would be useful in a real mission.
 **Topics:**
 - Step 20: timestamp alignment, lag tolerance, contradiction detection, missing data handling.
 - Read the `VideoKnowledge` class again with sensor fusion in mind.
-- Read [`pipeline/workflows/local/_common.py`](../../pipeline/workflows/local/_common.py) — `context_for_frame()`.
+- Read [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `context_for_frame()`.
 
 **Pre-reading:**
 - Geneva et al., "OpenVINS: A Research Platform for Visual-Inertial Estimation" (2020) — Section 2 (EKF state representation and multi-sensor time alignment). [arxiv.org/abs/1908.01012](https://arxiv.org/abs/1908.01012)
@@ -303,7 +303,7 @@ Give one realistic example where LiDAR and monocular depth would give opposite s
 **Topics:**
 - Step 21: YOLO vs RF-DETR, SAM box-prompted vs auto-mask, NMS, IoU as mask quality metric.
 - Step 22: language-directed tracking, IoU-based greedy matching, track break conditions.
-- Read [`pipeline/workflows/local/steps_yolo_sam.py`](../../pipeline/workflows/local/steps_yolo_sam.py).
+- Read [`pipeline/workflows/local/steps_yolo_sam.py`](../../src/selfsuvis/pipeline/workflows/local/steps_yolo_sam.py).
 
 **Pre-reading:**
 - Kirillov et al., "Segment Anything" (SAM, 2023) — Sections 2-3 (task formulation, promptable segmentation). [arxiv.org/abs/2304.02643](https://arxiv.org/abs/2304.02643)
@@ -329,7 +329,7 @@ What alternative tracking method would handle fast motion better?
 - Step 23 part B: RSSM temporal surprise scoring (DreamerV3-inspired). How a lightweight GRU-based world model learns the mission's temporal rhythm and flags frames that break it.
 - Step 24: Qwen multimodal prompt construction, rolling state, JSON parse failure handling.
 - Step 25: VLA models vs VLM models, domain-specific vs general reasoning.
-- Read [`models/rssm_model.py`](../../models/rssm_model.py) and [`pipeline/vision/qwen.py`](../../pipeline/vision/qwen.py).
+- Read [`models/rssm_model.py`](../../src/selfsuvis/models/rssm_model.py) and [`pipeline/vision/qwen.py`](../../src/selfsuvis/pipeline/vision/qwen.py).
 
 **Pre-reading:**
 - Hafner et al., "Learning Latent Dynamics for Planning from Pixels" (PlaNet, 2019) — Section 3 (RSSM architecture). [arxiv.org/abs/1811.04551](https://arxiv.org/abs/1811.04551)
@@ -383,7 +383,7 @@ What happens if the camera rotates without translating?
 - Step 28: DINO self-supervised fine-tuning, student-teacher EMA, augmentation strategy.
 - SSL gate: what it means when the gate triggers.
 - RSSM-guided frame selection: how RSSM surprise scores from Step 23 influence which frames become contrastive pairs in SSL training.
-- Read [`pipeline/workflows/local/steps_ssl.py`](../../pipeline/workflows/local/steps_ssl.py) and [`pipeline/training/ssl.py`](../../pipeline/training/ssl.py).
+- Read [`pipeline/workflows/local/steps_ssl.py`](../../src/selfsuvis/pipeline/workflows/local/steps_ssl.py) and [`pipeline/training/ssl.py`](../../src/selfsuvis/pipeline/training/ssl.py).
 
 **Pre-reading:**
 - Caron et al., "Emerging Properties in Self-Supervised Vision Transformers" (DINO, 2021) — Sections 3-4 (multi-crop and student-teacher EMA). [arxiv.org/abs/2104.14294](https://arxiv.org/abs/2104.14294)
@@ -408,7 +408,7 @@ How does RSSM surprise improve the quality of SSL contrastive pairs compared to 
 **Topics:**
 - Step 29: soft targets vs hard targets, temperature scaling, teacher-student capacity gap.
 - Step 30: ONNX tracing vs scripting, dynamic axes, gallery build.
-- Read [`pipeline/workflows/local/steps_distill.py`](../../pipeline/workflows/local/steps_distill.py).
+- Read [`pipeline/workflows/local/steps_distill.py`](../../src/selfsuvis/pipeline/workflows/local/steps_distill.py).
 
 **Pre-reading:**
 - Hinton et al., "Distilling the Knowledge in a Neural Network" (2015) — all five pages. [arxiv.org/abs/1503.02531](https://arxiv.org/abs/1503.02531)
@@ -476,7 +476,7 @@ Explain your reasoning.
 ### Day 20 — End-To-End Review Run
 
 **Topics:**
-- End-to-end run of `python main.py --mode local` on a short video (1-5 minutes).
+- End-to-end run of `selfsuvis --mode local` on a short video (1-5 minutes).
 
 **Exercise:**
 Before running: write down what you expect to find in the output for each of the 35 steps.

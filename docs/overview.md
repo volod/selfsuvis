@@ -25,8 +25,8 @@
 
 ## Primary workflows
 
-- Operator workflow: start the stack, run `scripts/migrate_postgres.py`, index missions, then query by text, image, scene facts, or robot pose
-- Model workflow: prefetch models with `scripts/prepare_models.py`, fine-tune DINO with `scripts/finetune_dino.py` or `scripts/supervised_finetune_dino.py`, export ONNX with `scripts/export_onnx.py`, build an edge gallery with `scripts/build_gallery.py`
+- Operator workflow: start the stack, run `src/selfsuvis/scripts/migrate_postgres.py`, index missions, then query by text, image, scene facts, or robot pose
+- Model workflow: prefetch models with `src/selfsuvis/scripts/prepare_models.py`, fine-tune DINO with `src/selfsuvis/scripts/finetune_dino.py` or `src/selfsuvis/scripts/supervised_finetune_dino.py`, export ONNX with `src/selfsuvis/scripts/export_onnx.py`, build an edge gallery with `src/selfsuvis/scripts/build_gallery.py`
 - Annotation workflow: pull candidate frames from `/admin/cvat/frames`, register task mappings, and let the CVAT webhook mark frames annotated and optionally enqueue fine-tuning
 
 ---

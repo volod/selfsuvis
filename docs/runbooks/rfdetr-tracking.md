@@ -56,13 +56,13 @@ Install: `pip install rfdetr`
 
 ```bash
 # Enable Gemma + RF-DETR tracking (Gemma sidecar required)
-python main.py --mode local --gemma-api-url http://localhost:11434/v1
+selfsuvis --mode local --gemma-api-url http://localhost:11434/v1
 
 # Larger RF-DETR for better accuracy
-python main.py --mode local --gemma-api-url http://localhost:11434/v1 --rfdetr-model large
+selfsuvis --mode local --gemma-api-url http://localhost:11434/v1 --rfdetr-model large
 
 # Disable RF-DETR (Gemma scene analysis still runs, but no tracking)
-python main.py --mode local --gemma-api-url http://localhost:11434/v1 --no-rfdetr
+selfsuvis --mode local --gemma-api-url http://localhost:11434/v1 --no-rfdetr
 ```
 
 ---

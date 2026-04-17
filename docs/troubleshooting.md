@@ -45,7 +45,7 @@ make fix-data
 For test directories:
 
 ```bash
-sudo chown -R "$(id -u):$(id -g)" data_test cache_test
+sudo chown -R "$(id -u):$(id -g)" data cache_test
 ```
 
 ## UI shows no thumbnails or maps

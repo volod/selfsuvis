@@ -4,7 +4,7 @@
 # Usage:
 #   bash scripts/prepare_sensor_data.sh [OUTPUT_DIR]
 #
-# OUTPUT_DIR defaults to data_test/sensors/.  The script creates one subdirectory
+# OUTPUT_DIR defaults to data/sensors/.  The script creates one subdirectory
 # per sensor step (step09_rf/, step10_thermal/, …) containing the downloaded
 # samples.  Each directory also gets a README.txt with the dataset licence and
 # the sidecar naming convention for selfsuvis.
@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-OUT="${1:-data_test/sensors}"
+OUT="${1:-data/sensors}"
 mkdir -p "$OUT"
 
 BOLD='\033[1m'
@@ -37,13 +37,13 @@ warn() { echo -e "${YELLOW}[WARN]${RESET} $*"; }
 note() { echo -e "${BOLD}[NOTE]${RESET} $*"; }
 
 # ── Video discovery: use the existing video basename as the sensor data key ───
-# Scan data_test/videos/ for a video file first.  If found, generated sidecar
+# Scan data/videos/ for a video file first.  If found, generated sidecar
 # files will share that basename so they are ready to use without renaming.
 # Falls back to "sample_mission_042" when no video is present yet.
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _REPO_ROOT="$(cd "$_SCRIPT_DIR/.." && pwd)"
 SENSOR_VIDEO_BASENAME="sample_mission_042"
-_VIDEO_DIR="$_REPO_ROOT/data_test/videos"
+_VIDEO_DIR="$_REPO_ROOT/data/videos"
 if [[ -d "$_VIDEO_DIR" ]]; then
   _FOUND="$(ls "$_VIDEO_DIR"/*.mp4 "$_VIDEO_DIR"/*.mov "$_VIDEO_DIR"/*.avi \
               "$_VIDEO_DIR"/*.mkv 2>/dev/null | head -1 || true)"
@@ -158,25 +158,7 @@ SALINAS_URL="http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat"
 maybe_download "$SALINAS_URL" "$DIR/Salinas_corrected.mat" || \
   warn "Salinas .mat download failed — download manually from: $SALINAS_URL"
 
-# Provide a minimal Python loader script
-cat > "$DIR/load_hyperspectral.py" <<'PYEOF'
-"""Load Indian Pines / Salinas hyperspectral .mat and show band statistics."""
-import scipy.io
-import numpy as np
-import pathlib
-
-for mat_file in pathlib.Path(__file__).parent.glob("*.mat"):
-    data = scipy.io.loadmat(mat_file)
-    cube = next(v for k, v in data.items() if not k.startswith("_"))
-    print(f"{mat_file.name}: shape={cube.shape} dtype={cube.dtype} "
-          f"min={cube.min():.1f} max={cube.max():.1f}")
-    # Compute NDVI if at least 4 bands (assume band ordering: B, G, R, NIR, ...)
-    if cube.shape[-1] >= 4:
-        nir = cube[..., -1].astype(float)
-        red = cube[..., -2].astype(float)
-        ndvi = (nir - red) / (nir + red + 1e-8)
-        print(f"  NDVI mean={ndvi.mean():.3f} std={ndvi.std():.3f}")
-PYEOF
+cp "$_SCRIPT_DIR/sensors/load_hyperspectral.py" "$DIR/"
 
 write_readme "$DIR" "11" "Indian Pines & Salinas Hyperspectral" \
   "Public domain (academic benchmark)" \
@@ -214,30 +196,7 @@ note "  Place .bin scans at: $DIR/kitti_seq00/velodyne/"
 note "  Sidecar: data/videos/mission_042.lidar.pcd  (single merged scan)"
 note "           or mission_042.lidar.mcap           (MCAP with PointCloud2 topics)"
 
-# Provide open3d point cloud visualisation script
-cat > "$DIR/visualise_pcd.py" <<'PYEOF'
-"""Visualise a PCD or KITTI .bin file with open3d."""
-import sys
-import numpy as np
-
-try:
-    import open3d as o3d
-except ImportError:
-    print("Install open3d: pip install open3d")
-    sys.exit(1)
-
-path = sys.argv[1] if len(sys.argv) > 1 else "sample.pcd"
-
-if path.endswith(".bin"):
-    pts = np.fromfile(path, dtype=np.float32).reshape(-1, 4)[:, :3]
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(pts)
-else:
-    pcd = o3d.io.read_point_cloud(path)
-
-print(f"Points: {len(pcd.points)}")
-o3d.visualization.draw_geometries([pcd])
-PYEOF
+cp "$_SCRIPT_DIR/sensors/visualise_pcd.py" "$DIR/"
 
 write_readme "$DIR" "13" "KITTI Odometry LiDAR + SemanticKITTI" \
   "KITTI: non-commercial research licence. SemanticKITTI: CC BY-NC-SA 4.0" \
@@ -278,48 +237,8 @@ if [[ ! -f "$ADSB_SAMPLE" ]]; then
     warn "OpenSky API request failed (rate limit or network). Download manually: https://opensky-network.org/data/datasets"
 fi
 
-# Generate a synthetic ADS-B sidecar JSONL
-cat > "$DIR/generate_adsb_sidecar.py" <<'PYEOF'
-"""Generate a synthetic ADS-B sidecar JSONL for pipeline testing.
-
-Each line is a JSON object with fields:
-  t         — timestamp (seconds from mission start)
-  icao      — 24-bit ICAO aircraft address (hex string)
-  callsign  — flight callsign
-  lat, lon  — WGS-84 position
-  alt_m     — barometric altitude (metres)
-  speed_kts — ground speed (knots)
-  heading   — true heading (degrees)
-"""
-import json, random, math, pathlib, sys
-
-_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
-out = pathlib.Path(__file__).parent / f"{_BASE}.adsb.jsonl"
-rng = random.Random(42)
-
-# Centre of a hypothetical mission area
-BASE_LAT, BASE_LON = 51.5, -0.1   # London
-
-with open(out, "w") as f:
-    for t in range(0, 300, 5):          # 5-minute window, 5-second intervals
-        for i in range(rng.randint(0, 3)):  # 0-3 aircraft per tick
-            angle = rng.uniform(0, 2 * math.pi)
-            radius = rng.uniform(0.01, 0.05)  # ~1-5 km
-            f.write(json.dumps({
-                "t": t,
-                "icao": f"{rng.randint(0, 0xFFFFFF):06X}",
-                "callsign": f"SIM{rng.randint(100,999)}",
-                "lat":      BASE_LAT + radius * math.sin(angle),
-                "lon":      BASE_LON + radius * math.cos(angle),
-                "alt_m":    rng.uniform(100, 3000),
-                "speed_kts": rng.uniform(100, 450),
-                "heading":  rng.uniform(0, 360),
-            }) + "\n")
-
-print(f"Written: {out}  ({out.stat().st_size} bytes)")
-PYEOF
-
-python3 "$DIR/generate_adsb_sidecar.py" "$SENSOR_VIDEO_BASENAME" && \
+cp "$_SCRIPT_DIR/sensors/generate_adsb_sidecar.py" "$DIR/"
+python3 "$DIR/generate_adsb_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR" && \
   log "Generated synthetic ADS-B sidecar JSONL at $DIR/${SENSOR_VIDEO_BASENAME}.adsb.jsonl"
 
 note "  CYGNSS GNSS-R DDMs: https://podaac.jpl.nasa.gov/dataset/CYGNSS_L1_V3.1"
@@ -338,62 +257,8 @@ DIR="$OUT/step16_imu"
 mkdir -p "$DIR"
 log "Step 16 — IMU + Inertial / Barometric Sensing"
 
-# Generate synthetic IMU + barometer JSONL
-cat > "$DIR/generate_imu_sidecar.py" <<'PYEOF'
-"""Generate synthetic IMU + barometer sidecar JSONLs for pipeline testing."""
-import json, math, random, pathlib, sys
-
-_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
-rng = random.Random(99)
-base = pathlib.Path(__file__).parent
-
-# IMU sidecar (200 Hz for 10 seconds)
-imu_out = base / f"{_BASE}.imu.jsonl"
-with open(imu_out, "w") as f:
-    for i in range(2000):
-        t = i / 200.0
-        # Simulate gentle hover: ~1g downward + small vibrations
-        f.write(json.dumps({
-            "t":  round(t, 5),
-            "ax": rng.gauss(0.05, 0.15),    # m/s²
-            "ay": rng.gauss(0.02, 0.12),
-            "az": rng.gauss(-9.81, 0.08),
-            "gx": rng.gauss(0.0,  0.01),    # rad/s
-            "gy": rng.gauss(0.0,  0.01),
-            "gz": rng.gauss(0.0,  0.005),
-        }) + "\n")
-print(f"IMU: {imu_out}  (2000 samples @ 200 Hz)")
-
-# Barometer sidecar (5 Hz for 10 seconds)
-baro_out = base / f"{_BASE}.baro.jsonl"
-alt_m = 120.0  # starting altitude
-with open(baro_out, "w") as f:
-    for i in range(50):
-        t = i / 5.0
-        alt_m += rng.gauss(0.1, 0.05)  # slowly climbing
-        # pressure from barometric formula: P = P0*(1 - alt/44330)^5.255
-        pressure = 1013.25 * (1 - alt_m / 44330) ** 5.255
-        f.write(json.dumps({
-            "t": round(t, 3),
-            "pressure_hpa": round(pressure + rng.gauss(0, 0.05), 4),
-            "temp_c": round(15.0 - 0.0065 * alt_m + rng.gauss(0, 0.05), 2),
-        }) + "\n")
-print(f"Baro: {baro_out}  (50 samples @ 5 Hz)")
-
-# Wind sidecar (1 Hz for 10 seconds)
-wind_out = base / f"{_BASE}.wind.jsonl"
-with open(wind_out, "w") as f:
-    for i in range(10):
-        f.write(json.dumps({
-            "t": float(i),
-            "speed_ms":  round(abs(rng.gauss(3.0, 1.5)), 2),
-            "dir_deg":   round(rng.gauss(180, 15) % 360, 1),
-            "gust_ms":   round(abs(rng.gauss(5.0, 1.5)), 2),
-        }) + "\n")
-print(f"Wind: {wind_out}  (10 samples @ 1 Hz)")
-PYEOF
-
-python3 "$DIR/generate_imu_sidecar.py" "$SENSOR_VIDEO_BASENAME"
+cp "$_SCRIPT_DIR/sensors/generate_imu_sidecar.py" "$DIR/"
+python3 "$DIR/generate_imu_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR"
 
 note "  EuRoC MAV: https://rpg.ifi.uzh.ch/docs/IJRR17_Burri.pdf"
 note "  TUM-VI:    https://cvg.cit.tum.de/data/datasets/visual-inertial-dataset"
@@ -408,36 +273,8 @@ DIR="$OUT/step17_atmospheric"
 mkdir -p "$DIR"
 log "Step 17 — Atmospheric / Environmental Sensing"
 
-# Generate synthetic environmental sidecar
-cat > "$DIR/generate_env_sidecar.py" <<'PYEOF'
-"""Generate synthetic atmospheric / environmental sidecar JSONL."""
-import json, random, math, pathlib, sys
-
-_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
-rng = random.Random(7)
-out = pathlib.Path(__file__).parent / f"{_BASE}.env.jsonl"
-
-with open(out, "w") as f:
-    for t in range(300):   # 5-minute mission at 1 Hz
-        temp    = 18.5 + rng.gauss(0, 0.2) - 0.0065 * 120   # ~17.7°C at 120 m
-        rh      = 65.0 + rng.gauss(0, 2.0)
-        press   = 1013.25 * (1 - 120 / 44330) ** 5.255 + rng.gauss(0, 0.1)
-        wind_sp = max(0, rng.gauss(3.5, 1.0))
-        wind_dr = (180 + rng.gauss(0, 10)) % 360
-        solar   = max(0, 650 + rng.gauss(0, 30) * math.cos(math.pi * t / 300))
-        f.write(json.dumps({
-            "t":            t,
-            "temp_c":       round(temp, 2),
-            "humidity_pct": round(min(100, max(0, rh)), 1),
-            "pressure_hpa": round(press, 3),
-            "wind_speed_ms":round(wind_sp, 2),
-            "wind_dir_deg": round(wind_dr, 1),
-            "solar_w_m2":   round(solar, 1),
-        }) + "\n")
-print(f"Written: {out}  ({out.stat().st_size} bytes)")
-PYEOF
-
-python3 "$DIR/generate_env_sidecar.py" "$SENSOR_VIDEO_BASENAME"
+cp "$_SCRIPT_DIR/sensors/generate_env_sidecar.py" "$DIR/"
+python3 "$DIR/generate_env_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR"
 
 note "  ERA5 real data: https://cds.climate.copernicus.eu/ (requires CDS account)"
 note "  Install cdsapi: pip install cdsapi"
@@ -466,33 +303,8 @@ if [[ ! -f "$_AQI_SAMPLE" ]]; then
     || log "  Open-Meteo request skipped (offline or rate-limited) — synthetic data used."
 fi
 
-# Synthetic gas sidecar
-cat > "$DIR/generate_gas_sidecar.py" <<'PYEOF'
-"""Generate synthetic gas / radiation sidecar JSONL for pipeline testing."""
-import json, random, pathlib, math, sys
-
-_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
-rng = random.Random(42)
-out = pathlib.Path(__file__).parent / f"{_BASE}.gas.jsonl"
-
-# Simulate a mission that flies near a mildly elevated CO2 source
-with open(out, "w") as f:
-    for t in range(300):
-        # Gaussian CO2 plume centred at t=150
-        plume = 400 * math.exp(-((t - 150) ** 2) / (2 * 30 ** 2))
-        f.write(json.dumps({
-            "t":              t,
-            "co2_ppm":        round(410 + plume + rng.gauss(0, 5), 1),
-            "voc_ppb":        round(max(0, 20 + rng.gauss(0, 8)), 1),
-            "no2_ppb":        round(max(0, 8  + rng.gauss(0, 3)), 1),
-            "pm25_ug_m3":     round(max(0, 12 + rng.gauss(0, 4)), 1),
-            "pm10_ug_m3":     round(max(0, 20 + rng.gauss(0, 6)), 1),
-            "dose_rate_usv_h":round(max(0, 0.08 + rng.gauss(0, 0.01)), 3),
-        }) + "\n")
-print(f"Written: {out}  ({out.stat().st_size} bytes)")
-PYEOF
-
-python3 "$DIR/generate_gas_sidecar.py" "$SENSOR_VIDEO_BASENAME"
+cp "$_SCRIPT_DIR/sensors/generate_gas_sidecar.py" "$DIR/"
+python3 "$DIR/generate_gas_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR"
 
 note "  Open-Meteo air quality (free, no key): https://open-meteo.com/en/docs/air-quality-api"
 note "  Safecast radiation data: https://safecast.org/tilemap/"
@@ -521,35 +333,8 @@ note ""
 note "  Sidecar: data/videos/mission_042.audio.wav (48 kHz mono/stereo)"
 note "           or mission_042.audio_array.h5     (channels × samples, float32)"
 
-# Synthetic acoustic metadata sidecar (acoustic event log)
-cat > "$DIR/generate_acoustic_sidecar.py" <<'PYEOF'
-"""Generate a synthetic acoustic event log JSONL for pipeline testing."""
-import json, random, pathlib, sys
-
-_BASE = sys.argv[1] if len(sys.argv) > 1 else "sample_mission_042"
-rng = random.Random(13)
-CLASSES = ["drone_motor", "wind", "bird_call", "vehicle_engine", "human_voice", "silence"]
-out = pathlib.Path(__file__).parent / f"{_BASE}.acoustic_events.jsonl"
-
-with open(out, "w") as f:
-    t = 0.0
-    while t < 300.0:
-        label = rng.choice(CLASSES)
-        dur   = rng.uniform(0.5, 5.0)
-        conf  = rng.uniform(0.6, 0.99)
-        f.write(json.dumps({
-            "t_start": round(t, 3),
-            "t_end":   round(t + dur, 3),
-            "label":   label,
-            "confidence": round(conf, 3),
-            "doa_deg": round(rng.uniform(0, 360), 1),  # direction of arrival
-        }) + "\n")
-        t += dur + rng.uniform(0.1, 2.0)
-
-print(f"Written: {out}  ({out.stat().st_size} bytes)")
-PYEOF
-
-python3 "$DIR/generate_acoustic_sidecar.py" "$SENSOR_VIDEO_BASENAME"
+cp "$_SCRIPT_DIR/sensors/generate_acoustic_sidecar.py" "$DIR/"
+python3 "$DIR/generate_acoustic_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR"
 write_readme "$DIR" "19" "ESC-50 + xeno-canto + FSD50K acoustic datasets" \
   "ESC-50: CC BY-NC-SA 3.0. xeno-canto: CC (per recording). FSD50K: CC0/CC BY 4.0" \
   "${SENSOR_VIDEO_BASENAME}.audio.wav (48 kHz WAV) or ${SENSOR_VIDEO_BASENAME}.audio_array.h5 (mic array)"

@@ -3,13 +3,14 @@
 ## Install scripts (run with sudo when noted)
 - `./scripts/install_system_deps.sh` — ffmpeg, OpenCV deps (Linux). Add `--with-python` for Python/venv.
 - `./scripts/install_nvidia_docker.sh` — NVIDIA Container Toolkit for Docker GPU
-- `./scripts/install_requirements.sh` — install Python deps into venv (called by `make venv`)
+- `./scripts/install_requirements.sh` — install Python deps from `pyproject.toml` extras into a venv (called by `make venv`)
 - `./scripts/ensure_venv_pip.sh` — ensure pip in venv (called by `make venv`)
+- `selfsuvis-env` — generate a resource-aware root `.env` from packaged presets
 
 ## Pre-download weights for offline use
 ```bash
-python scripts/prepare_models.py
-DOWNLOAD_DINO=true DINO_MODEL=dinov2_vitb14 python scripts/prepare_models.py
+python -m selfsuvis.scripts.prepare_models
+DOWNLOAD_DINO=true DINO_MODEL=dinov2_vitb14 python -m selfsuvis.scripts.prepare_models
 ```
 
 ## Batch index a directory
