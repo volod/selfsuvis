@@ -134,14 +134,14 @@ def _is_ollama_model_name(model_id: str) -> bool:
 
 
 def _resolve_unidrive_backend(requested_backend: str, model_id: str) -> str:
-    """Choose the backend used to prepare UniDrive assets."""
+    """Choose the backend used to prepare UniDrive assets.
+
+    UniDriveVLA is published on HuggingFace only — it is not available on Ollama.
+    vllm is required to serve HF UniDrive repos.  Ollama is only valid for
+    Ollama-native model tags (no slash in name).
+    """
     have_ollama = _has_ollama_installed()
     have_vllm = _has_vllm_installed()
-    if not have_ollama and not have_vllm:
-        raise RuntimeError(
-            "UniDrive prepare requires at least one backend runtime. "
-            "Install Ollama on this machine or install vllm into the active environment."
-        )
 
     backend = (requested_backend or "auto").strip().lower()
     if backend not in {"", "auto", "ollama", "vllm"}:
@@ -152,11 +152,15 @@ def _resolve_unidrive_backend(requested_backend: str, model_id: str) -> str:
         return "ollama"
     if backend == "vllm":
         if not have_vllm:
-            raise RuntimeError("UniDrive backend 'vllm' requested, but the 'vllm' package is not installed in this environment.")
+            raise RuntimeError(
+                "UniDrive requires vllm (UniDriveVLA is not available on Ollama). "
+                "Install vllm: pip install vllm — or disable UniDrive by setting "
+                "UNIDRIVE_ENABLED=false in .env."
+            )
         return "vllm"
 
-    # Auto mode: HF UniDrive repos require vLLM-style serving; Ollama-compatible
-    # tags are routed to Ollama when available.
+    # Auto mode: Ollama-tagged models (no slash) can run on Ollama.
+    # HuggingFace UniDriveVLA repos require vLLM — they are not published on Ollama.
     if _is_ollama_model_name(model_id):
         if have_ollama:
             return "ollama"
@@ -164,7 +168,11 @@ def _resolve_unidrive_backend(requested_backend: str, model_id: str) -> str:
             return "vllm"
     if have_vllm:
         return "vllm"
-    return "ollama"
+    raise RuntimeError(
+        "UniDriveVLA is not available on Ollama. "
+        "Install vllm (pip install vllm) to use the HuggingFace model, "
+        "or set UNIDRIVE_ENABLED=false in .env to skip this step."
+    )
 
 
 def _resolve_unidrive_prepare_model(model_id: str, backend: str) -> str:
@@ -950,16 +958,42 @@ def _is_hf_cached(model_id: str) -> bool:
 
 
 def _is_openclip_cached(model: str, pretrained: str) -> bool:
-    """Return True if open_clip weights are in the local cache."""
+    """Return True if open_clip weights are in the local cache.
+
+    open_clip downloads weights to $CLIP_CACHE (~/.cache/clip by default),
+    naming each file after the URL basename (e.g. ViT-B-16.pt).
+    HuggingFace-hosted pretrained models land in the HF hub cache instead.
+    """
     try:
-        # open_clip stores weights under torch hub checkpoints
-        cache_dir = Path(os.getenv("TORCH_HOME",
-                                   str(Path.home() / ".cache" / "torch"))) / "hub" / "checkpoints"
-        tag = f"{model.replace('/', '_')}_{pretrained}".lower()
-        if cache_dir.exists():
-            for f in cache_dir.iterdir():
-                if tag in f.name.lower():
+        # Primary: $CLIP_CACHE / ~/.cache/clip — URL basename (e.g. ViT-B-16.pt)
+        clip_cache = Path(os.getenv("CLIP_CACHE", str(Path.home() / ".cache" / "clip")))
+        if clip_cache.exists():
+            try:
+                import open_clip as _oc
+                cfg = _oc.get_pretrained_cfg(model, pretrained)
+                url = (cfg or {}).get("url", "")
+                if url:
+                    fname = Path(url).name  # e.g. "ViT-B-16.pt"
+                    if (clip_cache / fname).exists():
+                        return True
+            except Exception:
+                pass
+            # Fallback: any .pt file whose name starts with the model name
+            model_stem = model.replace("/", "-")
+            for f in clip_cache.iterdir():
+                if f.name.startswith(model_stem) or f.stem == model_stem:
                     return True
+
+        # Secondary: HuggingFace hub cache (HF-hosted pretrained)
+        hf_hub_id = None
+        try:
+            import open_clip as _oc
+            cfg = _oc.get_pretrained_cfg(model, pretrained)
+            hf_hub_id = (cfg or {}).get("hf_hub", "")
+        except Exception:
+            pass
+        if hf_hub_id:
+            return _is_hf_cached(hf_hub_id)
     except Exception:
         pass
     return False
@@ -1160,6 +1194,7 @@ def main() -> None:
     from selfsuvis.pipeline.core.config import settings
 
     # ── Resolve all HF model IDs up front ────────────────────────────────────
+    errors: list = []
     whisper_id    = args.whisper_model
     florence_id   = args.florence_model
     ocr_id        = _resolve_hf_model("ocr",         args.ocr_model)      if do_ocr         else ""
@@ -1174,8 +1209,8 @@ def main() -> None:
             unidrive_id = _resolve_unidrive_prepare_model(args.unidrive_model, unidrive_backend)
             log.info("UniDrive prepare backend: %s  model=%s", unidrive_backend, unidrive_id)
         except Exception as exc:
-            log.error("UniDrive backend resolution failed: %s", exc)
-            sys.exit(1)
+            log.warning("UniDrive skipped: %s", exc)
+            do_unidrive = False
 
     # ── Verify mode ───────────────────────────────────────────────────────────
     if args.verify:
@@ -1215,7 +1250,11 @@ def main() -> None:
             specs.append((f"YOLO11 {ym}", lambda m=ym: _is_yolo_cached(m)))
         if do_sam:
             sm = args.sam_model
-            specs.append((f"SAM {sm}", lambda m=sm: _is_hf_cached(m)))
+            _SAM2_FALLBACK = "facebook/sam2-hiera-large"
+            def _sam_cached(m=sm, fb=_SAM2_FALLBACK):
+                return _is_hf_cached(m) or _is_hf_cached(fb)
+            label = f"SAM {sm} (or {_SAM2_FALLBACK} fallback)"
+            specs.append((label, _sam_cached))
 
         ok, missing = _verify_models(specs)
         for label in ok:
@@ -1230,8 +1269,6 @@ def main() -> None:
         return
 
     # ── Download mode ─────────────────────────────────────────────────────────
-    errors: list = []
-
     if do_flash_attn:
         try:
             _install_flash_attn()

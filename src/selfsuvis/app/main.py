@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
 from selfsuvis.app.db import close_db_pool, init_db_pool
+from selfsuvis.pipeline.storage.processed import ainit_db as init_processed_db
 from selfsuvis.app.routers.admin import router as admin_router
 from selfsuvis.app.routers.cvat import cvat_admin_router, webhook_router
 from selfsuvis.app.routers.health import router as health_router
@@ -18,6 +19,7 @@ from selfsuvis.app.services.form_templates import get_index_form_html
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize and tear down shared resources."""
+    await init_processed_db()
     await init_db_pool(app)
     try:
         yield

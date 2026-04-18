@@ -1733,7 +1733,6 @@ def step_world_model_pass(
 
                 if len(clip_embeds) >= 2:
                     rssm = RSSMEmbedder(
-                        input_dim=len(clip_embeds[0]),
                         hidden_dim=getattr(settings, "DREAMER_HIDDEN_DIM", 256),
                         latent_dim=getattr(settings, "DREAMER_LATENT_DIM", 32),
                         train_steps=getattr(settings, "DREAMER_TRAIN_STEPS", 20),

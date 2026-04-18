@@ -22,6 +22,10 @@ if _env_file.exists():
     load_dotenv(_env_file)
 else:
     load_dotenv()
+# Repo-root .env overrides the packaged template (same priority as config.py)
+_repo_env = Path(__file__).resolve().parents[5] / ".env"
+if _repo_env.exists():
+    load_dotenv(_repo_env, override=True)
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",

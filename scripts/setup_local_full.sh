@@ -11,16 +11,20 @@
 #   Step 2 — Download HuggingFace model weights for each pipeline step
 #   Step 3 — Install Ollama and pull LLM/VLM sidecar models
 #   Step 4 — Create data/ layout, download test video, generate sensor sidecars
-#   Step 5 — Start Docker stack (Qdrant + PostgreSQL) and run DB migration
+#   Step 5 — Print instructions to start Docker stack + run DB migration
 #   Step 6 — Confirm test video path for run-command summary
 #   Summary— Print the exact run command(s) for your configuration
+#
+# This script is SETUP ONLY — it does not start any services or containers.
+# Docker and PostgreSQL are started separately after setup completes.
+# Use --with-docker to also start the Docker stack in this script.
 #
 # USAGE:
 #   bash scripts/setup_local_full.sh [flags]
 #
 # FLAGS:
-#   (none)                Full setup — all steps
-#   --no-docker           Skip Docker services; add --no-qdrant to run cmd
+#   (none)                Full setup — installs deps, models, test data
+#   --with-docker         Also start Docker stack (Qdrant + PostgreSQL) and migrate
 #   --no-ollama           Skip Ollama install and model pulls (use HF weights)
 #   --sensor-data-only    Download/generate sensor sidecars only; skip models
 #
@@ -37,11 +41,14 @@
 #   VLLM_PORT_UNIDRIVE    Port for UniDriveVLA vLLM server (default: 8030)
 #
 # EXAMPLES:
-#   # Standard first-time setup on a GPU machine:
+#   # Standard first-time setup on a GPU machine (no containers started):
 #   bash scripts/setup_local_full.sh
 #
-#   # CPU-only machine (no Docker, no Ollama GPU inference):
-#   bash scripts/setup_local_full.sh --no-docker --no-ollama
+#   # Setup + start Docker stack in one go:
+#   bash scripts/setup_local_full.sh --with-docker
+#
+#   # Setup without Ollama (no GPU inference sidecars):
+#   bash scripts/setup_local_full.sh --no-ollama
 #
 #   # Re-download sensor sample data only (already have models):
 #   bash scripts/setup_local_full.sh --sensor-data-only
@@ -50,11 +57,11 @@
 #   HF_TOKEN=hf_xxxx bash scripts/setup_local_full.sh
 #
 # AFTER SETUP:
-#   The script prints the exact run command at the end.
-#   Minimal run (Steps 1–9):
-#     selfsuvis --mode local --input <video.mp4> --no-qdrant
-#   Full run (all 35 steps, Ollama + sensors):
-#     SENSOR_FUSION_ENABLED=true RF_ENABLED=true ... selfsuvis ...
+#   Start services manually (or use --with-docker above):
+#     make up
+#     python -m selfsuvis.scripts.migrate_postgres
+#   Then run the pipeline:
+#     selfsuvis --mode local --input data/videos/drone_mission.mp4 --no-qdrant
 #
 # TROUBLESHOOTING:
 #   "Permission denied" on Docker:
@@ -73,18 +80,19 @@
 set -euo pipefail
 
 # ── Flags ─────────────────────────────────────────────────────────────────────
-NO_DOCKER=false
+WITH_DOCKER=false
 NO_OLLAMA=false
 SENSOR_DATA_ONLY=false
 
 for arg in "$@"; do
   case "$arg" in
-    --no-docker)        NO_DOCKER=true ;;
+    --with-docker)      WITH_DOCKER=true ;;
+    --no-docker)        WITH_DOCKER=false ;;   # kept for backwards compat; now the default
     --no-ollama)        NO_OLLAMA=true ;;
     --sensor-data-only) SENSOR_DATA_ONLY=true ;;
     *)
       echo "Unknown flag: $arg"
-      echo "Valid flags: --no-docker  --no-ollama  --sensor-data-only"
+      echo "Valid flags: --with-docker  --no-ollama  --sensor-data-only"
       exit 1
       ;;
   esac
@@ -347,7 +355,7 @@ section "Step 2 — HuggingFace model weights"
 
 # Core: OpenCLIP + DINOv3 (always required — used by Steps 1–2 for all embeddings)
 log "Downloading OpenCLIP + DINOv3 (core embeddings)..."
-"$PYTHON" -m selfsuvis.scripts.prepare_models
+"$PYTHON" -m selfsuvis.scripts.prepare_models --clip --dino
 
 # Step 4: Florence-2-large for per-keyframe scene captioning.
 # Loads locally into the same GPU process as DINOv3 / CLIP.
@@ -640,9 +648,8 @@ log "Sensor data ready in data/sensors/"
 # =============================================================================
 # STEP 5: DOCKER SERVICES (Qdrant + PostgreSQL)
 #
-# The production pipeline writes vectors to Qdrant and metadata to PostgreSQL.
-# For pure local runs you can skip this with --no-docker and pass --no-qdrant
-# to main.py (which then falls back to in-memory cosine similarity search).
+# By default this step only prints the commands to start services.
+# Pass --with-docker to actually start the stack from this script.
 #
 # After containers start:
 #   - Qdrant is available at http://localhost:6333
@@ -656,15 +663,10 @@ log "Sensor data ready in data/sensors/"
 # =============================================================================
 section "Step 5 — Docker services (Qdrant + PostgreSQL)"
 
-if $NO_DOCKER; then
-  warn "--no-docker specified — skipping Docker stack."
-  warn "Add --no-qdrant to your run command (in-memory vector search will be used)."
-  warn "You will also need a local PostgreSQL instance; set DATABASE_URL accordingly."
-else
+if $WITH_DOCKER; then
   if ! command -v docker >/dev/null 2>&1; then
     warn "Docker not found — skipping stack."
     warn "Install Docker: https://docs.docker.com/engine/install/"
-    warn "Then re-run without --no-docker."
   else
     log "Starting Docker stack (Qdrant + PostgreSQL)..."
     make docker-check 2>/dev/null || true
@@ -677,15 +679,9 @@ else
       warn "Fix:  make docker-check"
       warn "      sudo usermod -aG docker \$USER   # if permission denied"
       warn "      make fix-data                    # if data/ is root-owned"
-      warn "Re-run setup after fixing Docker, or pass --no-docker to skip."
     fi
 
     if $_STACK_OK; then
-      # Wait for PostgreSQL to accept connections.
-      # Uses pg_isready (same tool as the Docker healthcheck) with a 30-second
-      # timeout and 2-second retry interval — no blind sleep needed.
-      # DATABASE_URL inside containers uses the Docker hostname 'postgres', but
-      # from the host the container is reachable at localhost:5432 (port-mapped).
       _PG_HOST="localhost"
       _PG_PORT="5432"
       _PG_USER="selfsuvis"
@@ -693,38 +689,38 @@ else
       log "Waiting for PostgreSQL to be ready at ${_PG_HOST}:${_PG_PORT} ..."
       _PG_READY=false
       for _i in $(seq 1 15); do
-        # Prefer pg_isready from the postgres container (always available there).
-        # Fall back to nc or a TCP socket check if the client tools aren't installed.
         if docker compose -f docker/docker-compose.yml exec -T postgres \
               pg_isready -U "$_PG_USER" -q 2>/dev/null; then
-          _PG_READY=true
-          break
+          _PG_READY=true; break
         elif command -v pg_isready >/dev/null 2>&1 && \
              pg_isready -h "$_PG_HOST" -p "$_PG_PORT" -U "$_PG_USER" -q 2>/dev/null; then
-          _PG_READY=true
-          break
+          _PG_READY=true; break
         elif nc -z "$_PG_HOST" "$_PG_PORT" 2>/dev/null; then
-          _PG_READY=true
-          break
+          _PG_READY=true; break
         fi
         sleep 2
       done
 
       if ! $_PG_READY; then
         warn "PostgreSQL did not become ready within 30 s."
-        warn "Retry migration manually: DATABASE_URL=postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis python -m selfsuvis.scripts.migrate_postgres"
+        warn "Retry: DATABASE_URL=postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis python -m selfsuvis.scripts.migrate_postgres"
       else
         log "PostgreSQL is ready — running database migration..."
-        # Force localhost so the migration works from the host regardless of
-        # what DATABASE_URL is set to in .env (which may use 'postgres:5432',
-        # the Docker-internal hostname only resolvable inside the container network).
         DATABASE_URL="postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis" \
           "$PYTHON" -m selfsuvis.scripts.migrate_postgres \
           && log "Migration complete." \
-          || warn "Migration failed — retry: DATABASE_URL=postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis python -m selfsuvis.scripts.migrate_postgres"
+          || warn "Migration failed — retry manually (see above)."
       fi
     fi
   fi
+else
+  log "Docker stack not started (setup-only mode)."
+  log "Start services manually when ready:"
+  echo ""
+  echo "    make up"
+  echo "    python -m selfsuvis.scripts.migrate_postgres"
+  echo ""
+  log "Or re-run this script with --with-docker to do it automatically."
 fi
 
 # =============================================================================
@@ -759,73 +755,18 @@ fi
 #
 # Based on what was set up, print the exact command(s) to run the pipeline.
 # =============================================================================
-section "Setup complete — run commands"
-
-# Detect whether Ollama is reachable and build the sidecar flag string
-OLLAMA_FLAG=""
-if ! $NO_OLLAMA && curl -sf "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
-  OLLAMA_FLAG="--gemma-api-url ${OLLAMA_HOST}/v1 --qwen-api-url ${OLLAMA_HOST}/v1"
-fi
+section "Setup complete"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-
-echo -e "${BOLD}1. Minimal run (Steps 1–9, no sidecar servers needed):${RESET}"
-echo "   selfsuvis --mode local \\"
-echo "     --input $TEST_VIDEO \\"
-echo "     --no-qdrant"
+echo -e "${BOLD}Quick start:${RESET}"
 echo ""
-
-echo -e "${BOLD}2. Full run — Ollama sidecars + all sensor steps${RESET} (sensor steps on by default):"
-echo "   selfsuvis --mode local \\"
-echo "     --input $TEST_VIDEO \\"
-if [[ -n "$OLLAMA_FLAG" ]]; then
-  echo "     $OLLAMA_FLAG \\"
-else
-  echo "     --gemma-api-url http://localhost:11434/v1 \\"
-  echo "     --qwen-api-url  http://localhost:11434/v1 \\"
-fi
-echo "     --rfdetr-model base"
+echo "   APP_ENV=dev .venv/bin/selfsuvis --mode local \\"
+echo "     --videos-dir data/videos \\"
+echo "     --no-qdrant --no-sfm --no-gsplat"
 echo ""
-
-echo -e "${BOLD}3. Full run — vLLM sidecars (Qwen2.5-VL + UniDriveVLA):${RESET}"
-echo "   # Terminal 1 — Qwen2.5-VL (Step 24, port ${VLLM_PORT_QWEN}):"
-echo "   python -m vllm.entrypoints.openai.api_server \\"
-echo "     --model Qwen/Qwen2.5-VL-7B-Instruct \\"
-echo "     --port ${VLLM_PORT_QWEN} --max-model-len 8192"
+echo "Full run variants, flags reference, and sidecar naming:"
+echo "   docs/quickstart.md — Step 6"
 echo ""
-echo "   # Terminal 2 — UniDriveVLA (Step 25, port ${VLLM_PORT_UNIDRIVE}):"
-echo "   python -m vllm.entrypoints.openai.api_server \\"
-echo "     --model owl10/UniDriveVLA_Nusc_Base_Stage3 \\"
-echo "     --port ${VLLM_PORT_UNIDRIVE} --max-model-len 4096"
-echo ""
-echo "   # Terminal 3 — pipeline:"
-echo "   selfsuvis --mode local \\"
-echo "     --input $TEST_VIDEO \\"
-echo "     --gemma-api-url    ${OLLAMA_HOST}/v1 \\"
-echo "     --qwen-api-url     http://localhost:${VLLM_PORT_QWEN}/v1 \\"
-echo "     --unidrive-api-url http://localhost:${VLLM_PORT_UNIDRIVE}/v1"
-echo ""
-
-echo -e "${BOLD}Sensor sidecar naming convention${RESET} (place next to video):"
-echo "   ${TEST_VIDEO%.mp4}.iq              # Step  9 — RF/SDR IQ (float32)"
-echo "   ${TEST_VIDEO%.mp4}.thermal.mp4     # Step 10 — FLIR LWIR video"
-echo "   ${TEST_VIDEO%.mp4}.multispectral/  # Step 11 — per-band GeoTIFF dir"
-echo "   ${TEST_VIDEO%.mp4}.events.raw      # Step 12 — Prophesee event stream"
-echo "   ${TEST_VIDEO%.mp4}.lidar.pcd       # Step 13 — LiDAR point cloud"
-echo "   ${TEST_VIDEO%.mp4}.radar.bin       # Step 14 — radar ADC IQ"
-echo "   ${TEST_VIDEO%.mp4}.adsb.jsonl      # Step 15 — ADS-B aircraft log"
-echo "   ${TEST_VIDEO%.mp4}.imu.jsonl       # Step 16 — IMU (200 Hz)"
-echo "   ${TEST_VIDEO%.mp4}.baro.jsonl      # Step 16 — barometer (5 Hz)"
-echo "   ${TEST_VIDEO%.mp4}.wind.jsonl      # Step 16 — anemometer (1 Hz)"
-echo "   ${TEST_VIDEO%.mp4}.env.jsonl       # Step 17 — atmospheric"
-echo "   ${TEST_VIDEO%.mp4}.gas.jsonl       # Step 18 — gas/radiation"
-echo "   ${TEST_VIDEO%.mp4}.audio.wav       # Step 19 — acoustic (48 kHz)"
-echo ""
-echo "   Generated sample sidecars are in data/sensors/"
-echo "   Copy them to data/videos/ and rename to match your video basename."
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Reference: local_path.md + docs/learning_path/README.md"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

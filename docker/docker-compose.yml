@@ -5,7 +5,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    user: "0:0"
+    user: "${UID:-1000}:${GID:-1000}"
     environment:
       POSTGRES_USER: selfsuvis
       POSTGRES_PASSWORD: selfsuvis
@@ -50,6 +50,8 @@ services:
       - XDG_CACHE_HOME=/app/cache
       - TORCH_HOME=/app/cache/torch
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
+      - TORCHINDUCTOR_CACHE_DIR=/app/cache/inductor
+      - LOGNAME=app
     volumes:
       - ../data:/app/data
       - ../cache:/app/cache
@@ -82,6 +84,8 @@ services:
       - XDG_CACHE_HOME=/app/cache
       - TORCH_HOME=/app/cache/torch
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
+      - TORCHINDUCTOR_CACHE_DIR=/app/cache/inductor
+      - LOGNAME=app
     volumes:
       - ../data:/app/data
       - ../cache:/app/cache

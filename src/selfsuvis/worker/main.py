@@ -6,13 +6,24 @@ from datetime import timedelta
 from enum import Enum
 from typing import Optional
 
+# Persistent event loop for the worker process.  _run() creates and
+# closes a new loop on every call; asyncpg pools are tied to the loop they were
+# created in, so mixing multiple _run() calls with a shared pool breaks.
+_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _run(coro):
+    """Run *coro* on the worker's persistent event loop."""
+    assert _loop is not None, "worker event loop not initialised"
+    return _loop.run_until_complete(coro)
+
 import asyncpg
 
 from selfsuvis.pipeline.core import datetime_to_ts, file_sha256, get_dino_model_name, get_logger, settings, utcnow, validate_settings
 from selfsuvis.pipeline.storage import create_job, fetch_and_claim_next_pending, update_job
 from selfsuvis.pipeline.workflows import VideoIndexer
 import selfsuvis.pipeline.storage.processed as processed_db_mod
-from selfsuvis.pipeline.storage.processed import init_db as init_processed_db, get_by_hash
+from selfsuvis.pipeline.storage.processed import ainit_db as init_processed_db_async, get_by_hash
 from selfsuvis.pipeline.media import download_url
 from selfsuvis.pipeline.storage.missions import (
     apply_gps_registration,
@@ -68,7 +79,7 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
             finally:
                 await conn.close()
 
-        gmap_id, origin = asyncio.run(_lookup())
+        gmap_id, origin = _run(_lookup())
         if origin is not None:
             logger.info(
                 "Multi-site ENU: video assigned to global_map_id=%d origin=(%.6f, %.6f, %.1f)",
@@ -224,7 +235,7 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
             await conn.close()
 
     try:
-        asyncio.run(_db_and_map())
+        _run(_db_and_map())
     except Exception as exc:
         logger.warning("Pass A: mapper/DB step failed mission=%s: %s", mission_id, exc)
 
@@ -284,14 +295,14 @@ class GPULock:
 
     def __enter__(self):
         try:
-            asyncio.run(self._checkin())
+            _run(self._checkin())
         except Exception as exc:
             self.logger.warning("GPU isolation: check-in failed (non-fatal): %s", exc)
         return self
 
     def __exit__(self, *_):
         try:
-            asyncio.run(self._checkout())
+            _run(self._checkout())
         except Exception as exc:
             self.logger.warning("GPU isolation: check-out failed (non-fatal): %s", exc)
 
@@ -302,7 +313,7 @@ def _gpu_checkin(job_id: str, job_type: str, conn_url: str, logger) -> bool:
     """Synchronous wrapper around GPULock._checkin. Always returns True (fail-open)."""
     lock = GPULock(job_id, job_type, conn_url, logger)
     try:
-        asyncio.run(lock._checkin())
+        _run(lock._checkin())
     except Exception as exc:
         logger.warning("GPU isolation: check-in failed (non-fatal): %s", exc)
     return True
@@ -312,7 +323,7 @@ def _gpu_checkout(job_id: str, conn_url: str, logger) -> None:
     """Synchronous wrapper around GPULock._checkout. Fail-open on error."""
     lock = GPULock(job_id, "unknown", conn_url, logger)
     try:
-        asyncio.run(lock._checkout())
+        _run(lock._checkout())
     except Exception as exc:
         logger.warning("GPU isolation: check-out failed (non-fatal): %s", exc)
 
@@ -387,7 +398,7 @@ def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logg
     from selfsuvis.pipeline.training.supervised import config_from_settings, run_supervised_finetune
 
     def _pg_run(coro):
-        return asyncio.run(coro)
+        return _run(coro)
 
     try:
         cfg = config_from_settings(frames_dir=settings.FRAMES_DIR)
@@ -557,7 +568,7 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
                 await conn.close()
 
         with GPULock(job_id, "reembed", conn_url, logger):
-            frames_reembedded = asyncio.run(_connect_and_run())
+            frames_reembedded = _run(_connect_and_run())
         logger.info("Reembed job finished id=%s frames_reembedded=%d", job_id, frames_reembedded)
 
     except Exception as exc:
@@ -571,7 +582,7 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
             finally:
                 await conn.close()
 
-        asyncio.run(_mark_error())
+        _run(_mark_error())
 
 
 # ── Main loop ────────────────────────────────────────────────────────────────
@@ -583,7 +594,7 @@ def _claim_next_job(pool) -> Optional[dict]:
             async with conn.transaction():
                 return await fetch_and_claim_next_pending(conn)
 
-    return asyncio.run(_claim())
+    return _run(_claim())
 
 
 def _update_job_sync(pool, job_id: str, **kwargs) -> None:
@@ -591,11 +602,14 @@ def _update_job_sync(pool, job_id: str, **kwargs) -> None:
         async with pool.acquire() as conn:
             await update_job(conn, job_id, **kwargs)
 
-    asyncio.run(_upd())
+    _run(_upd())
 
 
 def main() -> None:
-    init_processed_db()
+    global _loop
+    _loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_loop)
+
     validate_settings()
     logger = get_logger(__name__)
     logger.info("Worker started")
@@ -605,14 +619,16 @@ def main() -> None:
         logger.error("DATABASE_URL not configured — worker cannot start")
         return
 
-    pool = asyncio.run(
-        asyncpg.create_pool(
+    async def _bootstrap():
+        await init_processed_db_async()
+        return await asyncpg.create_pool(
             dsn=conn_url,
             min_size=1,
             max_size=10,
             timeout=10,
         )
-    )
+
+    pool = _run(_bootstrap())
 
     try:
         while True:
@@ -736,7 +752,7 @@ def main() -> None:
                             )
                             await replace_frames(conn, mission_id, result.get("frame_records", []))
 
-                asyncio.run(_persist_index_result())
+                _run(_persist_index_result())
 
                 # Pass A: SfM → GPS registration → 3DGS mapper (GPU optional)
                 _run_pass_a(
@@ -775,7 +791,7 @@ def main() -> None:
                                 finished_at=time.time(),
                             )
 
-                asyncio.run(_finalize_success())
+                _run(_finalize_success())
                 logger.info("Index job finished id=%s video_id=%s", job_id, video_id)
             except Exception as exc:
                 logger.exception("Index job failed id=%s error=%s", job_id, exc)
@@ -806,7 +822,7 @@ def main() -> None:
                                             error=str(exc),
                                         )
 
-                        asyncio.run(_finalize_error())
+                        _run(_finalize_error())
                     except OSError as e:
                         logger.warning(
                             "Could not read video for error record path=%s err=%s",
@@ -823,7 +839,7 @@ def main() -> None:
                     pool, job_id, status="error", error=str(exc), finished_at=time.time()
                 )
     finally:
-        asyncio.run(pool.close())
+        _run(pool.close())
 
 
 if __name__ == "__main__":

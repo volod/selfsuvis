@@ -26,7 +26,7 @@ dependencies = [
     "onnxruntime>=1.18",  # CPU base; install_requirements.sh upgrades to onnxruntime-gpu on CUDA machines
     "onnxscript>=0.1",
     # NLP / LLM
-    "transformers>=4.47,<4.54",
+    "transformers>=4.47",
     "accelerate>=0.26",
     "faster-whisper>=1.0",
     "sentencepiece>=0.1.99",

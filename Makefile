@@ -19,9 +19,9 @@ help:
 	@echo ""
 	@echo "  Local dev (venv)"
 	@echo "  -----------------"
-	@echo "  make env             Generate a resource-aware root .env from the dev preset"
-	@echo "  make env-interactive Generate .env with interactive prompts"
-	@echo "  make venv            Create .venv, install deps; auto-detects CUDA via nvidia-smi (requires uv on PATH)"
+	@echo "  make env             Generate repo-root .env (auto-detects GPU/RAM, picks models)"
+	@echo "  make env-interactive Generate .env with interactive prompts (profile, sidecars, models)"
+	@echo "  make venv            Create .venv and install deps; if .venv exists, prompts to recreate or update"
 	@echo "  make venv-cuda       Same as venv but forces CUDA wheel install (use if nvidia-smi is absent but GPU present)"
 	@echo "  make venv-pip        Install pip into an existing .venv (e.g. after uv venv .venv)"
 	@echo ""
@@ -49,7 +49,7 @@ help:
 # Ensure data/cache dirs exist and are owned by current user (avoids root-owned files from containers)
 # Pre-create Qdrant Snapshots dir to avoid "Permission denied" when running as non-root
 data-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/qdrant/Snapshots cache && chown -R $$HOST_UID:$$HOST_GID data cache' 2>/dev/null && echo "Data directories data and cache are ready." || (mkdir -p data/qdrant/Snapshots cache && echo "Created data and cache. If Qdrant fails with Permission denied, run: make fix-data")
+	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/qdrant/Snapshots data/videos cache && chown -R $$HOST_UID:$$HOST_GID data cache' 2>/dev/null && echo "Data directories data and cache are ready." || (mkdir -p data/qdrant/Snapshots data/videos cache && echo "Created data and cache. If Qdrant fails with Permission denied, run: make fix-data")
 
 up: docker-check data-dirs
 	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml up --build
@@ -67,9 +67,35 @@ env-interactive:
 	$(if $(wildcard .venv/bin/python),.venv/bin/python -m selfsuvis.scripts.generate_env --interactive,python -m selfsuvis.scripts.generate_env --interactive)
 
 venv:
-	uv venv .venv
-	./scripts/ensure_venv_pip.sh .venv
-	./scripts/install_requirements.sh vision,dev .venv
+	@if [ -d .venv ]; then \
+		printf "\n  .venv already exists.\n"; \
+		printf "  [r] Recreate — remove and create a fresh .venv\n"; \
+		printf "  [u] Update   — install/upgrade requirements in the existing .venv\n"; \
+		printf "\n  Choice [r/u]: "; \
+		read choice; \
+		case "$$choice" in \
+			r|R) \
+				echo "Removing existing .venv..."; \
+				rm -rf .venv; \
+				uv venv .venv; \
+				./scripts/ensure_venv_pip.sh .venv; \
+				./scripts/install_requirements.sh vision,dev .venv \
+				;; \
+			u|U) \
+				echo "Updating requirements in existing .venv..."; \
+				./scripts/ensure_venv_pip.sh .venv; \
+				./scripts/install_requirements.sh vision,dev .venv \
+				;; \
+			*) \
+				echo "Invalid choice '$$choice'. Run  make venv  again and enter r or u."; \
+				exit 1 \
+				;; \
+		esac \
+	else \
+		uv venv .venv; \
+		./scripts/ensure_venv_pip.sh .venv; \
+		./scripts/install_requirements.sh vision,dev .venv; \
+	fi
 
 # Force CUDA torch wheels regardless of nvidia-smi detection (use when GPU is present but nvidia-smi absent)
 venv-cuda:

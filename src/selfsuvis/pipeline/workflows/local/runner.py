@@ -1021,10 +1021,13 @@ def run_video_pipeline(
         device=device,
     )
 
-    # M: ASR — no CLIP/DINO needed; Whisper manages its own VRAM
+    # M: ASR — evict any Ollama model that may still be resident from the
+    # Florence-2 Qwen fallback (or a normal Qwen caption pass) before loading
+    # Whisper, which needs ~1.6 GB VRAM.
     asr_result: Dict[str, Any] = {"skipped": True, "subtitle_map": {}, "segments": []}
     if args.asr:
         _step(5, _TOTAL_STEPS, "ASR transcription → asr_subtitles.md")
+        _prep_vram_for_step(models, device)
         with _Timer(T, "M_asr"):
             asr_result = step_asr_transcription(video_path, frame_list, video_name, video_dir)
     else:

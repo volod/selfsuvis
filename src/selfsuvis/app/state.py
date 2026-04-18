@@ -5,12 +5,10 @@ from PIL import Image
 from selfsuvis.models.dino_model import DINOEmbedder
 from selfsuvis.models.openclip_model import OpenCLIPEmbedder
 from selfsuvis.pipeline.core import get_dino_model_name, get_logger, settings, validate_settings
-from selfsuvis.pipeline.storage.processed import init_db as init_processed_db
 from selfsuvis.pipeline.storage import QdrantStore
 
 logger = get_logger(__name__)
 
-init_processed_db()
 validate_settings()
 
 if settings.MAX_IMAGE_PIXELS > 0:

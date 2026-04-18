@@ -132,17 +132,18 @@ async def aupsert(
             await conn.close()
 
 
-def init_db() -> None:
+async def ainit_db() -> None:
     if not settings.DATABASE_URL:
         return
-    async def _init() -> None:
-        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
-        try:
-            await init_db_conn(conn)
-        finally:
-            await conn.close()
+    conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
+    try:
+        await init_db_conn(conn)
+    finally:
+        await conn.close()
 
-    asyncio.run(_init())
+
+def init_db() -> None:
+    asyncio.run(ainit_db())
 
 
 def get_by_hash(file_hash: str) -> Optional[Dict[str, Any]]:

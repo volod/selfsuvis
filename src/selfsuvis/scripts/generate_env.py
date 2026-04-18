@@ -200,7 +200,7 @@ def build_env_plan(options: EnvGenerationOptions, existing: Optional[Mapping[str
     values["GPU_FREE_GB_HINT"] = _format_float(options.resources.free_vram_gb)
     values.setdefault("HF_TOKEN", "")
     values.setdefault("API_KEY", "")
-    values.setdefault("ALLOWED_INDEX_PATHS", "")
+    values.setdefault("ALLOWED_INDEX_PATHS", "./data/videos")
     values.setdefault("DATABASE_URL", _default_database_url(options.env_name))
     values.setdefault("MODEL_NAME", "openclip")
     values.setdefault("OPENCLIP_MODEL", "ViT-B-16")
@@ -397,20 +397,49 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
     if not sys.stdin.isatty():
         raise RuntimeError("--interactive requires a TTY")
 
+    # ── 1. Show detected hardware ────────────────────────────────────────────
+    gpu_str = f"{detected.vram_gb:.1f} GiB GPU ({detected.free_vram_gb:.1f} GiB free)" \
+              if detected.vram_gb > 0 else "CPU only (no GPU detected)"
+    print(f"\n  Hardware: {gpu_str},  {detected.ram_gb:.1f} GiB RAM")
+
+    rec_gemma, rec_reasoning = _recommend_ollama_gemma_models(detected)
+    print(f"  Recommended models (Ollama): Gemma={rec_gemma}  Reasoning={rec_reasoning}\n")
+
+    # ── 2. Primary sidecar backend ───────────────────────────────────────────
+    print("  Sidecar backends:")
+    print("    ollama  — local server, models pulled automatically, easiest setup")
+    print("    vllm    — higher throughput for batch inference, GPU recommended")
+    print("    none    — embedding + captioning only (no generative sidecars)")
+    primary = _prompt_choice("Primary sidecar backend", ["ollama", "vllm", "none"], "ollama")
+
+    # Apply primary to generative sidecars.  Reasoning always uses Ollama
+    # (it runs small reasoning models that vLLM adds little benefit for).
+    if primary == "none":
+        args.gemma_backend = args.qwen_backend = args.unidrive_backend = args.reasoning_backend = "none"
+    else:
+        args.gemma_backend = primary
+        args.qwen_backend = primary
+        args.unidrive_backend = "none"          # UniDrive is off by default; enable explicitly
+        args.reasoning_backend = "ollama"       # reasoning stays on Ollama regardless
+
+    # ── 3. Profile ───────────────────────────────────────────────────────────
+    print("\n  Profiles:")
+    print("    minimal  — Gemma + Reasoning only (fastest, lowest resource use)")
+    print("    balanced — Gemma + Qwen + Reasoning (good default)")
+    print("    full     — all sidecars including UniDrive")
+    args.profile = _prompt_choice("Profile", _PROFILE_NAMES, "balanced")
+
+    # ── 4. Environment and output ────────────────────────────────────────────
     args.env_name = _prompt_choice("Environment", _ENV_NAMES, args.env_name)
-    args.profile = _prompt_choice("Profile", _PROFILE_NAMES, args.profile)
-    args.vram_gb = _prompt_float("Target GPU total VRAM (GiB)", args.vram_gb or detected.vram_gb)
-    args.free_vram_gb = _prompt_float("Target free GPU VRAM (GiB)", args.free_vram_gb or detected.free_vram_gb)
-    args.ram_gb = _prompt_float("Target system RAM (GiB)", args.ram_gb or detected.ram_gb)
-    args.gemma_backend = _prompt_choice("Gemma sidecar backend", _SIDECAR_BACKENDS, args.gemma_backend)
-    args.qwen_backend = _prompt_choice("Qwen sidecar backend", _SIDECAR_BACKENDS, args.qwen_backend)
-    args.unidrive_backend = _prompt_choice("UniDrive sidecar backend", _SIDECAR_BACKENDS, args.unidrive_backend)
-    args.reasoning_backend = _prompt_choice("Reasoning sidecar backend", _REASONING_BACKENDS, args.reasoning_backend)
     args.output = _prompt_text("Output path", args.output)
     return args
 
 
 def _resource_profile_from_args(args: argparse.Namespace) -> ResourceProfile:
+    # Strip GPU hint overrides that a previous generation may have written into
+    # the .env so that detect_resources() always calls nvidia-smi fresh.
+    os.environ.pop("GPU_TOTAL_GB_HINT", None)
+    os.environ.pop("GPU_FREE_GB_HINT", None)
     detected = detect_resources()
     vram = args.vram_gb if args.vram_gb is not None else float(detected.get("vram_gb", 0.0))
     free_vram = args.free_vram_gb if args.free_vram_gb is not None else float(detected.get("free_vram_gb", vram))
@@ -447,6 +476,62 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _print_sidecar_next_steps(plan: EnvPlan, values: Dict[str, str]) -> None:
+    """Print the sidecar startup commands implied by the generated plan."""
+    backends = plan.selected_backends
+    ollama_models: List[str] = []
+    vllm_cmds: List[str] = []
+
+    gemma_model = values.get("GEMMA_API_MODEL", "")
+    qwen_model = values.get("QWEN_MODEL", "")
+    reasoning_model = values.get("REASONING_MODEL", "")
+    unidrive_model = values.get("UNIDRIVE_MODEL", "")
+
+    if backends.get("gemma") == "ollama" and gemma_model:
+        ollama_models.append(gemma_model)
+    elif backends.get("gemma") == "vllm" and gemma_model:
+        vllm_cmds.append(
+            f"python -m vllm.entrypoints.openai.api_server \\\n"
+            f"  --model {gemma_model} --port 8000 --max-model-len 8192"
+        )
+
+    if backends.get("qwen") == "ollama" and qwen_model:
+        ollama_models.append(qwen_model)
+    elif backends.get("qwen") == "vllm" and qwen_model:
+        vllm_cmds.append(
+            f"python -m vllm.entrypoints.openai.api_server \\\n"
+            f"  --model {qwen_model} --port 8010 --max-model-len 8192"
+        )
+
+    if backends.get("reasoning") == "ollama" and reasoning_model:
+        ollama_models.append(reasoning_model)
+
+    if backends.get("unidrive") == "vllm" and unidrive_model:
+        vllm_cmds.append(
+            f"python -m vllm.entrypoints.openai.api_server \\\n"
+            f"  --model {unidrive_model} --port 8030 --max-model-len 4096"
+        )
+
+    if not ollama_models and not vllm_cmds:
+        return
+
+    print("\n─── Sidecar startup commands ──────────────────────────────────────")
+    if ollama_models:
+        print("\n  Ollama (run once, then keep running):")
+        print("    ollama serve")
+        for m in dict.fromkeys(ollama_models):   # deduplicate, preserve order
+            print(f"    ollama pull {m}")
+
+    if vllm_cmds:
+        print("\n  vLLM (each in its own terminal):")
+        for cmd in vllm_cmds:
+            print(f"    {cmd}\n")
+
+    print("\n  Edit .env and set API_KEY, then drop videos into data/videos/ and run:")
+    print("    make up  (Docker)  or  make venv && uvicorn selfsuvis.app.main:app  (local)")
+    print("──────────────────────────────────────────────────────────────────\n")
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -480,12 +565,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     write_env_file(output_path, contents)
 
     print(
-        f"Wrote {output_path} "
-        f"(env={plan.env_name}, profile={plan.profile}, "
-        f"gemma={plan.selected_backends['gemma']}, "
-        f"qwen={plan.selected_backends['qwen']}, "
-        f"unidrive={plan.selected_backends['unidrive']})"
+        f"\nWrote {output_path}\n"
+        f"  env={plan.env_name}  profile={plan.profile}\n"
+        f"  gemma={plan.selected_backends['gemma']}  "
+        f"qwen={plan.selected_backends['qwen']}  "
+        f"reasoning={plan.selected_backends['reasoning']}  "
+        f"unidrive={plan.selected_backends['unidrive']}\n"
+        f"  GPU={plan.resources.vram_gb:.1f} GiB  RAM={plan.resources.ram_gb:.1f} GiB"
     )
+    _print_sidecar_next_steps(plan, plan.values)
     return 0
 
 

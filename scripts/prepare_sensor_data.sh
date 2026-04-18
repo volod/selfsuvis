@@ -42,6 +42,7 @@ note() { echo -e "${BOLD}[NOTE]${RESET} $*"; }
 # Falls back to "sample_mission_042" when no video is present yet.
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _REPO_ROOT="$(cd "$_SCRIPT_DIR/.." && pwd)"
+_SENSORS_DIR="$_REPO_ROOT/src/selfsuvis/scripts/sensors"
 SENSOR_VIDEO_BASENAME="sample_mission_042"
 _VIDEO_DIR="$_REPO_ROOT/data/videos"
 if [[ -d "$_VIDEO_DIR" ]]; then
@@ -158,7 +159,7 @@ SALINAS_URL="http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat"
 maybe_download "$SALINAS_URL" "$DIR/Salinas_corrected.mat" || \
   warn "Salinas .mat download failed — download manually from: $SALINAS_URL"
 
-cp "$_SCRIPT_DIR/sensors/load_hyperspectral.py" "$DIR/"
+cp "$_SENSORS_DIR/load_hyperspectral.py" "$DIR/"
 
 write_readme "$DIR" "11" "Indian Pines & Salinas Hyperspectral" \
   "Public domain (academic benchmark)" \
@@ -196,7 +197,7 @@ note "  Place .bin scans at: $DIR/kitti_seq00/velodyne/"
 note "  Sidecar: data/videos/mission_042.lidar.pcd  (single merged scan)"
 note "           or mission_042.lidar.mcap           (MCAP with PointCloud2 topics)"
 
-cp "$_SCRIPT_DIR/sensors/visualise_pcd.py" "$DIR/"
+cp "$_SENSORS_DIR/visualise_pcd.py" "$DIR/"
 
 write_readme "$DIR" "13" "KITTI Odometry LiDAR + SemanticKITTI" \
   "KITTI: non-commercial research licence. SemanticKITTI: CC BY-NC-SA 4.0" \
@@ -237,7 +238,7 @@ if [[ ! -f "$ADSB_SAMPLE" ]]; then
     warn "OpenSky API request failed (rate limit or network). Download manually: https://opensky-network.org/data/datasets"
 fi
 
-cp "$_SCRIPT_DIR/sensors/generate_adsb_sidecar.py" "$DIR/"
+cp "$_SENSORS_DIR/generate_adsb_sidecar.py" "$DIR/"
 python3 "$DIR/generate_adsb_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR" && \
   log "Generated synthetic ADS-B sidecar JSONL at $DIR/${SENSOR_VIDEO_BASENAME}.adsb.jsonl"
 
@@ -257,7 +258,7 @@ DIR="$OUT/step16_imu"
 mkdir -p "$DIR"
 log "Step 16 — IMU + Inertial / Barometric Sensing"
 
-cp "$_SCRIPT_DIR/sensors/generate_imu_sidecar.py" "$DIR/"
+cp "$_SENSORS_DIR/generate_imu_sidecar.py" "$DIR/"
 python3 "$DIR/generate_imu_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR"
 
 note "  EuRoC MAV: https://rpg.ifi.uzh.ch/docs/IJRR17_Burri.pdf"
@@ -273,7 +274,7 @@ DIR="$OUT/step17_atmospheric"
 mkdir -p "$DIR"
 log "Step 17 — Atmospheric / Environmental Sensing"
 
-cp "$_SCRIPT_DIR/sensors/generate_env_sidecar.py" "$DIR/"
+cp "$_SENSORS_DIR/generate_env_sidecar.py" "$DIR/"
 python3 "$DIR/generate_env_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR"
 
 note "  ERA5 real data: https://cds.climate.copernicus.eu/ (requires CDS account)"
@@ -303,7 +304,7 @@ if [[ ! -f "$_AQI_SAMPLE" ]]; then
     || log "  Open-Meteo request skipped (offline or rate-limited) — synthetic data used."
 fi
 
-cp "$_SCRIPT_DIR/sensors/generate_gas_sidecar.py" "$DIR/"
+cp "$_SENSORS_DIR/generate_gas_sidecar.py" "$DIR/"
 python3 "$DIR/generate_gas_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR"
 
 note "  Open-Meteo air quality (free, no key): https://open-meteo.com/en/docs/air-quality-api"
@@ -333,7 +334,7 @@ note ""
 note "  Sidecar: data/videos/mission_042.audio.wav (48 kHz mono/stereo)"
 note "           or mission_042.audio_array.h5     (channels × samples, float32)"
 
-cp "$_SCRIPT_DIR/sensors/generate_acoustic_sidecar.py" "$DIR/"
+cp "$_SENSORS_DIR/generate_acoustic_sidecar.py" "$DIR/"
 python3 "$DIR/generate_acoustic_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR"
 write_readme "$DIR" "19" "ESC-50 + xeno-canto + FSD50K acoustic datasets" \
   "ESC-50: CC BY-NC-SA 3.0. xeno-canto: CC (per recording). FSD50K: CC0/CC BY 4.0" \
