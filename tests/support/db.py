@@ -1,6 +1,5 @@
 """Shared in-process database helpers for tests."""
 
-from __future__ import annotations
 
 import json
 from datetime import datetime, timezone

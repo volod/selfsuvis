@@ -15,7 +15,6 @@ Options:
     --batch-size N    Override FLORENCE_BATCH_SIZE for this run (default: from settings).
     --dry-run         Print how many frames need captioning, then exit.
 """
-from __future__ import annotations
 
 import argparse
 import asyncio

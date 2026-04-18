@@ -1,9 +1,7 @@
 """Realtime session and pose endpoints for autonomous-drone integration."""
 
-from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 

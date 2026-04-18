@@ -1,6 +1,5 @@
 """Demo helper for YOLO semantic scene graph (SSG) generation."""
 
-from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict

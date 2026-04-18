@@ -1,6 +1,5 @@
 """Shared logging helpers, constants, and VideoKnowledge for the local subpackage."""
 
-from __future__ import annotations
 
 import logging
 import time

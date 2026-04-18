@@ -17,7 +17,6 @@ Artifacts produced under ``<video_dir>/``:
   gemma_tracking_results.json      per-frame detections with track IDs + SAM metadata
   gemma_tracking_summary.md        Gemma scene intel, tracking & segmentation summary
 """
-from __future__ import annotations
 
 import base64
 import io

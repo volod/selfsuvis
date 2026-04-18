@@ -1,9 +1,7 @@
 """Unit tests for pure realtime helper methods."""
 
-from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-
 import pytest
 
 from selfsuvis.pipeline.realtime.ingest import normalize_packets

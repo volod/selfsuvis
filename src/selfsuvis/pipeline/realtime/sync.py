@@ -1,9 +1,7 @@
 """Lightweight sensor summaries for realtime ingest."""
 
-from __future__ import annotations
 
 from typing import Dict, Iterable
-
 from .sensors import packet_sensor_summary as _packet_sensor_summary
 
 

@@ -1,6 +1,5 @@
 """Generate a project-root .env from environment presets plus resource-aware overrides."""
 
-from __future__ import annotations
 
 import argparse
 import os

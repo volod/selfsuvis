@@ -13,7 +13,6 @@ Priority color coding (RGB):
   Artificial (priority 3) → green (#43A047)
   Other      (priority 4) → grey  (#9E9E9E)
 """
-from __future__ import annotations
 
 import json
 import time

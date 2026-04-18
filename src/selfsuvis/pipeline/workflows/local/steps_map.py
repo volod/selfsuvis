@@ -1,6 +1,5 @@
 """3D map step and GPU/VRAM memory helpers."""
 
-from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List, Tuple

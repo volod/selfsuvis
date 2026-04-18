@@ -1,9 +1,7 @@
 """Shared sensor registry helpers for realtime ingest."""
 
-from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Set
-
 _SUPPORTED_SENSOR_TYPES: Set[str] = {
     "barometer",
     "camera",

@@ -2,7 +2,6 @@
 
 All tests mock cv2 and the DB pool — no hardware or live stream required.
 """
-from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch

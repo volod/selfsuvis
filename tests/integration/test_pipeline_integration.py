@@ -10,7 +10,6 @@ tmp_path fixtures:
 - Full worker job loop: create → claim → upsert_mission → replace_frames → finish
 - AL-to-report round-trip: scores assigned → frames persisted → HTML generated
 """
-from __future__ import annotations
 
 import asyncio
 import os

@@ -12,10 +12,8 @@ Supports:
 
 Auth: X-API-Key header required.
 """
-from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 

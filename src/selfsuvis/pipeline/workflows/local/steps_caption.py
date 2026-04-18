@@ -1,6 +1,5 @@
 """Captioning steps: Gemma, Florence, Qwen, ASR, OCR, depth, detection, world model."""
 
-from __future__ import annotations
 
 import logging
 import time

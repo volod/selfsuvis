@@ -1,6 +1,5 @@
 """All write_*_md functions, print_run_stats, and markdown helpers."""
 
-from __future__ import annotations
 
 import json
 import logging

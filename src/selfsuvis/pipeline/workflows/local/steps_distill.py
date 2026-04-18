@@ -1,6 +1,5 @@
 """Distillation and ONNX export steps."""
 
-from __future__ import annotations
 
 import logging
 import math

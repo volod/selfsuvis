@@ -1,6 +1,5 @@
 """Embedding and search steps for the local full-analysis pipeline."""
 
-from __future__ import annotations
 
 import logging
 import time

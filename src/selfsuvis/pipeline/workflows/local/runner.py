@@ -4,7 +4,6 @@ Contains: model/store init, per-video orchestrator, and the top-level
 ``run_local`` entry point. Step helpers are imported from sibling modules.
 """
 
-from __future__ import annotations
 
 import json
 import logging

@@ -1,9 +1,7 @@
 """Packet normalization for realtime sensor ingest."""
 
-from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List
-
 from .sensors import require_supported_sensor_type
 
 

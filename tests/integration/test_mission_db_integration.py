@@ -10,7 +10,6 @@ Covers:
 - apply_gps_registration: ENU origin + per-frame pose propagation
 - list_frames_after: cursor-based pagination
 """
-from __future__ import annotations
 
 import asyncio
 import json

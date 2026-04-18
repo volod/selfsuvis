@@ -3,7 +3,6 @@
 Tests _get_last_visits() and verifies it appears in PoseQueryResponse.
 No live Qdrant or PostgreSQL required.
 """
-from __future__ import annotations
 
 import sys
 from datetime import datetime, timezone

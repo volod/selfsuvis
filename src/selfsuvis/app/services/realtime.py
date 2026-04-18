@@ -1,6 +1,5 @@
 """Service layer for realtime session, pose, tile, and semantic workflows."""
 
-from __future__ import annotations
 
 import uuid
 from typing import Any, Dict, List, Optional

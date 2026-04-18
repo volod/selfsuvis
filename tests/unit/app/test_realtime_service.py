@@ -1,9 +1,7 @@
 """Unit tests for app.services.realtime workflow methods."""
 
-from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
-
 import pytest
 
 from selfsuvis.app.services import realtime as realtime_service

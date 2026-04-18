@@ -10,7 +10,6 @@ Exit codes:
     0 — gate passed (fine-tuned model improves R@1 on ≥ _GATE_VIDEOS videos)
     1 — gate failed
 """
-from __future__ import annotations
 
 import argparse
 from pathlib import Path

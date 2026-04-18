@@ -1,9 +1,7 @@
 """Realtime semantic-observation helpers."""
 
-from __future__ import annotations
 
 from typing import Any, Dict
-
 
 def normalize_semantic_observation(observation: Dict[str, Any]) -> Dict[str, Any]:
     class_name = str(observation.get("class_name", "")).strip().lower()

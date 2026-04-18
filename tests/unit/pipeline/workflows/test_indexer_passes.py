@@ -12,7 +12,6 @@ Covers the pass-level logic in pipeline/indexer.py:
 All tests run without GPU, Docker, or real model weights.
 VideoIndexer.__init__ is bypassed via object.__new__ + direct attribute injection.
 """
-from __future__ import annotations
 
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, call, patch

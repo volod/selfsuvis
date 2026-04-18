@@ -7,7 +7,6 @@ velocity, barometric altitude, and magnetometer heading when those signals are
 fresh enough to trust together.
 """
 
-from __future__ import annotations
 
 import math
 from datetime import datetime, timezone

@@ -12,7 +12,6 @@ Covers:
 - POST /index/precheck_dir   — batch precheck + optional enqueue
 - Validation errors (bad extension, missing params, disallowed path)
 """
-from __future__ import annotations
 
 import io
 import sys

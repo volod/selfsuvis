@@ -1,5 +1,4 @@
 """Shared fixtures for integration tests."""
-from __future__ import annotations
 
 import pytest
 from tests.support.db import PipelineMockConn, PipelineMockPool

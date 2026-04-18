@@ -3,7 +3,6 @@
 Uses the FastAPI test client with mocked DB pool and Qdrant.
 No live PostgreSQL or GPU required.
 """
-from __future__ import annotations
 
 import json
 import sys

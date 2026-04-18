@@ -5,7 +5,6 @@ before `pipeline.core.config` is imported. This ensures local orchestration CLI 
 in environment variables consumed by settings initialization.
 """
 
-from __future__ import annotations
 
 import os
 from pathlib import Path

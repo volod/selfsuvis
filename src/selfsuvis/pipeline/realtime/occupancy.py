@@ -1,9 +1,7 @@
 """Realtime occupancy/tile helpers."""
 
-from __future__ import annotations
 
 from typing import Any, Dict, Optional
-
 
 def normalize_map_tile(tile: Dict[str, Any]) -> Dict[str, Any]:
     return {

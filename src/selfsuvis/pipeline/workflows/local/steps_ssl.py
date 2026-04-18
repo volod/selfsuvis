@@ -1,6 +1,5 @@
 """SSL fine-tuning steps and loss analysis helpers."""
 
-from __future__ import annotations
 
 import logging
 import math
