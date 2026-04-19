@@ -19,6 +19,7 @@ Artifacts produced under ``<video_dir>/``:
 """
 
 import base64
+import hashlib
 import io
 import json
 import time
@@ -60,6 +61,15 @@ _PRIORITY_COLORS = {
     4: (158, 158, 158),   # other → grey
 }
 
+_TRACKING_TARGET_CANONICAL = {
+    "person": {"person", "pedestrian", "people", "human", "worker", "rider", "child"},
+    "vehicle": {
+        "vehicle", "car", "truck", "bus", "van", "pickup", "motorcycle",
+        "motorbike", "bike", "bicycle", "train", "boat", "airplane",
+    },
+    "sign": {"sign", "stop sign", "traffic light", "traffic sign"},
+}
+
 
 # ── Gemma structured scene analysis ───────────────────────────────────────────
 
@@ -69,6 +79,8 @@ def _gemma_structured_scene_analysis(
     model: str,
     timeout: float,
     clip_model: Any,
+    *,
+    video_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Send sampled frames to Gemma asking for structured JSON scene understanding.
 
@@ -91,9 +103,14 @@ def _gemma_structured_scene_analysis(
         return _empty_scene()
 
     n_avail = len(frame_list)
-    n_sample = min(_GEMMA_STRUCTURED_SAMPLE_N, n_avail)
-    step = max(1, n_avail // n_sample)
+    n_sample = min(int(settings.GEMMA_TRACKING_MAX_SAMPLE_FRAMES), _GEMMA_STRUCTURED_SAMPLE_N, n_avail)
+    step = max(1, n_avail // max(1, n_sample))
     sampled = frame_list[::step][:n_sample]
+    try:
+        from selfsuvis.pipeline.workflows.local.steps_caption import _reduce_llm_sample_frames  # noqa: PLC0415
+        sampled = _reduce_llm_sample_frames(sampled, max_frames=n_sample)
+    except Exception:
+        pass
 
     structured_prompt = (
         "Analyse this frame from a robotics/drone mission video.\n"
@@ -132,15 +149,33 @@ def _gemma_structured_scene_analysis(
 
     per_frame_responses: List[Dict[str, Any]] = []
     n_failed = 0
+    cache: Dict[str, Any] = {}
+    cache_path: Optional[Path] = None
+    if video_dir is not None and settings.GEMMA_CACHE_RESPONSES:
+        cache_path = video_dir / "runtime_cache" / "gemma_responses.json"
+        if cache_path.exists():
+            try:
+                cache = json.loads(cache_path.read_text(encoding="utf-8"))
+            except Exception:
+                cache = {}
 
     for fp, _t_sec in sampled:
         try:
+            cache_key = ""
+            if cache_path is not None:
+                digest = hashlib.sha256(Path(fp).read_bytes()).hexdigest()
+                cache_key = f"gemma_tracking_structured_v1:{model}:{digest}"
+                cached = cache.get(cache_key)
+                if isinstance(cached, dict) and cached.get("parsed_json"):
+                    per_frame_responses.append(cached["parsed_json"])
+                    continue
             img = Image.open(fp).convert("RGB")
             img.thumbnail((768, 768))
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=88)
             b64 = base64.b64encode(buf.getvalue()).decode()
 
+            t_req = time.time()
             content = _gemma_vision_request(
                 httpx, model, b64, structured_prompt,
                 openai_endpoint, ollama_endpoint, timeout,
@@ -161,9 +196,20 @@ def _gemma_structured_scene_analysis(
                     raw = raw[4:]
             parsed = json.loads(raw.strip())
             per_frame_responses.append(parsed)
+            elapsed = time.time() - t_req
+            if elapsed >= float(settings.GEMMA_SLOW_CALL_SEC):
+                _log.info("  [P3/Gemma] slow structured frame call: %.1fs for %s", elapsed, Path(fp).name)
+            if cache_key:
+                cache[cache_key] = {"parsed_json": parsed, "elapsed_sec": round(elapsed, 3)}
         except Exception as exc:
             n_failed += 1
             _log.debug("  [P3/Gemma] frame analysis failed: %s", exc)
+    if cache_path is not None:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
 
     if not per_frame_responses:
         _log.warning(
@@ -266,6 +312,17 @@ def _empty_scene() -> Dict[str, Any]:
     }
 
 
+def _scene_is_actionable(scene: Optional[Dict[str, Any]]) -> bool:
+    """Return True when a precomputed scene contains usable tracking targets."""
+    if not scene:
+        return False
+    tracking_targets = _normalise_tracking_targets(
+        scene.get("tracking_priority", []),
+        scene.get("dominant_objects", []),
+    )
+    return bool(tracking_targets)
+
+
 def _aggregate_scene_responses(responses: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Merge per-frame structured Gemma responses into one scene summary."""
     from collections import Counter
@@ -335,6 +392,58 @@ def _bbox_area(bbox: List[float]) -> float:
         return w * h
     except Exception:
         return 1.0
+
+
+def _normalise_tracking_targets(
+    tracking_priority: List[str],
+    gemma_objects: List[Dict[str, Any]],
+) -> List[str]:
+    """Reduce Gemma scene nouns to detector-aligned target classes."""
+    candidates = [*(tracking_priority or [])]
+    candidates.extend(
+        (obj.get("category") or "").strip().lower()
+        for obj in gemma_objects
+        if (obj.get("category") or "").strip()
+    )
+    result: List[str] = []
+    seen: set[str] = set()
+    for raw in candidates:
+        norm = " ".join(raw.lower().replace("-", " ").replace("_", " ").split())
+        if not norm:
+            continue
+        canonical = None
+        for family, aliases in _TRACKING_TARGET_CANONICAL.items():
+            if norm == family or norm in aliases or any(token in aliases for token in norm.split()):
+                canonical = family
+                break
+        if canonical is None:
+            continue
+        if canonical not in seen:
+            result.append(canonical)
+            seen.add(canonical)
+    return result
+
+
+def _track_length_stats(tracking_results: List[Dict[str, Any]]) -> Tuple[float, float]:
+    lengths: Dict[int, int] = {}
+    for frame_res in tracking_results:
+        seen_ids: set[int] = set()
+        for det in frame_res.get("detections", []):
+            tid = int(det.get("track_id", 0) or 0)
+            if tid <= 0 or tid in seen_ids:
+                continue
+            seen_ids.add(tid)
+            lengths[tid] = lengths.get(tid, 0) + 1
+    if not lengths:
+        return 0.0, 0.0
+    values = sorted(lengths.values())
+    mean_len = float(sum(values) / len(values))
+    mid = len(values) // 2
+    if len(values) % 2 == 1:
+        median_len = float(values[mid])
+    else:
+        median_len = float(values[mid - 1] + values[mid]) / 2.0
+    return mean_len, median_len
 
 
 # ── SAM directed by Gemma ──────────────────────────────────────────────────────
@@ -682,6 +791,7 @@ def step_gemma_directed_tracking(
     models: Dict[str, Any],
     gemma_api_url: str,
     gemma_api_model: str,
+    precomputed_scene: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Step P3: Gemma 4 directed tracking (SAM segmentation + RF-DETR tracking).
 
@@ -719,17 +829,25 @@ def step_gemma_directed_tracking(
         "Gemma structured scene analysis (up to %d sampled frames, model=%s) ...",
         _GEMMA_STRUCTURED_SAMPLE_N, gemma_api_model,
     )
-    gemma_scene = _gemma_structured_scene_analysis(
-        frame_list,
-        api_url=gemma_api_url,
-        model=gemma_api_model,
-        timeout=effective_timeout,
-        clip_model=clip_model,
-    )
+    if _scene_is_actionable(precomputed_scene):
+        gemma_scene = precomputed_scene
+        _log.info("Using precomputed Gemma structured scene from step J")
+    else:
+        if precomputed_scene:
+            _log.info("Precomputed Gemma scene was too weak for tracking; re-running structured vision analysis")
+        gemma_scene = _gemma_structured_scene_analysis(
+            frame_list,
+            api_url=gemma_api_url,
+            model=gemma_api_model,
+            timeout=effective_timeout,
+            clip_model=clip_model,
+            video_dir=video_dir,
+        )
     scene_type = gemma_scene.get("scene_type", "other")
     tracking_priority = gemma_scene.get("tracking_priority", [])
     gemma_objects = gemma_scene.get("dominant_objects", [])
     areas_of_interest = gemma_scene.get("areas_of_interest", [])
+    tracking_targets = _normalise_tracking_targets(tracking_priority, gemma_objects)
 
     _log.info(
         "Scene: %s | priority: %s | objects: %d",
@@ -818,12 +936,33 @@ def step_gemma_directed_tracking(
     if tracker.is_enabled():
         _log.info(
             "RF-DETR tracking (%s) on %d/%d frames, target_labels=%s",
-            tracker.model_id, n_track, n_avail, tracking_priority or "(all)",
+            tracker.model_id, n_track, n_avail, tracking_targets or "(all)",
         )
         tracking_results = tracker.track_sequence(
             track_frames,
-            target_labels=tracking_priority if tracking_priority else None,
+            target_labels=tracking_targets or None,
         )
+        filter_retry_mode = "none"
+        if tracking_targets:
+            first_pass_total = sum(len(frame_res.get("detections", [])) for frame_res in tracking_results)
+            if first_pass_total == 0:
+                reduced_targets = [label for label in tracking_targets if label in {"vehicle", "person"}]
+                if reduced_targets and reduced_targets != tracking_targets:
+                    _log.warning(
+                        "RF-DETR returned zero detections for Gemma targets %s; retrying with reduced filter %s",
+                        tracking_targets,
+                        reduced_targets,
+                    )
+                    tracking_results = tracker.track_sequence(track_frames, target_labels=reduced_targets)
+                    filter_retry_mode = "reduced"
+                second_pass_total = sum(len(frame_res.get("detections", [])) for frame_res in tracking_results)
+                if second_pass_total == 0:
+                    _log.warning(
+                        "RF-DETR returned zero detections for Gemma targets %s; retrying without label filter",
+                        tracking_targets,
+                    )
+                    tracking_results = tracker.track_sequence(track_frames, target_labels=None)
+                    filter_retry_mode = "unfiltered"
         # Collect stats
         all_track_ids: set = set()
         for frame_res in tracking_results:
@@ -839,12 +978,16 @@ def step_gemma_directed_tracking(
             "RF-DETR done: %d objects, %d unique tracks in %d frames",
             total_objects, n_unique_track_ids, n_track,
         )
+        mean_track_len, median_track_len = _track_length_stats(tracking_results)
     else:
         _log.info("RF-DETR disabled — tracking skipped")
         tracking_results = [
             {"frame_path": fp, "t_sec": t, "detections": []}
             for fp, t in track_frames
         ]
+        filter_retry_mode = "none"
+        mean_track_len = 0.0
+        median_track_len = 0.0
 
     # ── Annotate frames ───────────────────────────────────────────────────────
     out_dir = video_dir / "gemma_tracking"
@@ -876,6 +1019,8 @@ def step_gemma_directed_tracking(
         "gemma_model": gemma_api_model,
         "gemma_scene_type": scene_type,
         "tracking_priority": tracking_priority,
+        "tracking_targets_effective": tracking_targets,
+        "tracking_filter_retry_mode": filter_retry_mode,
         "dominant_objects": [
             {k: v for k, v in o.items() if k != "rough_bbox"}
             | {"rough_bbox": o.get("rough_bbox", _FALLBACK_BBOX)}
@@ -887,6 +1032,8 @@ def step_gemma_directed_tracking(
         "n_frames": n_track,
         "n_unique_track_ids": n_unique_track_ids,
         "total_detections": total_objects,
+        "mean_track_length_frames": round(mean_track_len, 2),
+        "median_track_length_frames": round(median_track_len, 2),
         "by_category": by_category,
         "elapsed_sec": round(elapsed, 2),
         "frames": [
@@ -1035,8 +1182,8 @@ def _write_gemma_tracking_summary_md(
             "",
             "- **Path A** (Gemma bbox → SAM box-prompt): used when Gemma "
             "provided a non-fallback rough_bbox.",
-            "- **Path B** (SAM auto-mask + CLIP filter): used as fallback or "
-            "supplement when Gemma could not localise objects precisely.",
+            "- **Path B** (SAM auto-mask + CLIP filter): used only as a fallback "
+            "when Path A yields no masks for a frame.",
         ]
     else:
         lines += [

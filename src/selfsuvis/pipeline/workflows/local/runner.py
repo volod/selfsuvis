@@ -800,6 +800,8 @@ def run_video_pipeline(
         _unload_ollama_model,
         _unload_known_sidecars,
         _log_vram_snapshot,
+        reset_runtime_telemetry,
+        get_runtime_telemetry,
     )
     from .steps_ssl import step_ssl_finetune
     from .steps_distill import step_distill, step_export_model
@@ -815,6 +817,7 @@ def run_video_pipeline(
     video_id   = video_name.replace(" ", "_").lower()
     video_dir  = output_dir / video_name
     video_dir.mkdir(parents=True, exist_ok=True)
+    reset_runtime_telemetry()
 
     _banner(f"Processing video: {video_path.name}")
     _log.info("Output directory: %s", video_dir)
@@ -933,6 +936,8 @@ def run_video_pipeline(
             "mnn_rate_dino":   j.get("dino_comparison", {}).get("mnn_rate"),
             "mnn_rate_clip":   j.get("clip_comparison", {}).get("mnn_rate"),
         }
+        if j.get("structured_scene"):
+            video_context["gemma_structured_scene"] = j.get("structured_scene")
         knowledge.add_gemma(
             j.get("task_results", {}),
             mnn_dino=j.get("dino_comparison", {}).get("mnn_rate") or 0.0,
@@ -1220,6 +1225,7 @@ def run_video_pipeline(
                 models=models,
                 gemma_api_url=_gemma_api_url_p3,
                 gemma_api_model=_gemma_api_model_p3,
+                precomputed_scene=video_context.get("gemma_structured_scene"),
             )
     else:
         T["P3_gemma_tracking"] = 0.0
@@ -1453,6 +1459,13 @@ def run_video_pipeline(
     stats["map_method"]    = h["method"]
     stats["map_points"]    = int(h["points"].shape[0]) if h.get("points") is not None else 0
     stats["gsplat_method"] = h.get("gsplat_method", "skipped")
+    stats["map_degraded"]  = bool(stats["map_points"] < 50 or stats["sfm_poses"] < 20)
+    if stats["map_degraded"]:
+        _log.warning(
+            "3D map quality is degraded: %d points, %d poses",
+            stats["map_points"],
+            stats["sfm_poses"],
+        )
     stats["splat_ply"]     = h.get("splat_ply")
     semantic_graph_result: Dict[str, Any] = {"skipped": True}
     if not getattr(args, "no_yolo", False) and settings.YOLO_SSG_ENABLED:
@@ -1962,6 +1975,13 @@ def run_video_pipeline(
         )
 
     stats["pipeline_sec"] = sum(T.values())
+    runtime_metrics = get_runtime_telemetry()
+    stats["vram_wait_time_sec"] = runtime_metrics.get("vram_wait_time_sec", 0.0)
+    stats["restore_failures"] = int(runtime_metrics.get("restore_failures", 0.0))
+    (video_dir / "runtime_metrics.json").write_text(
+        json.dumps(runtime_metrics, indent=2),
+        encoding="utf-8",
+    )
 
     _banner(f"✓ Video complete: {video_path.name}")
     _log.info("  Output dir: %s", video_dir)

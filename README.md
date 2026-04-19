@@ -39,5 +39,6 @@ The local pipeline is the primary path for understanding how the system works, b
 | [Runbooks](docs/runbooks/README.md) | Per-component operational runbooks |
 | [Local learning path](docs/local_path.md) | 35-step essentials + day-by-day syllabus |
 | [Learning path deep dives](docs/learning_path/README.md) | Detailed study set per pipeline phase |
+| [Analytics and visualization](docs/analytics.md) | Post-run artifact analysis, charts, HTML report, and CLI usage |
 | [Architecture decisions](docs/adr/README.md) | ADR log |
 | [Design docs](docs/design/outdoor-autonomy-perception-stack.md) | Original design document |

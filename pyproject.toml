@@ -87,6 +87,7 @@ selfsuvis-migrate = "selfsuvis.scripts.migrate_postgres:main"
 selfsuvis-models  = "selfsuvis.scripts.prepare_models:main"
 selfsuvis-export  = "selfsuvis.scripts.export_onnx:main"
 selfsuvis-gallery = "selfsuvis.scripts.build_gallery:main"
+selfsuvis-analyse = "selfsuvis.scripts.analyse_local_run:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

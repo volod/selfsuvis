@@ -25,6 +25,7 @@ They are written to answer:
 | [05_adaptation_eval_steps_28_35.md](05_adaptation_eval_steps_28_35.md) | Fine-tuning, distillation, ONNX export, retrieval evaluation, synthesis, and audit — the “did the system improve?” phase |
 | [06_agentic_knowledge_flow.md](06_agentic_knowledge_flow.md) | `VideoKnowledge` structure, evidence accumulation, context reuse, contamination risks, and debugging strategy |
 | [07_day_by_day_syllabus.md](07_day_by_day_syllabus.md) | Multi-week human study plan with prerequisites, exercises, checkpoints, and milestones |
+| [08_local_run_artifact_analysis.md](08_local_run_artifact_analysis.md) | How to inspect a completed run, detect silent failures, and connect artifacts back to code |
 
 ## Current Runtime vs Conceptual Path
 

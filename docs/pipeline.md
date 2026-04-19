@@ -245,6 +245,12 @@ Relevant Gemma directed tracking artifacts (local runs):
 - `<output_dir>/<video>/gemma_tracking/frame_*_tracked.jpg`
 - `<output_dir>/<video>/gemma_tracking_summary.md`
 
+Post-run analytics:
+
+- repo script: `python scripts/analyse_local_run.py --run-dir <output_dir>/<video>`
+- installed CLI: `selfsuvis-analyse --run-dir <output_dir>/<video>`
+- guide: [`analytics.md`](./analytics.md)
+
 For exact directories and defaults, see [`configuration.md`](./configuration.md).
 
 ---

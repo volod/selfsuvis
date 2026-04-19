@@ -134,15 +134,24 @@ def _search(
     top_k: int,
     video_id: str,
     vector_name: str = "clip",
+    exclude_frame_path: str = "",
 ) -> List[Dict[str, Any]]:
+    limit = top_k + 1 if exclude_frame_path else top_k
     if is_qdrant:
         from qdrant_client.http import models as qmodels
         filt = qmodels.Filter(must=[qmodels.FieldCondition(
             key="video_id", match=qmodels.MatchValue(value=video_id),
         )])
-        raw = store.search(vector_name, query_vec, limit=top_k, payload_filter=filt)
-        return [{"score": p.score, "payload": p.payload} for p in raw]
-    return store.search(query_vec, limit=top_k)
+        raw = store.search(vector_name, query_vec, limit=limit, payload_filter=filt)
+        results = [{"score": p.score, "payload": p.payload} for p in raw]
+    else:
+        results = store.search(query_vec, limit=limit)
+    if exclude_frame_path:
+        results = [
+            r for r in results
+            if (r.get("payload", r).get("frame_path", "")) != exclude_frame_path
+        ]
+    return results[:top_k]
 
 
 def step_base_model_search_test(
@@ -164,7 +173,8 @@ def step_base_model_search_test(
     t0        = time.time()
     query_vec = _embed_query(qfp, models, use_dino=use_dino)
     results   = _search(query_vec, store, is_qdrant, top_k, video_id,
-                        vector_name="dino" if use_dino else "clip")
+                        vector_name="dino" if use_dino else "clip",
+                        exclude_frame_path=qfp)
     elapsed   = time.time() - t0
     label = "Base DINOv3 (pretrained)" if use_dino else "Base CLIP (pretrained)"
     write_search_md(out_md, video_name, label, qfp, results, qt)
@@ -192,7 +202,8 @@ def step_finetuned_model_search_test(
     t0        = time.time()
     query_vec = _embed_query(query_frame, models, use_dino=use_dino)
     results   = _search(query_vec, store, is_qdrant, top_k, video_id,
-                        vector_name="dino" if use_dino else "clip")
+                        vector_name="dino" if use_dino else "clip",
+                        exclude_frame_path=query_frame)
     ft_infer_ms = (time.time() - t0) * 1000 / max(len(frame_list), 1)
     write_search_md(out_md, video_name, "Fine-tuned DINOv3 (SSL adapted)",
                     query_frame, results, query_t_sec)

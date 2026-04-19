@@ -48,6 +48,8 @@ def write_search_md(
         f"",
         f"## Top {len(results)} Similar Frames",
         f"",
+        f"Query frame self-match is excluded from the ranking.",
+        f"",
         f"| Rank | Score | Timestamp | Frame |",
         f"|------|-------|-----------|-------|",
     ]
@@ -107,6 +109,9 @@ def write_scene_captions_md(
     video_name: str,
     caption_results: List[Dict[str, Any]],
     elapsed_sec: float,
+    *,
+    model_tag: str = "florence-2-large",
+    runtime_mode: str = "scored",
 ) -> None:
     enriched = _analyze_caption_sequence(caption_results)
 
@@ -132,7 +137,8 @@ def write_scene_captions_md(
         f"# Scene Captions — {video_name}",
         f"",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Model: Florence-2-large (MORE_DETAILED_CAPTION)",
+        f"Model: {model_tag}",
+        f"Runtime mode: {runtime_mode}",
         f"Frames captioned: {len(caption_results)}  |  Unique scenes: {n_segments}"
         f"  |  Repeated frames: {n_unchanged}",
         f"Elapsed: {elapsed_sec:.1f}s",
@@ -1525,7 +1531,7 @@ def print_run_stats(
     _log.info(_row("Fine-tuned infer (ms/fr)",
                    *[f"{v.get('ft_infer_ms', 0.0):.1f}" for v in per_video]))
     _log.info("")
-    _log.info("  SEARCH QUALITY  (top-1 cosine score, same query frame)")
+    _log.info("  SEARCH QUALITY  (top-1 cosine score, self-match excluded)")
     _log.info("  " + SEP[:W-2])
     _log.info(_row("Base model (pretrained)",
                    *[f"{v.get('base_top_score', 0.0):.4f}" for v in per_video]))

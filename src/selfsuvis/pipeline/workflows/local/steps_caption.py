@@ -2,6 +2,8 @@
 
 
 import logging
+import hashlib
+import json
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -22,6 +24,11 @@ from ._common import (
 
 # Step-specific logger — appears as "pipeline.local.caption" in log output.
 _log = logging.getLogger("pipeline.local.caption")
+
+_RUNTIME_TELEMETRY: Dict[str, float] = {
+    "vram_wait_time_sec": 0.0,
+    "restore_failures": 0.0,
+}
 
 try:
     from selfsuvis.models.dino_model import DINOEmbedder
@@ -88,6 +95,28 @@ def _flush_cuda_allocator() -> None:
         pass
 
 
+def _backbone_device(backbone: Any) -> Optional[str]:
+    try:
+        return str(next(backbone.parameters()).device)
+    except Exception:
+        return None
+
+
+def _device_matches(actual: Any, expected: Any) -> bool:
+    """Treat 'cuda' and 'cuda:0' as equivalent for single-GPU residency checks."""
+    import torch as _torch
+
+    actual_dev = _torch.device(actual)
+    expected_dev = _torch.device(expected)
+    if actual_dev.type != expected_dev.type:
+        return False
+    if actual_dev.type != "cuda":
+        return actual_dev == expected_dev
+    if expected_dev.index is None:
+        return True
+    return actual_dev.index == expected_dev.index
+
+
 def _wait_for_sidecar_vram_release(
     *,
     baseline_free_gb: float,
@@ -95,11 +124,21 @@ def _wait_for_sidecar_vram_release(
     label: str,
     timeout_sec: float = 20.0,
     min_expected_gain_gb: float = 1.0,
+    sufficient_free_gb: Optional[float] = None,
 ) -> None:
     """Wait briefly for an unload request to turn into free VRAM."""
     if unload_count <= 0:
         return
+    if sufficient_free_gb is not None and baseline_free_gb >= sufficient_free_gb:
+        _log.info(
+            "  VRAM already sufficient for %s: %.1f GiB free (target %.1f GiB)",
+            label,
+            baseline_free_gb,
+            sufficient_free_gb,
+        )
+        return
 
+    t_wait = time.time()
     deadline = time.time() + timeout_sec
     best_free_gb = baseline_free_gb
     target_free_gb = baseline_free_gb + min_expected_gain_gb
@@ -107,6 +146,14 @@ def _wait_for_sidecar_vram_release(
         _flush_cuda_allocator()
         free_gb = _detect_free_vram_gb()
         best_free_gb = max(best_free_gb, free_gb)
+        if sufficient_free_gb is not None and free_gb >= sufficient_free_gb:
+            _log.info(
+                "  VRAM sufficient for %s after unload: %.1f GiB free",
+                label,
+                free_gb,
+            )
+            _RUNTIME_TELEMETRY["vram_wait_time_sec"] += max(0.0, time.time() - t_wait)
+            return
         if free_gb >= target_free_gb:
             _log.info(
                 "  VRAM recovered after %s: free %.1f → %.1f GiB",
@@ -114,9 +161,11 @@ def _wait_for_sidecar_vram_release(
                 baseline_free_gb,
                 free_gb,
             )
+            _RUNTIME_TELEMETRY["vram_wait_time_sec"] += max(0.0, time.time() - t_wait)
             return
         time.sleep(0.5)
 
+    _RUNTIME_TELEMETRY["vram_wait_time_sec"] += max(0.0, time.time() - t_wait)
     if best_free_gb > baseline_free_gb:
         _log.info(
             "  VRAM partially recovered after %s: free %.1f → %.1f GiB",
@@ -167,6 +216,7 @@ def _offload_models_to_cpu(models: Dict[str, Any]) -> None:
     correctly once the backbone is moved back by :func:`_restore_models_to_gpu`.
     """
     _log_vram_snapshot("before offload CLIP+DINO to CPU")
+    moved = 0
     for key in ("clip", "dino"):
         m = models.get(key)
         if m is None:
@@ -174,7 +224,11 @@ def _offload_models_to_cpu(models: Dict[str, Any]) -> None:
         backbone = getattr(m, "model", None)
         if backbone is not None:
             try:
+                current = _backbone_device(backbone)
+                if current is not None and current.startswith("cpu"):
+                    continue
                 backbone.cpu()
+                moved += 1
             except Exception:
                 pass
     try:
@@ -189,7 +243,10 @@ def _offload_models_to_cpu(models: Dict[str, Any]) -> None:
         free_mb = _torch.cuda.mem_get_info(0)[0] / 1024 ** 2 if _torch.cuda.is_available() else 0
     except Exception:
         free_mb = 0
-    _log.info("  CLIP+DINO offloaded to CPU — %.0f MiB free on GPU", free_mb)
+    if moved > 0:
+        _log.info("  CLIP+DINO offloaded to CPU — %.0f MiB free on GPU", free_mb)
+    else:
+        _log.debug("  CLIP+DINO already on CPU — %.0f MiB free on GPU", free_mb)
     _log_vram_snapshot("after offload CLIP+DINO to CPU")
 
 
@@ -200,6 +257,7 @@ def _prep_vram_for_step(
     ollama_model: str = "",
     extra_sidecars: Optional[List[Tuple[str, str]]] = None,
     label: str = "next step",
+    required_free_gb: Optional[float] = None,
 ) -> None:
     """Offload CLIP+DINOv3, evict any Ollama resident, and flush the CUDA allocator.
 
@@ -224,6 +282,9 @@ def _prep_vram_for_step(
         baseline_free_gb=baseline_free_gb,
         unload_count=unload_count,
         label=label,
+        sufficient_free_gb=required_free_gb or float(
+            getattr(settings, "LOCAL_CUDA_STAGE_MIN_FREE_VRAM_GB", 6.0) or 6.0
+        ),
     )
     _flush_cuda_allocator()
     try:
@@ -241,6 +302,15 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> bool:
     _log_vram_snapshot(f"before restore models to {device}")
     import os as _os
     import torch as _torch
+    if str(device).startswith("cuda"):
+        free_gb = _detect_free_vram_gb()
+        if free_gb > 0.0 and free_gb < 2.5:
+            _log.warning(
+                "  Skipping CLIP+DINO restore to %s: only %.1f GiB free VRAM",
+                device,
+                free_gb,
+            )
+            return False
     # Expandable segments let the allocator grow existing blocks rather than
     # searching for a new contiguous region — eliminates most fragmentation OOMs
     # when moving models on/off GPU between pipeline steps.
@@ -250,6 +320,7 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> bool:
     _flush_cuda_allocator()
     expected = _torch.device(device)
     restored_all = True
+    moved = 0
     for key in ("clip", "dino"):
         m = models.get(key)
         if m is None:
@@ -257,7 +328,11 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> bool:
         backbone = getattr(m, "model", None)
         if backbone is not None:
             try:
+                current = _backbone_device(backbone)
+                if current == str(expected):
+                    continue
                 backbone.to(device)
+                moved += 1
             except RuntimeError as exc:
                 # OOM mid-.to() leaves the model in a mixed-device state.
                 # Roll back to CPU first (releases all partially-moved params),
@@ -270,6 +345,7 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> bool:
                 _flush_cuda_allocator()
                 try:
                     backbone.to(device)
+                    moved += 1
                     _log.debug("  %s backbone moved to %s (retry succeeded)", key, device)
                 except RuntimeError:
                     _log.warning(
@@ -280,17 +356,26 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> bool:
                 actual = next(backbone.parameters()).device
             except StopIteration:
                 actual = expected
-            if actual != expected:
+            if not _device_matches(actual, expected):
+                _log.warning(
+                    "  %s backbone residency mismatch after restore: actual=%s expected=%s",
+                    key,
+                    actual,
+                    expected,
+                )
                 restored_all = False
     try:
         from selfsuvis.models.dino_model import _set_dino_xformers_enabled
         _set_dino_xformers_enabled(str(device).startswith("cuda") and restored_all)
     except Exception:
         pass
-    if restored_all:
+    if restored_all and moved > 0:
         _log.info("  CLIP+DINO restored to %s", device)
+    elif restored_all:
+        _log.debug("  CLIP+DINO already resident on %s", device)
     else:
         _log.warning("  CLIP+DINO not fully restored to %s; continuing with CPU fallback where needed", device)
+        _RUNTIME_TELEMETRY["restore_failures"] += 1.0
     _log_vram_snapshot(f"after restore models to {device}")
     return restored_all
 
@@ -309,9 +394,91 @@ def _models_on_device(models: Dict[str, Any], device: str) -> bool:
             actual = next(backbone.parameters()).device
         except StopIteration:
             continue
-        if actual != expected:
+        if not _device_matches(actual, expected):
             return False
     return True
+
+
+def reset_runtime_telemetry() -> None:
+    _RUNTIME_TELEMETRY["vram_wait_time_sec"] = 0.0
+    _RUNTIME_TELEMETRY["restore_failures"] = 0.0
+
+
+def get_runtime_telemetry() -> Dict[str, float]:
+    return {
+        "vram_wait_time_sec": float(_RUNTIME_TELEMETRY.get("vram_wait_time_sec", 0.0) or 0.0),
+        "restore_failures": float(_RUNTIME_TELEMETRY.get("restore_failures", 0.0) or 0.0),
+    }
+
+
+def _cache_file(video_dir: Path) -> Path:
+    return video_dir / "runtime_cache" / "gemma_responses.json"
+
+
+def _load_gemma_cache(video_dir: Path) -> Dict[str, Any]:
+    path = _cache_file(video_dir)
+    if not settings.GEMMA_CACHE_RESPONSES or not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_gemma_cache(video_dir: Path, cache: Dict[str, Any]) -> None:
+    if not settings.GEMMA_CACHE_RESPONSES:
+        return
+    path = _cache_file(video_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _frame_cache_key(frame_path: str, *, model: str, prompt_tag: str) -> str:
+    data = Path(frame_path).read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    return f"{prompt_tag}:{model}:{digest}"
+
+
+def _reduce_llm_sample_frames(
+    frame_list: List[Tuple[str, float]],
+    *,
+    max_frames: int,
+) -> List[Tuple[str, float]]:
+    """Reduce near-duplicate sampled frames for LLM-heavy Gemma steps."""
+    import numpy as np
+
+    if len(frame_list) <= max_frames:
+        return frame_list
+    step = max(1, len(frame_list) // max_frames)
+    sampled = frame_list[::step][:max_frames]
+    kept: List[Tuple[str, float]] = []
+    prev_small = None
+    for fp, t_sec in sampled:
+        try:
+            img = _open_frame_image(fp).convert("L").resize((64, 64))
+            small = np.asarray(img, dtype=np.float32) / 255.0
+        except Exception:
+            kept.append((fp, t_sec))
+            continue
+        if prev_small is None:
+            kept.append((fp, t_sec))
+            prev_small = small
+            continue
+        diff = float(np.mean(np.abs(small - prev_small)))
+        if diff >= float(settings.GEMMA_STABLE_FRAME_DIFF_THRESHOLD):
+            kept.append((fp, t_sec))
+            prev_small = small
+    min_keep = min(len(sampled), int(settings.GEMMA_MIN_SAMPLE_FRAMES))
+    if len(kept) < min_keep:
+        seen = {fp for fp, _ in kept}
+        for fp, t_sec in sampled:
+            if fp in seen:
+                continue
+            kept.append((fp, t_sec))
+            seen.add(fp)
+            if len(kept) >= min_keep:
+                break
+    return kept
 
 
 # ── Ollama helpers ────────────────────────────────────────────────────────────
@@ -502,6 +669,8 @@ def _gemma_analyse_frame_via_api(
     api_url: str,
     model: str,
     timeout: float,
+    *,
+    video_dir: Optional[Path] = None,
 ) -> str:
     """Send a single frame to a Gemma Ollama/vLLM sidecar and return its description."""
     import base64
@@ -511,6 +680,18 @@ def _gemma_analyse_frame_via_api(
         import httpx
     except ImportError:
         return ""
+
+    cache: Dict[str, Any] = {}
+    cache_key = ""
+    if video_dir is not None and settings.GEMMA_CACHE_RESPONSES:
+        try:
+            cache = _load_gemma_cache(video_dir)
+            cache_key = _frame_cache_key(fp, model=model, prompt_tag="gemma_analysis_v1")
+            if cache_key in cache:
+                return str(cache[cache_key].get("content", "") or "")
+        except Exception:
+            cache = {}
+            cache_key = ""
 
     try:
         img = Image.open(fp).convert("RGB")
@@ -540,6 +721,7 @@ def _gemma_analyse_frame_via_api(
             "temperature": 0.1,
         }
         endpoint = f"{api_url.rstrip('/')}/chat/completions"
+        t_req = time.time()
         resp = httpx.post(endpoint, json=payload, timeout=timeout)
         resp.raise_for_status()
         msg = resp.json()["choices"][0]["message"]
@@ -559,10 +741,86 @@ def _gemma_analyse_frame_via_api(
                 p.get("text", "") if isinstance(p, dict) else str(p)
                 for p in content
             )
-        return (content or "").strip()
+        elapsed = time.time() - t_req
+        if elapsed >= float(settings.GEMMA_SLOW_CALL_SEC):
+            _log.info("  [Gemma API] slow frame analysis: %.1fs for %s", elapsed, Path(fp).name)
+        content = (content or "").strip()
+        if cache_key:
+            cache[cache_key] = {"content": content, "elapsed_sec": round(elapsed, 3)}
+            _save_gemma_cache(video_dir, cache)  # type: ignore[arg-type]
+        return content
     except Exception as exc:
         _log.debug("  [Gemma API] frame analysis failed for %s: %s", Path(fp).name, exc)
         return ""
+
+
+def _summarise_gemma_captions_to_structured_scene(
+    gemma_captions: List[Dict[str, Any]],
+    api_url: str,
+    model: str,
+    timeout: float,
+) -> Dict[str, Any]:
+    """Use one text-only call to derive a structured scene summary from step J descriptions."""
+    try:
+        import httpx
+    except ImportError:
+        return {"scene_type": "other", "dominant_objects": [], "areas_of_interest": [], "motion_present": False, "tracking_priority": []}
+
+    description_lines = [
+        f"- t={float(item.get('t_sec', 0.0)):.1f}s: {str(item.get('description', '') or '').strip()}"
+        for item in gemma_captions
+        if str(item.get("description", "") or "").strip()
+    ]
+    if not description_lines:
+        return {"scene_type": "other", "dominant_objects": [], "areas_of_interest": [], "motion_present": False, "tracking_priority": []}
+    prompt = (
+        "You are converting frame descriptions into structured scene JSON for object tracking.\n"
+        "Return ONLY valid JSON with this schema:\n"
+        "{"
+        "\"scene_type\":\"urban_street|rural_terrain|indoor|aerial|waterway|construction|industrial|other\","
+        "\"dominant_objects\":[{\"category\":\"vehicle\",\"count_estimate\":1,\"spatial_hint\":\"center\",\"rough_bbox\":[0.1,0.1,0.9,0.9]}],"
+        "\"areas_of_interest\":[\"...\"],"
+        "\"motion_present\":true,"
+        "\"tracking_priority\":[\"vehicle\",\"person\"]"
+        "}\n"
+        "Use only detector-aligned classes where possible, especially vehicle/person/sign/building.\n"
+        "Descriptions:\n" + "\n".join(description_lines[:20])
+    )
+    base = api_url.rstrip("/")
+    endpoint = f"{base}/chat/completions"
+    t_req = time.time()
+    resp = httpx.post(
+        endpoint,
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 500,
+            "temperature": 0.1,
+        },
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    msg = resp.json()["choices"][0]["message"]
+    content = msg.get("content") or ""
+    if isinstance(content, list):
+        content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+    if not content:
+        content = msg.get("reasoning") or msg.get("thinking") or ""
+    if "```" in content:
+        parts = content.split("```")
+        content = parts[1] if len(parts) > 1 else content
+        if content.lower().startswith("json"):
+            content = content[4:]
+    elapsed = time.time() - t_req
+    if elapsed >= float(settings.GEMMA_SLOW_CALL_SEC):
+        _log.info("  [Gemma API] slow structured-summary synthesis: %.1fs", elapsed)
+    try:
+        parsed = json.loads(content.strip())
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+    return {"scene_type": "other", "dominant_objects": [], "areas_of_interest": [], "motion_present": False, "tracking_priority": []}
 
 
 def step_gemma_analysis(
@@ -622,11 +880,12 @@ def step_gemma_analysis(
 
     t0 = time.time()
 
-    # Sample frames evenly
+    # Sample frames evenly, then drop near-duplicates for stable scenes.
     n_avail  = len(frame_list)
-    n_sample = min(_GEMMA_ANALYSIS_SAMPLE_N, n_avail)
-    step     = max(1, n_avail // n_sample)
+    n_sample = min(int(settings.GEMMA_ANALYSIS_MAX_SAMPLE_FRAMES), _GEMMA_ANALYSIS_SAMPLE_N, n_avail)
+    step     = max(1, n_avail // max(1, n_sample))
     sample_frames = frame_list[::step][:n_sample]
+    sample_frames = _reduce_llm_sample_frames(sample_frames, max_frames=n_sample)
     sample_images = [_open_frame_image(fp) for fp, _ in sample_frames]
     sample_paths  = [fp for fp, _ in sample_frames]
     sample_ts     = [t for _, t in sample_frames]
@@ -644,7 +903,7 @@ def step_gemma_analysis(
         )
         for idx, (fp, t_sec) in enumerate(sample_frames):
             desc = _gemma_analyse_frame_via_api(
-                fp, effective_api_url, effective_api_model, effective_timeout,
+                fp, effective_api_url, effective_api_model, effective_timeout, video_dir=video_dir,
             )
             gemma_captions.append({"frame_path": fp, "t_sec": t_sec, "description": desc})
             if (idx + 1) % 10 == 0:
@@ -662,11 +921,19 @@ def step_gemma_analysis(
             video_dir / "gemma_captions.md",
             video_name, effective_api_model, gemma_captions,
         )
+        structured_scene = _summarise_gemma_captions_to_structured_scene(
+            gemma_captions,
+            effective_api_url,
+            effective_api_model,
+            effective_timeout,
+        )
+        task_results["structured_scene_summary"] = structured_scene
     else:
         task_results["generative_descriptions"] = {
             "description": "Skipped — GEMMA_API_URL not configured",
             "skipped": True,
         }
+        structured_scene = {}
 
     # For the remaining embedding-based analyses we need a local embedder.
     if not has_local:
@@ -687,6 +954,7 @@ def step_gemma_analysis(
             "dino_comparison": dino_comparison,
             "clip_comparison": clip_comparison,
             "elapsed_sec": elapsed,
+            "structured_scene": structured_scene,
         })
         return result
 
@@ -791,7 +1059,14 @@ def step_gemma_analysis(
     # 6. Temporal video embedding (mean-pool all frames)
     try:
         _log.info("Temporal video embedding ...")
-        vid_embed = gemma.encode_images_temporal(sample_images)
+        if hasattr(gemma, "encode_images_temporal"):
+            vid_embed = gemma.encode_images_temporal(sample_images)
+        else:
+            # OpenCLIP fallback: mean-pool per-frame image embeddings and L2-normalise
+            import torch as _torch
+            _feats = gemma.encode_images(sample_images)  # (N, dim) numpy
+            _t = _torch.from_numpy(_feats).mean(dim=0, keepdim=True)
+            vid_embed = _torch.nn.functional.normalize(_t, dim=-1)
         task_results["temporal_embedding"] = {
             "description": "Mean-pool of %d frame embeddings -> single video-level vector" % n,
             "dim": int(vid_embed.shape[1]),
@@ -915,6 +1190,7 @@ def step_gemma_analysis(
         "dino_comparison": dino_comparison,
         "clip_comparison": clip_comparison,
         "elapsed_sec": elapsed,
+        "structured_scene": structured_scene,
     })
     return result
 
@@ -1221,6 +1497,8 @@ def step_scene_captioning(
     _log.info("  ✓ Florence-2-large loaded in %.1fs", time.time() - t0)
     _log.info("  Captioning %d frames …", len(frame_list))
     caption_results: List[Dict[str, Any]] = []
+    florence_runtime_mode = florence.runtime_mode
+    florence_model_tag = florence.model_tag
     batch_size = settings.FLORENCE_BATCH_SIZE
     for batch_start in range(0, len(frame_list), batch_size):
         batch = frame_list[batch_start : batch_start + batch_size]
@@ -1232,8 +1510,9 @@ def step_scene_captioning(
                 pil_images.append(Image.new("RGB", (224, 224)))
         try:
             captions_and_confs = florence.caption_batch(pil_images)
+            florence_runtime_mode = florence.runtime_mode
         except Exception as exc:
-            _log.warning("  Florence batch %d failed: %s", batch_start, exc)
+            _log.warning("  Florence batch %d failed: %s", batch_start, exc, exc_info=True)
             captions_and_confs = [("", 0.5)] * len(batch)
         for (fp, t_sec), (cap, conf) in zip(batch, captions_and_confs):
             caption_results.append({"frame_path": fp, "t_sec": t_sec,
@@ -1243,12 +1522,25 @@ def step_scene_captioning(
     captioned = sum(1 for r in caption_results if r.get("caption"))
     _log.info("  ✓ %d/%d frames captioned in %.1fs", captioned, len(frame_list), elapsed)
     _log_vram_snapshot("after local Florence captioning")
-    write_scene_captions_md(out_md, video_name, caption_results, elapsed)
+    write_scene_captions_md(
+        out_md,
+        video_name,
+        caption_results,
+        elapsed,
+        model_tag=florence_model_tag,
+        runtime_mode=florence_runtime_mode,
+    )
     florence.release()
     # VRAM freed — caller (_run_video_pipeline) decides when to restore CLIP+DINO
 
-    return {"skipped": False, "captions": caption_results,
-            "captioned_count": captioned, "elapsed_sec": elapsed}
+    return {
+        "skipped": False,
+        "captions": caption_results,
+        "captioned_count": captioned,
+        "elapsed_sec": elapsed,
+        "florence_runtime_mode": florence_runtime_mode,
+        "florence_model_tag": florence_model_tag,
+    }
 
 
 def step_qwen_captioning(

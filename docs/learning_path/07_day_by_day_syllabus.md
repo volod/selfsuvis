@@ -170,6 +170,21 @@ Then look at the entity inventory in `VideoKnowledge` and check whether it match
 Why is the depth estimate called a "prior" not a "measurement"?
 What distinguishes it from a LiDAR range measurement?
 
+### Day 8 — Post-Run Artifact Analysis
+
+**Topics:**
+- Read [`analytics.md`](../analytics.md).
+- Read [`08_local_run_artifact_analysis.md`](08_local_run_artifact_analysis.md).
+- Learn how to move from a completed run directory back to the originating code.
+
+**Exercise:**
+Run the analytics CLI on one finished local run.
+Write down every warning it emits, then verify each warning manually from the raw artifacts.
+
+**Concept checkpoint:**
+Why is a completed run not equivalent to a healthy run?
+Which artifact family gives you the fastest signal that a stage silently degraded?
+
 ---
 
 ## Week 2: Learn The Sensor Expansion

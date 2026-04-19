@@ -17,5 +17,12 @@ Recommended reading order:
 5. [Tracking and mapping, Steps 21-27](learning_path/04_tracking_mapping_steps_21_27.md)
 6. [Adaptation and audit, Steps 28-35](learning_path/05_adaptation_eval_steps_28_35.md)
 7. [Agentic knowledge flow](learning_path/06_agentic_knowledge_flow.md)
+8. [Local run artifact analysis](learning_path/08_local_run_artifact_analysis.md)
 
 If you were sent here by an older script or document, use this page as the compatibility entry point.
+
+## Post-run analysis
+
+After completing your first local run, use the analytics toolkit to inspect results:
+
+- [Analytics & Visualization guide](analytics.md) — charts, HTML report, Python API
