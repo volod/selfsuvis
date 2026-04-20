@@ -115,10 +115,10 @@ Helper used by every vision model wrapper to avoid duplicating the four-line "re
 from selfsuvis.pipeline.vision.registry import resolve_model_id
 
 def _resolve_model_id() -> str:
-    return resolve_model_id(settings.DEPTH_MODEL, "depth", "depth-anything/Depth-Anything-V2-Small-hf")
+    return resolve_model_id(settings.DEPTH_MODEL, "depth", "depth-anything/Depth-Anything-V2-Base-hf")
 ```
 
-When the setting is non-empty and not `"auto"`, the value is returned as-is.  Otherwise `auto_select` picks the largest model that fits in available VRAM, falling back to the explicit *fallback* ID if the catalog has no match.
+When the setting is non-empty and not `"auto"`, the value is returned as-is. Otherwise `auto_select` applies the current policy for that model family, falling back to the explicit *fallback* ID if the catalog has no match.
 
 ## Query architecture
 

@@ -29,6 +29,16 @@ This page describes the current indexing flow and the local full-analysis flow.
    - mission reports
    - active-learning tagging
 
+The current production indexing path also includes an initial probabilistic
+platform-state fusion slice when GPS is available:
+
+- GPS extracted from video metadata is converted into typed position measurements
+- optional `.imu.jsonl` and `.baro.jsonl` sidecars next to the source video are
+  used as acceleration and altitude inputs
+- a constant-velocity Kalman filter produces posterior summaries on indexed frame
+  timestamps
+- results are stored in `frame_facts_json["state_fusion"]`
+
 ## Useful command-line helpers
 
 ```bash
@@ -146,6 +156,14 @@ The current local runner executes 23 top-level steps. This list matches
 Not every step runs on every machine or configuration. Steps may be skipped when a
 feature flag is disabled, a sidecar URL is not configured, a resource gate blocks the
 stage, or an earlier fine-tune quality gate does not pass.
+
+Current local-run optimizations also make a few steps adaptive instead of fully exhaustive:
+
+- Step N (OCR) prescreens frames from Florence caption confidence before sending them to the OCR model or sidecar.
+- Step R (Qwen) uses bounded sampled-frame selection instead of captioning every frame.
+- Step O (Depth) uses a fast auto profile by default unless an explicit model or quality profile is requested.
+- Step AA (agentic flow audit) uses a simple first-pass prompt and accepts that answer when it satisfies the required output structure; a compact fallback prompt is only used when the first response is empty or incomplete.
+- The local pipeline now also runs a probabilistic platform-state fusion example and writes `state_fusion.md` / `state_fusion.json` when GPS telemetry is available.
 
 ### Step S — UniDriveVLA expert analysis
 

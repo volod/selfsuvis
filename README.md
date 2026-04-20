@@ -17,6 +17,13 @@ The local pipeline is a 35-step research and training workflow that goes well be
 
 The local pipeline is the primary path for understanding how the system works, building training datasets, and adapting models to a new domain. The Docker stack runs steps 1, 2, 4, and 7–8 continuously as a production service. See the [local learning path](docs/local_path.md) for step-by-step guidance.
 
+Recent local-run builds also apply adaptive runtime controls by default to keep single-video analysis practical on 16 GiB GPUs:
+
+- OCR is prescreened from Florence caption confidence before invoking the OCR sidecar.
+- Qwen detailed captioning uses bounded sampled-frame selection instead of captioning every frame.
+- Depth `auto` now prefers a fast local profile unless you explicitly switch back to a quality-oriented model.
+- The final reasoning audit uses a simple-first flow and only falls back to a second attempt when the first output is incomplete.
+
 ---
 
 ## Documents

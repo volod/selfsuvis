@@ -7,6 +7,43 @@ The goal is to understand how the pipeline can absorb side-channel evidence when
 A practical rule: **treat each sensor as a hypothesis generator, not a ground truth source.**
 The pipeline merges them in Step 20 precisely because no single sensor is always right.
 
+Before you study individual modalities, read
+[Sensor Fusion Fundamentals](09_sensor_fusion_fundamentals.md).
+That session gives the conceptual base for everything in this file:
+clocks, coordinate frames, calibration, uncertainty, contradiction handling,
+and the difference between integration and true fusion.
+
+## Current implementation reality
+
+This document is intentionally broader than the code path taken by a typical
+single-video local run.
+
+The current local runner:
+
+- may skip many of these steps entirely when no sidecar data exists
+- uses the video frame timeline as the main alignment spine
+- accumulates evidence in `VideoKnowledge`
+- performs mostly context-level fusion rather than full probabilistic state fusion
+
+That means the right human question is usually not "did the sensor mathematically
+fuse with everything else?" It is "what evidence became available, how was it
+aligned, and how will a later stage over-trust it if it is wrong?"
+
+## Deep-dive themes for this phase
+
+As you read Steps 9-20, keep four themes in view:
+
+1. **Physical quantity**
+   What is each modality actually measuring: emitted radiation, reflected light,
+   pressure, acceleration, RF energy, acoustic pressure, or estimated semantics?
+2. **Alignment**
+   How does that measurement get tied to frame time `t_sec` and to the scene?
+3. **Reliability**
+   Under what environmental conditions does the modality become misleading?
+4. **Downstream reuse**
+   Which later step consumes this evidence: Qwen context, tracking, mapping,
+   anomaly flagging, or human report synthesis?
+
 ---
 
 <a id="step-9-rf--sdr-sensing"></a>
@@ -675,8 +712,22 @@ The practical study order:
 The most valuable skill in this phase is understanding **sensor failure modes** — not just the happy path.
 A system that trusts a failed sensor is more dangerous than one with no sensor at all.
 
+## How To Extract Real Value From The Sensor Phase
+
+If you are studying this phase as an engineer rather than as a sensor specialist,
+use this pattern for every modality:
+
+1. Name the physical measurement.
+2. Name the likely artifact written by the step.
+3. Name the dominant failure mode.
+4. Name one later stage that benefits from the sensor.
+5. Name one way the pipeline could be misled by the sensor.
+
+That exercise produces much better understanding than memorizing sensor catalogs.
+
 ## Related Docs
 
+- [Sensor fusion fundamentals](09_sensor_fusion_fundamentals.md)
 - [Perception core: Steps 1-8](02_perception_core_steps_01_08.md)
 - [Agentic knowledge flow](06_agentic_knowledge_flow.md)
 - [Tracking and mapping: Steps 21-27](04_tracking_mapping_steps_21_27.md)

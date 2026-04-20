@@ -46,21 +46,24 @@ except Exception:
 # ── VRAM snapshot helper ──────────────────────────────────────────────────────
 
 def _log_vram_snapshot(label: str) -> None:
-    """Best-effort VRAM snapshot for both local process and sidecar-heavy runs."""
+    """Best-effort VRAM snapshot. Uses torch.cuda.mem_get_info for per-process accuracy."""
     try:
-        from selfsuvis.pipeline.vision.registry import detect_resources  # noqa: PLC0415
+        import torch
+        from selfsuvis.pipeline.vision.registry import detect_vram_gb, detect_ram_gb  # noqa: PLC0415
 
-        resources = detect_resources()
-        total = resources.get("vram_gb", 0.0)
-        free = resources.get("free_vram_gb", 0.0)
-        used = max(0.0, total - free) if total > 0 else 0.0
+        total = detect_vram_gb()
+        ram = detect_ram_gb()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            free_bytes, _ = torch.cuda.mem_get_info(0)
+            free = free_bytes / (1024 ** 3)
+        else:
+            from selfsuvis.pipeline.vision.registry import detect_free_vram_gb  # noqa: PLC0415
+            free = detect_free_vram_gb()
+        used = max(0.0, total - free)
         _log.info(
             "  [VRAM] %s | total=%.1f GiB free=%.1f GiB used~=%.1f GiB ram=%.1f GiB",
-            label,
-            total,
-            free,
-            used,
-            resources.get("ram_gb", 0.0),
+            label, total, free, used, ram,
         )
         return
     except Exception as exc:
@@ -71,9 +74,13 @@ def _log_vram_snapshot(label: str) -> None:
 
 def _detect_free_vram_gb() -> float:
     try:
-        from selfsuvis.pipeline.vision.registry import detect_resources  # noqa: PLC0415
-
-        return float(detect_resources().get("free_vram_gb", 0.0) or 0.0)
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            free_bytes, _ = torch.cuda.mem_get_info(0)
+            return free_bytes / (1024 ** 3)
+        from selfsuvis.pipeline.vision.registry import detect_free_vram_gb  # noqa: PLC0415
+        return detect_free_vram_gb()
     except Exception:
         return 0.0
 
@@ -479,6 +486,65 @@ def _reduce_llm_sample_frames(
             if len(kept) >= min_keep:
                 break
     return kept
+
+
+def _select_qwen_frames(
+    frame_list: List[Tuple[str, float]],
+    *,
+    max_frames: int,
+    knowledge: Optional["VideoKnowledge"] = None,
+    ocr_map: Optional[Dict[float, str]] = None,
+) -> List[Tuple[str, float]]:
+    """Select a representative subset of frames for Qwen.
+
+    Priority order:
+    - first / middle / last frame
+    - caption-derived scene segment boundaries
+    - frames with OCR text
+    - uniform temporal coverage to fill the budget
+    """
+    if len(frame_list) <= max_frames:
+        return list(frame_list)
+
+    must_keep: set[int] = set()
+    scored: Dict[int, int] = {}
+
+    def _add(idx: int, weight: int) -> None:
+        if 0 <= idx < len(frame_list):
+            must_keep.add(idx)
+            scored[idx] = max(weight, scored.get(idx, 0))
+
+    _add(0, 1000)
+    _add(len(frame_list) - 1, 1000)
+    _add(len(frame_list) // 2, 900)
+
+    if knowledge is not None:
+        for seg in getattr(knowledge, "_segments", []):
+            start_t = float(seg.get("start_t", 0.0) or 0.0)
+            idx = min(range(len(frame_list)), key=lambda i: abs(frame_list[i][1] - start_t))
+            _add(idx, 800)
+
+    if ocr_map:
+        for idx, (_fp, t_sec) in enumerate(frame_list):
+            if ocr_map.get(t_sec):
+                _add(idx, 500)
+
+    selected = set(sorted(must_keep, key=lambda idx: (-scored.get(idx, 0), idx))[:max_frames])
+    if len(selected) < max_frames:
+        step = len(frame_list) / max_frames
+        for n in range(max_frames):
+            idx = min(len(frame_list) - 1, int(round(n * step)))
+            selected.add(idx)
+            if len(selected) >= max_frames:
+                break
+    if len(selected) < max_frames:
+        for idx in range(len(frame_list)):
+            selected.add(idx)
+            if len(selected) >= max_frames:
+                break
+
+    ordered = [frame_list[idx] for idx in sorted(selected)]
+    return ordered[:max_frames]
 
 
 # ── Ollama helpers ────────────────────────────────────────────────────────────
@@ -1582,8 +1648,20 @@ def step_qwen_captioning(
     domain = knowledge.domain_hint() if knowledge else ""
     if domain:
         _log.info("  Qwen domain hint: %s", domain)
-    _log.info("Running Qwen detailed captioning on %d frames (model=%s  agentic=%s) …",
-              len(frame_list), settings.QWEN_MODEL, "yes" if knowledge else "no")
+    sampled_frame_list = _select_qwen_frames(
+        frame_list,
+        max_frames=max(1, int(settings.QWEN_MAX_FRAMES)),
+        knowledge=knowledge,
+        ocr_map=ocr_map,
+    )
+    if len(sampled_frame_list) < len(frame_list):
+        _log.info(
+            "  Qwen frame selection: %d/%d frames chosen for detailed captioning",
+            len(sampled_frame_list),
+            len(frame_list),
+        )
+    _log.info("Running Qwen detailed captioning on %d sampled frames (from %d total, model=%s  agentic=%s) …",
+              len(sampled_frame_list), len(frame_list), settings.QWEN_MODEL, "yes" if knowledge else "no")
     t0 = time.time()
 
     caption_results: List[Dict[str, Any]] = []
@@ -1606,7 +1684,7 @@ def step_qwen_captioning(
         return results
 
     batch_results = _run_batched_frame_inference(
-        frame_list,
+        sampled_frame_list,
         batch_size=4,
         batch_fn=_batch_fn,
         warning_label="Qwen",
@@ -1619,12 +1697,13 @@ def step_qwen_captioning(
     ok             = sum(1 for r in caption_results
                          if not r.get("service_unavailable") and not r.get("skipped"))
     subtitle_used  = sum(1 for r in caption_results if r.get("subtitle_text"))
-    _log.info("  ✓ Qwen: %d/%d frames captioned in %.1fs (%d with ASR  agentic=%s)",
-              ok, len(frame_list), elapsed, subtitle_used, "yes" if knowledge else "no")
+    _log.info("  ✓ Qwen: %d/%d sampled frames captioned in %.1fs (%d with ASR  agentic=%s)",
+              ok, len(sampled_frame_list), elapsed, subtitle_used, "yes" if knowledge else "no")
     _log_vram_snapshot("after Qwen sidecar use")
     write_detailed_captions_md(out_md, video_name, caption_results, elapsed, settings.QWEN_MODEL)
     result.update({"skipped": False, "results": caption_results,
-                   "ok_count": ok, "subtitle_used": subtitle_used, "elapsed_sec": elapsed})
+                   "ok_count": ok, "subtitle_used": subtitle_used, "elapsed_sec": elapsed,
+                   "sampled_count": len(sampled_frame_list), "total_frames": len(frame_list)})
     return result
 
 
@@ -1874,7 +1953,7 @@ def step_depth_estimation(
     t0 = time.time()
     depth_results = _run_batched_frame_inference(
         frame_list,
-        batch_size=4,
+        batch_size=max(1, int(getattr(settings, "DEPTH_BATCH_SIZE", 8) or 8)),
         batch_fn=lambda _batch, imgs: depth_model.estimate_batch(imgs),
         warning_label="Depth",
         error_result={"depth_error": True},

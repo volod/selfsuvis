@@ -32,8 +32,10 @@ frames with informative text: road signs, vehicle plates, displays, documents.
 | `OCR_MODEL` | `auto` | Model ID or `auto` for GPU-aware selection |
 | `OCR_API_URL` | `""` | vLLM/ollama sidecar endpoint — when set, no local load |
 | `OCR_BATCH_SIZE` | `4` | Frames per batch |
+| `OCR_SIDECAR_CONCURRENCY` | env-specific | Parallel OCR sidecar requests during local runs |
+| `OCR_IMAGE_MAX_SIDE` | env-specific | Resize bound for OCR frame uploads |
 | `OCR_TIMEOUT_SEC` | `30` | Per-request timeout (sidecar mode) |
-| `OCR_MIN_CAPTION_CONFIDENCE` | `0.0` | Skip OCR for frames with confidence above this |
+| `OCR_MIN_CAPTION_CONFIDENCE` | `0.55` | Skip OCR for frames with confidence above this |
 
 ---
 
@@ -79,9 +81,21 @@ OCR_ENABLED=true OCR_API_URL=http://localhost:8010/v1 OCR_MODEL=Qwen/Qwen2.5-VL-
   selfsuvis --mode local
 ```
 
+## 5. Local pipeline default behavior
+
+In the current local pipeline, OCR is no longer run on every extracted frame by default.
+After Florence captioning, the runner prescreens frames by `caption_confidence` and only
+sends lower-confidence frames to the OCR stage:
+
+- frames with `caption_confidence < OCR_MIN_CAPTION_CONFIDENCE` are selected for OCR
+- higher-confidence frames are skipped to save latency and sidecar load
+
+This is why a local run may log something like `OCR prescreen: 16/51 frames selected`
+followed by OCR results on fewer frames than the video contains.
+
 ---
 
-## 5. Health check
+## 6. Health check
 
 ```bash
 # Verify OCR produces output
@@ -98,7 +112,7 @@ print(m.extract([img]))
 
 ---
 
-## 6. Verifying text injection
+## 7. Verifying text injection
 
 ```bash
 # Check ocr_text column was populated
@@ -107,12 +121,13 @@ grep "Text visible" output/<video>/detailed_captions.md | head -3
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `OCR pass skipped` | `OCR_ENABLED=false` | Set `OCR_ENABLED=true` |
 | Empty `ocr_text` for all frames | No text visible in video | Expected; OCR returns empty string |
+| OCR ran on fewer frames than the video contains | Florence prescreen skipped high-confidence frames | Expected; set `OCR_MIN_CAPTION_CONFIDENCE=1.0` to run OCR on all frames |
 | `trust_remote_code` error | GOT-OCR2 needs it | `pip install transformers>=4.38` |
 | Wrong characters extracted | Low-resolution source frames | Increase `SFM_FPS` to extract sharper frames |
 | `CUDA out of memory` | DeepSeek-OCR-2 too large | Switch to `GOT-OCR2_0` or use sidecar |

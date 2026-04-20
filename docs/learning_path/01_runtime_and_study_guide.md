@@ -101,6 +101,22 @@ Weak questions:
 - Which model is coolest?
 - Can I memorize all options before I run anything?
 
+## One Required Conceptual Detour
+
+Before you go deep on Steps 9-20, read
+[09_sensor_fusion_fundamentals.md](09_sensor_fusion_fundamentals.md).
+
+That session covers the concepts that most often cause confusion in this repo:
+
+- time alignment vs actual simultaneity
+- coordinate frames vs image coordinates
+- sensor absence vs negative evidence
+- calibration errors vs model errors
+- uncertainty and contradiction handling
+
+Without those ideas, the sensor phase turns into a list of modalities.
+With them, it becomes a coherent system.
+
 ## What Changed Recently
 
 If you are returning to the repo after an older version, these are the changes that matter most:
@@ -147,6 +163,7 @@ If semantic graphing is enabled, add:
 - Separate representation problems from reasoning problems.
 - Separate “this step exists in the repo” from “this step is currently enabled in my run”.
 - Keep notes on inputs, outputs, and failure modes for each step.
+- When multiple modalities disagree, treat synchronization and calibration as suspects before blaming the model.
 
 ## Human Route Through The Repo
 

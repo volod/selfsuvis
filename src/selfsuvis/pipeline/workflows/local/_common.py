@@ -2,6 +2,7 @@
 
 
 import logging
+import os
 import time
 import warnings
 from typing import Any, Dict, List, Optional, Tuple
@@ -13,12 +14,12 @@ from PIL import Image
 _LOG_FMT  = "%(asctime)s  %(levelname)-7s  %(message)s"
 _DATE_FMT = "%H:%M:%S"
 
-_NOISY_LOGGERS = ("urllib3", "PIL", "filelock", "torch", "timm")
+_NOISY_LOGGERS = ("urllib3", "PIL", "filelock", "torch", "timm", "httpx", "httpcore", "transformers")
 
 # Logger namespaces that should stay at INFO level.
 # Setting root to WARNING silences SAM2/ultralytics spam; these overrides
 # restore INFO for our own code so progress messages are not lost.
-_PIPELINE_NAMESPACES = ("pipeline", "models", "dinov2", "httpx")
+_PIPELINE_NAMESPACES = ("pipeline", "models", "dinov2")
 
 
 def _configure_logging() -> None:
@@ -40,6 +41,16 @@ def _configure_warnings() -> None:
                             category=FutureWarning)
     warnings.filterwarnings("ignore", message="The image_processor_class argument is deprecated",
                             category=FutureWarning)
+    warnings.filterwarnings(
+        "ignore",
+        message=r"The following generation flags are not valid and may be ignored: .*",
+        category=UserWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"You seem to be using the pipelines sequentially on GPU.*",
+        category=UserWarning,
+    )
 
 
 # Apply timm FutureWarning filter at import time so it takes effect before
@@ -47,6 +58,18 @@ def _configure_warnings() -> None:
 # later would be too late — the warning fires at timm import time).
 warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
                         category=FutureWarning)
+warnings.filterwarnings(
+    "ignore",
+    message=r"The following generation flags are not valid and may be ignored: .*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"You seem to be using the pipelines sequentially on GPU.*",
+    category=UserWarning,
+)
+os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 
 
 # Apply at import time — pipeline/core/logging may have already called
@@ -293,11 +316,13 @@ class VideoKnowledge:
         self._ocr:        Dict[float, str]         = {}  # OCR visible text
         self._depth:      Dict[float, Dict]        = {}  # depth summary dict
         self._detections: Dict[float, List[str]]  = {}  # detected labels at t
+        self._state_fusion: Dict[float, Dict[str, Any]] = {}  # fused platform state at t
 
         # Sorted timestamp index for nearest-frame lookups
         self._ts_captions:   List[float] = []
         self._ts_depth:      List[float] = []
         self._ts_detections: List[float] = []
+        self._ts_state_fusion: List[float] = []
 
         # Scene segments from caption analysis (step L enrichment)
         self._segments: List[Dict[str, Any]] = []
@@ -369,6 +394,15 @@ class VideoKnowledge:
                 counts[lbl] = counts.get(lbl, 0) + 1
         self.known_entities = [k for k, _ in sorted(counts.items(), key=lambda x: -x[1])[:15]]
 
+    def add_state_fusion(self, posterior_samples: List[Any]) -> None:
+        """Deposit fused platform-state posterior samples."""
+        self._state_fusion = {
+            float(sample.t_sec): sample.to_dict() if hasattr(sample, "to_dict") else dict(sample)
+            for sample in posterior_samples
+            if getattr(sample, "t_sec", None) is not None
+        }
+        self._ts_state_fusion = sorted(self._state_fusion)
+
     def update_qwen_state(self, result: Dict[str, Any]) -> None:
         """Record the most recent Qwen output for use as prior state context."""
         if not result.get("service_unavailable") and not result.get("parse_error"):
@@ -432,6 +466,17 @@ class VideoKnowledge:
         dets = self._nearest(self._ts_detections, self._detections, t_sec, max_gap=2.0)
         if dets:
             lines.append(f"[Detected objects]: {', '.join(dets[:8])}")
+
+        fused = self._nearest(self._ts_state_fusion, self._state_fusion, t_sec, max_gap=2.0)
+        if fused:
+            pos = fused.get("position_enu_m") or {}
+            vel = fused.get("velocity_enu_mps") or {}
+            lines.append(
+                "[Fused platform state]: "
+                f"pos=({pos.get('x', 0.0):.1f}, {pos.get('y', 0.0):.1f}, {pos.get('z', 0.0):.1f}) m  "
+                f"vel=({vel.get('x', 0.0):.1f}, {vel.get('y', 0.0):.1f}, {vel.get('z', 0.0):.1f}) m/s  "
+                f"quality={fused.get('quality', 'unknown')}"
+            )
 
         # Prior Qwen state (what the model extracted from the previous frame)
         if self._last_qwen:

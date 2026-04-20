@@ -926,6 +926,8 @@ def write_final_stats_md(
         f"| `edge_models/dino_local.onnx` | ONNX export (student when distilled, teacher otherwise) |",
         f"| `edge_models/gallery.npz` | Embedding gallery for 1-NN classification |",
         f"| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step M) |",
+        f"| `state_fusion.md` | Probabilistic platform-state posterior summary and covariance samples |",
+        f"| `state_fusion.json` | Raw local probabilistic platform-state posterior payload |",
         f"| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps N–Q) |",
         f"| `detailed_captions.md` | Qwen VLM detailed per-frame scene captions with ASR context (step R) |",
         f"| `unidrive_analysis.md` | UniDriveVLA understanding, perception, planning, and MoE consensus (step S) |",
@@ -951,6 +953,7 @@ def write_multimodal_md(
     depth_result: Dict[str, Any],
     det_result: Dict[str, Any],
     world_result: Dict[str, Any],
+    state_fusion_result: Dict[str, Any],
     qwen_result: Dict[str, Any],
     unidrive_result: Dict[str, Any],
 ) -> None:
@@ -973,6 +976,8 @@ def write_multimodal_md(
         f"{det_result.get('total_objects', 0)} objects detected |",
         f"| World Model | {'✓' if not world_result.get('skipped') else '—'} | "
         f"{world_result.get('ok_count', 0)} clips processed |",
+        f"| Platform-state fusion | {'✓' if not state_fusion_result.get('skipped') else '—'} | "
+        f"{state_fusion_result.get('summary', {}).get('frame_count', 0)} posterior samples |",
         f"| Qwen VLM captioning | {'✓' if not qwen_result.get('skipped') else '—'} | "
         f"{qwen_result.get('ok_count', 0)} frames captioned |",
         f"| UniDriveVLA expert analysis | {'✓' if not unidrive_result.get('skipped') else '—'} | "
@@ -1010,7 +1015,69 @@ def write_multimodal_md(
                 lines.append(f"| {r['t_sec']:.1f} | "
                               f"{p[0]:.3f} | {p[1]:.3f} | {p[2]:.3f} | {p[3]:.3f} | {p[4]:.3f} |")
         lines.append("")
+    if not state_fusion_result.get("skipped"):
+        lines += ["## Platform-State Fusion — Posterior Summary", ""]
+        summary = state_fusion_result.get("summary", {})
+        final_state = summary.get("final_state") or {}
+        pos = final_state.get("position_enu_m") or {}
+        vel = final_state.get("velocity_enu_mps") or {}
+        lines += [
+            f"- Telemetry sources: {', '.join(summary.get('telemetry_sources', [])) or 'none'}",
+            f"- Mean covariance trace: {summary.get('mean_covariance_trace')!s}",
+            f"- Final covariance trace: {summary.get('final_covariance_trace')!s}",
+            f"- Final ENU position: ({pos.get('x', 0.0):.2f}, {pos.get('y', 0.0):.2f}, {pos.get('z', 0.0):.2f}) m",
+            f"- Final ENU velocity: ({vel.get('x', 0.0):.2f}, {vel.get('y', 0.0):.2f}, {vel.get('z', 0.0):.2f}) m/s",
+            "",
+        ]
     lines += ["---", f"*Produced by {_RUNNER_LABEL} · multimodal steps M–S*"]
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    _log.info("  ✓ Written %s", output_path)
+
+
+def write_state_fusion_md(output_path: Path, video_name: str, fusion_result: Any) -> None:
+    summary = fusion_result.summary()
+    lines = [
+        f"# Platform-State Fusion — {video_name}",
+        "",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        f"- Status: {summary.get('status', 'unknown')}",
+        f"- Reason: {summary.get('reason', '') or 'n/a'}",
+        f"- Source: {summary.get('source', 'n/a')}",
+        f"- Telemetry sources: {', '.join(summary.get('telemetry_sources', [])) or 'none'}",
+        f"- Posterior samples: {summary.get('frame_count', 0)}",
+        f"- Mean covariance trace: {summary.get('mean_covariance_trace')!s}",
+        f"- Final covariance trace: {summary.get('final_covariance_trace')!s}",
+        "",
+        "## Measurement Counts",
+        "",
+        "| Kind | Count |",
+        "|------|-------|",
+    ]
+    for kind, count in sorted((summary.get("measurement_counts") or {}).items()):
+        lines.append(f"| {kind} | {count} |")
+    if not (summary.get("measurement_counts") or {}):
+        lines.append("| — | 0 |")
+
+    samples = fusion_result.posterior_samples[:12]
+    lines += [
+        "",
+        "## Posterior Samples (first 12)",
+        "",
+        "| t (s) | x | y | z | vx | vy | vz | Cov Trace | Quality |",
+        "|-------|---|---|---|----|----|----|-----------|---------|",
+    ]
+    for sample in samples:
+        pos = sample.position_enu_m
+        vel = sample.velocity_enu_mps
+        lines.append(
+            f"| {sample.t_sec:.1f} | {pos['x']:.2f} | {pos['y']:.2f} | {pos['z']:.2f} | "
+            f"{vel['x']:.2f} | {vel['y']:.2f} | {vel['z']:.2f} | "
+            f"{sample.covariance_trace:.3f} | {sample.quality} |"
+        )
+    if not samples:
+        lines.append("| — | — | — | — | — | — | — | — | — |")
+    lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · probabilistic platform-state fusion MVP*"]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     _log.info("  ✓ Written %s", output_path)
 
@@ -1429,15 +1496,22 @@ def print_run_stats(
     from ._common import _banner
 
     # Column widths: step label, computation type, per-video durations, total
-    LABEL_W = 34
-    TYPE_W  = 14
-    DUR_W   = 9
+    names = [v.get("name", f"video{i}") for i, v in enumerate(per_video)]
+    label_candidates = [label for _, label, _ in _STEP_LABELS]
+    type_candidates = [comp_type for _, _, comp_type in _STEP_LABELS]
+    LABEL_W = max(34, max((len(label) for label in label_candidates), default=34) + 1)
+    TYPE_W  = max(14, max((len(comp) for comp in type_candidates), default=14) + 1)
+    DUR_W   = max(
+        9,
+        max((len(name) for name in names), default=9) + 1,
+        len(_fmt_sec(total_elapsed)) + 1,
+    )
     n_vids  = len(per_video)
-    W = LABEL_W + TYPE_W + DUR_W * (n_vids + 1) + 2
+    W = LABEL_W + TYPE_W + DUR_W * (n_vids + 1) + 4
     SEP = "─" * W
 
     def _row(label: str, comp_type: str, *dur_cols: str) -> str:
-        row = f"  {label:<{LABEL_W}}{comp_type:<{TYPE_W}}"
+        row = f"  {label:<{LABEL_W}} {comp_type:<{TYPE_W}}"
         for c in dur_cols:
             row += f"{c:>{DUR_W}}"
         return row
@@ -1451,7 +1525,6 @@ def print_run_stats(
     _log.info("  Total runtime: %s", _fmt_sec(total_elapsed))
     _log.info("")
 
-    names = [v.get("name", f"video{i}") for i, v in enumerate(per_video)]
     _log.info("  STEP TIMING  (wall-clock per step)")
     _log.info("  " + SEP)
     _log.info(_row("Step", "Type", *(names + ["TOTAL"])))
@@ -1523,8 +1596,11 @@ def print_run_stats(
                    *[f"{v.get('onnx_mb', 0.0):.1f}" if v.get("onnx_exported") else "—"
                      for v in per_video]))
     _log.info(_row("Compression ratio",
-                   *[f"{v['teacher_dim']/v['student_dim']:.1f}×"
-                     if v.get("student_dim") and v.get("teacher_dim") else "—"
+                   *[f"{v['distill_compression_ratio']:.1f}×"
+                     if v.get("distill_compression_ratio") else (
+                         f"{v['teacher_dim']/v['student_dim']:.1f}×"
+                         if v.get("student_dim") and v.get("teacher_dim") else "—"
+                     )
                      for v in per_video]))
     _log.info(_row("Base infer (ms/fr)",
                    *[f"{v.get('base_infer_ms', 0.0):.1f}" for v in per_video]))

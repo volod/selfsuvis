@@ -507,6 +507,84 @@ def _build_agentic_flow_prompt_compact(video_name: str, video_context: Dict[str,
     return "\n".join(lines)
 
 
+def _build_agentic_flow_prompt_simple(video_name: str, video_context: Dict[str, Any]) -> str:
+    """Minimal audit prompt for short, low-branching local runs."""
+    trace = video_context.get("agentic_trace", [])
+    lines = [
+        f"Video: {video_name}",
+        "Audit context propagation for this local video-analysis run.",
+        "Return markdown with these exact sections:",
+        "## Flow Summary",
+        "## Highest-Risk Steps",
+        "## Failure Propagation",
+        "## Mitigations",
+        "",
+        "Use short bullets. Keep the answer under 600 words.",
+        "",
+        "Per-step trace:",
+    ]
+    for item in trace:
+        lines.append(
+            f"- {item.get('step_id')} {item.get('title')} | "
+            f"in={'; '.join(item.get('context_inputs', [])[:2]) or 'none'} | "
+            f"out={'; '.join(item.get('context_outputs', [])[:2]) or 'none'} | "
+            f"risk={'; '.join(item.get('risks', [])[:2]) or 'none'}"
+        )
+    lines += [
+        "",
+        "Focus on stale context, compounded misidentification, and where a wrong early cue can affect later steps.",
+    ]
+    return "\n".join(lines)
+
+
+def _is_simple_agentic_audit(video_context: Dict[str, Any]) -> bool:
+    """Heuristic: use a smaller reasoning budget for low-branching videos."""
+    caption_segments = int(video_context.get("caption_segments", 0) or 0)
+    qwen_frames = len(video_context.get("qwen_captions", []) or [])
+    ocr_with_text = sum(1 for r in (video_context.get("ocr", []) or []) if r.get("ocr_text"))
+    has_unidrive = bool(video_context.get("unidrive_analysis"))
+    has_multimodel = bool(video_context.get("multi_model_comparison"))
+    map_points = int((video_context.get("map", {}) or {}).get("points", 0) or 0)
+    world_clips = int(video_context.get("world_model_clips", 0) or 0)
+    return (
+        caption_segments <= 3
+        and qwen_frames <= 20
+        and ocr_with_text <= 10
+        and not has_unidrive
+        and not has_multimodel
+        and map_points <= 20
+        and world_clips <= 8
+    )
+
+
+def _agentic_flow_required_sections(simple: bool) -> List[str]:
+    if simple:
+        return [
+            "## Flow Summary",
+            "## Highest-Risk Steps",
+            "## Failure Propagation",
+            "## Mitigations",
+        ]
+    return [
+        "## Flow Summary",
+        "## Step-by-Step Agentic Context",
+        "## Risk Register",
+        "## Highest-Risk Context Failures",
+        "## Mitigations",
+    ]
+
+
+def _is_valid_agentic_flow_analysis(text: str, *, simple: bool) -> bool:
+    """Return True when the reasoning output is usable without a retry."""
+    body = (text or "").strip()
+    if not body:
+        return False
+    if len(body) < 120:
+        return False
+    required = _agentic_flow_required_sections(simple)
+    return all(section in body for section in required)
+
+
 def _reasoning_timeout_for_model(model: str) -> float:
     base = float(getattr(settings, "REASONING_TIMEOUT_SEC", 240))
     m = (model or "").lower()
@@ -575,22 +653,34 @@ def step_agentic_flow_artifact(
 
             endpoint = f"{api_url.rstrip('/')}/chat/completions"
             timeout_sec = _reasoning_timeout_for_model(model)
-            attempts = [
-                {
-                    "prompt": _build_agentic_flow_prompt_compact(video_name, video_context),
-                    "max_tokens": 1100,
-                },
-                {
-                    "prompt": _build_agentic_flow_prompt(video_name, video_context),
-                    "max_tokens": 1500,
-                },
-            ]
+            is_simple = _is_simple_agentic_audit(video_context)
+            if is_simple:
+                attempts = [
+                    {
+                        "label": "simple",
+                        "prompt": _build_agentic_flow_prompt_simple(video_name, video_context),
+                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_SIMPLE", 700) or 700),
+                    },
+                ]
+            else:
+                attempts = [
+                    {
+                        "label": "compact",
+                        "prompt": _build_agentic_flow_prompt_compact(video_name, video_context),
+                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_COMPACT", 900) or 900),
+                    },
+                    {
+                        "label": "full",
+                        "prompt": _build_agentic_flow_prompt(video_name, video_context),
+                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_FULL", 1300) or 1300),
+                    },
+                ]
             last_exc: Optional[Exception] = None
             for idx, attempt in enumerate(attempts, 1):
                 try:
                     _log.info(
-                        "  Agentic flow reasoning attempt %d/%d (model=%s timeout=%.0fs max_tokens=%d)",
-                        idx, len(attempts), model, timeout_sec, attempt["max_tokens"],
+                        "  Agentic flow reasoning attempt %d/%d (%s, model=%s timeout=%.0fs max_tokens=%d)",
+                        idx, len(attempts), attempt["label"], model, timeout_sec, attempt["max_tokens"],
                     )
                     resp = httpx.post(
                         endpoint,
@@ -598,19 +688,55 @@ def step_agentic_flow_artifact(
                             "model": model,
                             "messages": [{"role": "user", "content": attempt["prompt"]}],
                             "max_tokens": attempt["max_tokens"],
-                            "temperature": 0.2,
+                            "temperature": 0.0,
                         },
                         timeout=timeout_sec,
                     )
                     resp.raise_for_status()
-                    llm_analysis = resp.json()["choices"][0]["message"]["content"].strip()
-                    if llm_analysis:
+                    candidate = resp.json()["choices"][0]["message"]["content"].strip()
+                    if _is_valid_agentic_flow_analysis(candidate, simple=is_simple and attempt["label"] == "simple"):
+                        llm_analysis = candidate
                         result["llm_used"] = True
                         _log.info("  ✓ Agentic flow analysis generated with %s", model)
                         break
+                    if candidate:
+                        _log.warning(
+                            "  Agentic flow reasoning attempt %d returned incomplete output; falling back",
+                            idx,
+                        )
                 except Exception as exc:
                     last_exc = exc
                     _log.warning("  Agentic flow reasoning attempt %d failed (%s)", idx, exc)
+            if is_simple and not llm_analysis and api_url:
+                try:
+                    attempt = {
+                        "label": "compact",
+                        "prompt": _build_agentic_flow_prompt_compact(video_name, video_context),
+                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_COMPACT", 900) or 900),
+                    }
+                    _log.info(
+                        "  Agentic flow reasoning fallback (%s, model=%s timeout=%.0fs max_tokens=%d)",
+                        attempt["label"], model, timeout_sec, attempt["max_tokens"],
+                    )
+                    resp = httpx.post(
+                        endpoint,
+                        json={
+                            "model": model,
+                            "messages": [{"role": "user", "content": attempt["prompt"]}],
+                            "max_tokens": attempt["max_tokens"],
+                            "temperature": 0.0,
+                        },
+                        timeout=timeout_sec,
+                    )
+                    resp.raise_for_status()
+                    candidate = resp.json()["choices"][0]["message"]["content"].strip()
+                    if _is_valid_agentic_flow_analysis(candidate, simple=False):
+                        llm_analysis = candidate
+                        result["llm_used"] = True
+                        _log.info("  ✓ Agentic flow analysis generated with %s", model)
+                except Exception as exc:
+                    last_exc = exc
+                    _log.warning("  Agentic flow reasoning fallback failed (%s)", exc)
             if not llm_analysis and last_exc is not None:
                 raise last_exc
         except Exception as exc:
@@ -990,6 +1116,7 @@ def run_video_pipeline(
         T["L_caption"] = 0.0
         _step(4, _TOTAL_STEPS, "Scene captioning (skipped — --no-caption)")
     video_context["captions"] = caption_results
+    video_context["caption_segments"] = len(getattr(knowledge, "_segments", []))
     _append_agentic_step(
         agentic_trace,
         step_id="L",
@@ -1058,6 +1185,17 @@ def run_video_pipeline(
         ],
         artifacts=["asr_subtitles.md"] if not asr_result.get("skipped") else [],
     )
+
+    from .steps_fusion import step_platform_state_fusion
+
+    platform_fusion_result = step_platform_state_fusion(
+        video_path,
+        frame_list,
+        video_name,
+        video_dir,
+    )
+    knowledge.add_state_fusion(platform_fusion_result.get("posterior_samples", []))
+    video_context["platform_state_fusion"] = platform_fusion_result.get("summary", {})
 
     # N: OCR
     ocr_result: Dict[str, Any] = {"skipped": True, "ocr_results": []}
@@ -1357,6 +1495,7 @@ def run_video_pipeline(
                 knowledge=knowledge,
             )
     else:
+        _step(13, _TOTAL_STEPS, "UniDriveVLA expert analysis (skipped — pass --unidrive to enable)")
         T["S_unidrive"] = 0.0
     if not unidrive_result.get("skipped"):
         video_context["unidrive_analysis"] = unidrive_result.get("results", [])
@@ -1387,7 +1526,7 @@ def run_video_pipeline(
     if any([args.asr, args.ocr, args.depth, args.detection, args.world_model, args.qwen, getattr(args, "unidrive", False)]):
         _mm_md = video_dir / "multimodal_features.md"
         write_multimodal_md(_mm_md, video_name, asr_result, ocr_result,
-                            depth_result, det_result, world_result, qwen_result, unidrive_result)
+                            depth_result, det_result, world_result, platform_fusion_result, qwen_result, unidrive_result)
 
     # C: Base model search — restore CLIP+DINO to GPU before joining 3D-map thread
     # (I must be joined first so the background thread no longer accesses models).
@@ -1455,6 +1594,7 @@ def run_video_pipeline(
                 "points": None, "gsplat_method": "skipped", "splat_ply": None,
                 "viewer_html": "",
             }
+    T["I_3dmap"] = float(h.get("elapsed_sec", T.get("I_3dmap", 0.0)) or 0.0)
     stats["sfm_poses"]     = h["sfm_poses"]
     stats["map_method"]    = h["method"]
     stats["map_points"]    = int(h["points"].shape[0]) if h.get("points") is not None else 0
@@ -1522,6 +1662,40 @@ def run_video_pipeline(
             "3d_map/semantic_environment_graph.md",
         ] if not semantic_graph_result.get("skipped") else ["3d_map/sparse_map.npz", "3d_map/map_stats.json"],
     )
+
+    # ── Full probabilistic state fusion (all four layers) ─────────────────────
+    from .steps_fusion import step_full_state_fusion
+
+    # Collect RSSM surprise mean (from world model result if available)
+    _rssm_mean: float | None = None
+    if world_result and not world_result.get("skipped"):
+        _rssm_scores = world_result.get("rssm_scores") or []
+        if _rssm_scores:
+            _rssm_mean = float(sum(_rssm_scores) / len(_rssm_scores))
+
+    # Collect Qwen structured captions
+    _qwen_captions = qwen_result.get("structured_captions") or [] if not qwen_result.get("skipped") else []
+
+    # Collect Gemma structured analysis
+    _gemma_info = gemma_result if not gemma_result.get("skipped") else None
+
+    with _Timer(T, "PS_full_fusion"):
+        full_fusion_result = step_full_state_fusion(
+            video_path=video_path,
+            frame_list=frame_list,
+            video_name=video_name,
+            video_dir=video_dir,
+            sfm_frame_positions=h.get("frame_positions") or [],
+            tracking_results=gemma_tracking_result.get("tracking_results") or []
+                if not gemma_tracking_result.get("skipped") else [],
+            gemma_analysis=_gemma_info,
+            qwen_captions=_qwen_captions or None,
+            rssm_surprise_mean=_rssm_mean,
+        )
+    T["PS_full_fusion"] = T.get("PS_full_fusion", 0.0)
+    stats["full_fusion_tracks"] = full_fusion_result.get("track_count", 0)
+    stats["full_fusion_scene"] = full_fusion_result.get("scene_type", "unknown")
+    video_context["full_state_fusion"] = full_fusion_result.get("summary", {})
 
     # ── Phase 3: SSL-gated adaptation (SSL gate required) ─────────────────────
     # Step D (SSL fine-tuning) always runs to evaluate the gate.
@@ -1636,12 +1810,13 @@ def run_video_pipeline(
                     gemma_embedder=_gemma_teacher,
                 )
             if not e_distill["skipped"]:
-                student_backbone         = e_distill["student_backbone"]
-                student_dim              = e_distill["student_dim"]
-                stats["distill_loss"]    = e_distill["best_loss"]
-                stats["student_ckpt_mb"] = e_distill["ckpt_mb"]
-                stats["student_dim"]     = student_dim
-                stats["teacher_dim"]     = e_distill["teacher_dim"]
+                student_backbone                   = e_distill["student_backbone"]
+                student_dim                        = e_distill["student_dim"]
+                stats["distill_loss"]              = e_distill["best_loss"]
+                stats["student_ckpt_mb"]           = e_distill["ckpt_mb"]
+                stats["student_dim"]               = student_dim
+                stats["teacher_dim"]               = e_distill["teacher_dim"]
+                stats["distill_compression_ratio"] = e_distill.get("compression_ratio", 0.0)
             _append_agentic_step(
                 agentic_trace,
                 step_id="E",

@@ -240,6 +240,13 @@ curl -X POST http://localhost:8000/index/dir \
 
 Full logs appear in the worker terminal. Job status transitions: `pending → running → finished` (or `error`).
 
+### Local runtime notes
+
+- OCR is prescreened from Florence caption confidence in local full-analysis runs, so it may process only a subset of frames.
+- Qwen detailed captioning uses bounded sampled-frame selection rather than captioning every extracted frame.
+- Depth `auto` now prefers a faster local profile by default; use `DEPTH_AUTO_PROFILE=quality` if you want the heavier path.
+- The final agentic audit uses a simple first-pass prompt and only retries when that answer is empty or structurally incomplete.
+
 ### Querying after indexing
 
 **Text search:**

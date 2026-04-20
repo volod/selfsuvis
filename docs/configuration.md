@@ -50,6 +50,9 @@ python -m selfsuvis.scripts.migrate_postgres
 | `QWEN_API_URL` | empty | Enables structured scene extraction sidecar |
 | `QWEN_BACKEND` | `vllm` | `vllm` or `ollama` |
 | `QWEN_MODEL` | backend-dependent | Qwen sidecar model |
+| `QWEN_SIDECAR_CONCURRENCY` | env-specific | Parallel Qwen sidecar requests per local run |
+| `QWEN_IMAGE_MAX_SIDE` | env-specific | Resize bound for Qwen frame uploads |
+| `QWEN_MAX_FRAMES` | env-specific | Max frames selected for detailed Qwen captioning |
 | `GEMMA_MODEL_ID` | `google/gemma-3-4b-it` | Local Gemma embedder |
 | `GEMMA_API_URL` | empty | Gemma sidecar endpoint |
 | `GEMMA_API_MODEL` | backend-dependent | Gemma sidecar model |
@@ -59,9 +62,19 @@ python -m selfsuvis.scripts.migrate_postgres
 | `UNIDRIVE_TIMEOUT_SEC` | `60` | UniDrive request timeout |
 | `UNIDRIVE_MAX_FRAMES` | `24` | Max sampled frames analysed per video/job |
 | `REASONING_API_URL` | Gemma default | Final local-run reasoning endpoint |
+| `REASONING_MAX_TOKENS_SIMPLE` | `700` | Token cap for the simple agentic-audit attempt |
+| `REASONING_MAX_TOKENS_COMPACT` | `900` | Token cap for the compact fallback agentic-audit attempt |
+| `REASONING_MAX_TOKENS_FULL` | `1300` | Token cap for the full reasoning path |
 | `ASR_ENABLED` / `ASR_MODEL` | `false` / `auto` | Whisper transcription |
 | `OCR_ENABLED` / `OCR_MODEL` | `false` / `auto` | OCR extraction |
+| `OCR_API_URL` | empty | OCR sidecar endpoint override |
+| `OCR_SIDECAR_CONCURRENCY` | env-specific | Parallel OCR sidecar requests per local run |
+| `OCR_IMAGE_MAX_SIDE` | env-specific | Resize bound for OCR frame uploads |
+| `OCR_MIN_CAPTION_CONFIDENCE` | `0.55` | OCR prescreen threshold from Florence caption confidence |
 | `DEPTH_ENABLED` / `DEPTH_MODEL` | `false` / `auto` | Depth estimation |
+| `DEPTH_AUTO_PROFILE` | `fast` | Auto depth model policy: prefer fast or quality profile |
+| `DEPTH_BATCH_SIZE` | `8` | Local depth outer batch size |
+| `DEPTH_IMAGE_MAX_SIDE` | `768` | Resize bound before local depth inference |
 | `DETECTION_ENABLED` / `DETECTION_MODEL` | `false` / `auto` | HF detection stage |
 | `YOLO_ENABLED` / `YOLO_MODEL` | `true` / `yolo11l` | YOLO detection path |
 | `YOLO_SSG_ENABLED` | `true` | Build YOLO semantic scene graphs from 3D frame anchors |
@@ -79,6 +92,21 @@ python -m selfsuvis.scripts.migrate_postgres
 | `DREAMER_LATENT_DIM` | `32` | RSSM stochastic latent z_k dimension |
 | `DREAMER_TRAIN_STEPS` | `20` | Online gradient steps per mission |
 | `DREAMER_STORE_TEMPORAL` | `false` | Store recurrent state h_k in frame_facts_json |
+| `STATE_FUSION_ENABLED` | `true` | Master switch for all probabilistic fusion layers |
+| `STATE_FUSION_GPS_POS_STD_M` | `5.0` | GPS position noise (σ, metres) |
+| `STATE_FUSION_BARO_ALT_STD_M` | `2.5` | Barometer altitude noise (σ, metres) |
+| `STATE_FUSION_IMU_ACCEL_STD_MPS2` | `1.5` | IMU acceleration noise (σ, m/s²) |
+| `STATE_FUSION_PROCESS_POS_STD_M` | `0.75` | CV process noise for position — multiplied by semantic prior scale at runtime |
+| `STATE_FUSION_PROCESS_VEL_STD_MPS` | `1.5` | CV process noise for velocity — multiplied by semantic prior scale at runtime |
+| `STATE_FUSION_INIT_VEL_STD_MPS` | `3.0` | Initial velocity uncertainty at filter bootstrap |
+| `STATE_FUSION_CONTEXT_GAP_SEC` | `1.0` | Window for tagging which measurement kinds contributed to a posterior frame |
+| `STATE_FUSION_SFM_POS_STD_M` | `2.0` | Baseline SfM position noise after Umeyama alignment (metres); actual std = this + alignment RMSE |
+| `STATE_FUSION_SFM_MIN_FRAMES` | `6` | Minimum co-located SfM+GPS frames needed for Umeyama Sim(3) alignment |
+| `OBJECT_FUSION_ENABLED` | `true` | Enable probabilistic per-object tracking (Mahalanobis + Hungarian + RTS) |
+| `OBJECT_FUSION_OBS_NOISE` | `0.005` | Object bbox observation noise (σ, normalised image coords) |
+| `OBJECT_FUSION_CONFIRM_HITS` | `3` | Frames needed before a track is promoted from tentative to confirmed |
+| `OBJECT_FUSION_MAX_MISS` | `5` | Consecutive missed frames before a track is deleted |
+| `MAP_FUSION_SMOOTH` | `true` | Run RTS backward smoother over the platform trajectory after the forward pass |
 
 ## Mapping and spatial queries
 
@@ -136,6 +164,14 @@ python -m selfsuvis.scripts.migrate_postgres
 - Local runs write semantic graph artifacts under `3d_map/semantic_environment_graph.{json,md}`.
 - Local runs write Gemma tracking artifacts under `gemma_tracking/`, `gemma_tracking_results.json`, and `gemma_tracking_summary.md` when `GEMMA_API_URL` is set and `RFDETR_ENABLED=true`.
 - Local runs write `unidrive_analysis.md` and `multi_model_comparison.md` when UniDrive is enabled.
+- Production indexing writes fused platform-state summaries into `frame_facts_json["state_fusion"]` when GPS is available and `STATE_FUSION_ENABLED=true`.
+- Local runs write `state_fusion.json` (GPS-only baseline) and `full_state_fusion.json` (all four layers: platform + visual-pose + object-state + map-state with RTS smoothing).
+- GPS sidecar: place `<videoname>.gps.jsonl` next to the video; IMU: `<videoname>.imu.jsonl`; baro: `<videoname>.baro.jsonl`.
+- `full_state_fusion.json` is written after step 15 (SfM join) so it has access to SfM poses, RF-DETR tracking results, and Gemma/RSSM semantic analysis.
+- Semantic priors: Gemma's `scene_type` drives process noise scale; RSSM mean surprise drives temporal noise scale; urban canyon objects drive GPS noise inflation. See [`docs/learning_path/13_probabilistic_fusion_deep_dive.md`](learning_path/13_probabilistic_fusion_deep_dive.md) for the full noise table.
+- On local Ollama defaults, Qwen uses a smaller sampled-frame budget and OCR only runs on lower-confidence Florence-captioned frames.
+- Local agentic-flow audit runs a simple prompt first and only retries with a compact fallback when the first answer is empty or structurally incomplete.
+- Depth `auto` uses the fast profile by default for local runs; set `DEPTH_AUTO_PROFILE=quality` or an explicit `DEPTH_MODEL` to opt into heavier inference.
 - For a full variable list, use [`pipeline/core/config.py`](/home/vola/src/selfsuvis/pipeline/core/config.py) as the source of truth.
 
 ---

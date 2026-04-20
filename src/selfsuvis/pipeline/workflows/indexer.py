@@ -27,6 +27,7 @@ from selfsuvis.pipeline.media.heuristics import (
     edge_density,
 )
 from selfsuvis.pipeline.media.dedup import dhash, PhashLRU
+from selfsuvis.pipeline.fusion import run_platform_state_fusion
 from selfsuvis.pipeline.mapping import build_semantic_environment_graph
 from selfsuvis.pipeline.storage import QdrantStore, RecentEmbeddingIndex
 from selfsuvis.pipeline.vision import (
@@ -455,6 +456,37 @@ class VideoIndexer:
         if frame_records and self.unidrive_model and self.unidrive_model.is_enabled():
             self._run_unidrive_pass(frame_records)
 
+        state_fusion_summary: Dict[str, Any] = {
+            "enabled": False,
+            "status": "skipped",
+            "reason": "no frame records",
+        }
+        if frame_records:
+            state_fusion = run_platform_state_fusion(
+                video_path=video_path,
+                frame_times_sec=[record["t_sec"] for record in frame_records],
+                gps_samples=[record.get("gps_json") for record in frame_records],
+            )
+            state_fusion_summary = state_fusion.summary()
+            samples_by_t = {
+                round(sample.t_sec, 3): sample
+                for sample in state_fusion.posterior_samples
+            }
+            for record in frame_records:
+                sample = samples_by_t.get(round(record["t_sec"], 3))
+                if sample is None:
+                    continue
+                frame_facts = record.get("frame_facts_json") or {}
+                frame_facts["state_fusion"] = {
+                    "source": state_fusion.source,
+                    "position_enu_m": dict(sample.position_enu_m),
+                    "velocity_enu_mps": dict(sample.velocity_enu_mps),
+                    "covariance_trace": sample.covariance_trace,
+                    "quality": sample.quality,
+                    "measurement_kinds": list(sample.measurement_kinds),
+                }
+                record["frame_facts_json"] = frame_facts
+
         # ── RSSM temporal surprise + active learning tagging ─────────────────
         # Runs after all enrichment passes so caption_confidence is available.
         # Populates al_score and al_tag in frame_records; strips _clip_embed.
@@ -475,6 +507,7 @@ class VideoIndexer:
             "gps_origin": gps_origin,
             "frame_records": frame_records,
             "semantic_graph": semantic_graph_summary,
+            "state_fusion_summary": state_fusion_summary,
             "unidrive_summary": self._summarize_unidrive_records(frame_records),
         }
 

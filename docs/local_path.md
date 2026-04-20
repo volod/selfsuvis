@@ -8,6 +8,10 @@ Deep-dive entry points:
 - [Learning path index](learning_path/README.md)
 - [Runtime and study guide](learning_path/01_runtime_and_study_guide.md)
 - [Perception core, Steps 1-8](learning_path/02_perception_core_steps_01_08.md)
+- [Sensor fusion fundamentals](learning_path/09_sensor_fusion_fundamentals.md)
+- [Probabilistic state fusion requirements](learning_path/10_probabilistic_state_fusion_requirements.md)
+- [Probabilistic state fusion architecture](learning_path/11_probabilistic_state_fusion_architecture.md)
+- [Probabilistic state fusion implementation order](learning_path/12_probabilistic_state_fusion_implementation_order.md)
 - [Physical sensors and fusion, Steps 9-20](learning_path/03_sensor_steps_09_20.md)
 - [Tracking, world models, and 3D mapping, Steps 21-27](learning_path/04_tracking_mapping_steps_21_27.md)
 - [Adaptation, evaluation, and audit, Steps 28-35](learning_path/05_adaptation_eval_steps_28_35.md)
@@ -18,7 +22,8 @@ Deep-dive entry points:
 
 1. Read the step summary below once from top to bottom.
 2. Pick the deep-dive document for the phase you are working on.
-3. Use the day-by-day syllabus if you want a realistic study plan instead of reading everything at once.
+3. Before the sensor phase, read the sensor-fusion fundamentals session once so clocks, calibration, and contradiction handling are already in your head.
+4. Use the day-by-day syllabus if you want a realistic study plan instead of reading everything at once.
 
 ## The 35 Steps, Short Version
 
@@ -78,7 +83,7 @@ For the longer version, see [the full syllabus](learning_path/07_day_by_day_syll
 | 9 | Steps 10-12: thermal, multispectral, event cameras — not just more cameras |
 | 10 | Steps 13-15: LiDAR, FMCW radar, GNSS-R, DOP |
 | 11 | Steps 16-19: IMU, atmospheric, gas/radiation, acoustic sensing |
-| 12 | Step 20: timestamp alignment and sensor fusion design |
+| 12 | Sensor fusion fundamentals: clocks, frames, calibration, uncertainty, then Step 20 timestamp alignment and fusion design |
 | 13 | Steps 21-22: segmentation, IoU tracking, language-guided perception |
 | 14 | Steps 23-25: clip embeddings, Qwen rolling state, UniDriveVLA |
 | 15 | Steps 26-27: retrieval P@K and 3D Gaussian Splat |
@@ -96,7 +101,8 @@ If you only have time for a fast pass:
 
 1. [Runtime and study guide](learning_path/01_runtime_and_study_guide.md)
 2. [Perception core](learning_path/02_perception_core_steps_01_08.md)
-3. [Sensors and fusion](learning_path/03_sensor_steps_09_20.md)
-4. [Tracking and mapping](learning_path/04_tracking_mapping_steps_21_27.md)
-5. [Adaptation and audit](learning_path/05_adaptation_eval_steps_28_35.md)
-6. [Agentic knowledge flow](learning_path/06_agentic_knowledge_flow.md)
+3. [Sensor fusion fundamentals](learning_path/09_sensor_fusion_fundamentals.md)
+4. [Sensors and fusion](learning_path/03_sensor_steps_09_20.md)
+5. [Tracking and mapping](learning_path/04_tracking_mapping_steps_21_27.md)
+6. [Adaptation and audit](learning_path/05_adaptation_eval_steps_28_35.md)
+7. [Agentic knowledge flow](learning_path/06_agentic_knowledge_flow.md)

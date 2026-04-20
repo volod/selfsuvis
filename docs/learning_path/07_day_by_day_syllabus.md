@@ -170,7 +170,7 @@ Then look at the entity inventory in `VideoKnowledge` and check whether it match
 Why is the depth estimate called a "prior" not a "measurement"?
 What distinguishes it from a LiDAR range measurement?
 
-### Day 8 — Post-Run Artifact Analysis
+### Interlude — Post-Run Artifact Analysis
 
 **Topics:**
 - Read [`analytics.md`](../analytics.md).
@@ -286,6 +286,7 @@ Give one example of each that would be useful in a real mission.
 ### Day 12 — Sensor Fusion (Step 20)
 
 **Topics:**
+- Read [09_sensor_fusion_fundamentals.md](09_sensor_fusion_fundamentals.md).
 - Step 20: timestamp alignment, lag tolerance, contradiction detection, missing data handling.
 - Read the `VideoKnowledge` class again with sensor fusion in mind.
 - Read [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `context_for_frame()`.
@@ -294,6 +295,8 @@ Give one example of each that would be useful in a real mission.
 - Geneva et al., "OpenVINS: A Research Platform for Visual-Inertial Estimation" (2020) — Section 2 (EKF state representation and multi-sensor time alignment). [arxiv.org/abs/1908.01012](https://arxiv.org/abs/1908.01012)
 - What is a timestamp alignment window and why is ±2 seconds a reasonable default for 30 fps video?
 - What is the difference between sensor fusion and sensor integration?
+- Review the five questions from the sensor-fusion fundamentals session:
+  physical quantity, coordinate frame, clock base, uncertainty, and downstream consumer.
 
 **Exercise:**
 Reconstruct the full `context_for_frame()` string for one specific frame from your output.
@@ -304,6 +307,7 @@ For which absent line does the Qwen output degrade most?
 **Concept checkpoint:**
 What does "contradiction between modalities" look like in practice?
 Give one realistic example where LiDAR and monocular depth would give opposite signals.
+Why is the current `selfsuvis` local pipeline better described as context fusion than full probabilistic state fusion?
 
 ---
 
