@@ -128,6 +128,62 @@ if [[ -f .env ]]; then
   set +a
 fi
 
+# ── Resolve best CUDA toolkit for the current GPU ────────────────────────────
+# When multiple CUDA toolkits are installed (e.g. /usr/bin/nvcc at 12.0 and
+# /usr/local/cuda-13.2/bin/nvcc at 13.2), the system PATH may point at an older
+# one that does not support the GPU's compute capability (e.g. sm_120 Blackwell).
+# This function finds the highest-version toolkit that satisfies the GPU's minimum.
+_resolve_cuda_home() {
+  command -v nvidia-smi >/dev/null 2>&1 || { echo ""; return; }
+  local gpu_cc
+  gpu_cc=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null \
+           | head -1 | tr -d ' ')
+  local cc_major="${gpu_cc%%.*}"
+
+  # Minimum CUDA toolkit version required per compute-capability major.
+  # Older GPUs (sm_50–sm_90) are satisfied by any toolkit ≥ 10.
+  local min_maj min_min
+  case "$cc_major" in
+    12) min_maj=12; min_min=8 ;;  # Blackwell sm_120+
+    13) min_maj=13; min_min=0 ;;  # future
+    *)  min_maj=10; min_min=0 ;;  # any modern toolkit is fine
+  esac
+
+  local best="" best_maj=0 best_min=0
+  for cuda_dir in /usr/local/cuda-* /usr/local/cuda; do
+    local nvcc_bin="${cuda_dir}/bin/nvcc"
+    [[ -x "$nvcc_bin" ]] || continue
+    local ver
+    ver=$("$nvcc_bin" --version 2>/dev/null \
+          | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1 \2/p' | head -1)
+    [[ -z "$ver" ]] && continue
+    local maj min
+    read -r maj min <<< "$ver"
+    # Accept only if it satisfies the minimum AND is the best found so far.
+    if { [[ "$maj" -gt "$min_maj" ]] || \
+         { [[ "$maj" -eq "$min_maj" ]] && [[ "${min:-0}" -ge "$min_min" ]]; }; } && \
+       { [[ "$maj" -gt "$best_maj" ]] || \
+         { [[ "$maj" -eq "$best_maj" ]] && [[ "${min:-0}" -gt "$best_min" ]]; }; }; then
+      best="$cuda_dir"
+      best_maj="$maj"
+      best_min="${min:-0}"
+    fi
+  done
+  echo "$best"
+}
+
+_BEST_CUDA_HOME=$(_resolve_cuda_home)
+if [[ -n "$_BEST_CUDA_HOME" ]]; then
+  _NVCC_VER=$("${_BEST_CUDA_HOME}/bin/nvcc" --version 2>/dev/null \
+              | sed -n 's/.*release \([0-9.]*\).*/\1/p' | head -1)
+  if [[ "${CUDA_HOME:-}" != "$_BEST_CUDA_HOME" ]]; then
+    log "CUDA toolkit resolved: $_BEST_CUDA_HOME  (nvcc $_NVCC_VER — overrides PATH default)"
+    export CUDA_HOME="$_BEST_CUDA_HOME"
+    export PATH="$_BEST_CUDA_HOME/bin:$PATH"
+  fi
+fi
+unset _BEST_CUDA_HOME _NVCC_VER
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 # These can be overridden by environment variables before running the script.
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
@@ -217,7 +273,33 @@ if [[ ! -d .venv ]]; then
   bash scripts/install_requirements.sh vision,dev .venv
   log ".venv ready."
 else
-  log ".venv already exists — skipping. (rm -rf .venv to reinstall)"
+  # Check whether the installed PyTorch supports the current GPU architecture.
+  # If not (e.g. old cu121/cu126 wheels on a new Blackwell sm_120 GPU),
+  # reinstall torch wheels even though the venv already exists.
+  _TORCH_ARCH_OK=true
+  if "$PYTHON" -c "
+import sys, warnings
+warnings.filterwarnings('ignore')
+try:
+    import torch
+    if not torch.cuda.is_available():
+        sys.exit(0)
+    cap = torch.cuda.get_device_capability(0)
+    arch = 'sm_{}{}'.format(cap[0], cap[1])
+    if arch not in torch.cuda.get_arch_list():
+        sys.exit(1)
+except Exception:
+    pass
+sys.exit(0)
+" 2>/dev/null; then
+    log ".venv already exists and torch supports current GPU — skipping. (rm -rf .venv to reinstall)"
+  else
+    warn ".venv exists but installed PyTorch does not include kernels for current GPU."
+    warn "Re-running install_requirements.sh to install matching torch wheels..."
+    bash scripts/ensure_venv_pip.sh .venv
+    bash scripts/install_requirements.sh vision,dev .venv
+    log "Torch wheels updated."
+  fi
 fi
 
 # =============================================================================
@@ -306,7 +388,20 @@ fi
 # Compile SAM2 CUDA extension (_C) if not already built.
 # The PyPI wheel ships the source (csrc/connected_components.cu) but not the
 # compiled .so; without it SAM2 logs a UserWarning about skipped post-processing.
-if ! "$PYTHON" -c "from sam2 import _C" 2>/dev/null; then
+if ! "$PYTHON" -c "
+import sys, warnings
+warnings.filterwarnings('ignore')
+try:
+    from sam2 import _C
+    import torch
+    if torch.cuda.is_available():
+        cap = torch.cuda.get_device_capability(0)
+        arch = 'sm_{}{}'.format(cap[0], cap[1])
+        if arch not in torch.cuda.get_arch_list():
+            sys.exit(1)  # compiled against wrong arch — recompile
+except ImportError:
+    sys.exit(1)
+" 2>/dev/null; then
   if "$PYTHON" -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
     log "Compiling SAM2 CUDA extension (_C)..."
     "$PYTHON" - <<'PYEOF' && log "  ✓ SAM2 _C compiled" || warn "SAM2 _C compilation failed — post-processing will be limited"

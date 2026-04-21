@@ -120,8 +120,10 @@ def _recommend_ollama_gemma_models(resources: ResourceProfile) -> Tuple[str, str
         return "gemma4:12b", "qwen3:30b"
     if free_vram >= 18 or vram >= 24:
         return "gemma4:4b", "deepseek-r1:14b"
-    if free_vram >= 10 or vram >= 16:
+    if free_vram >= 14 or vram >= 16:
         return "gemma4:e4b", "deepseek-r1:14b"
+    if free_vram >= 8 or vram >= 12:
+        return "gemma4:e4b", "qwen3:8b"
     if ram >= 96:
         return "gemma4:12b", "deepseek-r1:32b"
     if ram >= 64:
@@ -150,7 +152,7 @@ def _recommend_qwen_model(resources: ResourceProfile, backend: str) -> str:
     free_vram = resources.free_vram_gb if resources.free_vram_gb > 0 else vram
 
     if backend == "ollama":
-        return "qwen2.5vl:7b" if free_vram >= 10 or vram >= 16 else "qwen2.5vl:3b"
+        return "qwen2.5vl:7b" if free_vram >= 14 or vram >= 16 else "qwen2.5vl:3b"
     if free_vram >= 64 or vram >= 80:
         return "Qwen/Qwen2.5-VL-32B-Instruct"
     if free_vram >= 14 or vram >= 16:

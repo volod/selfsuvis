@@ -64,7 +64,9 @@ _ensure_stub("selfsuvis.pipeline.downloader", download_url=MagicMock())
 # asyncpg stub — use _ensure_stub so all test files share the same module
 # object. _make_stub would create a new object, breaking patches in files
 # (e.g. test_gpu_isolation.py) that captured sys.modules["asyncpg"] earlier.
-_asyncpg_stub = _ensure_stub("asyncpg", connect=AsyncMock())
+# Pool must be present so that db.py type annotations (asyncpg.Pool) resolve
+# when this stub replaces the real module before those files are imported.
+_asyncpg_stub = _ensure_stub("asyncpg", connect=AsyncMock(), Pool=MagicMock())
 
 # pipeline.sfm stub
 _sfm_stub = _make_stub("selfsuvis.pipeline.sfm", run_sfm=MagicMock())

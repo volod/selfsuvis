@@ -564,6 +564,103 @@ def _list_ollama_models(api_url: str) -> List[str]:
     return []
 
 
+def _get_ollama_model_size_gb(model_name: str, api_url: str) -> float:
+    """Return the on-disk size of *model_name* in GiB, or 0.0 if unavailable."""
+    try:
+        import httpx
+        base = api_url.rstrip("/")
+        if base.endswith("/v1"):
+            base = base[:-3]
+        resp = httpx.get(f"{base}/api/tags", timeout=5.0)
+        if resp.status_code == 200:
+            for m in resp.json().get("models", []):
+                if m.get("name") == model_name:
+                    size_bytes = m.get("size", 0)
+                    return size_bytes / (1024 ** 3)
+    except Exception:
+        pass
+    return 0.0
+
+
+def _estimate_model_size_gb_from_name(model_name: str) -> float:
+    """Rough size estimate from model name tags when Ollama size is unavailable."""
+    m = (model_name or "").lower()
+    # ordered largest → smallest so first match wins
+    for tag, gb in [
+        ("671b", 420.0), ("405b", 250.0), ("72b", 45.0), ("70b", 44.0),
+        ("32b", 20.0), ("31b", 19.0), ("30b", 19.0), ("27b", 17.0), ("26b", 16.0),
+        ("14b", 9.0), ("12b", 8.0),
+        ("8b", 5.5), ("7b", 5.0), ("e4b", 9.6),   # e4b is Gemma4 efficient-4bit ~9.6 GB
+        ("4b", 3.5), ("3b", 2.5), ("2b", 1.8), ("1b", 1.0),
+    ]:
+        if tag in m:
+            return gb
+    return 5.0  # unknown: assume mid-size
+
+
+def _compute_sidecar_timeout(
+    model_name: str,
+    api_url: str,
+    resources: Optional[Dict[str, float]] = None,
+) -> float:
+    """Return an adaptive timeout (seconds) for a sidecar inference request.
+
+    The timeout scales with:
+      - Model size (larger = slower to cold-load from disk)
+      - VRAM vs model size ratio (model doesn't fit → offloads to RAM → much slower)
+      - RAM size (low RAM = more swapping pressure)
+
+    Override at any time with env var ``SELFSUVIS_SIDECAR_TIMEOUT_SEC``.
+
+    Tier summary (model fits in VRAM, fast NVMe assumed for high-end systems):
+      model < 0.5× VRAM  →  45 s   (comfortably fits, likely fast machine)
+      model < 1.0× VRAM  →  90 s   (snug fit)
+      model < 2.0× VRAM  →  180 s  (partial RAM offload)
+      model ≥ 2.0× VRAM  →  300 s  (heavy offload / CPU-only)
+    """
+    import os as _os
+    override = _os.environ.get("SELFSUVIS_SIDECAR_TIMEOUT_SEC", "").strip()
+    if override:
+        try:
+            return max(10.0, float(override))
+        except ValueError:
+            pass
+
+    if resources is None:
+        try:
+            from selfsuvis.pipeline.vision.registry import detect_resources
+            resources = detect_resources()
+        except Exception:
+            resources = {}
+
+    vram_gb = resources.get("vram_gb", 0.0)
+    ram_gb = resources.get("ram_gb", 8.0)
+
+    model_size_gb = _get_ollama_model_size_gb(model_name, api_url)
+    if model_size_gb <= 0:
+        model_size_gb = _estimate_model_size_gb_from_name(model_name)
+
+    if vram_gb <= 0:
+        # CPU-only: load time dominated by RAM bandwidth
+        base = 60.0 + model_size_gb * 20.0
+    else:
+        ratio = model_size_gb / vram_gb
+        if ratio < 0.5:
+            base = 45.0
+        elif ratio < 1.0:
+            base = 90.0
+        elif ratio < 2.0:
+            base = 180.0
+        else:
+            base = 300.0
+
+    # Low RAM machines swap more aggressively under memory pressure
+    if 0 < ram_gb < 16:
+        base *= 1.5
+
+    return min(base, 600.0)
+
+
 # Preferred Gemma model order: smallest usable first so we never pick a 26B/31B
 # when a lighter option is available.
 _GEMMA_PREFERENCE_ORDER = [

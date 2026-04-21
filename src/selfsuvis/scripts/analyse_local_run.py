@@ -40,8 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = build_parser().parse_args()
+def run(args: argparse.Namespace) -> None:
+    if not getattr(args, "run_dir", None):
+        raise SystemExit("--run-dir is required when --mode analyse")
+
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/selfsuvis-matplotlib")
 
     from selfsuvis.analytics import LocalRunLoader
@@ -130,6 +132,10 @@ def main() -> None:
         print(f"  ✓ {out_path}")
 
     print("\nDone.")
+
+
+def main() -> None:
+    run(build_parser().parse_args())
 
 
 if __name__ == "__main__":

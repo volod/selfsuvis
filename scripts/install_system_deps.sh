@@ -25,6 +25,12 @@ for arg in "$@"; do
   esac
 done
 
+if [[ "$EUID" -ne 0 ]]; then
+  echo "Error: this script must be run as root." >&2
+  echo "  sudo $0 $*" >&2
+  exit 1
+fi
+
 echo "=============================================="
 echo "  System dependencies for Video Semantic Search"
 echo "=============================================="
@@ -46,14 +52,15 @@ echo ""
 install_debian() {
   echo "Installing packages with apt (Debian/Ubuntu)..."
   apt-get update
-  echo "  Installing ffmpeg and OpenCV runtime libraries..."
+  echo "  Installing ffmpeg, OpenCV runtime libraries, and build tools..."
   apt-get install -y --no-install-recommends \
     ffmpeg \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender1
+    libxrender1 \
+    ninja-build
   if [[ "$WITH_PYTHON" == true ]]; then
     echo "  Installing Python 3, venv, and pip..."
     apt-get install -y --no-install-recommends \
@@ -66,14 +73,15 @@ install_debian() {
 
 install_fedora() {
   echo "Installing packages with dnf (Fedora/RHEL)..."
-  echo "  Installing ffmpeg and OpenCV runtime libraries..."
+  echo "  Installing ffmpeg, OpenCV runtime libraries, and build tools..."
   dnf install -y \
     ffmpeg \
     mesa-libGL \
     glib2 \
     libSM \
     libXext \
-    libXrender
+    libXrender \
+    ninja-build
   if [[ "$WITH_PYTHON" == true ]]; then
     echo "  Installing Python 3 and pip..."
     dnf install -y \
@@ -85,14 +93,15 @@ install_fedora() {
 
 install_arch() {
   echo "Installing packages with pacman (Arch)..."
-  echo "  Installing ffmpeg and OpenCV runtime libraries..."
+  echo "  Installing ffmpeg, OpenCV runtime libraries, and build tools..."
   pacman -Sy --noconfirm --needed \
     ffmpeg \
     mesa \
     glib2 \
     libsm \
     libxext \
-    libxrender
+    libxrender \
+    ninja
   if [[ "$WITH_PYTHON" == true ]]; then
     echo "  Installing Python and pip..."
     pacman -Sy --noconfirm --needed \

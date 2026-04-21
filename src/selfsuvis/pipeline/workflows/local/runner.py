@@ -585,14 +585,17 @@ def _is_valid_agentic_flow_analysis(text: str, *, simple: bool) -> bool:
     return all(section in body for section in required)
 
 
-def _reasoning_timeout_for_model(model: str) -> float:
-    base = float(getattr(settings, "REASONING_TIMEOUT_SEC", 240))
-    m = (model or "").lower()
-    if any(tag in m for tag in ("32b", "30b", "27b", "26b")):
-        return max(base, 600.0)
-    if any(tag in m for tag in ("14b", "12b")):
-        return max(base, 360.0)
-    return base
+def _reasoning_timeout_for_model(
+    model: str,
+    api_url: str = "",
+    resources: Optional[Dict[str, Any]] = None,
+) -> float:
+    from .steps_caption import _compute_sidecar_timeout
+    # REASONING_TIMEOUT_SEC env/settings hard-override takes priority
+    hard = float(getattr(settings, "REASONING_TIMEOUT_SEC", 0))
+    if hard > 0:
+        return hard
+    return _compute_sidecar_timeout(model, api_url or "", resources)
 
 
 def _fallback_agentic_flow_analysis(video_context: Dict[str, Any]) -> str:
@@ -652,7 +655,7 @@ def step_agentic_flow_artifact(
             import httpx
 
             endpoint = f"{api_url.rstrip('/')}/chat/completions"
-            timeout_sec = _reasoning_timeout_for_model(model)
+            timeout_sec = _reasoning_timeout_for_model(model, api_url=api_url)
             is_simple = _is_simple_agentic_audit(video_context)
             if is_simple:
                 attempts = [
@@ -768,6 +771,7 @@ def step_video_synthesis(
     video_context: Dict[str, Any],
     api_url: str,
     model: str,
+    resources: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Step Z: synthesise video ontology + narrative via Ollama/vLLM API.
 
@@ -788,8 +792,10 @@ def step_video_synthesis(
         _log.warning("  httpx unavailable — skipping video synthesis")
         return result
 
+    from .steps_caption import _compute_sidecar_timeout
     context_str = _build_context_prompt(video_name, video_context)
     endpoint    = f"{api_url.rstrip('/')}/chat/completions"
+    _synthesis_timeout = _compute_sidecar_timeout(model, api_url, resources)
     t0          = time.time()
     _log_vram_snapshot("before synthesis sidecar use")
     ontology: Dict[str, Any] = {}
@@ -820,7 +826,7 @@ def step_video_synthesis(
                 "max_tokens": 512,
                 "temperature": 0.1,
             },
-            timeout=60.0,
+            timeout=_synthesis_timeout,
         )
         resp.raise_for_status()
         raw = resp.json()["choices"][0]["message"]["content"].strip()
@@ -856,7 +862,7 @@ def step_video_synthesis(
                 "max_tokens": 1024,
                 "temperature": 0.3,
             },
-            timeout=90.0,
+            timeout=_synthesis_timeout,
         )
         resp.raise_for_status()
         narrative = resp.json()["choices"][0]["message"]["content"].strip()
@@ -2208,6 +2214,7 @@ def run_local(args: Any) -> None:
         _recommend_gemma_sidecar_models,
         _list_ollama_models,
         _log_vram_snapshot,
+        _compute_sidecar_timeout,
     )
     from .steps_report import write_final_stats_md, print_run_stats
 
@@ -2314,14 +2321,18 @@ def run_local(args: Any) -> None:
             # Persist resolution so all downstream steps see the correct model
             os.environ["GEMMA_API_MODEL"] = _gemma_model
             settings.GEMMA_API_MODEL = _gemma_model  # type: ignore[misc]
-        _log.info("Gemma API pre-flight check (url=%s  model=%s) …", _gemma_url, _gemma_model)
+        _PREFLIGHT_TIMEOUT = _compute_sidecar_timeout(_gemma_model, _gemma_url, resources)
+        _log.info(
+            "Gemma API pre-flight check (url=%s  model=%s) … (timeout=%.0fs)",
+            _gemma_url, _gemma_model, _PREFLIGHT_TIMEOUT,
+        )
         try:
             import httpx as _httpx
             _r = _httpx.post(
                 f"{_gemma_url.rstrip('/')}/chat/completions",
                 json={"model": _gemma_model, "messages": [{"role": "user", "content": "ping"}],
                       "max_tokens": 1},
-                timeout=20.0,
+                timeout=_PREFLIGHT_TIMEOUT,
             )
             if _r.status_code == 404:
                 _log.error(
@@ -2368,13 +2379,14 @@ def run_local(args: Any) -> None:
             "Reasoning API pre-flight check (url=%s  model=%s) …",
             _reasoning_url, _reasoning_model,
         )
+        _reasoning_preflight_timeout = _compute_sidecar_timeout(_reasoning_model, _reasoning_url, resources)
         try:
             import httpx as _httpx
             _r = _httpx.post(
                 f"{_reasoning_url.rstrip('/')}/chat/completions",
                 json={"model": _reasoning_model, "messages": [{"role": "user", "content": "ping"}],
                       "max_tokens": 1},
-                timeout=20.0,
+                timeout=_reasoning_preflight_timeout,
             )
             if _r.status_code == 404:
                 _log.error(

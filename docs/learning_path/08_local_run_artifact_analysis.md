@@ -41,13 +41,13 @@ Treat the run directory as evidence, not as proof that every stage worked.
 Generate a report:
 
 ```bash
-selfsuvis-analyse --run-dir data/local_runs/drone_mission
+selfsuvis --mode analyse --run-dir data/local_runs/drone_mission
 ```
 
-Or without installation:
+Module form:
 
 ```bash
-python scripts/analyse_local_run.py --run-dir data/local_runs/drone_mission
+python -m selfsuvis --mode analyse --run-dir data/local_runs/drone_mission
 ```
 
 This gives you:

@@ -17,22 +17,22 @@ Implementation plan:
 
 ## Quick Start
 
-Repo script:
+Main CLI:
 
 ```bash
-python scripts/analyse_local_run.py --run-dir data/local_runs/drone_mission
+selfsuvis --mode analyse --run-dir data/local_runs/drone_mission
 ```
 
-Installed CLI:
+Module form:
 
 ```bash
-selfsuvis-analyse --run-dir data/local_runs/drone_mission
+python -m selfsuvis --mode analyse --run-dir data/local_runs/drone_mission
 ```
 
 Optional machine-readable summary:
 
 ```bash
-selfsuvis-analyse \
+selfsuvis --mode analyse \
   --run-dir data/local_runs/drone_mission \
   --summary-json data/local_runs/drone_mission/analysis_summary.json
 ```

@@ -1,5 +1,6 @@
 """Database pool utilities for FastAPI app lifecycle."""
 
+from __future__ import annotations
 
 from typing import Optional
 import asyncpg

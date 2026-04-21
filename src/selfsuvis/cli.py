@@ -4,6 +4,7 @@ Modes:
   local   — run the full local analysis / training orchestration
   file    — process a video file or directory (default)
   stream  — process a live RTSP/device stream
+  analyse — generate charts / report for an existing local run
 """
 
 import warnings
@@ -25,6 +26,9 @@ def main() -> None:
     elif args.mode == "file":
         from selfsuvis.pipeline.workflows import run_file_mode  # noqa: PLC0415
         run_file_mode(args)
+    elif args.mode == "analyse":
+        from selfsuvis.scripts.analyse_local_run import run  # noqa: PLC0415
+        run(args)
     else:
         from selfsuvis.pipeline.workflows import run_stream_mode  # noqa: PLC0415
         run_stream_mode(args)

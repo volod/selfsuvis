@@ -49,7 +49,7 @@ help:
 # Ensure data/cache dirs exist and are owned by current user (avoids root-owned files from containers)
 # Pre-create Qdrant Snapshots dir to avoid "Permission denied" when running as non-root
 data-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/qdrant/Snapshots data/videos cache && chown -R $$HOST_UID:$$HOST_GID data cache' 2>/dev/null && echo "Data directories data and cache are ready." || (mkdir -p data/qdrant/Snapshots data/videos cache && echo "Created data and cache. If Qdrant fails with Permission denied, run: make fix-data")
+	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/postgres data/qdrant/Snapshots data/videos cache && chown -R $$HOST_UID:$$HOST_GID data cache' 2>/dev/null && echo "Data directories data and cache are ready." || (mkdir -p data/postgres data/qdrant/Snapshots data/videos cache && echo "Created data and cache. If Qdrant fails with Permission denied, run: make fix-data")
 
 up: docker-check data-dirs
 	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml up --build
@@ -129,7 +129,7 @@ docker-check:
 # Ensure test data dirs exist and are owned by current user (avoids "unable to open database file")
 # Uses a one-off container so chown works even when dirs were previously created by Docker as root
 test-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data cache_test && chown $$HOST_UID:$$HOST_GID data cache_test' 2>/dev/null && echo "Test directories data and cache_test are ready." || (mkdir -p data cache_test && echo "Created data and cache_test. If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) data cache_test")
+	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/postgres data/qdrant/Snapshots data/videos cache cache_test && chown -R $$HOST_UID:$$HOST_GID data cache cache_test' 2>/dev/null && echo "Test directories data and cache_test are ready." || (mkdir -p data/postgres data cache_test && echo "Created data and cache_test. If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) data cache_test")
 
 # Integration tests (require API + worker + Qdrant). Runs docker-check first. Uses GPU by default.
 test: docker-check test-dirs

@@ -73,10 +73,10 @@ bad or incomplete artifacts.
 
 ## CLI Surface
 
-Two supported entry points:
+Supported entry points:
 
-- repo-local: `python scripts/analyse_local_run.py --run-dir ...`
-- installed: `selfsuvis-analyse --run-dir ...`
+- main CLI: `selfsuvis --mode analyse --run-dir ...`
+- module form: `python -m selfsuvis --mode analyse --run-dir ...`
 
 Outputs:
 

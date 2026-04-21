@@ -74,6 +74,8 @@ Environment
 
 import argparse
 import importlib.util
+import contextlib
+import io
 import logging
 import os
 import shutil
@@ -89,7 +91,24 @@ warnings.filterwarnings("ignore", message="xFormers is available", category=User
 warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
                         category=FutureWarning)
 # timm ResNet50 meta-parameter copy warnings (hundreds of lines, all expected).
-warnings.filterwarnings("ignore", message="copying from a non-meta parameter", category=UserWarning)
+# Newer PyTorch prefixes the message with the layer name ("for X.Y: copying…"), so
+# the pattern needs .* to match at any position via re.match.
+warnings.filterwarnings("ignore", message=".*copying from a non-meta parameter", category=UserWarning)
+# HF transformers deprecation / slow-processor notices.
+# These are emitted as FutureWarning (not UserWarning) in transformers ≥ 4.48,
+# so omit the category restriction so the filter matches both.
+warnings.filterwarnings("ignore", message=".*Using a slow image processor.*")
+warnings.filterwarnings("ignore", message=".*use_fast.*will be the default.*")
+warnings.filterwarnings("ignore", message=".*VideoMAEFeatureExtractor is deprecated.*")
+# Force-clear any per-module warning registries that may have cached "show once" state
+# for the torch meta-parameter warnings before our filters were installed.
+# Guard with isinstance(reg, dict): torch._ops._OpNamespace exposes a
+# __warningregistry__ proxy that is not a dict and raises AttributeError on .clear().
+for _mod_name in list(sys.modules):
+    _mod = sys.modules.get(_mod_name)
+    reg = getattr(_mod, "__warningregistry__", None)
+    if isinstance(reg, dict):
+        reg.clear()
 
 # Allow running from repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -111,6 +130,39 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("prepare_models")
+
+
+@contextlib.contextmanager
+def _quiet_hf():
+    """Suppress repetitive HF transformers + ultralytics noise during model warmup.
+
+    Redirects stdout/stderr to a sink and sets transformers verbosity to ERROR
+    for the duration of the block.  Our own log.info() calls are unaffected
+    because they go through the root logging handler, not stdout/stderr directly.
+    """
+    orig_tf_verbosity = None
+    try:
+        import transformers
+        orig_tf_verbosity = transformers.logging.get_verbosity()
+        transformers.logging.set_verbosity_error()
+    except Exception:
+        pass
+    sink = io.StringIO()
+    try:
+        with warnings.catch_warnings(), contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            warnings.filterwarnings("ignore", message=".*copying from a non-meta parameter")
+            warnings.filterwarnings("ignore", message=".*Using a slow image processor")
+            warnings.filterwarnings("ignore", message=".*use_fast.*will be the default")
+            warnings.filterwarnings("ignore", message=".*VideoMAEFeatureExtractor is deprecated")
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            yield
+    finally:
+        if orig_tf_verbosity is not None:
+            try:
+                import transformers
+                transformers.logging.set_verbosity(orig_tf_verbosity)
+            except Exception:
+                pass
 
 
 _UNIDRIVE_DEFAULT_MODEL = "owl10/UniDriveVLA_Nusc_Base_Stage3"
@@ -528,7 +580,8 @@ def _download_detection(model_id: str) -> None:
     t0 = time.monotonic()
     try:
         from transformers import pipeline as _hf_pipeline
-        _hf_pipeline("object-detection", model=model_id, device="cpu")
+        with _quiet_hf():
+            _hf_pipeline("object-detection", model=model_id, device="cpu")
         log.info("  ✓ Detection model ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
         log.warning("  Detection model download failed: %s", exc)
@@ -560,12 +613,17 @@ def _download_yolo(model_id: str) -> None:
     ult_cache_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
     try:
-        # Pass the full cache path so ultralytics downloads there, not to cwd.
-        model = YOLO(str(ult_cache))
-        # Run a tiny inference to verify weights are valid.
         import numpy as np
-        dummy = np.zeros((64, 64, 3), dtype=np.uint8)
-        model(dummy, verbose=False)
+        # Suppress ultralytics' repeated tqdm download lines and settings banner.
+        # YOLO_VERBOSE=False turns off their internal VERBOSE flag; redirecting
+        # stdout/stderr catches the tqdm progress bar that goes to stdout in non-TTY mode.
+        os.environ["YOLO_VERBOSE"] = "False"
+        logging.getLogger("ultralytics").setLevel(logging.ERROR)
+        sink = io.StringIO()
+        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            model = YOLO(str(ult_cache))
+            dummy = np.zeros((64, 64, 3), dtype=np.uint8)
+            model(dummy, verbose=False)
         log.info("  ✓ YOLO11 ready  (%.1fs)  file=%s", time.monotonic() - t0, ult_cache)
     except Exception as exc:
         log.warning("  YOLO11 download/verification failed: %s", exc)
@@ -631,7 +689,9 @@ def _sam3_dialog() -> str:
 
     while True:
         try:
-            raw = input("  Choice [s/r/x]: ").strip().lower()
+            raw = input("  Choice [s/r/x]: ")
+            # Encode to ASCII, dropping non-ASCII look-alikes (e.g. Cyrillic і vs Latin i)
+            raw = raw.encode("ascii", errors="ignore").decode().strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             return "sam2"

@@ -8,11 +8,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Video processing pipeline")
     parser.add_argument(
         "--mode",
-        choices=["local", "file", "stream"],
+        choices=["local", "file", "stream", "analyse"],
         default="local",
         help=(
             "Execution mode: local=full local analysis/train orchestration, "
-            "file=lightweight indexing CLI, stream=live stream CLI"
+            "file=lightweight indexing CLI, stream=live stream CLI, "
+            "analyse=post-run analytics/report generation"
         ),
     )
     parser.add_argument("--input", help="Video file path")
@@ -61,6 +62,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--steps",
         default="extract,describe,index",
         help="Comma-separated steps: extract,describe,index",
+    )
+    parser.add_argument(
+        "--run-dir",
+        help="[analyse] Path to a local run output directory "
+             "(e.g. data/local_runs/drone_mission)",
+    )
+    parser.add_argument(
+        "--charts-dir",
+        default=None,
+        help="[analyse] Directory for individual PNG charts (defaults to --run-dir)",
+    )
+    parser.add_argument(
+        "--no-report",
+        action="store_true",
+        help="[analyse] Skip generating the HTML report",
+    )
+    parser.add_argument(
+        "--report-filename",
+        default="analysis_report.html",
+        help="[analyse] Filename for the HTML report (default: analysis_report.html)",
+    )
+    parser.add_argument(
+        "--summary-json",
+        default=None,
+        help="[analyse] Optional path to write a compact machine-readable summary JSON",
     )
 
     parser.add_argument(
