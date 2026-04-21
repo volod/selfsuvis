@@ -1620,9 +1620,108 @@ def print_run_stats(
     _log.info(_row("Points",    *[str(v.get("map_points", 0)) for v in per_video]))
     _log.info(_row("SfM poses", *[str(v.get("sfm_poses", 0)) for v in per_video]))
     _log.info("")
+    _log.info("  ANALYTICS SUMMARY")
+    _log.info("  " + SEP[:W-2])
+    _log.info(_row("Domain", *[
+        (v.get("analysis_summary", {}) or {}).get("domain") or "—"
+        for v in per_video
+    ]))
+    _log.info(_row("Top category", *[
+        (v.get("analysis_summary", {}) or {}).get("top_category") or "—"
+        for v in per_video
+    ]))
+    _log.info(_row("Artifacts", *[
+        str((v.get("analysis_summary", {}) or {}).get("artifact_count", "—"))
+        for v in per_video
+    ]))
+    _log.info(_row("Coverage F/Q/A/O", *[
+        _fmt_analytics_coverage(v.get("analysis_summary", {}) or {})
+        for v in per_video
+    ]))
+    _log.info(_row("Detections", *[
+        _fmt_analytics_detections(v.get("analysis_summary", {}) or {})
+        for v in per_video
+    ]))
+    _log.info(_row("Temporal", *[
+        _fmt_analytics_temporal(v.get("analysis_summary", {}) or {})
+        for v in per_video
+    ]))
+    _log.info(_row("World/Tracking", *[
+        _fmt_analytics_world_tracking(v.get("analysis_summary", {}) or {})
+        for v in per_video
+    ]))
+    _log.info(_row("Map quality", *[
+        _fmt_analytics_map(v.get("analysis_summary", {}) or {})
+        for v in per_video
+    ]))
+    _log.info(_row("Warnings", *[
+        _fmt_analytics_warnings(v.get("analysis_summary", {}) or {})
+        for v in per_video
+    ]))
+    _log.info("")
     _log.info("  TOP VIDEO DESCRIPTION  (CLIP text similarity)")
     _log.info("  " + SEP[:W-2])
     for v in per_video:
         _log.info("  %-20s  %s", v.get("name", "?"), v.get("top_description", "—") or "—")
     _log.info("")
     _log.info("  " + "═" * (W-2))
+
+
+def _fmt_analytics_coverage(summary: Dict[str, Any]) -> str:
+    rh = summary.get("run_health", {}) or {}
+    return (
+        f"{100.0 * float(rh.get('florence_caption_coverage', 0.0)):.0f}/"
+        f"{100.0 * float(rh.get('qwen_caption_coverage', 0.0)):.0f}/"
+        f"{100.0 * float(rh.get('asr_coverage', 0.0)):.0f}/"
+        f"{100.0 * float(rh.get('ocr_coverage', 0.0)):.0f}%"
+    )
+
+
+def _fmt_analytics_detections(summary: Dict[str, Any]) -> str:
+    ds = summary.get("detection_stats", {}) or {}
+    total = ds.get("total_objects")
+    mean_per_frame = ds.get("mean_per_frame")
+    if total in (None, ""):
+        return "—"
+    if mean_per_frame in (None, ""):
+        return str(total)
+    return f"{int(total)} ({float(mean_per_frame):.1f}/fr)"
+
+
+def _fmt_analytics_temporal(summary: Dict[str, Any]) -> str:
+    ts = summary.get("temporal_stats", {}) or {}
+    mean_surprise = ts.get("mean_surprise")
+    peak_frames = ts.get("peak_frames", []) or []
+    if mean_surprise in (None, ""):
+        return "—"
+    return f"{float(mean_surprise):.3f} / {len(peak_frames)} peaks"
+
+
+def _fmt_analytics_world_tracking(summary: Dict[str, Any]) -> str:
+    rh = summary.get("run_health", {}) or {}
+    tr = summary.get("tracking_stats", {}) or {}
+    world = "ok" if rh.get("world_model_ok") else "degraded"
+    tracks = tr.get("unique_track_ids")
+    if tracks in (None, ""):
+        return world
+    return f"{world} / {int(tracks)} tracks"
+
+
+def _fmt_analytics_map(summary: Dict[str, Any]) -> str:
+    ms = summary.get("map_stats", {}) or {}
+    if not ms:
+        return "—"
+    quality = "degraded" if ms.get("degraded") else "ok"
+    points = int(ms.get("points", 0) or 0)
+    poses = int(ms.get("poses", 0) or 0)
+    return f"{quality} ({points}p/{poses} poses)"
+
+
+def _fmt_analytics_warnings(summary: Dict[str, Any]) -> str:
+    warnings = ((summary.get("run_health", {}) or {}).get("warnings", []) or [])
+    if not warnings:
+        return "—"
+    text = ", ".join(str(item) for item in warnings[:2])
+    if len(warnings) > 2:
+        text += f" +{len(warnings) - 2}"
+    return text

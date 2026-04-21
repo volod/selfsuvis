@@ -328,9 +328,14 @@ fi
 section "Step 1a — Sensor-specific Python packages"
 
 log "Installing sensor modality libraries..."
-"$PIP" install --quiet \
+# Use uv (not pip) so the existing numpy>=2 constraint from pyproject.toml is
+# respected during resolution.  tonic and scikit-gstat pin numpy<2 in their
+# metadata; installing them with uv alongside an explicit numpy>=2 forces uv
+# to pick a compatible solution instead of silently downgrading numpy.
+uv pip install --python .venv \
+  "numpy>=2" \
   filterpy \
-  open3d \
+  "open3d>=0.18" \
   pyroomacoustics \
   librosa \
   torchaudio \
@@ -343,7 +348,29 @@ log "Installing sensor modality libraries..."
   pyserial \
   scikit-gstat \
   tonic \
-  || warn "Some sensor packages failed — check output above. Non-fatal: sensor steps degrade gracefully."
+  || warn "Some sensor packages failed — non-fatal; sensor steps degrade gracefully."
+
+# Some packages ignore the numpy>=2 pin and downgrade to 1.x at install time.
+# opencv-python 4.13+ requires numpy>=2; restore it here unconditionally.
+log "Enforcing numpy>=2 (required by opencv-python 4.13+)..."
+uv pip install --python .venv "numpy>=2" \
+  || warn "numpy>=2 enforcement failed — opencv-python may have import errors."
+
+# onnxruntime-gpu (installed on CUDA machines by install_requirements.sh) replaces
+# the 'onnxruntime' pip package by name, so pip's resolver may warn that
+# 'onnxruntime>=1.18' is not satisfied even though the module is importable.
+# Reinstall whichever variant is needed to make the import work cleanly.
+if ! "$PYTHON" -c "import onnxruntime" 2>/dev/null; then
+  log "onnxruntime not importable — reinstalling..."
+  if "$PYTHON" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+    uv pip install --python .venv "onnxruntime-gpu>=1.18.0" \
+      || uv pip install --python .venv "onnxruntime>=1.18.0" \
+      || warn "onnxruntime install failed — ONNX inference may not work."
+  else
+    uv pip install --python .venv "onnxruntime>=1.18.0" \
+      || warn "onnxruntime install failed — ONNX inference may not work."
+  fi
+fi
 
 # OpenRadar: FMCW radar signal processing (range-Doppler, CFAR, angle estimation)
 # Installed separately because it is a git-only package not on PyPI.

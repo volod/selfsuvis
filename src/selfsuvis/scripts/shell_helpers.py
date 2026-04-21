@@ -111,7 +111,7 @@ def main() -> None:
     elif args.command == "cuda-version-from-json":
         sys.stdout.write(cuda_version_from_json(args.path))
     else:
-        sys.stdout.write(
+        print(
             compute_flash_attn_jobs(
                 total_kb=args.total_kb,
                 avail_kb=args.avail_kb,

@@ -52,6 +52,7 @@ vision = [
     "torchvision>=0.16",
     "open-clip-torch>=2.24",
     "opencv-python>=4.10",
+    "einops>=0.8",
     "ultralytics>=8.3",
     "xformers>=0.0.35",
     "sam3",

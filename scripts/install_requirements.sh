@@ -210,53 +210,234 @@ _compute_flash_attn_jobs() {
     --reserve-frac "$reserve_frac"
 }
 
-# Ensure flash-attn and other JIT-compiled CUDA extensions are built with a toolkit
-# that supports the current GPU.  On systems with multiple CUDA installations (e.g.
-# /usr/bin/nvcc at 12.0 and /usr/local/cuda-13/bin/nvcc at 13.2), the system PATH
-# may point at an older toolkit that doesn't support new architectures (Blackwell sm_120).
-# Setting CUDA_HOME here overrides nvcc selection for the entire flash-attn build.
-# On machines where the system nvcc already supports the GPU this is a no-op.
+# ── nvcc / torch alignment helpers ────────────────────────────────────────────
+#
+# flash-attn's setup.py hard-checks that `nvcc --version` == torch.version.cuda.
+# These helpers ensure that invariant holds before attempting the build by:
+#   1. looking for a matching nvcc in /usr/local/cuda-*/
+#   2. trying  sudo apt-get install cuda-nvcc-MAJOR-MINOR
+#   3. if that fails: adding the NVIDIA CUDA apt repo, then retrying
+#   4. falling back through supported (nvcc, torch) pairs — reinstalling torch
+#      to match whatever nvcc version can be installed
+#   5. registering the active nvcc with update-alternatives so it is the default
+
+# Return the CUDA home directory for the given "MAJOR.MINOR" nvcc version, or "".
+_find_cuda_home() {
+  local ver="$1" major="${1%%.*}" minor="${1##*.}"
+  for d in \
+      "/usr/local/cuda-${ver}" \
+      "/usr/local/cuda-${major}.${minor}" \
+      "/usr/local/cuda-${major}-${minor}"; do
+    if [[ -x "$d/bin/nvcc" ]]; then echo "$d"; return 0; fi
+  done
+  return 1
+}
+
+# Register nvcc at PATH $1 (e.g. /usr/local/cuda-12.6/bin/nvcc) version $2 ("12.6")
+# as the system default via update-alternatives.  Non-fatal.
+_set_nvcc_alternative() {
+  local nvcc_path="$1" ver="$2"
+  command -v update-alternatives >/dev/null 2>&1 || return 0
+  local major="${ver%%.*}" minor="${ver##*.}"
+  local priority=$(( major * 10 + minor ))
+  sudo update-alternatives --install /usr/bin/nvcc nvcc "$nvcc_path" "$priority" 2>/dev/null || true
+  sudo update-alternatives --set nvcc "$nvcc_path" 2>/dev/null && \
+    echo "  update-alternatives: nvcc default → ${nvcc_path} (priority ${priority})" || true
+}
+
+# Add the official NVIDIA CUDA apt repository for the current Debian/Ubuntu distro.
+# Downloads the cuda-keyring .deb from developer.download.nvidia.com, installs it,
+# and runs apt-get update.  Returns 0 on success, 1 if anything fails.
+_add_nvidia_cuda_apt_repo() {
+  command -v apt-get >/dev/null 2>&1 || return 1
+  [[ -f /etc/os-release ]] || return 1
+
+  # If the cuda-keyring package is already installed the repo is already present.
+  dpkg -s cuda-keyring >/dev/null 2>&1 && {
+    echo "  NVIDIA CUDA apt repo already present (cuda-keyring installed)."
+    return 0
+  }
+
+  local os_id os_ver
+  # shellcheck source=/dev/null
+  . /etc/os-release
+  os_id="${ID:-ubuntu}"
+  os_ver="${VERSION_ID:-22.04}"
+
+  # Build the distro token used in NVIDIA's URL (e.g. ubuntu2204, debian12).
+  local distro="${os_id}${os_ver//./}"
+
+  # Architecture token (NVIDIA uses x86_64 / sbsa / ppc64le).
+  local arch
+  arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+  local nvidia_arch
+  case "$arch" in
+    amd64|x86_64)  nvidia_arch="x86_64" ;;
+    arm64|aarch64) nvidia_arch="sbsa"   ;;
+    ppc64le)       nvidia_arch="ppc64le" ;;
+    *)             nvidia_arch="x86_64" ;;
+  esac
+
+  local base_url="https://developer.download.nvidia.com/compute/cuda/repos/${distro}/${nvidia_arch}"
+  local keyring_deb="/tmp/cuda-keyring_1.1-1_all.deb"
+
+  echo "  Adding NVIDIA CUDA apt repo: ${base_url} ..."
+
+  # Download the keyring package.
+  if command -v wget >/dev/null 2>&1; then
+    wget -q -O "$keyring_deb" "${base_url}/cuda-keyring_1.1-1_all.deb" || {
+      echo "  wget failed — distro '${distro}' may not be supported by NVIDIA's repo."
+      return 1
+    }
+  elif command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$keyring_deb" "${base_url}/cuda-keyring_1.1-1_all.deb" || {
+      echo "  curl failed — distro '${distro}' may not be supported by NVIDIA's repo."
+      return 1
+    }
+  else
+    echo "  wget and curl not found — cannot download CUDA keyring."
+    return 1
+  fi
+
+  sudo dpkg -i "$keyring_deb" 2>/dev/null && rm -f "$keyring_deb" || {
+    rm -f "$keyring_deb"
+    echo "  dpkg -i cuda-keyring failed."
+    return 1
+  }
+
+  echo "  Running apt-get update ..."
+  sudo apt-get update -qq 2>/dev/null || true
+  echo "  NVIDIA CUDA apt repo added."
+  return 0
+}
+
+# Try  sudo apt-get install cuda-nvcc-MAJOR-MINOR.  Returns 0 on success.
+_apt_install_nvcc() {
+  local major="$1" minor="$2"
+  command -v apt-get >/dev/null 2>&1 || return 1
+  sudo apt-get install -y --no-install-recommends "cuda-nvcc-${major}-${minor}" 2>/dev/null
+}
+
+# Reinstall torch + torchvision from the given CUDA index (e.g. "cu124").
+_reinstall_torch() {
+  local idx="$1"
+  uv pip install --python "$VENV_PATH" --upgrade \
+    --index-url "https://download.pytorch.org/whl/${idx}" \
+    torch==2.10.0 torchvision==0.25.0
+}
+
+# Ensure nvcc version == torch.version.cuda before building flash-attn.
+#
+# Strategy (in order):
+#   A. system nvcc already matches → done
+#   B. matching toolkit exists in /usr/local/cuda-*  → set CUDA_HOME + alternative
+#   C. apt-install ideal nvcc; if that fails, add NVIDIA apt repo then retry
+#   D. fallback chain: try each supported (nvcc, torch-index) pair;
+#      add NVIDIA apt repo once if needed; reinstall torch to match
+#
+# Always exits 0.  Sets TORCH_CUDA_INDEX to the active index after any reinstall.
+_align_nvcc_torch() {
+  local torch_ver
+  torch_ver=$("$PYTHON_BIN" -c "import torch; print(torch.version.cuda)" 2>/dev/null || echo "")
+  [[ -z "$torch_ver" ]] && return 0
+
+  local t_major="${torch_ver%%.*}" t_minor="${torch_ver##*.}"
+  local sys_nvcc
+  sys_nvcc=$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9.]*\).*/\1/p' | head -1)
+
+  # A — already aligned
+  if [[ "$sys_nvcc" == "$torch_ver" ]]; then
+    echo "nvcc ${sys_nvcc} == torch.version.cuda — OK."
+    return 0
+  fi
+
+  # B — matching toolkit already installed elsewhere; set CUDA_HOME + alternative
+  local found
+  if found=$(_find_cuda_home "$torch_ver") 2>/dev/null; then
+    echo "CUDA_HOME → ${found}  (nvcc ${torch_ver} matches torch)"
+    export CUDA_HOME="$found"; export PATH="$found/bin:$PATH"
+    _set_nvcc_alternative "$found/bin/nvcc" "$torch_ver"
+    return 0
+  fi
+
+  echo "nvcc ${sys_nvcc:-none} ≠ torch.version.cuda ${torch_ver} — attempting to fix ..."
+
+  # Helper: install nvcc, set CUDA_HOME + alternative, return 0 on success.
+  _install_and_activate_nvcc() {
+    local ver="$1" major="${1%%.*}" minor="${1##*.}"
+    _apt_install_nvcc "$major" "$minor" || return 1
+    local home
+    if home=$(_find_cuda_home "$ver") 2>/dev/null; then
+      export CUDA_HOME="$home"; export PATH="$home/bin:$PATH"
+      _set_nvcc_alternative "$home/bin/nvcc" "$ver"
+    else
+      # apt may have placed nvcc on PATH directly (e.g. /usr/bin/nvcc symlink)
+      _set_nvcc_alternative "$(command -v nvcc)" "$ver" 2>/dev/null || true
+    fi
+    echo "cuda-nvcc-${major}-${minor} installed — nvcc ${ver} ready."
+    return 0
+  }
+
+  # C — install ideal nvcc; add NVIDIA apt repo if first attempt fails
+  _repo_added=false
+  if _install_and_activate_nvcc "$torch_ver"; then
+    return 0
+  fi
+  echo "  First apt attempt failed — adding NVIDIA CUDA apt repository ..."
+  if _add_nvidia_cuda_apt_repo; then
+    _repo_added=true
+    if _install_and_activate_nvcc "$torch_ver"; then
+      return 0
+    fi
+  fi
+  echo "  cuda-nvcc-${t_major}-${t_minor} not available. Trying fallback nvcc versions ..."
+
+  # D — fallback: try other (nvcc, torch-index) pairs highest-to-lowest
+  local pairs=("12.6:cu126" "12.4:cu124" "12.1:cu121" "11.8:cu118")
+  for pair in "${pairs[@]}"; do
+    local fb_ver="${pair%%:*}" fb_idx="${pair##*:}"
+    local fb_major="${fb_ver%%.*}" fb_minor="${fb_ver##*.}"
+    [[ "$fb_ver" == "$torch_ver" ]] && continue  # already tried in C
+
+    # Ensure this nvcc version is available.
+    if ! found=$(_find_cuda_home "$fb_ver") 2>/dev/null; then
+      if ! _apt_install_nvcc "$fb_major" "$fb_minor"; then
+        # Repo not yet added — add it once and retry.
+        if [[ "$_repo_added" == false ]]; then
+          _add_nvidia_cuda_apt_repo && _repo_added=true
+          _apt_install_nvcc "$fb_major" "$fb_minor" || continue
+        else
+          continue
+        fi
+      fi
+      found=$(_find_cuda_home "$fb_ver") 2>/dev/null || true
+    fi
+
+    echo "Found nvcc ${fb_ver} — reinstalling torch with ${fb_idx} ..."
+    if _reinstall_torch "$fb_idx"; then
+      TORCH_CUDA_INDEX="$fb_idx"
+      if [[ -n "$found" ]]; then
+        export CUDA_HOME="$found"; export PATH="$found/bin:$PATH"
+        _set_nvcc_alternative "$found/bin/nvcc" "$fb_ver"
+      fi
+      echo "torch reinstalled (${fb_idx}); nvcc ${fb_ver} will build flash-attn."
+      return 0
+    fi
+  done
+
+  echo "WARNING: could not install any supported nvcc version."
+  echo "  flash-attn build will be attempted but may fail."
+  echo "  Manual fix: https://developer.nvidia.com/cuda-downloads"
+  echo "  Then: sudo apt-get install cuda-nvcc-${t_major}-${t_minor} && make venv"
+}
+
+# ── GPU compute-capability detection ──────────────────────────────────────────
 _GPU_CC=$(detect_gpu_compute_capability)
 _CC_MAJOR="${_GPU_CC%%.*}"
 _FORCE_SOURCE_BUILD=false
 
-# Resolve the CUDA toolkit whose nvcc version matches torch.version.cuda.
-# flash-attn's setup.py rejects a mismatch between nvcc and torch.version.cuda.
-# The matching toolkit is also guaranteed to compile for the correct runtime ABI.
-#
-# On a standard machine (sm_80/sm_90) the system nvcc typically already matches
-# torch — this block sets CUDA_HOME and exits quickly.
-# On a Blackwell machine (sm_120) the system nvcc may be older than torch expects;
-# the block locates the correct toolkit (e.g. /usr/local/cuda-12.8 after installing
-# cuda-nvcc-12-8) and sets CUDA_HOME to it.
-_TORCH_CUDA_VER=$("$PYTHON_BIN" -c "import torch; print(torch.version.cuda)" 2>/dev/null || echo "")
-if [[ -n "$_TORCH_CUDA_VER" ]]; then
-  _TORCH_CUDA_MAJOR="${_TORCH_CUDA_VER%%.*}"
-  _TORCH_CUDA_MINOR="${_TORCH_CUDA_VER##*.}"
-  # Check system nvcc first — if it already matches, use it.
-  _sys_nvcc_ver=$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9.]*\).*/\1/p' | head -1)
-  if [[ "$_sys_nvcc_ver" != "$_TORCH_CUDA_VER" ]]; then
-    # System nvcc doesn't match torch — search installed toolkits for a match.
-    _found_home=""
-    for _d in \
-        "/usr/local/cuda-${_TORCH_CUDA_VER}" \
-        "/usr/local/cuda-${_TORCH_CUDA_MAJOR}.${_TORCH_CUDA_MINOR}" \
-        "/usr/local/cuda-${_TORCH_CUDA_MAJOR}-${_TORCH_CUDA_MINOR}"; do
-      if [[ -x "$_d/bin/nvcc" ]]; then
-        _found_home="$_d"; break
-      fi
-    done
-    if [[ -n "$_found_home" ]]; then
-      echo "CUDA_HOME → $_found_home  (nvcc ${_TORCH_CUDA_VER} matches torch)"
-      export CUDA_HOME="$_found_home"
-      export PATH="$_found_home/bin:$PATH"
-    else
-      echo "WARNING: system nvcc is ${_sys_nvcc_ver:-unknown}, torch expects ${_TORCH_CUDA_VER}."
-      echo "  flash-attn may fail to build.  Fix: sudo apt-get install cuda-nvcc-${_TORCH_CUDA_MAJOR}-${_TORCH_CUDA_MINOR}"
-      echo "  Then re-run: make venv"
-    fi
-  fi
-fi
+# Align nvcc with torch.version.cuda (sets CUDA_HOME / PATH as needed).
+_align_nvcc_torch
 
 # For new GPU architectures (sm_12x Blackwell and later) that have no prebuilt
 # flash-attn wheel, force a source build and include all common arch targets so
@@ -294,14 +475,16 @@ if "$PYTHON_BIN" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 
     fi
   fi
 
-  # Determine safe parallelism
-  read -r FLASH_JOBS _total _avail _usable _mem_cap _cpu_cap < <(_compute_flash_attn_jobs)
+  # Determine safe parallelism.
+  # read returns 1 on EOF-without-newline; || true prevents set -e from aborting.
+  read -r FLASH_JOBS _total _avail _usable _mem_cap _cpu_cap < <(_compute_flash_attn_jobs) || true
+  FLASH_JOBS="${FLASH_JOBS:-1}"
   echo ""
   echo "── flash-attn compilation resource budget ──────────────────────────────────"
-  echo "  RAM total / available / usable : ${_total} GiB / ${_avail} GiB / ${_usable} GiB"
+  echo "  RAM total / available / usable : ${_total:-?} GiB / ${_avail:-?} GiB / ${_usable:-?} GiB"
   echo "  RAM per job (FLASH_ATTN_RAM_PER_JOB_GB) : ${FLASH_ATTN_RAM_PER_JOB_GB:-12} GiB"
-  echo "  CPU cores   : $(nproc)  →  limit: ${_cpu_cap} ((cores-2)/2, each job forks ~1 extra thread)"
-  echo "  Memory jobs : ${_mem_cap}"
+  echo "  CPU cores   : $(nproc)  →  limit: ${_cpu_cap:-?} ((cores-2)/2, each job forks ~1 extra thread)"
+  echo "  Memory jobs : ${_mem_cap:-?}"
   echo "  → MAX_JOBS  : ${FLASH_JOBS}  (min of memory and CPU limits)"
   echo "  (Set FLASH_ATTN_RAM_PER_JOB_GB=N to override per-job RAM estimate)"
   echo "────────────────────────────────────────────────────────────────────────────"
@@ -345,15 +528,23 @@ if [[ -n "$TORCH_CUDA_INDEX" ]]; then
   echo ""
   echo "── onnxruntime-gpu + TensorRT ────────────────────────────────────────────────"
 
-  # Uninstall CPU-only onnxruntime first to avoid package conflict.
-  "$PYTHON_BIN" -m pip uninstall -y onnxruntime 2>/dev/null || true
-
-  echo "Installing onnxruntime-gpu …"
-  if "$PYTHON_BIN" -m pip install "onnxruntime-gpu>=1.18.0" -q; then
-    echo "  onnxruntime-gpu installed (CUDAExecutionProvider enabled)."
+  # Use uv (not pip) to handle the onnxruntime / onnxruntime-gpu package conflict.
+  # uv replaces whichever variant is currently installed without leaving the venv
+  # in a broken state.  No explicit uninstall is needed — uv's resolver handles it.
+  echo "Installing onnxruntime-gpu (CUDAExecutionProvider) …"
+  if uv pip install --python "$VENV_PATH" "onnxruntime-gpu>=1.18.0"; then
+    echo "  onnxruntime-gpu installed."
   else
-    echo "  WARNING: onnxruntime-gpu install failed — reinstalling CPU onnxruntime."
-    "$PYTHON_BIN" -m pip install "onnxruntime>=1.18.0" -q || true
+    echo "  WARNING: onnxruntime-gpu install failed — keeping CPU onnxruntime."
+    uv pip install --python "$VENV_PATH" "onnxruntime>=1.18.0" || true
+  fi
+
+  # onnxruntime-gpu and onnxruntime use the same Python package name at import
+  # time but are distinct pip packages.  If the import is broken (e.g. conflict
+  # left a gap) reinstall the CPU fallback so the runtime is always importable.
+  if ! "$PYTHON_BIN" -c "import onnxruntime" 2>/dev/null; then
+    echo "  onnxruntime not importable after GPU install — reinstalling CPU fallback."
+    uv pip install --python "$VENV_PATH" "onnxruntime>=1.18.0" || true
   fi
 
   # TensorRT wheels are published by NVIDIA at https://pypi.nvidia.com.

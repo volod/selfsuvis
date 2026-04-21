@@ -270,12 +270,34 @@ def _prep_vram_for_step(
 
     Call this before loading any local inference model (OCR, depth, detection,
     world model) to maximise available VRAM and avoid OOM on 16 GiB class GPUs.
+
+    Ollama HTTP eviction calls are skipped when VRAM is already above the target
+    threshold — saves ~200 ms of HTTP round-trips per step on uncongested GPUs.
     """
     if device != "cuda":
         return
     _log_vram_snapshot("before prep VRAM for next step")
-    baseline_free_gb = _detect_free_vram_gb()
+    required = required_free_gb or float(
+        getattr(settings, "LOCAL_CUDA_STAGE_MIN_FREE_VRAM_GB", 6.0) or 6.0
+    )
+
+    # Offload CLIP+DINO to CPU first — fast and always worth doing.
     _offload_models_to_cpu(models)
+    baseline_free_gb = _detect_free_vram_gb()
+
+    if baseline_free_gb >= required:
+        # VRAM already sufficient — skip the Ollama HTTP eviction calls.
+        _flush_cuda_allocator()
+        try:
+            import torch as _torch
+            free_mb = _torch.cuda.mem_get_info(0)[0] / 1024 ** 2 if _torch.cuda.is_available() else 0
+        except Exception:
+            free_mb = 0
+        _log.info("  VRAM cleared for next step — %.0f MiB free", free_mb)
+        _log_vram_snapshot("after prep VRAM for next step")
+        return
+
+    # VRAM below threshold — evict Ollama sidecars and wait for release.
     unload_count = _unload_known_sidecars(
         [
             (ollama_url, ollama_model),
@@ -289,9 +311,7 @@ def _prep_vram_for_step(
         baseline_free_gb=baseline_free_gb,
         unload_count=unload_count,
         label=label,
-        sufficient_free_gb=required_free_gb or float(
-            getattr(settings, "LOCAL_CUDA_STAGE_MIN_FREE_VRAM_GB", 6.0) or 6.0
-        ),
+        sufficient_free_gb=required,
     )
     _flush_cuda_allocator()
     try:
@@ -1474,7 +1494,7 @@ def _caption_via_qwen_api(
         return {"skipped": True, "reason": "httpx not installed", "captions": []}
 
     _log.info(
-        "  Florence-2 OOM — falling back to Qwen API captioning "
+        "  Florence-2 unavailable locally — falling back to Qwen API captioning "
         "(url=%s  model=%s  frames=%d)",
         api_url, model, len(frame_list),
     )
@@ -2000,6 +2020,18 @@ def step_ocr_extraction(
     else:
         selected_frame_list = list(frame_list)
 
+    if not selected_frame_list and frame_list:
+        selected_frame_list = _fallback_ocr_frame_sample(frame_list)
+        selected_paths = {fp for fp, _ in selected_frame_list}
+        for fp, meta in skipped_by_caption.items():
+            if fp in selected_paths:
+                meta.pop("ocr_skipped_by_caption", None)
+                meta["ocr_prescreen_fallback"] = True
+        _log.info(
+            "  OCR prescreen fallback: selected %d evenly spaced frames because caption prescreen skipped everything",
+            len(selected_frame_list),
+        )
+
     processed_results = _run_batched_frame_inference(
         selected_frame_list,
         batch_size=settings.OCR_BATCH_SIZE,
@@ -2027,6 +2059,21 @@ def step_ocr_extraction(
     ocr.release()
     _log_vram_snapshot("after OCR model use")
     return result
+
+
+def _fallback_ocr_frame_sample(
+    frame_list: List[Tuple[str, float]],
+    max_samples: int = 8,
+) -> List[Tuple[str, float]]:
+    """Select a small evenly spaced OCR subset when caption prescreen selects none."""
+    if len(frame_list) <= max_samples:
+        return list(frame_list)
+    last = len(frame_list) - 1
+    indices = sorted({
+        round(i * last / max(max_samples - 1, 1))
+        for i in range(max_samples)
+    })
+    return [frame_list[i] for i in indices]
 
 
 def step_depth_estimation(

@@ -43,6 +43,11 @@ def _configure_warnings() -> None:
                             category=FutureWarning)
     warnings.filterwarnings(
         "ignore",
+        message=r".*Florence2Processor.*image_processor_class = 'CLIPImageProcessor'.*deprecated.*",
+        category=FutureWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
         message=r"The following generation flags are not valid and may be ignored: .*",
         category=UserWarning,
     )
@@ -58,6 +63,11 @@ def _configure_warnings() -> None:
 # later would be too late — the warning fires at timm import time).
 warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
                         category=FutureWarning)
+warnings.filterwarnings(
+    "ignore",
+    message=r".*Florence2Processor.*image_processor_class = 'CLIPImageProcessor'.*deprecated.*",
+    category=FutureWarning,
+)
 warnings.filterwarnings(
     "ignore",
     message=r"The following generation flags are not valid and may be ignored: .*",
