@@ -834,7 +834,7 @@ def step_agentic_flow_artifact(
                     {
                         "label": "simple",
                         "prompt": _build_agentic_flow_prompt_simple(video_name, video_context),
-                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_SIMPLE", 700) or 700),
+                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_SIMPLE", 1000) or 1000),
                     },
                 ]
             else:
@@ -842,12 +842,14 @@ def step_agentic_flow_artifact(
                     {
                         "label": "compact",
                         "prompt": _build_agentic_flow_prompt_compact(video_name, video_context),
-                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_COMPACT", 900) or 900),
+                        # deepseek-r1 uses chain-of-thought <think> tokens before answering;
+                        # 1600 gives ~600 thinking tokens + ~1000 for the answer body.
+                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_COMPACT", 1600) or 1600),
                     },
                     {
                         "label": "full",
                         "prompt": _build_agentic_flow_prompt(video_name, video_context),
-                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_FULL", 1300) or 1300),
+                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_FULL", 2400) or 2400),
                     },
                 ]
             last_exc: Optional[Exception] = None
@@ -887,7 +889,7 @@ def step_agentic_flow_artifact(
                     attempt = {
                         "label": "compact",
                         "prompt": _build_agentic_flow_prompt_compact(video_name, video_context),
-                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_COMPACT", 900) or 900),
+                        "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_COMPACT", 1600) or 1600),
                     }
                     _log.info(
                         "  Agentic flow reasoning fallback (%s, model=%s timeout=%.0fs max_tokens=%d)",
@@ -966,8 +968,14 @@ def step_video_synthesis(
 
     from .steps_caption import _compute_sidecar_timeout
     context_str = _build_context_prompt(video_name, video_context)
+    # Cap context to avoid exceeding Ollama's default num_ctx (2048 tokens).
+    # ~3000 chars ≈ 750 tokens, leaving headroom for the prompt suffix + output.
+    if len(context_str) > 3000:
+        context_str = context_str[:3000] + "\n[context truncated]"
     endpoint    = f"{api_url.rstrip('/')}/chat/completions"
     _synthesis_timeout = _compute_sidecar_timeout(model, api_url, resources)
+    # Ollama-specific: expand context window so large prompts don't get a 500.
+    _ollama_options = {"num_ctx": 8192}
     t0          = time.time()
     _log_vram_snapshot("before synthesis sidecar use")
     ontology: Dict[str, Any] = {}
@@ -997,6 +1005,7 @@ def step_video_synthesis(
                 "messages": [{"role": "user", "content": ontology_prompt}],
                 "max_tokens": 512,
                 "temperature": 0.1,
+                "options": _ollama_options,
             },
             timeout=_synthesis_timeout,
         )
@@ -1033,6 +1042,7 @@ def step_video_synthesis(
                 "messages": [{"role": "user", "content": narrative_prompt}],
                 "max_tokens": 1024,
                 "temperature": 0.3,
+                "options": _ollama_options,
             },
             timeout=_synthesis_timeout,
         )
