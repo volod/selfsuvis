@@ -127,31 +127,31 @@ Qwen, Florence, UniDrive, and final reasoning.
 The current local runner executes 23 top-level steps. This list matches
 `src/selfsuvis/pipeline/workflows/local/runner.py`.
 
-| Step | ID | Description |
-|------|----|-------------|
-| 1  | A   | Frame extraction |
-| 2  | B   | Vector store indexing (CLIP + DINOv3) |
-| 3  | J   | Gemma multimodal analysis |
-| 4  | L   | Florence-2 scene captioning |
-| 5  | M   | ASR transcription |
-| 6  | N   | OCR text extraction |
-| 7  | O   | Depth estimation |
-| 8  | P   | Object detection |
-| 9  | P2  | YOLO11 + SAM2/3 detection and semantic graph construction |
-| 10 | P3  | Gemma 4 directed tracking |
-| 11 | Q   | World model video embeddings |
-| 12 | R   | Qwen VLM detailed captioning |
-| 13 | S   | UniDriveVLA expert analysis |
-| 14 | C   | Base model transformation test |
-| 15 | I   | 3D map + Gaussian Splat |
-| 16 | D   | SSL DINOv3 fine-tuning |
-| 17 | E   | Knowledge distillation |
-| 18 | F   | ONNX export + gallery build |
-| 19 | G   | Fine-tuned model transformation test |
-| 20 | H   | Model comparison + video description |
-| 21 | T   | Multi-model comparison |
-| 22 | Z   | Video synthesis |
-| 23 | AA  | Agentic flow audit |
+| Step | Phase | Description |
+|------|-------|-------------|
+| 01 | Ingest | Frame extraction |
+| 02 | Ingest | Vector store indexing (CLIP + DINOv3) |
+| 03 | Analyze | Gemma multimodal analysis |
+| 04 | Analyze | Florence-2 scene captioning |
+| 05 | Analyze | ASR transcription |
+| 06 | Analyze | OCR text extraction |
+| 07 | Analyze | Depth estimation |
+| 08 | Analyze | Object detection |
+| 09 | Analyze | YOLO11 + SAM2/3 detection and semantic graph construction |
+| 10 | Analyze | Gemma 4 directed tracking |
+| 11 | Analyze | World model video embeddings |
+| 12 | Analyze | Qwen VLM detailed captioning |
+| 13 | Analyze | UniDriveVLA expert analysis |
+| 14 | Eval | Base model transformation test |
+| 15 | Map | 3D map + Gaussian Splat |
+| 16 | Adapt | SSL DINOv3 fine-tuning |
+| 17 | Adapt | Knowledge distillation |
+| 18 | Export | ONNX export + gallery build |
+| 19 | Eval | Fine-tuned model transformation test |
+| 20 | Eval | Model comparison + video description |
+| 21 | Audit | Multi-model comparison |
+| 22 | Synthesize | Video synthesis |
+| 23 | Audit | Agentic flow audit |
 
 Not every step runs on every machine or configuration. Steps may be skipped when a
 feature flag is disabled, a sidecar URL is not configured, a resource gate blocks the
@@ -159,13 +159,13 @@ stage, or an earlier fine-tune quality gate does not pass.
 
 Current local-run optimizations also make a few steps adaptive instead of fully exhaustive:
 
-- Step N (OCR) prescreens frames from Florence caption confidence before sending them to the OCR model or sidecar.
-- Step R (Qwen) uses bounded sampled-frame selection instead of captioning every frame.
-- Step O (Depth) uses a fast auto profile by default unless an explicit model or quality profile is requested.
-- Step AA (agentic flow audit) uses a simple first-pass prompt and accepts that answer when it satisfies the required output structure; a compact fallback prompt is only used when the first response is empty or incomplete.
+- Step 06 (OCR) prescreens frames from Florence caption confidence before sending them to the OCR model or sidecar.
+- Step 12 (Qwen) uses bounded sampled-frame selection instead of captioning every frame.
+- Step 07 (Depth) uses a fast auto profile by default unless an explicit model or quality profile is requested.
+- Step 23 (agentic flow audit) uses a simple first-pass prompt and accepts that answer when it satisfies the required output structure; a compact fallback prompt is only used when the first response is empty or incomplete.
 - The local pipeline now also runs a probabilistic platform-state fusion example and writes `state_fusion.md` / `state_fusion.json` when GPS telemetry is available.
 
-### Step S — UniDriveVLA expert analysis
+### Step 13 — UniDriveVLA expert analysis
 
 Runs after Qwen in the local pipeline and as an optional sparse enrichment pass in
 production indexing. Requires `UNIDRIVE_API_URL` or `--unidrive-api-url`.
@@ -192,9 +192,9 @@ Artifacts and outputs:
 - Local: `multi_model_comparison.md` when both Qwen and UniDrive are enabled
 - Production: `frame_facts_json["unidrive_vla"]` and `index_video(...).unidrive_summary`
 
-### Step P3 — Gemma 4 directed tracking
+### Step 10 — Gemma 4 directed tracking
 
-Runs after P2 (YOLO+SAM). Requires `--gemma-api-url` (or `GEMMA_API_URL` env var) to be
+Runs after step 09 (YOLO+SAM). Requires `--gemma-api-url` (or `GEMMA_API_URL` env var) to be
 configured. Disabled with `--no-rfdetr` or `RFDETR_ENABLED=false`.
 
 **Gemma structured scene analysis**: Up to 12 sampled frames are sent to the Gemma 4 sidecar

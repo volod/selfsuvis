@@ -56,6 +56,11 @@ _SSL_GATE_MAX_LOSS = 10.0
 
 
 def _build_local_run_analytics_payload(summary: Any) -> Dict[str, Any]:
+    diagnostics = getattr(summary, "diagnostics", None)
+
+    def _diag_float(name: str, default: float = 0.0) -> float:
+        return float(getattr(diagnostics, name, default) or 0.0)
+
     payload: Dict[str, Any] = {
         "video_name": summary.video_name,
         "n_frames": int(summary.n_frames),
@@ -69,6 +74,23 @@ def _build_local_run_analytics_payload(summary: Any) -> Dict[str, Any]:
         "artifact_bytes": int(summary.artifact_inventory.total_bytes),
         "has_3d_map": bool(summary.has_3d_map),
         "has_edge_model": bool(summary.has_edge_model),
+        "diagnostics": {
+            "modality_completeness": _diag_float("modality_completeness"),
+            "quality_score": _diag_float("quality_score"),
+            "detection_density_per_frame": _diag_float("detection_density_per_frame"),
+            "detection_count_cv": _diag_float("detection_count_cv"),
+            "detection_entropy_norm": _diag_float("detection_entropy_norm"),
+            "tracking_fragmentation": _diag_float("tracking_fragmentation"),
+            "track_persistence": _diag_float("track_persistence"),
+            "surprise_std": _diag_float("surprise_std"),
+            "surprise_peak_rate": _diag_float("surprise_peak_rate"),
+            "surprise_detection_overlap": _diag_float("surprise_detection_overlap"),
+            "map_points_per_pose": _diag_float("map_points_per_pose"),
+            "map_pose_coverage": _diag_float("map_pose_coverage"),
+            "adaptation_efficiency": _diag_float("adaptation_efficiency"),
+            "artifact_density_per_frame": _diag_float("artifact_density_per_frame"),
+            "artifact_mb_per_min": _diag_float("artifact_mb_per_min"),
+        },
         "run_health": {
             "florence_caption_coverage": float(summary.run_health.florence_caption_coverage),
             "qwen_caption_coverage": float(summary.run_health.qwen_caption_coverage),
@@ -165,6 +187,14 @@ def _emit_local_run_analytics(video_dir: Path) -> Optional[Dict[str, Any]]:
         100.0 * summary.run_health.asr_coverage,
         100.0 * summary.run_health.ocr_coverage,
         "ok" if summary.run_health.world_model_ok else "degraded",
+    )
+    _log.info(
+        "  Diagnostics: quality=%.1f/100 | modality=%.0f%% | track_frag=%.3f | map_pose=%.0f%% | adapt_eff=%.3f",
+        summary.diagnostics.quality_score,
+        100.0 * summary.diagnostics.modality_completeness,
+        summary.diagnostics.tracking_fragmentation,
+        100.0 * summary.diagnostics.map_pose_coverage,
+        summary.diagnostics.adaptation_efficiency,
     )
 
     if summary.detection_stats:
@@ -300,7 +330,7 @@ def init_models(device: str) -> Dict[str, Any]:
 
     _log.info("Loading OpenCLIP ViT-B-16 …")
     t0 = time.time()
-    _log_vram_snapshot("before Gemma analysis step")
+    _log_vram_snapshot("before OpenCLIP load")
     models["clip"] = OpenCLIPEmbedder()
     _log.info("  ✓ CLIP ready in %.1fs  (dim=%d)", time.time() - t0, models["clip"].image_dim())
 
@@ -335,8 +365,8 @@ def init_store(models: Dict[str, Any], use_qdrant: bool) -> Tuple[Any, bool]:
                   settings.QDRANT_HOST, settings.QDRANT_PORT, settings.QDRANT_COLLECTION)
         return store, True
     except Exception as exc:
-        _log.warning("Qdrant unavailable (%s) — falling back to in-memory store", exc)
-        _log.warning("  To enable: docker run -p 6333:6333 qdrant/qdrant")
+        _log.info("Qdrant unavailable (%s) — falling back to in-memory store", exc)
+        _log.info("  To enable persistent vector search: docker run -p 6333:6333 qdrant/qdrant")
         return InMemoryStore(), False
 
 
@@ -381,7 +411,7 @@ def resolve_local_videos(args: Any) -> Tuple[str, List[Path]]:
     return str(videos_dir), videos
 
 
-# ── Step H: compare + describe ────────────────────────────────────────────────
+# ── Step 20: compare + describe ───────────────────────────────────────────────
 
 def step_compare_and_describe(
     frame_list: List[Tuple[str, float]],
@@ -396,12 +426,18 @@ def step_compare_and_describe(
     ckpt_mb: float,
     onnx_mb: float,
 ) -> Dict[str, Any]:
-    """Step H: compare results, caption video, write comparison.md."""
+    """Step 20: compare results, caption video, write comparison.md."""
     from .steps_report import write_comparison_md, write_description_md
     out_md       = video_dir / "comparison.md"
     sample_paths = [fp for fp, _ in frame_list[:10]]
     clip_model: OpenCLIPEmbedder = models["clip"]
     dino_model = models.get("dino")
+    # Single warm-up pass so CUDA clock-scaling and kernel-JIT don't inflate
+    # the first timed batch (especially relevant after CPU-heavy steps).
+    _warmup_img = [Image.open(sample_paths[0]).convert("RGB")]
+    clip_model.encode_images(_warmup_img)
+    if dino_model:
+        dino_model.encode_images(_warmup_img)
     t0 = time.time()
     clip_model.encode_images([Image.open(p).convert("RGB") for p in sample_paths])
     base_infer_ms = (time.time() - t0) * 1000 / len(sample_paths)
@@ -804,7 +840,7 @@ def _fallback_agentic_flow_analysis(video_context: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-# ── Step AA: agentic flow artifact ───────────────────────────────────────────
+# ── Step 23: agentic flow artifact ───────────────────────────────────────────
 
 def step_agentic_flow_artifact(
     video_name: str,
@@ -937,7 +973,7 @@ def step_agentic_flow_artifact(
     return result
 
 
-# ── Step Z: video synthesis ───────────────────────────────────────────────────
+# ── Step 22: video synthesis ──────────────────────────────────────────────────
 
 def step_video_synthesis(
     video_name: str,
@@ -947,7 +983,7 @@ def step_video_synthesis(
     model: str,
     resources: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Step Z: synthesise video ontology + narrative via Ollama/vLLM API.
+    """Step 22: synthesise video ontology + narrative via Ollama/vLLM API.
 
     Uses all accumulated context from steps A–H as input.  No local model is
     loaded — this is a pure API call, so CLIP+DINO can remain offloaded.
@@ -1143,7 +1179,7 @@ def run_video_pipeline(
     stats: Dict[str, Any] = _out
     T = stats["timings"]
 
-    # Accumulated context passed through the pipeline; enriches synthesis at step Z.
+    # Accumulated context passed through the pipeline; enriches synthesis at step 22.
     video_context: Dict[str, Any] = {"video_name": video_name}
     agentic_trace: List[Dict[str, Any]] = []
     video_context["agentic_trace"] = agentic_trace
@@ -1154,7 +1190,7 @@ def run_video_pipeline(
     # ── Phase 1: Foundational ingestion (no gate) ─────────────────────────────
     _banner("Phase 1 — Foundational ingestion")
 
-    # A: Extract frames
+    # Step 01: Extract frames
     _step(1, _TOTAL_STEPS, "Frame extraction")
     with _Timer(T, "A_extract"):
         a = step_extract_frames(video_path, video_id, video_dir, fps=args.fps)
@@ -1167,7 +1203,7 @@ def run_video_pipeline(
     }
     _append_agentic_step(
         agentic_trace,
-        step_id="A",
+        step_id="01",
         title="Frame extraction",
         description="Decode the source video into a timestamped frame sequence that every later step reuses.",
         status="ok" if frame_list else "empty",
@@ -1195,7 +1231,7 @@ def run_video_pipeline(
         frame_count=stats["frames"],
     )
 
-    # B: Index — needs CLIP+DINO on GPU
+    # Step 02: Index — needs CLIP+DINO on GPU
     if device == "cuda" and not clip_dino_on_gpu:
         _restore_models_to_gpu(models, device)
         clip_dino_on_gpu = _models_on_device(models, device)
@@ -1207,7 +1243,7 @@ def run_video_pipeline(
     stats["index_sec"] = b["elapsed_sec"]
     _append_agentic_step(
         agentic_trace,
-        step_id="B",
+        step_id="02",
         title="Vector store indexing",
         description="Embed frames for retrieval and establish the baseline semantic memory used by search steps.",
         status="ok",
@@ -1226,15 +1262,15 @@ def run_video_pipeline(
     )
 
     # ── Phase 2: Multimodal analysis (no gate, parallel where feasible) ───────
-    # The 3D-map step (I) is CPU-bound (pycolmap SfM) and is submitted to a
-    # background thread after step L offloads CLIP+DINO to CPU.  All GPU steps
+    # The 3D-map step (15) is CPU-bound (pycolmap SfM) and is submitted to a
+    # background thread after step 04 offloads CLIP+DINO to CPU.  All GPU steps
     # remain serialised on the main thread.  The background result is collected
     # at step 12, before CLIP+DINO are restored for the base search (step 11).
     _banner("Phase 2 — Multimodal analysis (parallel)")
     _map_executor = _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="sfm-bg")
     _map_future: Optional[_cf.Future] = None
 
-    # J: Gemma open-weight multimodal analysis
+    # Step 03: Gemma open-weight multimodal analysis
     _step(3, _TOTAL_STEPS, "Gemma multimodal analysis → gemma_analysis.md")
     with _Timer(T, "J_gemma"):
         j = step_gemma_analysis(
@@ -1250,15 +1286,18 @@ def run_video_pipeline(
             "mnn_rate_dino":   j.get("dino_comparison", {}).get("mnn_rate"),
             "mnn_rate_clip":   j.get("clip_comparison", {}).get("mnn_rate"),
         }
-        if j.get("structured_scene"):
-            video_context["gemma_structured_scene"] = j.get("structured_scene")
+        # step_gemma_analysis stores the scene under "structured_scene_summary";
+        # fall back to "structured_scene" in case the schema was changed.
+        _precomp = j.get("structured_scene_summary") or j.get("structured_scene")
+        if _precomp:
+            video_context["gemma_structured_scene"] = _precomp
         knowledge.add_gemma(
             j.get("task_results", {}),
             mnn_dino=j.get("dino_comparison", {}).get("mnn_rate") or 0.0,
         )
     _append_agentic_step(
         agentic_trace,
-        step_id="J",
+        step_id="03",
         title="Gemma multimodal analysis",
         description="Run coarse video-level reasoning to infer dominant scene type, transitions, clusters, and teacher-signal compatibility.",
         status="skipped" if j.get("skipped") else "ok",
@@ -1282,7 +1321,7 @@ def run_video_pipeline(
     if _gemma_api_url_j and _gemma_api_model_j and device == "cuda":
         _unload_ollama_model(_gemma_api_url_j, _gemma_api_model_j)
 
-    # L: Scene captioning — offloads CLIP+DINO internally, does NOT restore them
+    # Step 04: Scene captioning — offloads CLIP+DINO internally, does NOT restore them
     caption_results: List[Dict[str, Any]] = []
     if not args.no_caption:
         _step(4, _TOTAL_STEPS, "Florence-2 scene captioning → scene_captions.md")
@@ -1307,7 +1346,7 @@ def run_video_pipeline(
     video_context["caption_segments"] = len(getattr(knowledge, "_segments", []))
     _append_agentic_step(
         agentic_trace,
-        step_id="L",
+        step_id="04",
         title="Scene captioning",
         description="Generate per-frame scene captions and coarse temporal segments to seed later context-aware reasoning.",
         status="skipped" if args.no_caption else "ok",
@@ -1328,11 +1367,11 @@ def run_video_pipeline(
         artifacts=["scene_captions.md"] if caption_results else [],
     )
 
-    # Submit 3D-map (step I) to the background executor now that CLIP+DINO have
+    # Submit 3D-map (step 15) to the background executor now that CLIP+DINO have
     # been offloaded to CPU by Florence.  The SfM reconstruction (pycolmap) is
     # purely CPU-bound and will overlap with steps M–R on the main thread.
     # The result is collected at step 12, before CLIP+DINO are restored to GPU.
-    _log.info("  ▷ Submitting 3D-map step I to background thread (SfM+Splat) …")
+    _log.info("  ▷ Submitting 3D-map step 15 to background thread (SfM+Splat) …")
     _map_future = _map_executor.submit(
         step_create_3d_map,
         video_path, video_id, video_dir, frame_list, models,
@@ -1341,7 +1380,7 @@ def run_video_pipeline(
         device=device,
     )
 
-    # M: ASR — evict any Ollama model that may still be resident from the
+    # Step 05: ASR — evict any Ollama model that may still be resident from the
     # Florence-2 Qwen fallback (or a normal Qwen caption pass) before loading
     # Whisper, which needs ~1.6 GB VRAM.
     asr_result: Dict[str, Any] = {"skipped": True, "subtitle_map": {}, "segments": []}
@@ -1356,7 +1395,7 @@ def run_video_pipeline(
     knowledge.add_asr(asr_result.get("subtitle_map", {}))
     _append_agentic_step(
         agentic_trace,
-        step_id="M",
+        step_id="05",
         title="ASR transcription",
         description="Transcribe audio and align subtitles to frames so later reasoning can use speech context.",
         status="skipped" if asr_result.get("skipped") else "ok",
@@ -1385,7 +1424,7 @@ def run_video_pipeline(
     knowledge.add_state_fusion(platform_fusion_result.get("posterior_samples", []))
     video_context["platform_state_fusion"] = platform_fusion_result.get("summary", {})
 
-    # N: OCR
+    # Step 06: OCR
     ocr_result: Dict[str, Any] = {"skipped": True, "ocr_results": []}
     if args.ocr:
         _step(6, _TOTAL_STEPS, "OCR text extraction")
@@ -1404,7 +1443,7 @@ def run_video_pipeline(
     knowledge.add_ocr(ocr_result.get("ocr_results", []))
     _append_agentic_step(
         agentic_trace,
-        step_id="N",
+        step_id="06",
         title="OCR extraction",
         description="Extract visible text from frames to enrich object and scene interpretation.",
         status="skipped" if ocr_result.get("skipped") else "ok",
@@ -1421,7 +1460,7 @@ def run_video_pipeline(
         artifacts=[],
     )
 
-    # O: Depth
+    # Step 07: Depth
     depth_result: Dict[str, Any] = {"skipped": True, "depth_results": []}
     if args.depth:
         _step(7, _TOTAL_STEPS, "Depth estimation")
@@ -1434,7 +1473,7 @@ def run_video_pipeline(
         T["O_depth"] = 0.0
     _append_agentic_step(
         agentic_trace,
-        step_id="O",
+        step_id="07",
         title="Depth estimation",
         description="Estimate relative scene geometry for near/far reasoning and scene-structure cues.",
         status="skipped" if depth_result.get("skipped") else "ok",
@@ -1451,7 +1490,7 @@ def run_video_pipeline(
         artifacts=[],
     )
 
-    # P: Detection — accumulate per-label object counts into context
+    # Step 08: Detection — accumulate per-label object counts into context
     det_result: Dict[str, Any] = {"skipped": True, "detection_results": []}
     if args.detection:
         _step(8, _TOTAL_STEPS, "Object detection")
@@ -1471,7 +1510,7 @@ def run_video_pipeline(
         video_context["detections"] = obj_counts
     _append_agentic_step(
         agentic_trace,
-        step_id="P",
+        step_id="08",
         title="Object detection",
         description="Detect frame-level entities so later reasoning can reference concrete objects instead of only global scene text.",
         status="skipped" if det_result.get("skipped") else "ok",
@@ -1488,7 +1527,7 @@ def run_video_pipeline(
         artifacts=[],
     )
 
-    # P2: YOLO11 + SAM2/3 detection and segmentation
+    # Step 09: YOLO11 + SAM2/3 detection and segmentation
     yolo_sam_result: Dict[str, Any] = {"skipped": True, "detection_results": []}
     if not getattr(args, "no_yolo", False):
         _step(9, _TOTAL_STEPS, "YOLO11 + SAM2/3 detection → yolo_sam/ + detection_comparison.md")
@@ -1505,16 +1544,16 @@ def run_video_pipeline(
         T["P2_yolo_sam"] = 0.0
     _append_agentic_step(
         agentic_trace,
-        step_id="P2",
+        step_id="09",
         title="YOLO11 + SAM2/3 detection and segmentation",
         description=(
             "Run YOLO11 for fast instance detection with priority-ordered output "
             "(human > vehicle > artificial > other), optionally refined with SAM2/3 "
             "segmentation masks. Produces annotated frames and a comparison artifact "
-            "against the HF detector (step P)."
+            "against the HF detector (step 08)."
         ),
         status="skipped" if yolo_sam_result.get("skipped") else "ok",
-        context_inputs=["frames", "HF detection results from step P"],
+        context_inputs=["frames", "HF detection results from step 08"],
         context_outputs=[
             f"{yolo_sam_result.get('total_objects', 0)} YOLO detections",
             f"human={yolo_sam_result.get('human_count', 0)} vehicle={yolo_sam_result.get('vehicle_count', 0)} artificial={yolo_sam_result.get('artificial_count', 0)}",
@@ -1533,7 +1572,7 @@ def run_video_pipeline(
         ] if not yolo_sam_result.get("skipped") else [],
     )
 
-    # P3: Gemma 4 directed tracking — Gemma understands the scene, directs SAM to
+    # Step 10: Gemma 4 directed tracking — Gemma understands the scene, directs SAM to
     # segment named objects, RF-DETR tracks those objects across the full sequence.
     gemma_tracking_result: Dict[str, Any] = {"skipped": True}
     _gemma_api_url_p3 = getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL
@@ -1556,10 +1595,10 @@ def run_video_pipeline(
     else:
         T["P3_gemma_tracking"] = 0.0
         if not _gemma_api_url_p3:
-            _log.info("  Step P3 skipped (no gemma_api_url configured)")
+            _log.info("  Step 10 skipped (no gemma_api_url configured)")
     _append_agentic_step(
         agentic_trace,
-        step_id="P3",
+        step_id="10",
         title="Gemma 4 directed tracking",
         description=(
             "Gemma 4 watches sampled frames and produces structured JSON: scene type, "
@@ -1593,7 +1632,7 @@ def run_video_pipeline(
         ] if not gemma_tracking_result.get("skipped") else [],
     )
 
-    # Q: World model
+    # Step 11: World model
     world_result: Dict[str, Any] = {"skipped": True, "world_results": []}
     if args.world_model:
         _step(11, _TOTAL_STEPS, "World model video embeddings")
@@ -1607,7 +1646,7 @@ def run_video_pipeline(
         video_context["world_model_clips"] = world_result.get("ok_count", 0)
     _append_agentic_step(
         agentic_trace,
-        step_id="Q",
+        step_id="11",
         title="World model pass",
         description="Compress clips into temporal embeddings to capture motion-level context not visible in single frames.",
         status="skipped" if world_result.get("skipped") else "ok",
@@ -1624,7 +1663,7 @@ def run_video_pipeline(
         artifacts=[],
     )
 
-    # R: Qwen — uses ASR + OCR context from previous steps (already agentic)
+    # Step 12: Qwen — uses ASR + OCR context from previous steps (already agentic)
     qwen_result: Dict[str, Any] = {"skipped": True, "results": []}
     if args.qwen:
         _step(12, _TOTAL_STEPS, "Qwen VLM detailed captioning → detailed_captions.md")
@@ -1645,7 +1684,7 @@ def run_video_pipeline(
         video_context["qwen_captions"] = qwen_result.get("results", [])
     _append_agentic_step(
         agentic_trace,
-        step_id="R",
+        step_id="12",
         title="Qwen detailed captioning",
         description="Fuse visual frames with accumulated Florence, ASR, OCR, depth, detections, and prior-Qwen state for structured per-frame reasoning.",
         status="skipped" if qwen_result.get("skipped") else "ok",
@@ -1669,7 +1708,7 @@ def run_video_pipeline(
         artifacts=["detailed_captions.md"] if not qwen_result.get("skipped") else [],
     )
 
-    # S: UniDriveVLA expert analysis — compare understanding/perception/planning
+    # Step 13: UniDriveVLA expert analysis — compare understanding/perception/planning
     unidrive_result: Dict[str, Any] = {"skipped": True, "results": []}
     if getattr(args, "unidrive", False):
         _step(13, _TOTAL_STEPS, "UniDriveVLA expert analysis → unidrive_analysis.md")
@@ -1689,7 +1728,7 @@ def run_video_pipeline(
         video_context["unidrive_analysis"] = unidrive_result.get("results", [])
     _append_agentic_step(
         agentic_trace,
-        step_id="S",
+        step_id="13",
         title="UniDriveVLA expert analysis",
         description="Run an external UniDriveVLA bridge for understanding, perception, planning, and mixture-of-experts consensus on sampled frames.",
         status="skipped" if unidrive_result.get("skipped") else "ok",
@@ -1716,9 +1755,9 @@ def run_video_pipeline(
         write_multimodal_md(_mm_md, video_name, asr_result, ocr_result,
                             depth_result, det_result, world_result, platform_fusion_result, qwen_result, unidrive_result)
 
-    # C: Base model search — restore CLIP+DINO to GPU before joining 3D-map thread
+    # Step 14: Base model search — restore CLIP+DINO to GPU before joining 3D-map thread
     # (I must be joined first so the background thread no longer accesses models).
-    # Evict Ollama (reloaded during step R) before restoring CLIP+DINO.
+    # Evict Ollama (reloaded during step 12) before restoring CLIP+DINO.
     if device == "cuda" and not clip_dino_on_gpu:
         _qwen_url = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
         _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
@@ -1743,7 +1782,7 @@ def run_video_pipeline(
     stats["base_top_score"] = base_results[0]["score"] if base_results else 0.0
     _append_agentic_step(
         agentic_trace,
-        step_id="C",
+        step_id="14",
         title="Base search test",
         description="Measure retrieval behavior of the base model as the control reference for adaptation steps.",
         status="ok",
@@ -1760,7 +1799,7 @@ def run_video_pipeline(
         artifacts=["base_search.md"],
     )
 
-    # I: 3D map + Gaussian Splat — collect background-thread result (Phase 2 close)
+    # Step 15: 3D map + Gaussian Splat — collect background-thread result (Phase 2 close)
     _step(15, _TOTAL_STEPS, "3D map + Gaussian Splat → 3d_map/ (joining background thread)")
     with _Timer(T, "I_3dmap"):
         if _map_future is not None:
@@ -1787,12 +1826,12 @@ def run_video_pipeline(
     stats["map_method"]    = h["method"]
     stats["map_points"]    = int(h["points"].shape[0]) if h.get("points") is not None else 0
     stats["gsplat_method"] = h.get("gsplat_method", "skipped")
-    stats["map_degraded"]  = bool(stats["map_points"] < 50 or stats["sfm_poses"] < 20)
+    stats["map_degraded"]  = bool(h.get("quality_degraded", stats["map_points"] < 50 or stats["sfm_poses"] < 20))
     if stats["map_degraded"]:
         _log.warning(
             "3D map quality is degraded: %d points, %d poses",
             stats["map_points"],
-            stats["sfm_poses"],
+            int(h.get("frame_positions") and len(h.get("frame_positions")) or stats["sfm_poses"]),
         )
     stats["splat_ply"]     = h.get("splat_ply")
     semantic_graph_result: Dict[str, Any] = {"skipped": True}
@@ -1827,7 +1866,7 @@ def run_video_pipeline(
     }
     _append_agentic_step(
         agentic_trace,
-        step_id="I",
+        step_id="15",
         title="3D map creation",
         description="Recover scene geometry and export sparse-map or splat artifacts for spatial interpretation (ran concurrently with steps M–R).",
         status="ok" if h["method"] not in ("failed", "skipped") else h["method"],
@@ -1864,8 +1903,25 @@ def run_video_pipeline(
     # Collect Qwen structured captions
     _qwen_captions = qwen_result.get("structured_captions") or [] if not qwen_result.get("skipped") else []
 
-    # Collect Gemma structured analysis  (step-J result is bound to `j`)
+    # Collect Gemma structured analysis. Step 03 nests the structured scene in
+    # task_results; step 10 has the stronger tracking-specific scene if it reran
+    # vision analysis. Use the strongest structured scene available so semantic
+    # priors do not fall back to "unknown".
     _gemma_info = j if not j.get("skipped") else None
+    _structured_scene = (
+        video_context.get("gemma_structured_scene")
+        or (j.get("task_results", {}) or {}).get("structured_scene_summary")
+        or j.get("structured_scene_summary")
+        or j.get("structured_scene")
+    ) if not j.get("skipped") else None
+    if isinstance(_structured_scene, dict):
+        _gemma_info = {**(_gemma_info or {}), **_structured_scene}
+    if not gemma_tracking_result.get("skipped") and gemma_tracking_result.get("scene_type"):
+        _gemma_info = {
+            **(_gemma_info or {}),
+            "scene_type": gemma_tracking_result.get("scene_type"),
+            "tracking_priority": gemma_tracking_result.get("tracking_priority", []),
+        }
 
     with _Timer(T, "PS_full_fusion"):
         full_fusion_result = step_full_state_fusion(
@@ -1874,8 +1930,10 @@ def run_video_pipeline(
             video_name=video_name,
             video_dir=video_dir,
             sfm_frame_positions=h.get("frame_positions") or [],
-            tracking_results=gemma_tracking_result.get("tracking_results") or []
-                if not gemma_tracking_result.get("skipped") else [],
+            tracking_results=(
+                gemma_tracking_result.get("tracking_results") or []
+                if not gemma_tracking_result.get("skipped") else []
+            ),
             gemma_analysis=_gemma_info,
             qwen_captions=_qwen_captions or None,
             rssm_surprise_mean=_rssm_mean,
@@ -1886,12 +1944,12 @@ def run_video_pipeline(
     video_context["full_state_fusion"] = full_fusion_result.get("summary", {})
 
     # ── Phase 3: SSL-gated adaptation (SSL gate required) ─────────────────────
-    # Step D (SSL fine-tuning) always runs to evaluate the gate.
+    # Step 16 (SSL fine-tuning) always runs to evaluate the gate.
     # Steps E, F, G, H only proceed when D produces a valid checkpoint with
-    # best_loss < _SSL_GATE_MAX_LOSS.  Z and AA always run as finalization.
+    # best_loss < _SSL_GATE_MAX_LOSS. Steps 22 and 23 always run as finalization.
     _banner("Phase 3 — SSL-gated adaptation")
 
-    # D: SSL fine-tuning — DINOFineTuner loads its own separate DINO; offload ours first.
+    # Step 16: SSL fine-tuning — DINOFineTuner loads its own separate DINO; offload ours first.
     # Skipped when using an API-based embedder — no local backbone to fine-tune.
     checkpoint_path = ""
     if models.get("uses_api_embedder"):
@@ -1923,7 +1981,7 @@ def run_video_pipeline(
         checkpoint_path    = d["checkpoint"]
         _append_agentic_step(
             agentic_trace,
-            step_id="D",
+            step_id="16",
             title="SSL fine-tuning",
             description="Adapt the local DINO backbone to mission-specific footage so retrieval neighborhoods reflect this video domain more closely.",
             status="ok",
@@ -1961,12 +2019,12 @@ def run_video_pipeline(
                 checkpoint_path, _ssl_best_loss, _SSL_GATE_MAX_LOSS,
             )
 
-        # E: Distillation — maximum-hydration chain (Gemma teacher + caption anchor when available)
+        # Step 17: Distillation — maximum-hydration chain (Gemma teacher + caption anchor when available)
         student_backbone = None; student_dim = 768
         if ssl_gate_passed and not args.no_distill:
             # Build caption anchor embeddings from Florence captions via CLIP text encoder
             _cap_anchor_embs: Optional[np.ndarray] = None
-            _scene_captions = caption_results  # set by step_scene_captioning (step L)
+            _scene_captions = caption_results  # set by step_scene_captioning (step 04)
             if _scene_captions and models.get("clip"):
                 try:
                     _cap_texts = [r.get("caption") or "" for r in _scene_captions]
@@ -2007,7 +2065,7 @@ def run_video_pipeline(
                 stats["distill_compression_ratio"] = e_distill.get("compression_ratio", 0.0)
             _append_agentic_step(
                 agentic_trace,
-                step_id="E",
+                step_id="17",
                 title="Knowledge distillation",
                 description="Compress teacher geometry and optional language anchors into a smaller student suitable for deployment.",
                 status="skipped" if e_distill.get("skipped") else "ok",
@@ -2034,7 +2092,7 @@ def run_video_pipeline(
             _step(17, _TOTAL_STEPS, f"Knowledge distillation (skipped — {_gate_reason})")
             _append_agentic_step(
                 agentic_trace,
-                step_id="E",
+                step_id="17",
                 title="Knowledge distillation",
                 description="Compress teacher knowledge into a smaller deployable student.",
                 status="skipped",
@@ -2051,7 +2109,7 @@ def run_video_pipeline(
         student_backbone = None; student_dim = 768
         _append_agentic_step(
             agentic_trace,
-            step_id="D",
+            step_id="16",
             title="SSL fine-tuning",
             description="Adapt the local DINO backbone to mission-specific footage.",
             status="skipped",
@@ -2064,7 +2122,7 @@ def run_video_pipeline(
         )
         _append_agentic_step(
             agentic_trace,
-            step_id="E",
+            step_id="17",
             title="Knowledge distillation",
             description="Compress teacher knowledge into a smaller deployable student.",
             status="skipped",
@@ -2076,7 +2134,7 @@ def run_video_pipeline(
             artifacts=[],
         )
 
-    # F: ONNX export + gallery — restore CLIP+DINO (export uses models["dino"])
+    # Step 18: ONNX export + gallery — restore CLIP+DINO (export uses models["dino"])
     # Skipped when SSL gate did not pass (no valid checkpoint to package).
     if ssl_gate_passed:
         if device == "cuda" and not clip_dino_on_gpu:
@@ -2090,7 +2148,7 @@ def run_video_pipeline(
         stats["onnx_mb"] = e.get("onnx_mb", 0.0); stats["onnx_exported"] = e.get("exported", False)
         _append_agentic_step(
             agentic_trace,
-            step_id="F",
+            step_id="18",
             title="ONNX export",
             description="Package the best available backbone and gallery into deployment artifacts.",
             status="ok",
@@ -2112,7 +2170,7 @@ def run_video_pipeline(
         _step(18, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
-            step_id="F",
+            step_id="18",
             title="ONNX export",
             description="Package the best available backbone and gallery into deployment artifacts.",
             status="skipped",
@@ -2122,7 +2180,7 @@ def run_video_pipeline(
             artifacts=[],
         )
 
-    # G: Fine-tuned search — only if SSL gate passed (needs fine-tuned or distilled backbone)
+    # Step 19: Fine-tuned search — only if SSL gate passed (needs fine-tuned or distilled backbone)
     ft_results: List[Dict] = []
     if ssl_gate_passed:
         _step(19, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
@@ -2133,7 +2191,7 @@ def run_video_pipeline(
         ft_results = f["results"]; stats["ft_top_score"] = ft_results[0]["score"] if ft_results else 0.0
         _append_agentic_step(
             agentic_trace,
-            step_id="G",
+            step_id="19",
             title="Fine-tuned search test",
             description="Re-run retrieval after adaptation to quantify search-space changes.",
             status="ok",
@@ -2155,7 +2213,7 @@ def run_video_pipeline(
         _step(19, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
-            step_id="G",
+            step_id="19",
             title="Fine-tuned search test",
             description="Re-run retrieval after adaptation to quantify search-space changes.",
             status="skipped",
@@ -2165,7 +2223,7 @@ def run_video_pipeline(
             artifacts=[],
         )
 
-    # H: Comparison + description — only runs when ssl_gate_passed (needs ft_results)
+    # Step 20: Comparison + description — only runs when ssl_gate_passed (needs ft_results)
     if ssl_gate_passed:
         _step(20, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
         with _Timer(T, "H_compare"):
@@ -2179,7 +2237,7 @@ def run_video_pipeline(
             video_context["top_descriptions"] = g.get("text_descriptions", [])
         _append_agentic_step(
             agentic_trace,
-            step_id="H",
+            step_id="20",
             title="Comparison and description",
             description="Summarize retrieval changes and derive a CLIP-based coarse natural-language description of the video.",
             status="ok",
@@ -2200,7 +2258,7 @@ def run_video_pipeline(
         _step(20, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
-            step_id="H",
+            step_id="20",
             title="Comparison and description",
             description="Summarize retrieval changes and derive a CLIP-based coarse natural-language description of the video.",
             status="skipped",
@@ -2210,7 +2268,7 @@ def run_video_pipeline(
             artifacts=[],
         )
 
-    # T: Multi-model comparison — Gemma vs Qwen vs UniDriveVLA
+    # Step 21: Multi-model comparison — Gemma vs Qwen vs UniDriveVLA
     if not qwen_result.get("skipped") and not unidrive_result.get("skipped"):
         _step(21, _TOTAL_STEPS, "Multi-model comparison → multi_model_comparison.md")
         with _Timer(T, "T_multimodel"):
@@ -2218,7 +2276,7 @@ def run_video_pipeline(
         video_context["multi_model_comparison"] = mm
         _append_agentic_step(
             agentic_trace,
-            step_id="T",
+            step_id="21",
             title="Multi-model comparison",
             description="Compare Gemma, Qwen, and UniDriveVLA outputs and expose UniDrive mixture-of-experts agreement signals.",
             status="ok",
@@ -2240,7 +2298,7 @@ def run_video_pipeline(
         _step(21, _TOTAL_STEPS, "Multi-model comparison (skipped — requires Qwen and UniDrive)")
         _append_agentic_step(
             agentic_trace,
-            step_id="T",
+            step_id="21",
             title="Multi-model comparison",
             description="Compare Gemma, Qwen, and UniDriveVLA outputs and expose UniDrive mixture-of-experts agreement signals.",
             status="skipped",
@@ -2251,7 +2309,7 @@ def run_video_pipeline(
         )
 
     # ── Finalization (always runs regardless of SSL gate) ──────────────────────
-    # Z: Video synthesis — offload CLIP+DINO; Ollama API call only (no local model)
+    # Step 22: Video synthesis — offload CLIP+DINO; Ollama API call only (no local model)
     if device == "cuda" and clip_dino_on_gpu:
         _offload_models_to_cpu(models)
         clip_dino_on_gpu = False  # noqa: F841
@@ -2265,7 +2323,7 @@ def run_video_pipeline(
         )
     _append_agentic_step(
         agentic_trace,
-        step_id="Z",
+        step_id="22",
         title="Video synthesis",
         description="Use accumulated multimodal context to generate a structured ontology and narrative summary of the whole video.",
         status="ok" if _qwen_url else "skipped",
@@ -2286,7 +2344,7 @@ def run_video_pipeline(
         artifacts=["video_synthesis.md", "video_ontology.json"] if _qwen_url else [],
     )
 
-    # AA: Agentic flow artifact — prefer Gemma reasoning, fall back to Qwen, then deterministic text.
+    # Step 23: Agentic flow artifact — prefer Gemma reasoning, fall back to Qwen, then deterministic text.
     _step(23, _TOTAL_STEPS, "Agentic flow audit → agentic_flow.md")
     _agentic_url = (
         getattr(args, "reasoning_api_url", "")
@@ -2304,7 +2362,7 @@ def run_video_pipeline(
     )
     _append_agentic_step(
         agentic_trace,
-        step_id="AA",
+        step_id="23",
         title="Agentic flow audit",
         description="Audit the full context chain, explain step-to-step reasoning state, and register per-step risks of misidentification and wrong context.",
         status="ok",

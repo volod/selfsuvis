@@ -18,7 +18,7 @@ def step_create_3d_map(
     run_gsplat_flag: bool = True,
     device: str = "cuda",
 ) -> Dict[str, Any]:
-    """Step I: build sparse 3D map + 3D Gaussian Splat."""
+    """Step 15: build sparse 3D map + 3D Gaussian Splat."""
     return build_sparse_map(
         video_path=str(video_path),
         video_id=video_id,

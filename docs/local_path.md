@@ -16,6 +16,7 @@ Deep-dive entry points:
 - [Tracking, world models, and 3D mapping, Steps 21-27](learning_path/04_tracking_mapping_steps_21_27.md)
 - [Adaptation, evaluation, and audit, Steps 28-35](learning_path/05_adaptation_eval_steps_28_35.md)
 - [Agentic knowledge flow](learning_path/06_agentic_knowledge_flow.md)
+- [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md)
 - [Day-by-day syllabus](learning_path/07_day_by_day_syllabus.md)
 
 ## How To Use This Path
@@ -106,3 +107,4 @@ If you only have time for a fast pass:
 5. [Tracking and mapping](learning_path/04_tracking_mapping_steps_21_27.md)
 6. [Adaptation and audit](learning_path/05_adaptation_eval_steps_28_35.md)
 7. [Agentic knowledge flow](learning_path/06_agentic_knowledge_flow.md)
+8. [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md)

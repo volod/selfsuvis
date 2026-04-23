@@ -11,21 +11,21 @@ Usage
     python scripts/prepare_models.py --dino         # DINOv2/v3 hub archive + weights only
 
     # Gemma open-weight (downloads weights from HuggingFace — requires HF_TOKEN):
-    python scripts/prepare_models.py --gemma        # Step J: google/gemma-3-4b-it (default, multimodal)
+    python scripts/prepare_models.py --gemma        # Step 03: google/gemma-3-4b-it (default, multimodal)
     python scripts/prepare_models.py --gemma --gemma-model google/gemma-3-1b-it   # text-only, ~2 GiB
     python scripts/prepare_models.py --gemma --gemma-model google/gemma-3-12b-it  # 12B, ~24 GiB
 
     # Step-specific optional models:
     python scripts/prepare_models.py --flash-attn   # Install flash-attn (CUDA required)
-    python scripts/prepare_models.py --whisper      # Step M: Whisper ASR
-    python scripts/prepare_models.py --florence     # Step L: Florence-2 scene captioning
-    python scripts/prepare_models.py --ocr          # Step N: OCR (auto-selects by VRAM)
-    python scripts/prepare_models.py --depth        # Step O: Depth estimation
-    python scripts/prepare_models.py --detection    # Step P: Object detection
-    python scripts/prepare_models.py --world-model  # Step Q: World model video embeddings
-    python scripts/prepare_models.py --unidrive     # Step S: UniDriveVLA expert model assets
-    python scripts/prepare_models.py --yolo         # Step P2: YOLO11l detection (~48 MB)
-    python scripts/prepare_models.py --sam          # Step P2: SAM3/SAM2 segmentation (tries sam3 first)
+    python scripts/prepare_models.py --whisper      # Step 05: Whisper ASR
+    python scripts/prepare_models.py --florence     # Step 04: Florence-2 scene captioning
+    python scripts/prepare_models.py --ocr          # Step 06: OCR (auto-selects by VRAM)
+    python scripts/prepare_models.py --depth        # Step 07: Depth estimation
+    python scripts/prepare_models.py --detection    # Step 08: Object detection
+    python scripts/prepare_models.py --world-model  # Step 11: World model video embeddings
+    python scripts/prepare_models.py --unidrive     # Step 13: UniDriveVLA expert model assets
+    python scripts/prepare_models.py --yolo         # Step 09: YOLO11l detection (~48 MB)
+    python scripts/prepare_models.py --sam          # Step 09: SAM3/SAM2 segmentation (tries sam3 first)
 
     # Override auto-selected model for any step:
     python scripts/prepare_models.py --ocr       --ocr-model       microsoft/trocr-base-printed
@@ -1100,7 +1100,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clip", action="store_true", help="Download OpenCLIP weights")
     p.add_argument("--dino", action="store_true", help="Download DINOv2/v3 hub weights")
     p.add_argument("--gemma", action="store_true",
-                   help="Download Gemma open-weight model (step J; requires HF_TOKEN for gated access)")
+                   help="Download Gemma open-weight model (step 03; requires HF_TOKEN for gated access)")
     _default_gemma = os.getenv("GEMMA_MODEL_ID", "google/gemma-3-4b-it")
     p.add_argument("--gemma-model", default=_default_gemma, metavar="MODEL_ID",
                    help=(
@@ -1127,19 +1127,19 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="DINO weight source: 'auto' = local → GitHub → HF")
 
     p.add_argument("--whisper", action="store_true",
-                   help="Download Whisper ASR model (step M)")
+                   help="Download Whisper ASR model (step 05)")
     _default_whisper = os.getenv("ASR_MODEL", "openai/whisper-large-v3-turbo")
     p.add_argument("--whisper-model", default=_default_whisper, metavar="MODEL_ID",
                    help="Whisper model ID to cache")
 
     p.add_argument("--florence", action="store_true",
-                   help="Download Florence-2 captioning model (step L)")
+                   help="Download Florence-2 captioning model (step 04)")
     _default_florence = os.getenv("FLORENCE_MODEL", "microsoft/Florence-2-large")
     p.add_argument("--florence-model", default=_default_florence, metavar="MODEL_ID",
                    help="Florence-2 model ID to cache")
 
     p.add_argument("--ocr", action="store_true",
-                   help="Download OCR model (step N; auto-selects by VRAM)")
+                   help="Download OCR model (step 06; auto-selects by VRAM)")
     p.add_argument("--ocr-model", default="", metavar="MODEL_ID",
                    help=(
                        "OCR model ID to cache. Empty = auto-select by VRAM. "
@@ -1148,7 +1148,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    ))
 
     p.add_argument("--depth", action="store_true",
-                   help="Download depth estimation model (step O; auto-selects by VRAM)")
+                   help="Download depth estimation model (step 07; auto-selects by VRAM)")
     p.add_argument("--depth-model", default="", metavar="MODEL_ID",
                    help=(
                        "Depth model ID to cache. Empty = auto-select by VRAM. "
@@ -1157,7 +1157,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    ))
 
     p.add_argument("--detection", action="store_true",
-                   help="Download object detection model (step P; auto-selects by VRAM)")
+                   help="Download object detection model (step 08; auto-selects by VRAM)")
     p.add_argument("--detection-model", default="", metavar="MODEL_ID",
                    help=(
                        "Detection model ID to cache. Empty = auto-select by VRAM. "
@@ -1165,7 +1165,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    ))
 
     p.add_argument("--world-model", action="store_true",
-                   help="Download world model for video embeddings (step Q; auto-selects by VRAM)")
+                   help="Download world model for video embeddings (step 11; auto-selects by VRAM)")
     p.add_argument("--world-model-id", default="", metavar="MODEL_ID",
                    help=(
                        "World model ID to cache. Empty = auto-select by VRAM. "
@@ -1173,7 +1173,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    ))
     _default_unidrive = os.getenv("UNIDRIVE_MODEL", _UNIDRIVE_DEFAULT_MODEL)
     p.add_argument("--unidrive", action="store_true",
-                   help="Download UniDriveVLA expert model assets (step S)")
+                   help="Download UniDriveVLA expert model assets (step 13)")
     p.add_argument("--unidrive-model", default=_default_unidrive, metavar="MODEL_ID",
                    help=(
                        "UniDriveVLA model repo ID to cache for external bridge / sidecar use. "
@@ -1188,7 +1188,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    ))
 
     p.add_argument("--yolo", action="store_true",
-                   help="Download YOLO11 detection model (step P2; default model: yolo11l.pt ~48 MB)")
+                   help="Download YOLO11 detection model (step 09; default model: yolo11l.pt ~48 MB)")
     p.add_argument("--yolo-model", default="yolo11l", metavar="MODEL",
                    help=(
                        "YOLO model filename to cache (without .pt extension). "
@@ -1198,7 +1198,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    ))
 
     p.add_argument("--sam", action="store_true",
-                   help="Download SAM3/SAM2 segmentation model (step P2; tries sam3 then sam2 fallback)")
+                   help="Download SAM3/SAM2 segmentation model (step 09; tries sam3 then sam2 fallback)")
     p.add_argument("--sam-model", default="facebook/sam3", metavar="MODEL_ID",
                    help=(
                        "SAM model repo ID to cache. "

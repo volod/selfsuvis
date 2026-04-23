@@ -73,6 +73,7 @@ The loader reads the following artifacts when present:
 
 - frame-level records with timestamps, detections, surprise, captions, ASR, and tracking counts
 - aggregate detection, temporal, training, tracking, embedding, and map statistics
+- derived diagnostics for modality completeness, run quality, tracking fragmentation, map pose coverage, temporal surprise dispersion, and adaptation efficiency
 - artifact inventory by path, suffix, and top-level category
 - run-health warnings for silent degradations
 
@@ -80,7 +81,37 @@ Current warning rules include:
 
 - Florence captions empty for all frames
 - Gemma-directed tracking produced zero detections
+- Gemma-directed tracking had to retry with a relaxed label filter
+- Gemma-directed tracking is highly fragmented
+- 3D map quality is degraded
+- model restore failures or long VRAM waits occurred
 - world-model stage reported failure or zero usable clips
+
+## Diagnostics Methodology
+
+The analytics step now computes a compact diagnostics block in both the Python API
+and the local pipeline `analysis_summary.json`.
+
+| Field | Meaning |
+|-------|---------|
+| `modality_completeness` | Mean availability across Florence, Qwen, ASR, OCR, world model, tracking, mapping, and edge export |
+| `quality_score` | Weighted 0-100 health score with penalties for warnings |
+| `detection_density_per_frame` | Mean YOLO/SAM detections per frame |
+| `detection_count_cv` | Coefficient of variation of per-frame detection counts |
+| `detection_entropy_norm` | Normalized Shannon entropy of detected class counts |
+| `tracking_fragmentation` | Unique track IDs divided by total tracked detections |
+| `track_persistence` | Mean track length divided by frame count |
+| `surprise_std` | Standard deviation of RSSM temporal-surprise scores |
+| `surprise_peak_rate` | Fraction of frames marked as temporal-surprise peaks |
+| `surprise_detection_overlap` | Fraction of surprise peaks that also contain detections or tracks |
+| `map_points_per_pose` | Sparse-map point density per recovered pose |
+| `map_pose_coverage` | Recovered SfM poses divided by extracted frames, clamped to `[0, 1]` |
+| `adaptation_efficiency` | Distilled Recall@1 divided by compression ratio |
+| `artifact_density_per_frame` | Number of output files per extracted frame |
+| `artifact_mb_per_min` | Artifact size normalized by video duration |
+
+For the equations and interpretation rules, read
+[Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md).
 
 ## Charts Produced
 
@@ -123,4 +154,5 @@ report_path = generate_report(summary)
 Use the deep-dive companion after your first run:
 
 - [Local run artifact analysis](learning_path/08_local_run_artifact_analysis.md)
+- [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md)
 - [Day-by-day syllabus](learning_path/07_day_by_day_syllabus.md)

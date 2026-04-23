@@ -1,4 +1,4 @@
-"""Demo step P2: YOLO11 detection + SAM2/3 segmentation with priority ordering.
+"""Step 09: YOLO11 detection + SAM2/3 segmentation with priority ordering.
 
 Runs after the HuggingFace object-detection step (P) and produces:
 
@@ -133,14 +133,14 @@ def step_yolo_sam_detection(
     device: str,
     det_result: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Step P2: YOLO11 detection + optional SAM2/3 segmentation.
+    """Step 09: YOLO11 detection + optional SAM2/3 segmentation.
 
     Args:
         frame_list: List of (frame_path, t_sec) from the extraction step.
         video_name: Human-readable video identifier.
         video_dir:  Per-video output directory.
         device:     Torch device string ("cpu" or "cuda").
-        det_result: Optional output from step P (HF detector) for comparison.
+        det_result: Optional output from step 08 (HF detector) for comparison.
 
     Returns:
         Dict with keys:

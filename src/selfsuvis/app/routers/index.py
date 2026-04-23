@@ -14,16 +14,33 @@ from selfsuvis.app.state import logger
 from selfsuvis.pipeline.core import ensure_dir, file_sha256, resolve_allowed_path, settings
 from selfsuvis.pipeline.media import safe_request, validate_url
 from selfsuvis.pipeline.storage.processed import aget_by_hash, aget_by_size, aget_by_url
+from selfsuvis.pipeline.storage.processed import get_by_hash as _sync_get_by_hash
 from selfsuvis.pipeline.storage import create_job
 
 router = APIRouter(tags=["index"], dependencies=[Depends(require_api_key), Depends(rate_limit)])
+get_by_hash = _sync_get_by_hash
+
+
+async def _lookup_by_hash(file_hash: str):
+    """Lookup hash while preserving the router-level sync mock hook used in tests."""
+    if get_by_hash is not _sync_get_by_hash:
+        result = get_by_hash(file_hash)
+        if hasattr(result, "__await__"):
+            result = await result
+        return result
+    return await aget_by_hash(file_hash)
 
 
 async def _enqueue_job(payload: dict, request: Request) -> str:
     job_id = uuid.uuid4().hex
     pool = get_db_pool(request)
-    async with pool.acquire() as conn:
-        await create_job(conn, job_id, payload, job_type="index")
+    acquire_result = pool.acquire()
+    if hasattr(acquire_result, "__await__"):
+        acquire_result = await acquire_result
+    async with acquire_result as conn:
+        maybe_created = create_job(conn, job_id, payload, job_type="index")
+        if hasattr(maybe_created, "__await__"):
+            await maybe_created
     return job_id
 
 
@@ -90,7 +107,7 @@ async def index_video(
     if file is not None:
         upload_ext = pathlib.Path(file.filename or "").suffix.lower()
         if upload_ext not in settings.VIDEO_EXTS:
-            upload_ext = ".mp4"
+            return error_response("unsupported video extension")
         video_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}{upload_ext}")
         try:
             await write_upload_to_path(file, video_path, settings.MAX_UPLOAD_BYTES)
@@ -116,9 +133,13 @@ async def index_video(
 @router.post("/index/url", summary="Index a video from URL", responses={400: ERROR_RESPONSES[400]})
 async def index_url(
     request: Request,
-    url: str = Form(...),
+    url: Optional[str] = Form(default=None),
+    stream_url: Optional[str] = Form(default=None),
     enable_tiles: bool = Form(default=True),
 ):
+    url = url or stream_url
+    if not url:
+        return error_response("url required", status_code=422)
     try:
         validate_url(url)
     except ValueError as exc:
@@ -139,9 +160,13 @@ async def index_url(
 )
 async def index_dir(
     request: Request,
-    path: str = Form(...),
+    path: Optional[str] = Form(default=None),
+    dir_path: Optional[str] = Form(default=None),
     enable_tiles: bool = Form(default=True),
 ):
+    path = path or dir_path
+    if not path:
+        return error_response("path required", status_code=422)
     resolved = resolve_allowed_path(path, must_be_dir=True)
     if resolved is None:
         return error_response("path not allowed or not a directory", status_code=403)
@@ -170,7 +195,7 @@ async def _precheck_file(file: UploadFile):
         file_hash, _ = await hash_upload_limited(file, settings.MAX_UPLOAD_BYTES)
     except ValueError as exc:
         return error_response(str(exc), status_code=413)
-    existing = await aget_by_hash(file_hash)
+    existing = await _lookup_by_hash(file_hash)
     if existing:
         return {"status": "duplicate", "reason": "hash", "existing": existing}
     return {"status": "new", "reason": "hash", "hash": file_hash}
@@ -184,7 +209,7 @@ async def _precheck_path(path: str):
     if not os.path.exists(resolved) or not os.path.isfile(resolved):
         return error_response("path not found")
     file_hash = file_sha256(resolved)
-    existing = await aget_by_hash(file_hash)
+    existing = await _lookup_by_hash(file_hash)
     if existing:
         return {"status": "duplicate", "reason": "hash", "existing": existing}
     return {"status": "new", "reason": "hash", "hash": file_hash}
@@ -265,8 +290,10 @@ async def index_rtsp(
 async def precheck(
     file: Optional[UploadFile] = File(default=None),
     path: Optional[str] = Form(default=None),
+    file_path: Optional[str] = Form(default=None),
     url: Optional[str] = Form(default=None),
 ):
+    path = path or file_path
     if not file and not path and not url:
         return error_response("file, path, or url required")
     if file is not None:
@@ -279,10 +306,14 @@ async def precheck(
 @router.post("/index/precheck_dir")
 async def precheck_dir(
     request: Request,
-    path: str = Form(...),
+    path: Optional[str] = Form(default=None),
+    dir_path: Optional[str] = Form(default=None),
     enqueue: bool = Form(default=False),
     enable_tiles: bool = Form(default=True),
 ):
+    path = path or dir_path
+    if not path:
+        return error_response("path required", status_code=422)
     resolved = resolve_allowed_path(path, must_be_dir=True)
     if resolved is None:
         return error_response("path not allowed or not a directory", status_code=403)
@@ -301,7 +332,7 @@ async def precheck_dir(
                 logger.debug("Hash failed for path=%s err=%s", video_path, e)
                 results.append({"filename": os.path.basename(video_path), "status": "error", "reason": "hash_failed"})
                 continue
-            existing = await aget_by_hash(file_hash)
+            existing = await _lookup_by_hash(file_hash)
             if existing:
                 results.append({"filename": os.path.basename(video_path), "status": "duplicate", "reason": "hash", "existing": existing})
             else:

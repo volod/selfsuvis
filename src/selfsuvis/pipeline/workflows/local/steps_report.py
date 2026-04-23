@@ -867,14 +867,20 @@ def write_final_stats_md(
     per_video: List[Dict[str, Any]],
     total_elapsed: float,
 ) -> None:
+    step_sum = sum(sum(v.get("timings", {}).values()) for v in per_video)
+    concurrent_overlap = max(0.0, step_sum - total_elapsed)
     lines = [
         f"# Local Full-Analysis Pipeline — Final Statistics",
         f"",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Total elapsed: {total_elapsed:.1f}s",
+        f"Step-time sum: {step_sum:.1f}s",
+        f"Concurrent overlap: {concurrent_overlap:.1f}s",
         f"Videos processed: {len(per_video)}",
         f"",
         f"## Step Timing",
+        f"",
+        f"Step totals are per-step durations. They may exceed elapsed time because the 3D map step can run in the background.",
         f"",
     ]
     names = [v.get("name", f"video{i}") for i, v in enumerate(per_video)]
@@ -925,15 +931,15 @@ def write_final_stats_md(
         f"| `distill_stats.md` | Distillation loss curve + architecture notes |",
         f"| `edge_models/dino_local.onnx` | ONNX export (student when distilled, teacher otherwise) |",
         f"| `edge_models/gallery.npz` | Embedding gallery for 1-NN classification |",
-        f"| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step M) |",
+        f"| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step 05) |",
         f"| `state_fusion.md` | Probabilistic platform-state posterior summary and covariance samples |",
         f"| `state_fusion.json` | Raw local probabilistic platform-state posterior payload |",
-        f"| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps N–Q) |",
-        f"| `detailed_captions.md` | Qwen VLM detailed per-frame scene captions with ASR context (step R) |",
-        f"| `unidrive_analysis.md` | UniDriveVLA understanding, perception, planning, and MoE consensus (step S) |",
-        f"| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison and MoE agreement summary (step T) |",
-        f"| `video_synthesis.md` | LLM video ontology + fine-grained narrative (step Z) |",
-        f"| `agentic_flow.md` | Step-by-step agentic context trace, risk analysis, and context-propagation audit (step AA) |",
+        f"| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps 06-11) |",
+        f"| `detailed_captions.md` | Qwen VLM detailed per-frame scene captions with ASR context (step 12) |",
+        f"| `unidrive_analysis.md` | UniDriveVLA understanding, perception, planning, and MoE consensus (step 13) |",
+        f"| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison and MoE agreement summary (step 21) |",
+        f"| `video_synthesis.md` | LLM video ontology + fine-grained narrative (step 22) |",
+        f"| `agentic_flow.md` | Step-by-step agentic context trace, risk analysis, and context-propagation audit (step 23) |",
         f"| `video_ontology.json` | Structured ontology JSON (domain, environment, activities, objects) |",
         f"| `3d_map/sparse_map.npz` | 3D point cloud (from SfM or PCA fallback) |",
         f"| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
@@ -1198,7 +1204,7 @@ def write_detailed_captions_md(
     lines += [
         f"",
         f"---",
-        f"*Produced by {_RUNNER_LABEL} · Qwen VLM step R · ASR subtitle context injected where available*",
+        f"*Produced by {_RUNNER_LABEL} · Qwen VLM step 12 · ASR subtitle context injected where available*",
     ]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     _log.info("  ✓ Written %s", output_path)
@@ -1252,7 +1258,7 @@ def write_unidrive_analysis_md(
             f"- t={r.get('t_sec', 0.0):.1f}s: {consensus} "
             f"(agreement={moe.get('expert_agreement', 'unknown')}; disagreements: {dis_str})"
         )
-    lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · UniDriveVLA step S*"]
+    lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · UniDriveVLA step 13*"]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     _log.info("  ✓ Written %s", output_path)
 
@@ -1353,7 +1359,7 @@ def write_multi_model_comparison_md(
         "- The UniDrive MoE consensus field is the best single input for downstream synthesis because it preserves both consensus and disagreement.",
         "",
         "---",
-        f"*Produced by {_RUNNER_LABEL} · multi-model comparison step T*",
+        f"*Produced by {_RUNNER_LABEL} · multi-model comparison step 21*",
     ]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     _log.info("  ✓ Written %s", output_path)
@@ -1397,7 +1403,7 @@ def write_video_synthesis_md(
             narrative,
             f"",
         ]
-    lines += ["---", f"*Produced by {_RUNNER_LABEL} · synthesis step Z · context from steps A–H*"]
+    lines += ["---", f"*Produced by {_RUNNER_LABEL} · synthesis step 22 · context from steps 01-20*"]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     _log.info("  ✓ Written %s", output_path)
 
@@ -1449,29 +1455,29 @@ def write_agentic_flow_md(
 # (timing_key, step_label, computation_type)
 # Ordered by typical execution sequence.
 _STEP_LABELS: List[Tuple[str, str, str]] = [
-    ("A_extract",         "A   Frame extraction",                  "I/O"           ),
-    ("B_index",           "B   Vector store indexing",             "GPU embed"     ),
-    ("J_gemma",           "J   Gemma multimodal analysis",         "LLM API"       ),
-    ("L_caption",         "L   Scene captioning (Florence-2)",     "GPU vision"    ),
-    ("M_asr",             "M   ASR (Whisper)",                     "GPU speech"    ),
-    ("N_ocr",             "N   OCR (text extraction)",             "LLM API"       ),
-    ("O_depth",           "O   Depth estimation",                  "GPU vision"    ),
-    ("P_detection",       "P   Object detection",                  "GPU vision"    ),
-    ("P2_yolo_sam",       "P2  YOLO11 + SAM2/3 detection",        "GPU vision"    ),
-    ("P3_gemma_tracking", "P3  Gemma directed tracking",           "LLM API+GPU"  ),
-    ("Q_world",           "Q   World model embeddings",            "GPU vision"    ),
-    ("R_qwen",            "R   Qwen detailed captioning",          "LLM API"       ),
-    ("S_unidrive",        "S   UniDriveVLA expert analysis",       "LLM API"       ),
-    ("C_base_search",     "C   Base model search test",            "GPU embed"     ),
-    ("I_3dmap",           "I   3D map (SfM + Gaussian Splat)",     "GPU 3D"        ),
-    ("D_finetune",        "D   SSL DINOv3 fine-tuning",            "GPU train"     ),
-    ("E_distill",         "E   Knowledge distillation",            "GPU train"     ),
-    ("F_export",          "F   ONNX export + gallery",             "CPU"           ),
-    ("G_ft_search",       "G   Fine-tuned search test",            "GPU embed"     ),
-    ("H_compare",         "H   Model comparison + description",    "GPU embed"     ),
-    ("T_multimodel",      "T   Multi-model comparison",            "GPU vision"    ),
-    ("Z_synthesis",       "Z   Video synthesis (ontology+narr.)", "LLM API"       ),
-    ("AA_agentic",        "AA  Agentic flow audit",                "LLM API"       ),
+    ("A_extract",         "01 Ingest: Frame extraction",           "I/O"           ),
+    ("B_index",           "02 Ingest: Vector indexing",            "GPU embed"     ),
+    ("J_gemma",           "03 Analyze: Gemma multimodal",          "LLM API"       ),
+    ("L_caption",         "04 Analyze: Florence captions",         "GPU vision"    ),
+    ("M_asr",             "05 Analyze: ASR transcription",         "GPU speech"    ),
+    ("N_ocr",             "06 Analyze: OCR text extraction",       "LLM API"       ),
+    ("O_depth",           "07 Analyze: Depth estimation",          "GPU vision"    ),
+    ("P_detection",       "08 Analyze: Object detection",          "GPU vision"    ),
+    ("P2_yolo_sam",       "09 Analyze: YOLO+SAM detection",        "GPU vision"    ),
+    ("P3_gemma_tracking", "10 Analyze: Gemma directed tracking",   "LLM API+GPU"  ),
+    ("Q_world",           "11 Analyze: World model embeddings",    "GPU vision"    ),
+    ("R_qwen",            "12 Analyze: Qwen detailed captions",    "LLM API"       ),
+    ("S_unidrive",        "13 Analyze: UniDriveVLA expert",        "LLM API"       ),
+    ("C_base_search",     "14 Eval: Base search test",             "GPU embed"     ),
+    ("I_3dmap",           "15 Map: SfM + Gaussian Splat",          "GPU 3D"        ),
+    ("D_finetune",        "16 Adapt: SSL DINOv3 fine-tune",        "GPU train"     ),
+    ("E_distill",         "17 Adapt: Knowledge distillation",      "GPU train"     ),
+    ("F_export",          "18 Export: ONNX + gallery",             "CPU"           ),
+    ("G_ft_search",       "19 Eval: Fine-tuned search test",       "GPU embed"     ),
+    ("H_compare",         "20 Eval: Model comparison",             "GPU embed"     ),
+    ("T_multimodel",      "21 Audit: Multi-model comparison",      "GPU vision"    ),
+    ("Z_synthesis",       "22 Synthesize: Ontology+narrative",     "LLM API"       ),
+    ("AA_agentic",        "23 Audit: Agentic flow",                "LLM API"       ),
 ]
 
 
@@ -1510,10 +1516,18 @@ def print_run_stats(
     W = LABEL_W + TYPE_W + DUR_W * (n_vids + 1) + 4
     SEP = "─" * W
 
+    def _fit_cell(value: str, width: int) -> str:
+        value = str(value)
+        if len(value) <= width:
+            return value
+        if width <= 3:
+            return value[:width]
+        return value[: width - 3] + "..."
+
     def _row(label: str, comp_type: str, *dur_cols: str) -> str:
         row = f"  {label:<{LABEL_W}} {comp_type:<{TYPE_W}}"
         for c in dur_cols:
-            row += f"{c:>{DUR_W}}"
+            row += f"{_fit_cell(c, DUR_W):>{DUR_W}}"
         return row
 
     _banner("RUN STATISTICS")
@@ -1551,8 +1565,12 @@ def print_run_stats(
     pipeline_per_video = [v.get("pipeline_sec", 0.0) for v in per_video]
     _log.info(_row("Pipeline (steps sum)", "", *[_fmt_sec(s) for s in pipeline_per_video],
                    _fmt_sec(sum(pipeline_per_video))))
-    overhead = total_elapsed - sum(pipeline_per_video) - init_elapsed
+    pipeline_sum = sum(pipeline_per_video)
+    overlap_adjustment = max(0.0, pipeline_sum + init_elapsed - total_elapsed)
+    overhead = total_elapsed - pipeline_sum - init_elapsed + overlap_adjustment
     _log.info(_row("Model initialisation", "", _fmt_sec(init_elapsed), *([""] * (n_vids - 1)), ""))
+    if overlap_adjustment > 0:
+        _log.info(_row("Concurrent overlap adjustment", "", *([""] * n_vids), f"-{_fmt_sec(overlap_adjustment)}"))
     _log.info(_row("Overhead (I/O, viewer, etc.)", "", *([""] * n_vids), _fmt_sec(max(0.0, overhead))))
     _log.info(_row("WALL CLOCK TOTAL", "", *([""] * n_vids), _fmt_sec(total_elapsed)))
 

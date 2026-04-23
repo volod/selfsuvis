@@ -39,7 +39,7 @@ def step_distill(
     caption_embeddings: Optional[np.ndarray] = None,
     gemma_embedder: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Step E: distil fine-tuned teacher → student with maximum hydration.
+    """Step 17: distil fine-tuned teacher → student with maximum hydration.
 
     Maximum-hydration distillation chain:
       1. Teacher backbone: fine-tuned DINOv3 ViT-B/14 (SSL checkpoint).
@@ -152,7 +152,7 @@ def step_export_model(
     student_backbone: Optional[Any] = None,
     student_dim: int = 768,
 ) -> Dict[str, Any]:
-    """Step F: export model to ONNX + build gallery.npz."""
+    """Step 18: export model to ONNX + build gallery.npz."""
     from selfsuvis.pipeline.training.edge_inference import build_gallery
     from selfsuvis.models.openclip_model import OpenCLIPEmbedder
 

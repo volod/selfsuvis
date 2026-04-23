@@ -25,14 +25,14 @@ def step_extract_frames(
     video_dir: Path,
     fps: float,
 ) -> Dict[str, Any]:
-    """Step A: extract frames via ffmpeg, write metadata JSON."""
+    """Step 01: extract frames via ffmpeg, write metadata JSON."""
     import json
     _log.info("Extracting frames from %s at %.1f fps …", video_path.name, fps)
     t0 = time.time()
     frame_list = extract_frames(str(video_path), video_id)
     elapsed = time.time() - t0
     from .steps_caption import _log_vram_snapshot as _lvs
-    _lvs("after Gemma analysis step")
+    _lvs("after frame extraction")
     meta = {
         "video": str(video_path),
         "video_id": video_id,
@@ -90,7 +90,7 @@ def step_index_to_store(
     models: Dict[str, Any],
     frame_list: List[Tuple[str, float]],
 ) -> Dict[str, Any]:
-    """Step B: embed frames and upsert into Qdrant or InMemoryStore."""
+    """Step 02: embed frames and upsert into Qdrant or InMemoryStore."""
     t0   = time.time()
     dest = "Qdrant" if is_qdrant else "in-memory store"
     _log.info("Embedding %d frames into %s …", len(frame_list), dest)
@@ -164,7 +164,7 @@ def step_base_model_search_test(
     video_dir: Path,
     top_k: int,
 ) -> Dict[str, Any]:
-    """Step C: embed query with base model, search, write base_search.md."""
+    """Step 14: embed query with base model, search, write base_search.md."""
     from .steps_report import write_search_md
     out_md = video_dir / "base_search.md"
     qfp, qt = _pick_query_frame(frame_list)
@@ -195,7 +195,7 @@ def step_finetuned_model_search_test(
     video_dir: Path,
     top_k: int,
 ) -> Dict[str, Any]:
-    """Step G: search with fine-tuned DINO, write finetuned_search.md."""
+    """Step 19: search with fine-tuned DINO, write finetuned_search.md."""
     from .steps_report import write_search_md
     out_md = video_dir / "finetuned_search.md"
     use_dino = models.get("dino") is not None

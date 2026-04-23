@@ -454,7 +454,9 @@ if [[ -n "$_CC_MAJOR" ]] && [[ "$_CC_MAJOR" -ge 12 ]]; then
   if $_NEEDS_REBUILD; then
     echo "flash-attn: building from source for sm_${_CC_MAJOR}0 (no prebuilt wheel available)"
     _FORCE_SOURCE_BUILD=true
-    export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-7.5;8.0;8.6;9.0;12.0}"
+    # Covers: Turing(7.5) Ampere-DC(8.0) Ampere-consumer(8.6) Ada/4060(8.9) Hopper(9.0) Blackwell(12.0)
+    # +PTX on the last entry allows JIT forward-compatibility for future archs.
+    export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-7.5;8.0;8.6;8.9;9.0;12.0+PTX}"
     find ~/.cache/pip/wheels -name "flash_attn*.whl" -delete 2>/dev/null || true
     find ~/.cache/uv         -name "flash_attn*.whl" -delete 2>/dev/null || true
   fi
@@ -511,6 +513,114 @@ if "$PYTHON_BIN" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 
   fi
 else
   echo "No CUDA GPU detected — skipping flash-attn (CPU-only mode)."
+fi
+
+# ── xformers source build ──────────────────────────────────────────────────────
+#
+# The prebuilt xformers wheel on PyPI is compiled for a fixed set of CUDA
+# architectures (typically sm_75, sm_80, sm_90).  GPUs not in that set fall
+# back to PTX JIT, which is slower and — for Blackwell (sm_12x) — some
+# attention kernels are explicitly gated to sm_<=9.0 and simply fail.
+#
+# This section detects whether the installed wheel covers the current GPU and,
+# if not, rebuilds xformers from source with a comprehensive arch list that
+# covers all common consumer and data-centre GPUs:
+#   7.5  Turing       RTX 2000 / T4
+#   8.0  Ampere-DC    A100 / A30
+#   8.6  Ampere       RTX 3000 series
+#   8.9  Ada          RTX 4000 series (4060, 4070, 4080, 4090)
+#   9.0  Hopper       H100 / H800
+#  12.0  Blackwell    RTX 5000 series / RTX PRO 3000
+#  +PTX  forward-compatibility JIT for future architectures
+#
+# The build uses the same FLASH_JOBS parallelism computed for flash-attn.
+# Expected build time: 20–60 min depending on machine.  Progress is printed.
+
+# Returns 0 (true) if the installed xformers was compiled for GPU CC $1 (e.g. "12.0").
+_xformers_arch_supported() {
+  local gpu_cc="$1"
+  local major="${gpu_cc%%.*}" minor="${gpu_cc##*.}"
+  "$PYTHON_BIN" -c "
+import subprocess, re, sys
+major, minor = int('$major'), int('$minor')
+try:
+    r = subprocess.run([sys.executable, '-m', 'xformers.info'],
+                       capture_output=True, text=True, timeout=30)
+except Exception:
+    sys.exit(1)
+for line in r.stdout.splitlines():
+    if 'TORCH_CUDA_ARCH_LIST' in line:
+        val = line.split(':', 1)[-1].strip()
+        if not val or val.lower() == 'none':
+            sys.exit(1)
+        # Parse tokens like '8.6', '9.0a', '12.0+PTX', '80' etc.
+        for token in re.split(r'[\s;,]+', val):
+            token = re.sub(r'[a+].*', '', token)   # strip 'a' / '+PTX'
+            parts = token.split('.')
+            try:
+                t_maj = int(parts[0])
+                t_min = int(parts[1]) if len(parts) > 1 else 0
+                if t_maj == major and t_min == minor:
+                    sys.exit(0)
+            except ValueError:
+                pass
+        break
+sys.exit(1)
+" 2>/dev/null
+}
+
+_XFORMERS_NEEDS_REBUILD=false
+if [[ -n "$_GPU_CC" ]]; then
+  if ! _xformers_arch_supported "$_GPU_CC"; then
+    _XFORMERS_NEEDS_REBUILD=true
+  fi
+fi
+
+if "$PYTHON_BIN" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null && \
+   $_XFORMERS_NEEDS_REBUILD; then
+  # Reuse the same arch list set by the flash-attn section (or set it now for
+  # machines that only need an xformers rebuild without flash-attn).
+  _XFORMERS_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-7.5;8.0;8.6;8.9;9.0;12.0+PTX}"
+  _XFORMERS_JOBS="${FLASH_JOBS:-2}"
+
+  echo ""
+  echo "════════════════════════════════════════════════════════════════════════"
+  echo "  xformers: GPU sm_${_GPU_CC/./} not in prebuilt wheel — building from source"
+  echo "  TORCH_CUDA_ARCH_LIST=${_XFORMERS_ARCH_LIST}"
+  echo "  MAX_JOBS=${_XFORMERS_JOBS}"
+  echo "  Expected build time: 20–60 min.  Output is shown — do not interrupt."
+  echo "  To force a manual rebuild at any time:  make venv-rebuild-xformers"
+  echo "════════════════════════════════════════════════════════════════════════"
+  echo ""
+
+  # Clear any cached prebuilt wheel so pip always compiles from source.
+  find ~/.cache/pip/wheels -name "xformers*.whl" -delete 2>/dev/null || true
+  find ~/.cache/uv         -name "xformers*.whl" -delete 2>/dev/null || true
+
+  if TORCH_CUDA_ARCH_LIST="$_XFORMERS_ARCH_LIST" \
+     MAX_JOBS="$_XFORMERS_JOBS" \
+     "$PYTHON_BIN" -m pip install xformers \
+       --no-build-isolation \
+       --no-deps \
+       --no-binary xformers \
+       --force-reinstall \
+       --no-cache-dir; then
+    echo ""
+    echo "xformers rebuilt for sm_${_GPU_CC/./} — all attention kernels now native."
+  else
+    echo ""
+    echo "WARNING: xformers source build failed."
+    echo "  Models will fall back to PyTorch SDPA (correct but slower)."
+    echo "  To retry manually:"
+    echo "    TORCH_CUDA_ARCH_LIST='${_XFORMERS_ARCH_LIST}' \\"
+    echo "    MAX_JOBS=${_XFORMERS_JOBS} \\"
+    echo "    .venv/bin/python -m pip install xformers \\"
+    echo "      --no-build-isolation --no-binary xformers --force-reinstall --no-cache-dir"
+    echo "  Ensure nvcc $(\"$PYTHON_BIN\" -c 'import torch; print(torch.version.cuda)' 2>/dev/null) is on PATH."
+    echo "  Or run:  make venv-rebuild-xformers"
+  fi
+elif ! $_XFORMERS_NEEDS_REBUILD && [[ -n "$_GPU_CC" ]]; then
+  echo "xformers: sm_${_GPU_CC/./} already in installed wheel — skipping rebuild."
 fi
 
 # ── TensorRT + onnxruntime-gpu ─────────────────────────────────────────────────

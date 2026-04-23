@@ -49,6 +49,12 @@ def validate_rtsp_url(url: str) -> None:
         try:
             infos = socket.getaddrinfo(parsed.hostname, None)
         except socket.gaierror as exc:
+            if parsed.hostname.endswith(".local"):
+                logger.debug(
+                    "RTSP validation: allowing unresolved mDNS hostname '%s'",
+                    parsed.hostname,
+                )
+                return
             raise ValueError(f"Cannot resolve RTSP host '{parsed.hostname}': {exc}") from exc
         for info in infos:
             ip_str = info[4][0]

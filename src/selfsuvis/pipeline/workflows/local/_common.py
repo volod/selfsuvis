@@ -80,6 +80,8 @@ warnings.filterwarnings(
 )
 os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TQDM_DISABLE", "1")
 
 
 # Apply at import time — pipeline/core/logging may have already called
@@ -314,13 +316,13 @@ class VideoKnowledge:
         self.duration_sec = duration_sec
         self.frame_count  = frame_count
 
-        # Gemma-derived domain knowledge (step J)
+        # Gemma-derived domain knowledge (step 03)
         self.scene_type: str       = ""   # dominant zero-shot category
         self.n_transitions: int    = 0
         self.n_clusters: int       = 0
         self.gemma_mnn_dino: float = 0.0
 
-        # Per-frame outputs keyed by t_sec (steps L, M, N, O, P)
+        # Per-frame outputs keyed by t_sec (steps 04, 05, 06, 07, 08)
         self._captions:   Dict[float, str]        = {}  # Florence caption text
         self._asr:        Dict[float, str]         = {}  # ASR subtitle text
         self._ocr:        Dict[float, str]         = {}  # OCR visible text
@@ -334,7 +336,7 @@ class VideoKnowledge:
         self._ts_detections: List[float] = []
         self._ts_state_fusion: List[float] = []
 
-        # Scene segments from caption analysis (step L enrichment)
+        # Scene segments from caption analysis (step 04 enrichment)
         self._segments: List[Dict[str, Any]] = []
 
         # Entity inventory: all distinct labels seen across all frames
@@ -346,7 +348,7 @@ class VideoKnowledge:
     # ── Deposit methods ───────────────────────────────────────────────────────
 
     def add_gemma(self, task_results: Dict[str, Any], mnn_dino: float = 0.0) -> None:
-        """Deposit Gemma analysis results (step J)."""
+        """Deposit Gemma analysis results (step 03)."""
         clf = task_results.get("scene_classification", {})
         if clf.get("category_distribution"):
             self.scene_type = next(iter(clf["category_distribution"]), "")
@@ -357,7 +359,7 @@ class VideoKnowledge:
         self.gemma_mnn_dino = mnn_dino
 
     def add_captions(self, caption_results: List[Dict[str, Any]]) -> None:
-        """Deposit Florence per-frame captions (step L) and derive segments."""
+        """Deposit Florence per-frame captions (step 04) and derive segments."""
         self._captions   = {r["t_sec"]: r.get("caption") or "" for r in caption_results if "t_sec" in r}
         self._ts_captions = sorted(self._captions)
         # Re-use existing segment analysis
@@ -373,21 +375,21 @@ class VideoKnowledge:
         self._segments = [seg_map[k] for k in sorted(seg_map)]
 
     def add_asr(self, subtitle_map: Dict[float, str]) -> None:
-        """Deposit ASR subtitle map (step M)."""
+        """Deposit ASR subtitle map (step 05)."""
         self._asr = {float(k): v for k, v in subtitle_map.items() if v}
 
     def add_ocr(self, ocr_results: List[Dict[str, Any]]) -> None:
-        """Deposit OCR per-frame results (step N)."""
+        """Deposit OCR per-frame results (step 06)."""
         self._ocr = {r["t_sec"]: r["ocr_text"] for r in ocr_results
                      if r.get("ocr_text") and "t_sec" in r}
 
     def add_depth(self, depth_results: List[Dict[str, Any]]) -> None:
-        """Deposit depth estimation per-frame results (step O)."""
+        """Deposit depth estimation per-frame results (step 07)."""
         self._depth = {r["t_sec"]: r for r in depth_results if "t_sec" in r}
         self._ts_depth = sorted(self._depth)
 
     def add_detections(self, detection_results: List[Dict[str, Any]]) -> None:
-        """Deposit object detection per-frame results (step P)."""
+        """Deposit object detection per-frame results (step 08)."""
         entity_set: set = set()
         for r in detection_results:
             t = r.get("t_sec")

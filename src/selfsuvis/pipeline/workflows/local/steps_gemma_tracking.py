@@ -1,4 +1,4 @@
-"""Demo step P3: Gemma 4 directed tracking — SAM segmentation guided by Gemma scene
+"""Step 10: Gemma 4 directed tracking — SAM segmentation guided by Gemma scene
 understanding, followed by RF-DETR multi-frame tracking.
 
 Flow:
@@ -69,6 +69,17 @@ _TRACKING_TARGET_CANONICAL = {
     },
     "sign": {"sign", "stop sign", "traffic light", "traffic sign"},
 }
+
+_VALID_SCENE_TYPES = frozenset({
+    "urban_street",
+    "rural_terrain",
+    "indoor",
+    "aerial",
+    "waterway",
+    "construction",
+    "industrial",
+    "other",
+})
 
 
 # ── Gemma structured scene analysis ───────────────────────────────────────────
@@ -198,12 +209,12 @@ def _gemma_structured_scene_analysis(
             per_frame_responses.append(parsed)
             elapsed = time.time() - t_req
             if elapsed >= float(settings.GEMMA_SLOW_CALL_SEC):
-                _log.info("  [P3/Gemma] slow structured frame call: %.1fs for %s", elapsed, Path(fp).name)
+                _log.info("  [Step10/Gemma] slow structured frame call: %.1fs for %s", elapsed, Path(fp).name)
             if cache_key:
                 cache[cache_key] = {"parsed_json": parsed, "elapsed_sec": round(elapsed, 3)}
         except Exception as exc:
             n_failed += 1
-            _log.debug("  [P3/Gemma] frame analysis failed: %s", exc)
+            _log.debug("  [Step10/Gemma] frame analysis failed: %s", exc)
     if cache_path is not None:
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -213,7 +224,7 @@ def _gemma_structured_scene_analysis(
 
     if not per_frame_responses:
         _log.warning(
-            "  [P3/Gemma] No structured responses received (%d/%d frames failed) — "
+            "  [Step10/Gemma] No structured responses received (%d/%d frames failed) — "
             "using empty scene.  Check that the model supports vision inputs.",
             n_failed, len(sampled),
         )
@@ -312,15 +323,42 @@ def _empty_scene() -> Dict[str, Any]:
     }
 
 
+def _valid_scene_type(scene_type: Any) -> bool:
+    value = str(scene_type or "").strip().lower()
+    if not value or value not in _VALID_SCENE_TYPES:
+        return False
+    # Reject schema placeholders copied verbatim from prompts.
+    return "|" not in value and "<" not in value and "one of" not in value
+
+
+def _valid_gemma_object(obj: Any) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    category = str(obj.get("category") or "").strip().lower()
+    if not category or any(token in category for token in ("<", ">", "|", "e.g.")):
+        return False
+    bbox = obj.get("rough_bbox")
+    if not isinstance(bbox, list) or len(bbox) != 4:
+        return False
+    try:
+        x1, y1, x2, y2 = [float(v) for v in bbox]
+    except Exception:
+        return False
+    return 0.0 <= x1 < x2 <= 1.0 and 0.0 <= y1 < y2 <= 1.0
+
+
 def _scene_is_actionable(scene: Optional[Dict[str, Any]]) -> bool:
     """Return True when a precomputed scene contains usable tracking targets."""
     if not scene:
         return False
+    if not _valid_scene_type(scene.get("scene_type")):
+        return False
+    valid_objects = [obj for obj in scene.get("dominant_objects", []) if _valid_gemma_object(obj)]
     tracking_targets = _normalise_tracking_targets(
         scene.get("tracking_priority", []),
-        scene.get("dominant_objects", []),
+        valid_objects,
     )
-    return bool(tracking_targets)
+    return bool(tracking_targets and valid_objects)
 
 
 def _aggregate_scene_responses(responses: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -333,11 +371,13 @@ def _aggregate_scene_responses(responses: List[Dict[str, Any]]) -> Dict[str, Any
     areas: List[str] = []
 
     for r in responses:
-        st = r.get("scene_type", "other")
-        if st:
+        st = str(r.get("scene_type", "other") or "").strip().lower()
+        if _valid_scene_type(st):
             scene_types.append(st)
 
         for obj in r.get("dominant_objects", []):
+            if not _valid_gemma_object(obj):
+                continue
             cat = (obj.get("category") or "").strip().lower()
             if not cat:
                 continue
@@ -480,7 +520,7 @@ def _get_sam_auto_masks(
                 for m in masks
             ]
     except Exception as exc:
-        _log.debug("  [P3/SAM] Auto-mask generator unavailable (%s); using grid fallback", exc)
+        _log.debug("  [Step10/SAM] Auto-mask generator unavailable (%s); using grid fallback", exc)
 
     # Grid fallback: 4×4 evenly-spaced boxes (5% of image per side)
     grid_bboxes: List[Tuple[float, float, float, float]] = []
@@ -537,7 +577,7 @@ def _clip_filter_sam_masks(
     try:
         text_embeds = clip_model.encode_texts(target_categories)   # (C, dim)
     except Exception as exc:
-        _log.debug("  [P3/CLIP] text encoding failed: %s", exc)
+        _log.debug("  [Step10/CLIP] text encoding failed: %s", exc)
         return []
 
     w_img, h_img = image.size
@@ -564,7 +604,7 @@ def _clip_filter_sam_masks(
             crops.append(crop)
             valid_indices.append(i)
         except Exception as exc:
-            _log.debug("  [P3/CLIP] mask crop extraction failed: %s", exc)
+            _log.debug("  [Step10/CLIP] mask crop extraction failed: %s", exc)
 
     if not crops:
         return []
@@ -573,7 +613,7 @@ def _clip_filter_sam_masks(
     try:
         img_embeds = clip_model.encode_images(crops)   # (N, dim)
     except Exception as exc:
-        _log.debug("  [P3/CLIP] batch image encoding failed: %s", exc)
+        _log.debug("  [Step10/CLIP] batch image encoding failed: %s", exc)
         return []
 
     # ── Pass 3: score and filter ───────────────────────────────────────────────
@@ -652,7 +692,7 @@ def _sam_directed_by_gemma(
                     "matched_category": cat,
                 })
         except Exception as exc:
-            _log.debug("  [P3/SAM] Path A box-prompt failed: %s", exc)
+            _log.debug("  [Step10/SAM] Path A box-prompt failed: %s", exc)
 
     # ── Path B: auto-mask + CLIP filtering ────────────────────────────────────
     # Pure fallback: only runs when Path A produced no masks at all.
@@ -687,7 +727,7 @@ def _sam_directed_by_gemma(
                         "matched_category": fm.get("matched_category", "unknown"),
                     })
         except Exception as exc:
-            _log.debug("  [P3/SAM] Path B auto-mask failed: %s", exc)
+            _log.debug("  [Step10/SAM] Path B auto-mask failed: %s", exc)
 
     return results
 
@@ -793,7 +833,7 @@ def step_gemma_directed_tracking(
     gemma_api_model: str,
     precomputed_scene: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Step P3: Gemma 4 directed tracking (SAM segmentation + RF-DETR tracking).
+    """Step 10: Gemma 4 directed tracking (SAM segmentation + RF-DETR tracking).
 
     Args:
         frame_list:       List of (frame_path, t_sec) from the extraction step.
@@ -831,7 +871,7 @@ def step_gemma_directed_tracking(
     )
     if _scene_is_actionable(precomputed_scene):
         gemma_scene = precomputed_scene
-        _log.info("Using precomputed Gemma structured scene from step J")
+        _log.info("Using precomputed Gemma structured scene from step 03")
     else:
         if precomputed_scene:
             _log.info("Precomputed Gemma scene was too weak for tracking; re-running structured vision analysis")
@@ -922,6 +962,18 @@ def step_gemma_directed_tracking(
         )
 
     # ── Sub-step 3: RF-DETR tracking ──────────────────────────────────────────
+    # Release SAM before loading RF-DETR — SAM holds ~10 GiB which leaves no
+    # room for RF-DETR on 12 GiB cards.  SAM is finished at this point.
+    if sam_predictor is not None:
+        sam_predictor.release()
+        sam_predictor = None
+        try:
+            import torch as _t
+            if _t.cuda.is_available():
+                _t.cuda.empty_cache()
+        except Exception:
+            pass
+
     n_avail = len(frame_list)
     track_step = max(1, n_avail // _MAX_TRACKING_FRAMES)
     track_frames = frame_list[::track_step][:_MAX_TRACKING_FRAMES]
@@ -938,9 +990,10 @@ def step_gemma_directed_tracking(
             "RF-DETR tracking (%s) on %d/%d frames, target_labels=%s",
             tracker.model_id, n_track, n_avail, tracking_targets or "(all)",
         )
+        effective_tracking_targets: Optional[List[str]] = list(tracking_targets) if tracking_targets else None
         tracking_results = tracker.track_sequence(
             track_frames,
-            target_labels=tracking_targets or None,
+            target_labels=effective_tracking_targets,
         )
         filter_retry_mode = "none"
         if tracking_targets:
@@ -954,6 +1007,7 @@ def step_gemma_directed_tracking(
                         reduced_targets,
                     )
                     tracking_results = tracker.track_sequence(track_frames, target_labels=reduced_targets)
+                    effective_tracking_targets = list(reduced_targets)
                     filter_retry_mode = "reduced"
                 second_pass_total = sum(len(frame_res.get("detections", [])) for frame_res in tracking_results)
                 if second_pass_total == 0:
@@ -962,6 +1016,7 @@ def step_gemma_directed_tracking(
                         tracking_targets,
                     )
                     tracking_results = tracker.track_sequence(track_frames, target_labels=None)
+                    effective_tracking_targets = None
                     filter_retry_mode = "unfiltered"
         # Collect stats
         all_track_ids: set = set()
@@ -986,6 +1041,7 @@ def step_gemma_directed_tracking(
             for fp, t in track_frames
         ]
         filter_retry_mode = "none"
+        effective_tracking_targets = None
         mean_track_len = 0.0
         median_track_len = 0.0
 
@@ -1019,7 +1075,7 @@ def step_gemma_directed_tracking(
         "gemma_model": gemma_api_model,
         "gemma_scene_type": scene_type,
         "tracking_priority": tracking_priority,
-        "tracking_targets_effective": tracking_targets,
+        "tracking_targets_effective": effective_tracking_targets or [],
         "tracking_filter_retry_mode": filter_retry_mode,
         "dominant_objects": [
             {k: v for k, v in o.items() if k != "rough_bbox"}
@@ -1060,10 +1116,11 @@ def step_gemma_directed_tracking(
         elapsed_sec=elapsed,
     )
 
-    # Release models
+    # Release models (sam_predictor already released before RF-DETR load)
     tracker.release()
     if sam_predictor is not None:
         sam_predictor.release()
+        sam_predictor = None
 
     result.update({
         "skipped":           False,
@@ -1078,6 +1135,9 @@ def step_gemma_directed_tracking(
         "summary_md_path":   str(summary_path),
         "sam_enabled":       sam_available,
         "annotated_count":   len(annotated_paths),
+        "tracking_results":  tracking_results,
+        "tracking_targets_effective": effective_tracking_targets or [],
+        "tracking_filter_retry_mode": filter_retry_mode,
     })
     return result
 

@@ -57,6 +57,10 @@ This gives you:
 - embedding PCA and similarity plots
 - training charts
 - an HTML report with warnings and artifact inventory
+- a diagnostics block with modality completeness, quality score, fragmentation, map coverage, temporal surprise dispersion, and adaptation efficiency
+
+For the equations behind those diagnostics, read
+[Local analytics math and methodology](14_local_analytics_math_methodology.md).
 
 ## Questions To Ask Per Artifact Family
 
@@ -72,11 +76,13 @@ This gives you:
 - Do YOLO counts match what you can visually verify in annotated frames?
 - Did Gemma tracking produce track IDs, or only SAM masks?
 - Are zero detections a model problem or a label-vocabulary problem?
+- Is `tracking_fragmentation = unique_track_ids / total_detections` high enough to suggest broken temporal identity?
 
 ### Temporal artifacts
 
 - Do RSSM surprise peaks align with visible state changes?
 - If surprise is high everywhere, is the embedder unstable or the scene genuinely dynamic?
+- Do surprise peaks overlap with detections, or are they driven by camera motion, blur, or model noise?
 
 ### Adaptation artifacts
 
@@ -88,6 +94,7 @@ This gives you:
 
 - Does `3d_map/map_stats.json` show real poses and points?
 - Is the Gaussian splat viewable, or was only a placeholder file written?
+- Is pose coverage high enough for the video length, and are there enough points per pose?
 
 ## Code Traceback Map
 

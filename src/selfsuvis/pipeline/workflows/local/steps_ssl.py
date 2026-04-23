@@ -219,7 +219,7 @@ def step_ssl_finetune(
     epochs: int,
     batch_size: int,
 ) -> Dict[str, Any]:
-    """Step D: SSL DINOv3 fine-tuning, write finetune_stats.md."""
+    """Step 16: SSL DINOv3 fine-tuning, write finetune_stats.md."""
     from .steps_report import write_finetune_stats_md
 
     out_md   = video_dir / "finetune_stats.md"

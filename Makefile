@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs
+.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs
 
 # Default target: show help when no target is given
 help:
@@ -21,9 +21,10 @@ help:
 	@echo "  -----------------"
 	@echo "  make env             Generate repo-root .env (auto-detects GPU/RAM, picks models)"
 	@echo "  make env-interactive Generate .env with interactive prompts (profile, sidecars, models)"
-	@echo "  make venv            Create .venv and install deps; if .venv exists, prompts to recreate or update"
-	@echo "  make venv-cuda       Same as venv but forces CUDA wheel install (use if nvidia-smi is absent but GPU present)"
-	@echo "  make venv-pip        Install pip into an existing .venv (e.g. after uv venv .venv)"
+	@echo "  make venv                    Create .venv and install deps; if .venv exists, prompts to recreate or update"
+	@echo "  make venv-cuda               Same as venv but forces CUDA wheel install (use if nvidia-smi is absent but GPU present)"
+	@echo "  make venv-pip                Install pip into an existing .venv (e.g. after uv venv .venv)"
+	@echo "  make venv-rebuild-xformers   Rebuild xformers from source for all GPU arches (RTX 3000/4000/5000, Blackwell)"
 	@echo ""
 	@echo "  Tests"
 	@echo "  -----"
@@ -102,6 +103,19 @@ venv-cuda:
 	uv venv .venv
 	./scripts/ensure_venv_pip.sh .venv
 	FORCE_CUDA=1 ./scripts/install_requirements.sh vision,dev .venv
+
+# Rebuild xformers from source for all common GPU architectures
+# (Turing 7.5, Ampere 8.0/8.6, Ada/RTX-4060 8.9, Hopper 9.0, Blackwell 12.0+PTX).
+# Run when python -m xformers.info shows your GPU arch as unavailable.
+# Expected build time: 20-60 min.
+venv-rebuild-xformers:
+	@echo "Rebuilding xformers from source (20-60 min)..."
+	@./scripts/ensure_venv_pip.sh .venv
+	TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0;12.0+PTX" \
+	MAX_JOBS=$$(( ($$(nproc) - 2) / 2 < 1 ? 1 : ($$(nproc) - 2) / 2 )) \
+	.venv/bin/python -m pip install xformers \
+	  --no-build-isolation --no-deps --no-binary xformers --force-reinstall --no-cache-dir
+	@echo "Done. Verify:  .venv/bin/python -m xformers.info"
 
 # Install pip into existing .venv (when uv created it without pip)
 venv-pip:

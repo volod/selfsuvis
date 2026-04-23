@@ -68,12 +68,19 @@ def run(args: argparse.Namespace) -> None:
     print(f"  Domain    : {summary.domain or '—'}")
     print(f"  Category  : {summary.top_category or '—'}")
     print(f"  Artifacts : {summary.artifact_inventory.total_files} files")
+    print(
+        f"  Quality   : {summary.diagnostics.quality_score:.1f}/100  "
+        f"(modality {100.0 * summary.diagnostics.modality_completeness:.0f}%)"
+    )
     if summary.detection_stats:
         ds = summary.detection_stats
         print(f"  Detections: {ds.total_objects} objects  (mean {ds.mean_per_frame:.1f}/frame)")
     if summary.temporal_stats:
         ts = summary.temporal_stats
-        print(f"  Surprise  : mean={ts.mean_surprise:.3f}  peaks={len(ts.peak_frames)}")
+        print(
+            f"  Surprise  : mean={ts.mean_surprise:.3f}  "
+            f"std={summary.diagnostics.surprise_std:.3f}  peaks={len(ts.peak_frames)}"
+        )
     if summary.training_stats:
         tr = summary.training_stats
         print(f"  SSL loss  : {tr.ssl_best_loss:.4f}  |  distill R@1={tr.distill_best_r1:.3f}")
@@ -123,6 +130,13 @@ def run(args: argparse.Namespace) -> None:
             "domain": summary.domain,
             "top_category": summary.top_category,
             "artifact_count": summary.artifact_inventory.total_files,
+            "diagnostics": {
+                "quality_score": summary.diagnostics.quality_score,
+                "modality_completeness": summary.diagnostics.modality_completeness,
+                "tracking_fragmentation": summary.diagnostics.tracking_fragmentation,
+                "map_pose_coverage": summary.diagnostics.map_pose_coverage,
+                "adaptation_efficiency": summary.diagnostics.adaptation_efficiency,
+            },
             "warnings": summary.run_health.warnings,
             "has_3d_map": summary.has_3d_map,
             "has_edge_model": summary.has_edge_model,

@@ -18,6 +18,7 @@ Recommended reading order:
 6. [Adaptation and audit, Steps 28-35](learning_path/05_adaptation_eval_steps_28_35.md)
 7. [Agentic knowledge flow](learning_path/06_agentic_knowledge_flow.md)
 8. [Local run artifact analysis](learning_path/08_local_run_artifact_analysis.md)
+9. [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md)
 
 If you were sent here by an older script or document, use this page as the compatibility entry point.
 
@@ -46,3 +47,4 @@ Deep dives:
 After completing your first local run, use the analytics toolkit to inspect results:
 
 - [Analytics & Visualization guide](analytics.md) — charts, HTML report, Python API
+- [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md) — derived metrics, equations, and interpretation rules

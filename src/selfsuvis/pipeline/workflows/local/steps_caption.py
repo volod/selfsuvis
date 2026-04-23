@@ -30,6 +30,17 @@ _RUNTIME_TELEMETRY: Dict[str, float] = {
     "restore_failures": 0.0,
 }
 
+_STRUCTURED_SCENE_TYPES = frozenset({
+    "urban_street",
+    "rural_terrain",
+    "indoor",
+    "aerial",
+    "waterway",
+    "construction",
+    "industrial",
+    "other",
+})
+
 try:
     from selfsuvis.models.dino_model import DINOEmbedder
     _HAS_DINO = True
@@ -805,7 +816,7 @@ def _unload_ollama_model(api_url: str, model: str) -> bool:
 
     Typical VRAM freed: ~11–12 GiB for a 7B-param model, giving Florence-2
     (~1.5 GiB FP16) plenty of room to load locally.  Ollama auto-reloads the
-    model on the next inference request (step R), so no explicit warmup needed.
+    model on the next inference request (step 12), so no explicit warmup needed.
     """
     try:
         import httpx
@@ -943,11 +954,73 @@ def _summarise_gemma_captions_to_structured_scene(
     model: str,
     timeout: float,
 ) -> Dict[str, Any]:
-    """Use one text-only call to derive a structured scene summary from step J descriptions."""
+    """Use one text-only call to derive a structured scene summary from step 03 descriptions."""
+    def _empty_structured_scene() -> Dict[str, Any]:
+        return {
+            "scene_type": "other",
+            "dominant_objects": [],
+            "areas_of_interest": [],
+            "motion_present": False,
+            "tracking_priority": [],
+        }
+
+    def _clean_structured_scene(parsed: Dict[str, Any]) -> Dict[str, Any]:
+        scene_type = str(parsed.get("scene_type") or "").strip().lower()
+        if scene_type not in _STRUCTURED_SCENE_TYPES or "|" in scene_type or "<" in scene_type:
+            return _empty_structured_scene()
+
+        clean_objects: List[Dict[str, Any]] = []
+        for obj in parsed.get("dominant_objects", []):
+            if not isinstance(obj, dict):
+                continue
+            category = str(obj.get("category") or "").strip().lower()
+            if not category or any(token in category for token in ("<", ">", "|", "e.g.")):
+                continue
+            bbox = obj.get("rough_bbox")
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+            try:
+                x1, y1, x2, y2 = [float(v) for v in bbox]
+            except Exception:
+                continue
+            if not (0.0 <= x1 < x2 <= 1.0 and 0.0 <= y1 < y2 <= 1.0):
+                continue
+            try:
+                count_estimate = int(float(obj.get("count_estimate") or 1))
+            except Exception:
+                count_estimate = 1
+            clean_objects.append(
+                {
+                    "category": category,
+                    "count_estimate": count_estimate,
+                    "spatial_hint": str(obj.get("spatial_hint") or "").strip(),
+                    "rough_bbox": [x1, y1, x2, y2],
+                }
+            )
+
+        priorities = []
+        for item in parsed.get("tracking_priority", []):
+            label = str(item or "").strip().lower()
+            if label and not any(token in label for token in ("<", ">", "|")):
+                priorities.append(label)
+
+        areas = [
+            str(item).strip()
+            for item in parsed.get("areas_of_interest", [])
+            if str(item or "").strip()
+        ][:3]
+        return {
+            "scene_type": scene_type,
+            "dominant_objects": clean_objects,
+            "areas_of_interest": areas,
+            "motion_present": bool(parsed.get("motion_present", False)),
+            "tracking_priority": priorities[:5],
+        }
+
     try:
         import httpx
     except ImportError:
-        return {"scene_type": "other", "dominant_objects": [], "areas_of_interest": [], "motion_present": False, "tracking_priority": []}
+        return _empty_structured_scene()
 
     description_lines = [
         f"- t={float(item.get('t_sec', 0.0)):.1f}s: {str(item.get('description', '') or '').strip()}"
@@ -955,12 +1028,15 @@ def _summarise_gemma_captions_to_structured_scene(
         if str(item.get("description", "") or "").strip()
     ]
     if not description_lines:
-        return {"scene_type": "other", "dominant_objects": [], "areas_of_interest": [], "motion_present": False, "tracking_priority": []}
+        return _empty_structured_scene()
     prompt = (
         "You are converting frame descriptions into structured scene JSON for object tracking.\n"
-        "Return ONLY valid JSON with this schema:\n"
+        "Return ONLY valid JSON. For scene_type, choose exactly one value from "
+        "urban_street, rural_terrain, indoor, aerial, waterway, construction, industrial, other. "
+        "Do not copy the list as a pipe-separated string.\n"
+        "Use this schema shape:\n"
         "{"
-        "\"scene_type\":\"urban_street|rural_terrain|indoor|aerial|waterway|construction|industrial|other\","
+        "\"scene_type\":\"aerial\","
         "\"dominant_objects\":[{\"category\":\"vehicle\",\"count_estimate\":1,\"spatial_hint\":\"center\",\"rough_bbox\":[0.1,0.1,0.9,0.9]}],"
         "\"areas_of_interest\":[\"...\"],"
         "\"motion_present\":true,"
@@ -1000,10 +1076,10 @@ def _summarise_gemma_captions_to_structured_scene(
     try:
         parsed = json.loads(content.strip())
         if isinstance(parsed, dict):
-            return parsed
+            return _clean_structured_scene(parsed)
     except Exception:
         pass
-    return {"scene_type": "other", "dominant_objects": [], "areas_of_interest": [], "motion_present": False, "tracking_priority": []}
+    return _empty_structured_scene()
 
 
 def step_gemma_analysis(
@@ -1016,7 +1092,7 @@ def step_gemma_analysis(
     gemma_api_url: str = "",
     gemma_api_model: str = "",
 ) -> Dict[str, Any]:
-    """Step J: Gemma open-weight multimodal video analysis.
+    """Step 03: Gemma open-weight multimodal video analysis.
 
     Uses the local GemmaEmbedder for embedding-based analysis and, when a
     Gemma Ollama/vLLM sidecar is configured (GEMMA_API_URL), also runs
@@ -1598,7 +1674,7 @@ def step_scene_captioning(
     florence_model: str = "",
     domain_hint: str = "",
 ) -> Dict[str, Any]:
-    """Step L: Florence-2 scene captioning with memory management and API support.
+    """Step 04: Florence-2 scene captioning with memory management and API support.
 
     Memory strategy (CUDA only):
       1. If ``florence_api_url`` is set: call Florence-2 via vLLM API — no local
@@ -1608,7 +1684,7 @@ def step_scene_captioning(
          a. Offload CLIP+DINO to CPU to free ~1.7 GiB.
          b. If ``qwen_api_url`` looks like Ollama (port 11434): send keep_alive=0
             to evict the VLM (~11-12 GiB freed), giving Florence plenty of room.
-            Ollama auto-reloads on the next request (step R).
+            Ollama auto-reloads on the next request (step 12).
          c. If Florence still OOMs and ``qwen_api_url`` + ``qwen_model`` are set:
             fall back to Qwen API captioning.
     """
@@ -1620,7 +1696,7 @@ def step_scene_captioning(
     if effective_florence_api_url:
         _log.info("  Florence-2 via vLLM API at %s", effective_florence_api_url)
         _log_vram_snapshot("before Florence API captioning")
-        # Offload CLIP+DINO while API captions run (they aren't needed until step C)
+        # Offload CLIP+DINO while API captions run (they aren't needed until step 14)
         if models and device == "cuda":
             _offload_models_to_cpu(models)
         result = _caption_via_florence_api(
@@ -1647,7 +1723,7 @@ def step_scene_captioning(
     if device == "cuda":
         if qwen_api_url and qwen_model:
             _unload_ollama_model(qwen_api_url, qwen_model)
-        # Also unload Gemma sidecar if configured (may still be resident from step J)
+        # Also unload Gemma sidecar if configured (may still be resident from step 03)
         _gemma_url_cap = settings.GEMMA_API_URL
         _gemma_model_cap = settings.GEMMA_API_MODEL
         if _gemma_url_cap and _gemma_model_cap and _gemma_model_cap != qwen_model:
@@ -1683,20 +1759,40 @@ def step_scene_captioning(
     florence_runtime_mode = florence.runtime_mode
     florence_model_tag = florence.model_tag
     batch_size = settings.FLORENCE_BATCH_SIZE
+    _florence_oom = False
     for batch_start in range(0, len(frame_list), batch_size):
         batch = frame_list[batch_start : batch_start + batch_size]
-        pil_images = []
-        for fp, _t in batch:
+        if _florence_oom:
+            captions_and_confs: List[Tuple[str, float]] = [("", 0.5)] * len(batch)
+        else:
+            pil_images = []
+            for fp, _t in batch:
+                try:
+                    pil_images.append(Image.open(fp).convert("RGB"))
+                except Exception:
+                    pil_images.append(Image.new("RGB", (224, 224)))
             try:
-                pil_images.append(Image.open(fp).convert("RGB"))
-            except Exception:
-                pil_images.append(Image.new("RGB", (224, 224)))
-        try:
-            captions_and_confs = florence.caption_batch(pil_images)
-            florence_runtime_mode = florence.runtime_mode
-        except Exception as exc:
-            _log.warning("  Florence batch %d failed: %s", batch_start, exc, exc_info=True)
-            captions_and_confs = [("", 0.5)] * len(batch)
+                captions_and_confs = florence.caption_batch(pil_images)
+                florence_runtime_mode = florence.runtime_mode
+            except Exception as exc:
+                from selfsuvis.pipeline.core.gpu_utils import is_cuda_oom, log_oom_banner
+                if is_cuda_oom(exc):
+                    remaining = len(frame_list) - batch_start
+                    log_oom_banner(
+                        _log, "Florence-2 caption_batch",
+                        f"batch_start={batch_start}, releasing model, "
+                        f"{remaining} frames will get empty captions",
+                    )
+                    try:
+                        import torch as _t
+                        _t.cuda.empty_cache()
+                        florence.release()
+                    except Exception:
+                        pass
+                    _florence_oom = True
+                else:
+                    _log.warning("  Florence batch %d failed: %s", batch_start, exc, exc_info=True)
+                captions_and_confs = [("", 0.5)] * len(batch)
         for (fp, t_sec), (cap, conf) in zip(batch, captions_and_confs):
             caption_results.append({"frame_path": fp, "t_sec": t_sec,
                                     "caption": cap, "caption_confidence": conf})
@@ -1735,7 +1831,7 @@ def step_qwen_captioning(
     clip_prescreen_fn=None,
     knowledge: Optional["VideoKnowledge"] = None,
 ) -> Dict[str, Any]:
-    """Step R: Qwen VLM detailed scene captioning with full agentic context.
+    """Step 12: Qwen VLM detailed scene captioning with full agentic context.
 
     When *knowledge* is provided, each frame's prompt is enriched with all
     prior observations: Florence caption, depth profile, detected objects,
@@ -1832,7 +1928,7 @@ def step_unidrive_analysis(
     ocr_results: List[Dict[str, Any]],
     knowledge: Optional["VideoKnowledge"] = None,
 ) -> Dict[str, Any]:
-    """Step S: UniDriveVLA expert analysis on a sparse frame sample."""
+    """Step 13: UniDriveVLA expert analysis on a sparse frame sample."""
     from .steps_report import write_unidrive_analysis_md
 
     out_md = video_dir / "unidrive_analysis.md"
@@ -1908,7 +2004,7 @@ def step_asr_transcription(
     video_name: str,
     video_dir: Path,
 ) -> Dict[str, Any]:
-    """Step M: extract audio, run Whisper ASR."""
+    """Step 05: extract audio, run Whisper ASR."""
     from datetime import datetime
     from ._common import _RUNNER_LABEL
 
@@ -1961,7 +2057,7 @@ def step_asr_transcription(
         end = float(ts[1]) if len(ts) > 1 and ts[1] is not None else start
         text = seg.get("text", "").strip().replace("|", "\\|")
         lines.append(f"| {start:.2f} | {end:.2f} | {text} |")
-    lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · ASR step M*"]
+    lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · ASR step 05*"]
     out_md.write_text("\n".join(lines), encoding="utf-8")
     result.update({"skipped": False, "subtitle_map": subtitle_map,
                    "segments": segments, "elapsed_sec": elapsed, "covered_frames": covered})
@@ -1974,7 +2070,7 @@ def step_ocr_extraction(
     video_dir: Path,
     caption_results: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Step N: visible text extraction per frame."""
+    """Step 06: visible text extraction per frame."""
     result: Dict[str, Any] = {"skipped": True, "ocr_results": []}
     try:
         from selfsuvis.pipeline.vision.ocr import OCRModel
@@ -2081,7 +2177,7 @@ def step_depth_estimation(
     video_name: str,
     video_dir: Path,
 ) -> Dict[str, Any]:
-    """Step O: depth estimation per frame."""
+    """Step 07: depth estimation per frame."""
     result: Dict[str, Any] = {"skipped": True, "depth_results": []}
     try:
         from selfsuvis.pipeline.vision.depth import DepthModel
@@ -2123,7 +2219,7 @@ def step_object_detection(
     video_name: str,
     video_dir: Path,
 ) -> Dict[str, Any]:
-    """Step P: object detection per frame."""
+    """Step 08: object detection per frame."""
     result: Dict[str, Any] = {"skipped": True, "detection_results": []}
     try:
         from selfsuvis.pipeline.vision.detection import DetectionModel
@@ -2168,7 +2264,7 @@ def step_world_model_pass(
     video_dir: Path,
     models: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Step Q: world model video embeddings + RSSM temporal surprise scoring.
+    """Step 11: world model video embeddings + RSSM temporal surprise scoring.
 
     Two sub-steps run sequentially:
 

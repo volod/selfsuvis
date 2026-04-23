@@ -26,6 +26,7 @@ They are written to answer:
 | [06_agentic_knowledge_flow.md](06_agentic_knowledge_flow.md) | `VideoKnowledge` structure, evidence accumulation, context reuse, contamination risks, and debugging strategy |
 | [07_day_by_day_syllabus.md](07_day_by_day_syllabus.md) | Multi-week human study plan with prerequisites, exercises, checkpoints, and milestones |
 | [08_local_run_artifact_analysis.md](08_local_run_artifact_analysis.md) | How to inspect a completed run, detect silent failures, and connect artifacts back to code |
+| [14_local_analytics_math_methodology.md](14_local_analytics_math_methodology.md) | The math and interpretation rules behind local-run diagnostics |
 | [09_sensor_fusion_fundamentals.md](09_sensor_fusion_fundamentals.md) | Knowledge session on clocks, calibration, uncertainty, contradiction handling, and what fusion means in the current `selfsuvis` architecture |
 | [10_probabilistic_state_fusion_requirements.md](10_probabilistic_state_fusion_requirements.md) | Requirements for probabilistic state fusion, with implementation status for each requirement |
 | [11_probabilistic_state_fusion_architecture.md](11_probabilistic_state_fusion_architecture.md) | Actual subsystem architecture: package layout, data flow, layer responsibilities, configuration, degradation modes |
@@ -104,6 +105,7 @@ Supporting sessions:
 - [Probabilistic state fusion architecture](11_probabilistic_state_fusion_architecture.md): package layout, data flow, degradation modes
 - [Probabilistic state fusion implementation order](12_probabilistic_state_fusion_implementation_order.md): delivery status, gaps, validation sequence
 - [**Probabilistic fusion deep dive**](13_probabilistic_fusion_deep_dive.md): full math, worked example, artifact reading guide
+- [**Local analytics math and methodology**](14_local_analytics_math_methodology.md): diagnostic equations, quality scoring, and failure interpretation
 
 ## Related Repo Docs
 
