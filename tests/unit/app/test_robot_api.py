@@ -41,11 +41,18 @@ def _make_qdrant_hit(lat, lon, mission_id="m1", t_sec=10.0, score=0.9):
     return hit
 
 
+def _query_response(hits: list) -> MagicMock:
+    """Wrap a list of hits in a QueryResponse-like mock (has .points)."""
+    resp = MagicMock()
+    resp.points = hits
+    return resp
+
+
 def _mock_qdrant(hits: list):
-    """Return a mock qdrant_store.client.search that yields the given hits."""
+    """Return a mock qdrant_store whose client.query_points yields the given hits."""
     mock_store = MagicMock()
     mock_store.collection_name = "test_collection"
-    mock_store.client.search.return_value = hits
+    mock_store.client.query_points.return_value = _query_response(hits)
     return mock_store
 
 
@@ -81,7 +88,7 @@ def test_pose_query_returns_results(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
     hits = [_make_qdrant_hit(48.0001, 11.0001), _make_qdrant_hit(48.0002, 11.0002)]
-    mock_qdrant_store.client.search.return_value = hits
+    mock_qdrant_store.client.query_points.return_value = _query_response(hits)
 
     resp = _client.post(
         "/query/pose",
@@ -99,7 +106,7 @@ def test_pose_query_returns_results(mock_clip, mock_qdrant_store):
 def test_pose_query_response_schema(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = [_make_qdrant_hit(48.0001, 11.0001)]
+    mock_qdrant_store.client.query_points.return_value = _query_response([_make_qdrant_hit(48.0001, 11.0001)])
 
     resp = _client.post(
         "/query/pose",
@@ -120,7 +127,7 @@ def test_pose_query_1d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch
     monkeypatch.setattr(config.settings, "GPS_FILTER_2D", False)
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = []
+    mock_qdrant_store.client.query_points.return_value = _query_response([])
 
     resp = _client.post(
         "/query/pose",
@@ -138,7 +145,7 @@ def test_pose_query_2d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch
     monkeypatch.setattr(config.settings, "GPS_FILTER_2D", True)
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = []
+    mock_qdrant_store.client.query_points.return_value = _query_response([])
 
     resp = _client.post(
         "/query/pose",
@@ -161,7 +168,7 @@ def test_pose_query_python_lon_postfilter(mock_clip, mock_qdrant_store, monkeypa
     # One hit inside bbox, one far outside (lon=99)
     inside = _make_qdrant_hit(48.0001, 11.0001)
     outside = _make_qdrant_hit(48.0001, 99.0)  # far outside lon bbox
-    mock_qdrant_store.client.search.return_value = [inside, outside]
+    mock_qdrant_store.client.query_points.return_value = _query_response([inside, outside])
 
     resp = _client.post(
         "/query/pose",
@@ -180,7 +187,7 @@ def test_pose_query_top_k_respected(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
     hits = [_make_qdrant_hit(48.0 + i * 0.0001, 11.0) for i in range(10)]
-    mock_qdrant_store.client.search.return_value = hits
+    mock_qdrant_store.client.query_points.return_value = _query_response(hits)
 
     resp = _client.post(
         "/query/pose",
@@ -196,7 +203,7 @@ def test_pose_query_top_k_respected(mock_clip, mock_qdrant_store):
 def test_pose_query_empty_results(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = []
+    mock_qdrant_store.client.query_points.return_value = _query_response([])
 
     resp = _client.post(
         "/query/pose",
@@ -212,7 +219,7 @@ def test_pose_query_empty_results(mock_clip, mock_qdrant_store):
 def test_pose_query_qdrant_error_returns_503(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.side_effect = RuntimeError("connection refused")
+    mock_qdrant_store.client.query_points.side_effect = RuntimeError("connection refused")
 
     resp = _client.post(
         "/query/pose",
@@ -227,7 +234,7 @@ def test_pose_query_qdrant_error_returns_503(mock_clip, mock_qdrant_store):
 def test_pose_query_distance_m_present(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = [_make_qdrant_hit(48.0001, 11.0)]
+    mock_qdrant_store.client.query_points.return_value = _query_response([_make_qdrant_hit(48.0001, 11.0)])
 
     resp = _client.post(
         "/query/pose",
@@ -247,7 +254,7 @@ def test_pose_query_sorted_by_distance(mock_clip, mock_qdrant_store):
     mock_qdrant_store.collection_name = "test"
     far = _make_qdrant_hit(48.01, 11.0, score=0.99)   # far but high score
     near = _make_qdrant_hit(48.0001, 11.0, score=0.5)  # near but low score
-    mock_qdrant_store.client.search.return_value = [far, near]
+    mock_qdrant_store.client.query_points.return_value = _query_response([far, near])
 
     resp = _client.post(
         "/query/pose",
@@ -264,7 +271,7 @@ def test_pose_query_radius_validation(mock_clip, mock_qdrant_store):
     """radius_m < 1 should return 422."""
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = []
+    mock_qdrant_store.client.query_points.return_value = _query_response([])
 
     resp = _client.post(
         "/query/pose",
@@ -311,7 +318,7 @@ def _make_enu_hit(tx, ty, tz, mission_id="m1", t_sec=10.0, score=0.9):
 def test_enu_query_returns_results(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = [_make_enu_hit(10.0, 20.0, 5.0)]
+    mock_qdrant_store.client.query_points.return_value = _query_response([_make_enu_hit(10.0, 20.0, 5.0)])
 
     resp = _client.post(
         "/query/pose",
@@ -329,7 +336,7 @@ def test_enu_query_returns_results(mock_clip, mock_qdrant_store):
 def test_enu_query_response_schema(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = []
+    mock_qdrant_store.client.query_points.return_value = _query_response([])
 
     resp = _client.post(
         "/query/pose",
@@ -354,7 +361,7 @@ def test_enu_query_3d_postfilter(mock_clip, mock_qdrant_store):
     inside = _make_enu_hit(30.0, 0.0, 0.0)
     # outside: 60m away — beyond radius_m=50
     outside = _make_enu_hit(60.0, 0.0, 0.0, mission_id="m2")
-    mock_qdrant_store.client.search.return_value = [inside, outside]
+    mock_qdrant_store.client.query_points.return_value = _query_response([inside, outside])
 
     resp = _client.post(
         "/query/pose",
@@ -371,7 +378,7 @@ def test_enu_query_3d_postfilter(mock_clip, mock_qdrant_store):
 def test_enu_query_distance_m_computed(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = [_make_enu_hit(3.0, 4.0, 0.0)]
+    mock_qdrant_store.client.query_points.return_value = _query_response([_make_enu_hit(3.0, 4.0, 0.0)])
 
     resp = _client.post(
         "/query/pose",
@@ -410,14 +417,14 @@ def test_robot_ids_filter_added_to_query(mock_clip, mock_qdrant_store):
     """robot_ids field causes a MatchAny condition on robot_id payload key."""
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = []
+    mock_qdrant_store.client.query_points.return_value = _query_response([])
 
     _client.post(
         "/query/pose",
         json={"lat": 48.0, "lon": 11.0, "robot_ids": ["robot_0", "robot_1"]},
         headers={"X-API-Key": ""},
     )
-    call_kwargs = mock_qdrant_store.client.search.call_args[1]
+    call_kwargs = mock_qdrant_store.client.query_points.call_args[1]
     qf = call_kwargs["query_filter"]
     robot_keys = [c.key for c in qf.must if hasattr(c, "key")]
     assert "robot_id" in robot_keys
@@ -428,14 +435,14 @@ def test_robot_ids_filter_added_to_query(mock_clip, mock_qdrant_store):
 def test_no_robot_ids_omits_robot_filter(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = []
+    mock_qdrant_store.client.query_points.return_value = _query_response([])
 
     _client.post(
         "/query/pose",
         json={"lat": 48.0, "lon": 11.0},
         headers={"X-API-Key": ""},
     )
-    call_kwargs = mock_qdrant_store.client.search.call_args[1]
+    call_kwargs = mock_qdrant_store.client.query_points.call_args[1]
     qf = call_kwargs["query_filter"]
     robot_keys = [c.key for c in qf.must if hasattr(c, "key")]
     assert "robot_id" not in robot_keys
@@ -446,14 +453,14 @@ def test_no_robot_ids_omits_robot_filter(mock_clip, mock_qdrant_store):
 def test_robot_ids_filter_works_with_enu_path(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.search.return_value = []
+    mock_qdrant_store.client.query_points.return_value = _query_response([])
 
     _client.post(
         "/query/pose",
         json={"tx": 0.0, "ty": 0.0, "tz": 0.0, "robot_ids": ["drone_a"]},
         headers={"X-API-Key": ""},
     )
-    call_kwargs = mock_qdrant_store.client.search.call_args[1]
+    call_kwargs = mock_qdrant_store.client.query_points.call_args[1]
     qf = call_kwargs["query_filter"]
     robot_keys = [c.key for c in qf.must if hasattr(c, "key")]
     assert "robot_id" in robot_keys

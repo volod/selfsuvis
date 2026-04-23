@@ -1048,37 +1048,40 @@ def _summarise_gemma_captions_to_structured_scene(
     base = api_url.rstrip("/")
     endpoint = f"{base}/chat/completions"
     t_req = time.time()
-    resp = httpx.post(
-        endpoint,
-        json={
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 500,
-            "temperature": 0.1,
-        },
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    msg = resp.json()["choices"][0]["message"]
-    content = msg.get("content") or ""
-    if isinstance(content, list):
-        content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
-    if not content:
-        content = msg.get("reasoning") or msg.get("thinking") or ""
-    if "```" in content:
-        parts = content.split("```")
-        content = parts[1] if len(parts) > 1 else content
-        if content.lower().startswith("json"):
-            content = content[4:]
-    elapsed = time.time() - t_req
-    if elapsed >= float(settings.GEMMA_SLOW_CALL_SEC):
-        _log.info("  [Gemma API] slow structured-summary synthesis: %.1fs", elapsed)
     try:
-        parsed = json.loads(content.strip())
-        if isinstance(parsed, dict):
-            return _clean_structured_scene(parsed)
-    except Exception:
-        pass
+        resp = httpx.post(
+            endpoint,
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 500,
+                "temperature": 0.1,
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        msg = resp.json()["choices"][0]["message"]
+        content = msg.get("content") or ""
+        if isinstance(content, list):
+            content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+        if not content:
+            content = msg.get("reasoning") or msg.get("thinking") or ""
+        if "```" in content:
+            parts = content.split("```")
+            content = parts[1] if len(parts) > 1 else content
+            if content.lower().startswith("json"):
+                content = content[4:]
+        elapsed = time.time() - t_req
+        if elapsed >= float(settings.GEMMA_SLOW_CALL_SEC):
+            _log.info("  [Gemma API] slow structured-summary synthesis: %.1fs", elapsed)
+        try:
+            parsed = json.loads(content.strip())
+            if isinstance(parsed, dict):
+                return _clean_structured_scene(parsed)
+        except Exception:
+            pass
+    except Exception as exc:
+        _log.warning("  [Gemma API] structured-scene synthesis failed (%s) — using empty scene", exc)
     return _empty_structured_scene()
 
 

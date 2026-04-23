@@ -18,6 +18,13 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
+def _query_response(hits: list) -> MagicMock:
+    """Wrap hits in a QueryResponse-like mock (qdrant-client >= 1.7 returns .points)."""
+    resp = MagicMock()
+    resp.points = hits
+    return resp
+
+
 # ---------------------------------------------------------------------------
 # Inject stub modules for optional deps (asyncpg, cv2, etc.)
 # Must happen BEFORE importing any pipeline or worker module.
@@ -289,14 +296,14 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         """global_map_id in request → FieldCondition(key='global_map_id') in filter."""
         mock_clip.embed_dim = 512
         mock_qdrant_store.collection_name = "test"
-        mock_qdrant_store.client.search.return_value = []
+        mock_qdrant_store.client.query_points.return_value = _query_response([])
 
         _client.post(
             "/query/pose",
             json={"lat": 48.0, "lon": 11.0, "global_map_id": 7},
             headers={"X-API-Key": ""},
         )
-        call_kwargs = mock_qdrant_store.client.search.call_args[1]
+        call_kwargs = mock_qdrant_store.client.query_points.call_args[1]
         qf = call_kwargs["query_filter"]
         keys = [c.key for c in qf.must if hasattr(c, "key")]
         self.assertIn("global_map_id", keys)
@@ -307,14 +314,14 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         """No global_map_id in request → no global_map_id condition in filter."""
         mock_clip.embed_dim = 512
         mock_qdrant_store.collection_name = "test"
-        mock_qdrant_store.client.search.return_value = []
+        mock_qdrant_store.client.query_points.return_value = _query_response([])
 
         _client.post(
             "/query/pose",
             json={"lat": 48.0, "lon": 11.0},
             headers={"X-API-Key": ""},
         )
-        call_kwargs = mock_qdrant_store.client.search.call_args[1]
+        call_kwargs = mock_qdrant_store.client.query_points.call_args[1]
         qf = call_kwargs["query_filter"]
         keys = [c.key for c in qf.must if hasattr(c, "key")]
         self.assertNotIn("global_map_id", keys)
@@ -325,14 +332,14 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         """global_map_id + robot_ids → both conditions present."""
         mock_clip.embed_dim = 512
         mock_qdrant_store.collection_name = "test"
-        mock_qdrant_store.client.search.return_value = []
+        mock_qdrant_store.client.query_points.return_value = _query_response([])
 
         _client.post(
             "/query/pose",
             json={"lat": 48.0, "lon": 11.0, "global_map_id": 3, "robot_ids": ["r1"]},
             headers={"X-API-Key": ""},
         )
-        call_kwargs = mock_qdrant_store.client.search.call_args[1]
+        call_kwargs = mock_qdrant_store.client.query_points.call_args[1]
         qf = call_kwargs["query_filter"]
         keys = [c.key for c in qf.must if hasattr(c, "key")]
         self.assertIn("global_map_id", keys)
@@ -344,14 +351,14 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         """ENU path + global_map_id → condition present."""
         mock_clip.embed_dim = 512
         mock_qdrant_store.collection_name = "test"
-        mock_qdrant_store.client.search.return_value = []
+        mock_qdrant_store.client.query_points.return_value = _query_response([])
 
         _client.post(
             "/query/pose",
             json={"tx": 0.0, "ty": 0.0, "tz": 0.0, "global_map_id": 5},
             headers={"X-API-Key": ""},
         )
-        call_kwargs = mock_qdrant_store.client.search.call_args[1]
+        call_kwargs = mock_qdrant_store.client.query_points.call_args[1]
         qf = call_kwargs["query_filter"]
         keys = [c.key for c in qf.must if hasattr(c, "key")]
         self.assertIn("global_map_id", keys)
@@ -362,7 +369,7 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         """global_map_id in response is None when not provided in request."""
         mock_clip.embed_dim = 512
         mock_qdrant_store.collection_name = "test"
-        mock_qdrant_store.client.search.return_value = []
+        mock_qdrant_store.client.query_points.return_value = _query_response([])
 
         resp = _client.post(
             "/query/pose",
@@ -378,7 +385,7 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
         """global_map_id in response equals the provided value."""
         mock_clip.embed_dim = 512
         mock_qdrant_store.collection_name = "test"
-        mock_qdrant_store.client.search.return_value = []
+        mock_qdrant_store.client.query_points.return_value = _query_response([])
 
         resp = _client.post(
             "/query/pose",

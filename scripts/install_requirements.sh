@@ -55,6 +55,19 @@ detect_gpu_compute_capability() {
   fi
 }
 
+# Build a TORCH_CUDA_ARCH_LIST value from the detected GPU compute capability.
+# Single-arch+PTX compiles faster and is guaranteed safe on the current machine.
+# Falls back to a broad safe list (up to sm_90) when no GPU is detected, which
+# avoids compute_120 failures on nvcc versions that don't yet support Blackwell.
+_arch_list_for_gpu() {
+  local cc="$1"
+  if [[ -n "$cc" ]]; then
+    echo "${cc}+PTX"
+  else
+    echo "7.5;8.0;8.6;8.9;9.0+PTX"
+  fi
+}
+
 # Returns the minimum torch CUDA index required for the given compute capability.
 # e.g. "12.0" → "cu128" (Blackwell needs CUDA 12.8+ kernels).
 # Returns "" if no special minimum applies (existing driver-based mapping suffices).
@@ -454,9 +467,12 @@ if [[ -n "$_CC_MAJOR" ]] && [[ "$_CC_MAJOR" -ge 12 ]]; then
   if $_NEEDS_REBUILD; then
     echo "flash-attn: building from source for sm_${_CC_MAJOR}0 (no prebuilt wheel available)"
     _FORCE_SOURCE_BUILD=true
-    # Covers: Turing(7.5) Ampere-DC(8.0) Ampere-consumer(8.6) Ada/4060(8.9) Hopper(9.0) Blackwell(12.0)
-    # +PTX on the last entry allows JIT forward-compatibility for future archs.
-    export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-7.5;8.0;8.6;8.9;9.0;12.0+PTX}"
+    # Covers: Turing(7.5) Ampere-DC(8.0) Ampere-consumer(8.6) Ada/4060(8.9) Hopper(9.0)
+    # +PTX on the last entry allows JIT forward-compatibility for newer archs.
+    #
+    # IMPORTANT: Do not include "12.0" here unless your nvcc supports it.
+    # CUDA 12.6 nvcc will fail with: "Unsupported gpu architecture 'compute_120'".
+    export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-$(_arch_list_for_gpu "$_GPU_CC")}"
     find ~/.cache/pip/wheels -name "flash_attn*.whl" -delete 2>/dev/null || true
     find ~/.cache/uv         -name "flash_attn*.whl" -delete 2>/dev/null || true
   fi
@@ -530,7 +546,6 @@ fi
 #   8.6  Ampere       RTX 3000 series
 #   8.9  Ada          RTX 4000 series (4060, 4070, 4080, 4090)
 #   9.0  Hopper       H100 / H800
-#  12.0  Blackwell    RTX 5000 series / RTX PRO 3000
 #  +PTX  forward-compatibility JIT for future architectures
 #
 # The build uses the same FLASH_JOBS parallelism computed for flash-attn.
@@ -553,7 +568,7 @@ for line in r.stdout.splitlines():
         val = line.split(':', 1)[-1].strip()
         if not val or val.lower() == 'none':
             sys.exit(1)
-        # Parse tokens like '8.6', '9.0a', '12.0+PTX', '80' etc.
+        # Parse tokens like '8.6', '9.0a', '9.0+PTX', '80' etc.
         for token in re.split(r'[\s;,]+', val):
             token = re.sub(r'[a+].*', '', token)   # strip 'a' / '+PTX'
             parts = token.split('.')
@@ -580,7 +595,7 @@ if "$PYTHON_BIN" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 
    $_XFORMERS_NEEDS_REBUILD; then
   # Reuse the same arch list set by the flash-attn section (or set it now for
   # machines that only need an xformers rebuild without flash-attn).
-  _XFORMERS_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-7.5;8.0;8.6;8.9;9.0;12.0+PTX}"
+  _XFORMERS_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-$(_arch_list_for_gpu "$_GPU_CC")}"
   _XFORMERS_JOBS="${FLASH_JOBS:-2}"
 
   echo ""

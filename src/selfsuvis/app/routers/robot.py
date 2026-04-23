@@ -271,13 +271,16 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
 
     try:
         fetch_k = body.top_k * 4 if filter_strategy != "2d" else body.top_k
-        raw_results = qdrant_store.client.search(
+        response = qdrant_store.client.query_points(
             collection_name=qdrant_store.collection_name,
-            query_vector=("clip", dummy_vec.tolist()),
+            query=dummy_vec.tolist(),
+            using="clip",
             query_filter=query_filter,
             limit=min(fetch_k, 200),
             with_payload=True,
+            with_vectors=False,
         )
+        raw_results = response.points
     except Exception as exc:
         logger.error("Robot API: Qdrant search failed: %s", exc)
         raise HTTPException(status_code=503, detail=f"Vector store error: {exc}")

@@ -72,33 +72,34 @@ def apply_local_env(args: Any) -> None:
     os.environ.setdefault("SFM_FPS", "1")
     os.environ.setdefault("ALLOWED_INDEX_PATHS", "")
     os.environ.setdefault("API_KEY", "")
-    os.environ.setdefault("ASR_ENABLED", "true" if args.asr else "false")
+    # Model enable flags: always force-set from CLI args so --asr/--no-asr etc.
+    # take precedence over any pre-existing env var (e.g. from a Docker session).
+    # setdefault would silently ignore a pre-set ASR_ENABLED=false.
+    os.environ["ASR_ENABLED"] = "true" if args.asr else "false"
     os.environ.setdefault("ASR_MODEL", args.asr_model)
     os.environ.setdefault("ASR_LANGUAGE", args.asr_language)
-    os.environ.setdefault("OCR_ENABLED", "true" if args.ocr else "false")
+    os.environ["OCR_ENABLED"] = "true" if args.ocr else "false"
     os.environ.setdefault("OCR_MODEL", args.ocr_model)
-    os.environ.setdefault("DEPTH_ENABLED", "true" if args.depth else "false")
+    os.environ["DEPTH_ENABLED"] = "true" if args.depth else "false"
     os.environ.setdefault("DEPTH_MODEL", args.depth_model)
-    os.environ.setdefault("DETECTION_ENABLED", "true" if args.detection else "false")
+    os.environ["DETECTION_ENABLED"] = "true" if args.detection else "false"
     os.environ.setdefault("DETECTION_MODEL", args.detection_model)
     os.environ.setdefault("DETECTION_LABELS", args.detection_labels)
     # YOLO11 + SAM2/3 (step P2) — enabled by default; opt out with --no-yolo / --no-sam
     _no_yolo = getattr(args, "no_yolo", False)
-    os.environ.setdefault("YOLO_ENABLED", "false" if _no_yolo else "true")
+    os.environ["YOLO_ENABLED"] = "false" if _no_yolo else "true"
     _yolo_model = getattr(args, "yolo_model", "yolo11l") or "yolo11l"
     os.environ.setdefault("YOLO_MODEL", _yolo_model)
     _no_sam = getattr(args, "no_sam", False)
-    os.environ.setdefault("SAM_ENABLED", "false" if _no_sam else "true")
+    os.environ["SAM_ENABLED"] = "false" if _no_sam else "true"
     _sam_model = getattr(args, "sam_model", "auto") or "auto"
     os.environ.setdefault("SAM_MODEL", _sam_model)
     # Gemma directed tracking (step P3) — enabled by default; opt out with --no-rfdetr
     _no_rfdetr = getattr(args, "no_rfdetr", False)
-    os.environ.setdefault("RFDETR_ENABLED", "false" if _no_rfdetr else "true")
+    os.environ["RFDETR_ENABLED"] = "false" if _no_rfdetr else "true"
     _rfdetr_model = getattr(args, "rfdetr_model", "base") or "base"
     os.environ.setdefault("RFDETR_MODEL", _rfdetr_model)
-    os.environ.setdefault(
-        "WORLD_MODEL_ENABLED", "true" if args.world_model else "false"
-    )
+    os.environ["WORLD_MODEL_ENABLED"] = "true" if args.world_model else "false"
     # Only force-set WORLD_MODEL when the user explicitly passed --world-model-id;
     # if it's still "auto", let the .env value (loaded above) take precedence.
     if args.world_model_id != "auto":
