@@ -120,7 +120,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # ── Load .env if present ──────────────────────────────────────────────────────
-# Copy .env.sample to .env and set HF_TOKEN there — the script picks it up here.
+# Generate .env with `make env` / `make env-interactive` and set HF_TOKEN there.
 if [[ -f .env ]]; then
   set -a   # export every variable defined from this point
   # shellcheck source=/dev/null
@@ -264,9 +264,6 @@ if [[ ! -d .venv ]]; then
   log "Creating .venv..."
   uv venv .venv
 
-  # ensure_venv_pip.sh adds pip into the uv-created venv (uv omits it by default)
-  bash scripts/ensure_venv_pip.sh .venv
-
   # install_requirements.sh installs deps and selects the correct PyTorch wheel
   # for your CUDA version (falls back to CPU-only torch if no GPU found)
   log "Installing Python dependencies (may take 5–10 minutes)..."
@@ -296,7 +293,6 @@ sys.exit(0)
   else
     warn ".venv exists but installed PyTorch does not include kernels for current GPU."
     warn "Re-running install_requirements.sh to install matching torch wheels..."
-    bash scripts/ensure_venv_pip.sh .venv
     bash scripts/install_requirements.sh vision,dev .venv
     log "Torch wheels updated."
   fi

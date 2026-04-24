@@ -39,14 +39,29 @@ platform-state fusion slice when GPS is available:
   timestamps
 - results are stored in `frame_facts_json["state_fusion"]`
 
-## Useful command-line helpers
+## Useful command-line examples
 
 ```bash
-./scripts/precheck.sh path /path/to/video.mp4
-./scripts/precheck_dir.sh /path/to/video_dir true true
-./scripts/index_url.sh https://example.com/video.mp4 true
-./scripts/index_dir.sh /path/to/video_dir true
-./scripts/job_watch.sh <job_id>
+curl -s -F "path=/path/to/video.mp4" \
+  http://localhost:8000/index/precheck | python -m json.tool
+
+curl -s -F "path=/path/to/video_dir" -F "enqueue=true" -F "enable_tiles=true" \
+  http://localhost:8000/index/precheck_dir | python -m json.tool
+
+curl -s -F "url=https://example.com/video.mp4" -F "enable_tiles=true" \
+  http://localhost:8000/index/url | python -m json.tool
+
+curl -s -F "path=/path/to/video_dir" -F "enable_tiles=true" \
+  http://localhost:8000/index/dir | python -m json.tool
+
+JOB_ID=<job_id>
+while true; do
+  STATUS="$(curl -s http://localhost:8000/jobs/${JOB_ID})"
+  echo "$STATUS" | python -m json.tool
+  STATE="$(printf '%s' "$STATUS" | python -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')"
+  [[ "$STATE" == "finished" || "$STATE" == "error" ]] && break
+  sleep 2
+done
 ```
 
 ## Typical API flow

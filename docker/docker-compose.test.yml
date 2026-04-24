@@ -2,7 +2,7 @@ services:
   api:
     user: "${UID}:${GID}"
     env_file:
-      - ../env/test.env
+      - ../src/selfsuvis/env/test.env
     environment:
       - ALLOWED_INDEX_PATHS=/app/tests/assets
       - BLUR_LAPL_VAR_MIN_FRAME=0
@@ -19,7 +19,7 @@ services:
   worker:
     user: "${UID}:${GID}"
     env_file:
-      - ../env/test.env
+      - ../src/selfsuvis/env/test.env
     environment:
       - BLUR_LAPL_VAR_MIN_FRAME=0
       - DATA_DIR=/app/data

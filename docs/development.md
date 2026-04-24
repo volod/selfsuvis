@@ -46,7 +46,7 @@ Auto-fix:
 ## Project conventions
 
 - **Never commit to `main` directly.** Open a PR; linear issue number in branch name.
-- **Never commit secrets.** `.env` is git-ignored. Use `.env.sample` for documentation.
+- **Never commit secrets.** `.env` is git-ignored. Generate it with `make env` or `python -m selfsuvis.scripts.generate_env`.
 - **Data directories are git-ignored.** `data/`, `cache_test/` are excluded.
   Add large assets via DVC or document manual download steps in scripts.
 - **Integration tests use `data/` and `cache_test/`.** Videos go in `data/videos/`.

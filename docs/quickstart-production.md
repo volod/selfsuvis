@@ -26,17 +26,23 @@ cd selfsuvis
 
 ## 2. Configure environment
 
-The `env/prod.env` file is pre-populated with safe defaults. Set the two values that have no default:
+Generate a repo-root `.env` for production first:
+
+```bash
+python -m selfsuvis.scripts.generate_env --env prod
+```
+
+Then set the two values that have no default:
 
 ```
 API_KEY=<choose-a-secret>
 ALLOWED_INDEX_PATHS=/app/data/videos
 ```
 
-Edit `env/prod.env` directly:
+Edit `.env` directly:
 
 ```bash
-$EDITOR env/prod.env
+$EDITOR .env
 ```
 
 ---
@@ -111,7 +117,7 @@ curl http://localhost:8000/jobs/<job_id> -H "X-API-Key: $API_KEY"
 
 ### Option C — index a local directory
 
-Set `ALLOWED_INDEX_PATHS` in `env/prod.env` to the directory you want to expose, then:
+Set `ALLOWED_INDEX_PATHS` in `.env` to the directory you want to expose, then:
 
 ```bash
 curl -X POST http://localhost:8000/index/dir \

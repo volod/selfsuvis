@@ -110,6 +110,17 @@ def _resolve_backend(kind: str, requested: str, profile: str) -> str:
 
 
 def _recommend_ollama_gemma_models(resources: ResourceProfile) -> Tuple[str, str]:
+    """Return (gemma_model, reasoning_model) appropriate for the detected hardware.
+
+    Reasoning model tiers:
+      ≥ 64 GB free VRAM  → deepseek-r1:32b  (high-end server / multi-GPU)
+      ≥ 32 GB free VRAM  → qwen3:30b        (A100 / single H100)
+      ≥ 18 GB free VRAM  → deepseek-r1:14b  (RTX 3090/4090 headroom)
+      ≥ 14 GB free VRAM  → qwen3:14b        (24 GB card with other models evicted)
+      ≥  8 GB free VRAM  → qwen3:14b        (16 GB card; fits quantised Q4)
+      ≥  4 GB free VRAM  → qwen3:8b         (12 GB card; tight but workable)
+      CPU / low VRAM     → falls back to RAM tiers
+    """
     vram = resources.vram_gb
     free_vram = resources.free_vram_gb if resources.free_vram_gb > 0 else vram
     ram = resources.ram_gb
@@ -120,14 +131,14 @@ def _recommend_ollama_gemma_models(resources: ResourceProfile) -> Tuple[str, str
         return "gemma4:12b", "qwen3:30b"
     if free_vram >= 18 or vram >= 24:
         return "gemma4:4b", "deepseek-r1:14b"
-    if free_vram >= 14 or vram >= 16:
-        return "gemma4:e4b", "deepseek-r1:14b"
-    if free_vram >= 8 or vram >= 12:
+    if free_vram >= 8 or vram >= 14:
+        return "gemma4:e4b", "qwen3:14b"
+    if free_vram >= 4 or vram >= 8:
         return "gemma4:e4b", "qwen3:8b"
     if ram >= 96:
         return "gemma4:12b", "deepseek-r1:32b"
     if ram >= 64:
-        return "gemma4:4b", "deepseek-r1:14b"
+        return "gemma4:4b", "qwen3:14b"
     if ram >= 32:
         return "gemma4:e4b", "qwen3:8b"
     return "gemma3:1b", "gemma4:e4b"
@@ -431,7 +442,24 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
     print("    full     — all sidecars including UniDrive")
     args.profile = _prompt_choice("Profile", _PROFILE_NAMES, "balanced")
 
-    # ── 4. Environment and output ────────────────────────────────────────────
+    # ── 4. Reasoning model ───────────────────────────────────────────────────
+    if args.reasoning_backend != "none":
+        _reasoning_options = {
+            "qwen3:8b":          "~5 GB  — fast, fits any 12 GB+ card",
+            "qwen3:14b":         "~8 GB  — recommended ≥ 14 GB free VRAM (default for 16 GB+ cards)",
+            "deepseek-r1:14b":   "~9 GB  — R1-distilled reasoning specialist, similar size",
+            "qwen3:30b":         "~18 GB — high quality, needs 24+ GB free VRAM",
+            "deepseek-r1:32b":   "~19 GB — best reasoning quality, needs 32+ GB free VRAM",
+        }
+        print(f"\n  Reasoning model (step 24 — agentic flow audit):")
+        print(f"  Detected hardware recommendation: {rec_reasoning}")
+        print(f"  Available options:")
+        for tag, note in _reasoning_options.items():
+            marker = " ◀ recommended" if tag == rec_reasoning else ""
+            print(f"    {tag:<26}  {note}{marker}")
+        args.reasoning_model = _prompt_text("Ollama reasoning model tag", rec_reasoning)
+
+    # ── 5. Environment and output ────────────────────────────────────────────
     args.env_name = _prompt_choice("Environment", _ENV_NAMES, args.env_name)
     args.output = _prompt_text("Output path", args.output)
     return args

@@ -8,11 +8,15 @@
 5. Run image query with a reference crop
 
 ## CLI flow
-Use the retained helpers from [`docs/helpers.md`](./helpers.md) to precheck and index local paths or URLs from the command line.
+Use the direct API examples in [`docs/helpers.md`](./helpers.md) to precheck and index local paths or URLs from the command line.
 
 ## Directory precheck + enqueue
 ```bash
-./scripts/precheck_dir.sh /path/to/video_dir true true
+curl -s \
+  -F "path=/path/to/video_dir" \
+  -F "enqueue=true" \
+  -F "enable_tiles=true" \
+  http://localhost:8000/index/precheck_dir | python -m json.tool
 ```
 
 ---

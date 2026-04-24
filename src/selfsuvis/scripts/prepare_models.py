@@ -169,6 +169,10 @@ _UNIDRIVE_DEFAULT_MODEL = "owl10/UniDriveVLA_Nusc_Base_Stage3"
 _UNIDRIVE_COLLECTION_URL = "https://huggingface.co/collections/owl10/unidrivevla"
 _UNIDRIVE_OLLAMA_FALLBACK_MODEL = "qwen2.5vl:7b"
 
+# Reasoning / agentic-audit model (step 24).  Served via Ollama by default.
+# deepseek-r1:14b is a strong alternative if qwen3 is not available.
+_REASONING_DEFAULT_MODEL = "qwen3:14b"
+
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1187,6 +1191,17 @@ def _build_parser() -> argparse.ArgumentParser:
                        "'auto' prefers vllm for HF UniDrive repos and Ollama for Ollama tags."
                    ))
 
+    _default_reasoning = os.getenv("REASONING_MODEL", _REASONING_DEFAULT_MODEL)
+    p.add_argument("--reasoning", action="store_true",
+                   help="Pull the Ollama reasoning model used by the agentic-flow audit (step 24)")
+    p.add_argument("--reasoning-model", default=_default_reasoning, metavar="OLLAMA_TAG",
+                   help=(
+                       "Ollama tag to pull for the reasoning/audit step. "
+                       f"Default: {_REASONING_DEFAULT_MODEL} (~8 GB). "
+                       "Alternative: deepseek-r1:14b (~9 GB). "
+                       "Set REASONING_MODEL env var to override the default."
+                   ))
+
     p.add_argument("--yolo", action="store_true",
                    help="Download YOLO11 detection model (step 09; default model: yolo11l.pt ~48 MB)")
     p.add_argument("--yolo-model", default="yolo11l", metavar="MODEL",
@@ -1227,7 +1242,7 @@ def main() -> None:
 
     _any_flag = (args.clip or args.dino or args.gemma or args.flash_attn or args.whisper
                  or args.florence or args.ocr or args.depth or args.detection or args.world_model
-                 or args.unidrive or args.yolo or args.sam or args.all)
+                 or args.unidrive or args.reasoning or args.yolo or args.sam or args.all)
     # Default (no flag given) → behave as --all
     if not _any_flag:
         args.all = True
@@ -1242,6 +1257,7 @@ def main() -> None:
     do_detection   = args.detection   or args.all
     do_world_model = args.world_model or args.all
     do_unidrive    = args.unidrive    or args.all
+    do_reasoning   = args.reasoning   or args.all
     do_yolo        = args.yolo        or args.all
     do_sam         = args.sam         or args.all
 
@@ -1305,6 +1321,9 @@ def main() -> None:
                 specs.append((f"UniDriveVLA(Ollama) {unidrive_id}", lambda m=unidrive_id: _is_ollama_model_cached(m)))
             else:
                 specs.append((f"UniDriveVLA(vLLM) {unidrive_id}", lambda m=unidrive_id: _is_hf_cached(m)))
+        if do_reasoning:
+            rm = args.reasoning_model
+            specs.append((f"Reasoning(Ollama) {rm}", lambda m=rm: _is_ollama_model_cached(m)))
         if do_yolo:
             ym = args.yolo_model
             specs.append((f"YOLO11 {ym}", lambda m=ym: _is_yolo_cached(m)))
@@ -1441,6 +1460,14 @@ def main() -> None:
             except Exception as exc:
                 log.error("UniDriveVLA [%s via %s] download failed: %s", unidrive_id, unidrive_backend or "unknown", exc)
                 errors.append(("UniDriveVLA", exc))
+
+    if do_reasoning:
+        reasoning_id = args.reasoning_model
+        try:
+            _download_ollama_model(reasoning_id)
+        except Exception as exc:
+            log.error("Reasoning model [%s] pull failed: %s", reasoning_id, exc)
+            errors.append(("Reasoning", exc))
 
     if do_yolo:
         yolo_id = args.yolo_model

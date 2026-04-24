@@ -114,7 +114,9 @@ def apply_local_env(args: Any) -> None:
         os.environ["QWEN_MODEL"] = args.qwen_model
     if args.qwen_backend:
         os.environ["QWEN_BACKEND"] = args.qwen_backend
-    os.environ.setdefault("UNIDRIVE_ENABLED", "true" if args.unidrive else "false")
+    # Force-set (not setdefault) so --unidrive / --no-unidrive always wins over
+    # any pre-existing UNIDRIVE_ENABLED=false in the shell or a prior Docker session.
+    os.environ["UNIDRIVE_ENABLED"] = "true" if args.unidrive else "false"
     if getattr(args, "unidrive_api_url", ""):
         os.environ["UNIDRIVE_API_URL"] = args.unidrive_api_url
     os.environ.setdefault("UNIDRIVE_API_URL", "")
@@ -122,6 +124,13 @@ def apply_local_env(args: Any) -> None:
         os.environ["UNIDRIVE_MODEL"] = args.unidrive_model
     if getattr(args, "unidrive_backend", ""):
         os.environ["UNIDRIVE_BACKEND"] = args.unidrive_backend
+    # SceneTok — force-set the enable flag and propagate sidecar URL + checkpoint.
+    os.environ["SCENETOK_ENABLED"] = "true" if getattr(args, "scenetok", False) else "false"
+    if getattr(args, "scenetok_api_url", ""):
+        os.environ["SCENETOK_API_URL"] = args.scenetok_api_url
+    os.environ.setdefault("SCENETOK_API_URL", "")
+    if getattr(args, "scenetok_checkpoint", ""):
+        os.environ["SCENETOK_CHECKPOINT"] = args.scenetok_checkpoint
 
     gemma_api_url = getattr(args, "gemma_api_url", "")
     if gemma_api_url:

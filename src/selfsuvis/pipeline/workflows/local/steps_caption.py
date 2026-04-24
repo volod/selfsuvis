@@ -1876,15 +1876,42 @@ def step_qwen_captioning(
             len(sampled_frame_list),
             len(frame_list),
         )
-    _log.info("Running Qwen detailed captioning on %d sampled frames (from %d total, model=%s  agentic=%s) …",
-              len(sampled_frame_list), len(frame_list), settings.QWEN_MODEL, "yes" if knowledge else "no")
     t0 = time.time()
+
+    # Probe agentic mode with one frame before committing to the full run.
+    # Models < 7B parameters frequently fail to produce the structured JSON
+    # required by agentic prompts; detecting this on frame 1 avoids wasting
+    # time running the entire frame list only to get 100% parse errors.
+    _use_agentic = knowledge is not None
+    if _use_agentic and sampled_frame_list:
+        _probe_fp, _probe_t = sampled_frame_list[0]
+        _probe_img = _open_frame_image(_probe_fp)
+        if _probe_img is not None:
+            _probe_res = qwen.extract_batch(
+                [_probe_img],
+                subtitle_texts=[subtitle_map.get(_probe_t) or None],
+                ocr_texts=[ocr_map.get(_probe_t) or None],
+                extra_contexts=[knowledge.context_for_frame(_probe_t)],
+                domain_hint=domain or None,
+            )
+            if _probe_res and _probe_res[0].get("parse_error"):
+                _log.warning(
+                    "  Qwen agentic probe: parse error on first frame — "
+                    "falling back to non-agentic mode. "
+                    "Model '%s' appears too small for structured JSON output; "
+                    "use qwen2.5vl:7b or larger to keep agentic mode.",
+                    settings.QWEN_MODEL,
+                )
+                _use_agentic = False
+
+    _log.info("Running Qwen detailed captioning on %d sampled frames (from %d total, model=%s  agentic=%s) …",
+              len(sampled_frame_list), len(frame_list), settings.QWEN_MODEL, "yes" if _use_agentic else "no")
 
     caption_results: List[Dict[str, Any]] = []
 
     def _batch_fn(batch: List[Tuple[str, float]], imgs: List) -> List[Dict[str, Any]]:
         extra_contexts = None
-        if knowledge:
+        if _use_agentic and knowledge:
             extra_contexts = [knowledge.context_for_frame(t_sec) for _fp, t_sec in batch]
         results = qwen.extract_batch(
             imgs,
@@ -1894,7 +1921,7 @@ def step_qwen_captioning(
             domain_hint=domain or None,
         )
         # Feed each successful result back into knowledge as prior state
-        if knowledge:
+        if _use_agentic and knowledge:
             for r in results:
                 knowledge.update_qwen_state(r)
         return results
@@ -1911,15 +1938,17 @@ def step_qwen_captioning(
         caption_results.append({**r, "subtitle_text": subtitle_map.get(t_sec) or ""})
     elapsed = time.time() - t0
     ok             = sum(1 for r in caption_results
-                         if not r.get("service_unavailable") and not r.get("skipped"))
+                         if not r.get("service_unavailable") and not r.get("skipped") and not r.get("parse_error"))
+    parse_errors   = sum(1 for r in caption_results if r.get("parse_error"))
     subtitle_used  = sum(1 for r in caption_results if r.get("subtitle_text"))
-    _log.info("  ✓ Qwen: %d/%d sampled frames captioned in %.1fs (%d with ASR  agentic=%s)",
-              ok, len(sampled_frame_list), elapsed, subtitle_used, "yes" if knowledge else "no")
+    _log.info("  ✓ Qwen: %d/%d sampled frames captioned in %.1fs (%d with ASR  parse_errors=%d  agentic=%s)",
+              ok, len(sampled_frame_list), elapsed, subtitle_used, parse_errors, "yes" if knowledge else "no")
     _log_vram_snapshot("after Qwen sidecar use")
     write_detailed_captions_md(out_md, video_name, caption_results, elapsed, settings.QWEN_MODEL)
     result.update({"skipped": False, "results": caption_results,
                    "ok_count": ok, "subtitle_used": subtitle_used, "elapsed_sec": elapsed,
-                   "sampled_count": len(sampled_frame_list), "total_frames": len(frame_list)})
+                   "sampled_count": len(sampled_frame_list), "total_frames": len(frame_list),
+                   "parse_error_count": parse_errors})
     return result
 
 

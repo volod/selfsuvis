@@ -4,7 +4,6 @@
 - `./scripts/install_system_deps.sh` — ffmpeg, OpenCV deps (Linux). Add `--with-python` for Python/venv.
 - `./scripts/install_nvidia_docker.sh` — NVIDIA Container Toolkit for Docker GPU
 - `./scripts/install_requirements.sh` — install Python deps from `pyproject.toml` extras into a venv (called by `make venv`)
-- `./scripts/ensure_venv_pip.sh` — ensure pip in venv (called by `make venv`)
 - `selfsuvis-env` — generate a resource-aware root `.env` from packaged presets
 
 ## Pre-download weights for offline use
@@ -15,30 +14,55 @@ DOWNLOAD_DINO=true DINO_MODEL=dinov2_vitb14 python -m selfsuvis.scripts.prepare_
 
 ## Batch index a directory
 ```bash
-./scripts/index_dir.sh /path/to/video_dir true
+curl -s \
+  -F "path=/path/to/video_dir" \
+  -F "enable_tiles=true" \
+  http://localhost:8000/index/dir | python -m json.tool
 ```
 
 ## Index a URL
 ```bash
-./scripts/index_url.sh https://example.com/video.mp4 true
+curl -s \
+  -F "url=https://example.com/video.mp4" \
+  -F "enable_tiles=true" \
+  http://localhost:8000/index/url | python -m json.tool
 ```
 
 ## Watch a job
 ```bash
-./scripts/job_watch.sh <job_id>
+JOB_ID=<job_id>
+while true; do
+  STATUS="$(curl -s http://localhost:8000/jobs/${JOB_ID})"
+  echo "$STATUS" | python -m json.tool
+  STATE="$(printf '%s' "$STATUS" | python -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')"
+  [[ "$STATE" == "finished" || "$STATE" == "error" ]] && break
+  sleep 2
+done
 ```
 
 ## Precheck (avoid double load)
 ```bash
-./scripts/precheck.sh file /path/to/video.mp4
-./scripts/precheck.sh path /path/to/video.mp4
-./scripts/precheck.sh url https://example.com/video.mp4
+curl -s -F "file=@/path/to/video.mp4" \
+  http://localhost:8000/index/precheck | python -m json.tool
+
+curl -s -F "path=/path/to/video.mp4" \
+  http://localhost:8000/index/precheck | python -m json.tool
+
+curl -s -F "url=https://example.com/video.mp4" \
+  http://localhost:8000/index/precheck | python -m json.tool
 ```
 
 ## Precheck directory (optionally enqueue new)
 ```bash
-./scripts/precheck_dir.sh /path/to/video_dir
-./scripts/precheck_dir.sh /path/to/video_dir true true
+curl -s \
+  -F "path=/path/to/video_dir" \
+  http://localhost:8000/index/precheck_dir | python -m json.tool
+
+curl -s \
+  -F "path=/path/to/video_dir" \
+  -F "enqueue=true" \
+  -F "enable_tiles=true" \
+  http://localhost:8000/index/precheck_dir | python -m json.tool
 ```
 
 ## Reset Qdrant collection

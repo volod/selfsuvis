@@ -65,6 +65,7 @@ The loader reads the following artifacts when present:
 - `distill_stats.md`
 - `edge_models/gallery.npz`
 - `3d_map/map_stats.json`
+- `3d_map/map_quality_advisor.json`
 - every file under the run directory for inventory and size reporting
 
 ## What Gets Computed
@@ -80,6 +81,7 @@ The loader reads the following artifacts when present:
 Current warning rules include:
 
 - Florence captions empty for all frames
+- Qwen detailed captioning produced only parse errors
 - Gemma-directed tracking produced zero detections
 - Gemma-directed tracking had to retry with a relaxed label filter
 - Gemma-directed tracking is highly fragmented
@@ -112,6 +114,36 @@ and the local pipeline `analysis_summary.json`.
 
 For the equations and interpretation rules, read
 [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md).
+
+## Mapping Diagnostics And Advisor Artifacts
+
+Mapping now emits two complementary artifacts:
+
+- `3d_map/map_stats.json`
+  Reports what reconstruction actually happened: sparse SfM poses, point count, frame anchors,
+  fallback method, and whether the map is degraded.
+- `3d_map/map_quality_advisor.json`
+  Explains why the map succeeded or degraded by measuring video quality and geometry signals:
+  duration, resolution, brightness stability, sharpness, feature richness, adjacent-frame
+  matchability, parallax proxy, object scale / field size, and a coarse camera-angle hint.
+
+This distinction matters:
+
+- `map_stats.json` answers "what did the mapper recover?"
+- `map_quality_advisor.json` answers "was the source video suitable for a high-quality map?"
+
+Typical advisor findings:
+
+- good exposure but poor parallax: the video is visually clean, but camera motion is too close to
+  pure forward drift or pure nadir hover for strong geometry
+- strong feature richness but tiny object scale: the scene has texture, but the aircraft is too
+  high or the FOV is too wide to recover detailed structure
+- short clip with sparse SfM poses: the mapping stack is not the main problem; capture coverage is
+  insufficient
+
+For the current drone learning-path run, the advisor shows exactly that pattern: exposure,
+sharpness, and ORB feature count are healthy, while clip duration, parallax, and field scale are
+poor. Treat that as a capture problem first, not as a model-loading problem.
 
 ## Charts Produced
 

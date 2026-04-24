@@ -43,7 +43,7 @@ Runs `ruff check` and `ruff format --check`. Install ruff first: `pip install ru
 
 Prerequisites: system deps (`sudo ./scripts/install_system_deps.sh --with-python`), venv (`make venv`), Qdrant running (e.g. `make up` for qdrant only, or `docker run -p 6333:6333 -v $(pwd)/data/qdrant:/qdrant/storage qdrant/qdrant:v1.7.4`).
 
-Config: `APP_ENV=dev` (default) loads `env/dev.env`. Override with env vars or a root `.env`.
+Config: `APP_ENV=dev` (default) loads `src/selfsuvis/env/dev.env`. Override with env vars or a root `.env`.
 
 ### API
 

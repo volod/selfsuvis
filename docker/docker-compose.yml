@@ -1,6 +1,7 @@
 # Run all services as current host user so data/cache dirs are owned by you.
 # Requires: UID and GID env vars (make up sets these automatically).
-# Loads env/prod.env by default; set APP_ENV=dev or APP_ENV=test to use other env files.
+# Container env priority: shell `environment:` > repo-root .env (optional) >
+# packaged prod defaults in src/selfsuvis/env/prod.env.
 
 services:
   postgres:
@@ -40,7 +41,10 @@ services:
       dockerfile: docker/Dockerfile.api
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
-      - ../env/prod.env
+      - path: ../src/selfsuvis/env/prod.env
+        required: true
+      - path: ../.env
+        required: false
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
@@ -74,7 +78,10 @@ services:
       dockerfile: docker/Dockerfile.worker
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
-      - ../env/prod.env
+      - path: ../src/selfsuvis/env/prod.env
+        required: true
+      - path: ../.env
+        required: false
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
@@ -106,7 +113,10 @@ services:
       dockerfile: docker/Dockerfile.ui
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
-      - ../env/prod.env
+      - path: ../src/selfsuvis/env/prod.env
+        required: true
+      - path: ../.env
+        required: false
     environment:
       - API_URL=http://api:8000
       - DATA_DIR=/app/data

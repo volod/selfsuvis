@@ -262,6 +262,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help="[local] UniDriveVLA model ID; empty = use UNIDRIVE_MODEL env var default")
     parser.add_argument("--unidrive-backend", default="", choices=["", "vllm", "ollama"],
                         help="[local] UniDrive backend type. Empty = auto-detect")
+    parser.add_argument("--scenetok", dest="scenetok", action="store_const", const=True, default=None,
+                        help="[local] Enable SceneTok Step 14 — streaming scene encoder + segmentation decoder (~24 GB VRAM)")
+    parser.add_argument("--no-scenetok", dest="scenetok", action="store_const", const=False,
+                        help="[local] Disable SceneTok")
+    parser.add_argument("--scenetok-api-url", default="",
+                        help="[local] SceneTok FastAPI sidecar endpoint; falls back to local torch if unset")
+    parser.add_argument("--scenetok-checkpoint", default="",
+                        help="[local] SceneTok checkpoint variant (va-videodc_re10k, va-videodc_dl3dv, va-wan_dl3dv)")
     parser.add_argument("--gemma-api-url", default="",
                         help="[local] Gemma vLLM/ollama endpoint (e.g. http://localhost:11434/v1)")
     parser.add_argument("--gemma-api-model", default="",

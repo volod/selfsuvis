@@ -35,6 +35,8 @@ Treat the run directory as evidence, not as proof that every stage worked.
    Determine whether adaptation produced a useful deployable edge artifact.
 7. `3d_map/`
    Confirm that map generation produced actual geometry, not just placeholder outputs.
+   Read `map_stats.json` first, then `map_quality_advisor.md` to distinguish reconstruction failure
+   from capture failure.
 
 ## Use The Analytics Tooling
 
@@ -93,8 +95,63 @@ For the equations behind those diagnostics, read
 ### Mapping artifacts
 
 - Does `3d_map/map_stats.json` show real poses and points?
+- Does `3d_map/map_stats.json` report true `sfm_poses`, or mostly interpolated frame anchors?
+- Did the mapper fall back to `sfm_sparse+semantic_pseudo3d` or another degraded recovery path?
 - Is the Gaussian splat viewable, or was only a placeholder file written?
 - Is pose coverage high enough for the video length, and are there enough points per pose?
+- Does `3d_map/map_quality_advisor.json` blame the source video or the mapper?
+- Are the advisor's measured signals consistent with what you see by eye:
+  short clip, weak parallax, high altitude / wide FOV, low resolution, blur, or exposure flicker?
+- If the advisor says exposure and sharpness are good but parallax is poor, stop tuning models and
+  redesign the capture path.
+
+### How To Read A Degraded 3D Map
+
+The current mapping stack separates two different situations that used to be blurred together:
+
+- The mapper failed because the source video was weak.
+- The mapper degraded gracefully and produced a richer pseudo-3D map from sparse SfM, detections,
+  tracks, and depth priors.
+
+When `map_stats.json` reports degraded quality, inspect these fields together:
+
+- `sfm_poses`
+  Real poses recovered by pycolmap.
+- `frame_anchor_count`
+  Additional interpolated anchors used to stabilize the output.
+- `point_count`
+  Total points in the final sparse or pseudo-3D cloud.
+- `quality_note`
+  Why the fallback was activated.
+
+Interpretation:
+
+- low `sfm_poses`, low `point_count`: the source video is usually too weak even for fallback
+- low `sfm_poses`, high `point_count`, semantic pseudo-3D note: the run recovered a usable but not
+  metric-quality map
+- high `sfm_poses`, high `point_count`: this is the regime where Gaussian splatting and spatial
+  reasoning become trustworthy
+
+### Drone Mission Example
+
+In the learning-path drone run, the map advisor reported a common aerial failure pattern:
+
+- exposure consistency was strong
+- sharpness was strong
+- feature richness was strong
+- adjacent-frame matchability was strong
+- parallax was weak
+- field scale was weak
+- clip duration was too short
+
+That combination means:
+
+- the video is clean enough for feature matching
+- the aircraft did not move through geometry in a way that supports robust triangulation
+- the camera was too high, too wide, too overhead, or all three
+
+For that class of run, the right corrective action is not "change SfM library".
+It is "capture a longer, lower, more oblique, more cross-linked flight path".
 
 ## Code Traceback Map
 
@@ -105,6 +162,9 @@ When an artifact looks wrong, trace it back from the run directory to code:
 - report writers: `src/selfsuvis/pipeline/workflows/local/steps_report.py`
 - analytics loader: `src/selfsuvis/analytics/loader.py`
 - report generation: `src/selfsuvis/visualization/report.py`
+- mapping advisor: `src/selfsuvis/pipeline/mapping/quality_advisor.py`
+- sparse-map builder and degraded fallback: `src/selfsuvis/pipeline/mapping/builder.py`
+- SfM matching policy: `src/selfsuvis/pipeline/mapping/sfm.py`
 
 ## Practical Exercises
 

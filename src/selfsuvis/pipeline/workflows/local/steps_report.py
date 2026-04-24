@@ -937,12 +937,14 @@ def write_final_stats_md(
         f"| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps 06-11) |",
         f"| `detailed_captions.md` | Qwen VLM detailed per-frame scene captions with ASR context (step 12) |",
         f"| `unidrive_analysis.md` | UniDriveVLA understanding, perception, planning, and MoE consensus (step 13) |",
-        f"| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison and MoE agreement summary (step 21) |",
-        f"| `video_synthesis.md` | LLM video ontology + fine-grained narrative (step 22) |",
-        f"| `agentic_flow.md` | Step-by-step agentic context trace, risk analysis, and context-propagation audit (step 23) |",
+        f"| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison and MoE agreement summary (step 22) |",
+        f"| `video_synthesis.md` | LLM video ontology + fine-grained narrative (step 23) |",
+        f"| `agentic_flow.md` | Step-by-step agentic context trace, risk analysis, and context-propagation audit (step 24) |",
         f"| `video_ontology.json` | Structured ontology JSON (domain, environment, activities, objects) |",
         f"| `3d_map/sparse_map.npz` | 3D point cloud (from SfM or PCA fallback) |",
         f"| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
+        f"| `3d_map/map_quality_advisor.json` | Measured mapping-quality diagnostics and readiness score |",
+        f"| `3d_map/map_quality_advisor.md` | Capture guidance and flight-plan recommendations for higher-quality maps |",
         f"",
         f"---",
         f"*Run `python main.py --mode local --help` for all options.*",
@@ -1095,18 +1097,26 @@ def write_detailed_captions_md(
     elapsed_sec: float,
     model_id: str,
 ) -> None:
-    ok = sum(1 for r in results if not r.get("service_unavailable") and not r.get("skipped"))
+    ok = sum(1 for r in results if not r.get("service_unavailable") and not r.get("skipped") and not r.get("parse_error"))
+    parse_errors = sum(1 for r in results if r.get("parse_error"))
+    unavailable = sum(1 for r in results if r.get("service_unavailable"))
 
-    # Build text captions for scene-segment detection (use scene_summary from Qwen JSON)
+    # Build text captions for scene-segment detection from only valid structured rows.
     text_results: List[Dict[str, Any]] = []
     for r in results:
+        if r.get("service_unavailable") or r.get("skipped") or r.get("parse_error"):
+            continue
         summary = r.get("scene_summary") or r.get("caption") or r.get("scene_description") or ""
         text_results.append({**r, "caption": summary})
-    enriched = _analyze_caption_sequence(text_results)
+    enriched_valid = _analyze_caption_sequence(text_results) if text_results else []
+    enriched_index = {
+        (str(r.get("frame_path", "")), float(r.get("t_sec", 0.0))): r
+        for r in enriched_valid
+    }
 
     # Segment-level summary
     segments: List[Dict[str, Any]] = []
-    for r in enriched:
+    for r in enriched_valid:
         if r["is_new_segment"]:
             segments.append({
                 "segment_id": r["segment_id"],
@@ -1122,7 +1132,7 @@ def write_detailed_captions_md(
             segments[-1]["end_t"] = r["t_sec"]
             segments[-1]["frame_count"] += 1
 
-    n_unchanged = sum(1 for r in enriched if not r["is_new_segment"])
+    n_unchanged = sum(1 for r in enriched_valid if not r["is_new_segment"])
 
     lines = [
         f"# Detailed Scene Captions — {video_name}",
@@ -1131,12 +1141,19 @@ def write_detailed_captions_md(
         f"Model: {model_id}  |  Frames processed: {ok}/{len(results)}"
         f"  |  Unique scenes: {len(segments)}  |  Repeated: {n_unchanged}",
         f"Elapsed: {elapsed_sec:.1f}s",
+        f"Structured parse errors: {parse_errors}/{len(results)}  |  Service unavailable: {unavailable}",
         f"",
         f"## Scene Timeline",
         f"",
         f"| # | Start (s) | End (s) | Frames | Road | Condition | Vehicles | Summary |",
         f"|---|-----------|---------|--------|------|-----------|----------|---------|",
     ]
+    if not segments:
+        lines += [
+            "",
+            "_No valid structured Qwen outputs were parsed for this run. Per-frame rows below may contain parse-error markers only._",
+            "",
+        ]
     for seg in segments:
         vg = seg.get("vehicle_groups") or []
         v_str = "; ".join(
@@ -1161,15 +1178,22 @@ def write_detailed_captions_md(
     ]
 
     prev_structured: Dict[str, Any] = {}
-    for r in enriched:
+    for r in results:
         fp       = r.get("frame_path", "")
         name     = Path(fp).name if fp else "—"
         t        = r.get("t_sec", 0.0)
         subtitle = (r.get("subtitle_text") or "").replace("|", "\\|")[:60]
-        seg      = r["segment_id"] + 1
+        enriched_row = enriched_index.get((str(fp), float(t)))
+        seg      = str((enriched_row["segment_id"] + 1)) if enriched_row else "—"
 
         if r.get("service_unavailable"):
             caption  = "*sidecar unavailable*"
+            delta    = "—"
+        elif r.get("parse_error"):
+            caption  = "*parse error*"
+            raw = str(r.get("raw", "") or "").replace("|", "\\|").strip()
+            if raw:
+                caption += f" {raw[:160]}"
             delta    = "—"
         elif r.get("skipped"):
             caption  = "*skipped*"
@@ -1192,7 +1216,7 @@ def write_detailed_captions_md(
                         parts.append(f"{k}: {v}")
                 facts = "; ".join(parts[:4])
             caption = str(facts).replace("|", "\\|")[:200]
-            if not r["is_new_segment"]:
+            if enriched_row and not enriched_row["is_new_segment"]:
                 caption = f"*unchanged* {caption}"
 
             # Update structured state for next diff
@@ -1270,7 +1294,10 @@ def write_multi_model_comparison_md(
     qwen_result: Dict[str, Any],
     unidrive_result: Dict[str, Any],
 ) -> Dict[str, Any]:
-    qwen_rows = [r for r in qwen_result.get("results", []) if not r.get("service_unavailable")]
+    qwen_rows = [
+        r for r in qwen_result.get("results", [])
+        if not r.get("service_unavailable") and not r.get("parse_error")
+    ]
     uni_rows = [
         r for r in unidrive_result.get("results", [])
         if not r.get("service_unavailable") and not r.get("parse_error")
@@ -1354,7 +1381,11 @@ def write_multi_model_comparison_md(
         "",
         "## Interpretation",
         "",
-        "- Qwen is the structured scene-facts baseline.",
+        (
+            "- Qwen is the structured scene-facts baseline."
+            if qwen_rows else
+            "- Qwen produced no valid structured rows in this run; treat UniDrive as the only usable structured VLM output."
+        ),
         "- UniDrive adds explicit understanding, perception, and planning experts.",
         "- The UniDrive MoE consensus field is the best single input for downstream synthesis because it preserves both consensus and disagreement.",
         "",
@@ -1468,16 +1499,17 @@ _STEP_LABELS: List[Tuple[str, str, str]] = [
     ("Q_world",           "11 Analyze: World model embeddings",    "GPU vision"    ),
     ("R_qwen",            "12 Analyze: Qwen detailed captions",    "LLM API"       ),
     ("S_unidrive",        "13 Analyze: UniDriveVLA expert",        "LLM API"       ),
-    ("C_base_search",     "14 Eval: Base search test",             "GPU embed"     ),
-    ("I_3dmap",           "15 Map: SfM + Gaussian Splat",          "GPU 3D"        ),
-    ("D_finetune",        "16 Adapt: SSL DINOv3 fine-tune",        "GPU train"     ),
-    ("E_distill",         "17 Adapt: Knowledge distillation",      "GPU train"     ),
-    ("F_export",          "18 Export: ONNX + gallery",             "CPU"           ),
-    ("G_ft_search",       "19 Eval: Fine-tuned search test",       "GPU embed"     ),
-    ("H_compare",         "20 Eval: Model comparison",             "GPU embed"     ),
-    ("T_multimodel",      "21 Audit: Multi-model comparison",      "GPU vision"    ),
-    ("Z_synthesis",       "22 Synthesize: Ontology+narrative",     "LLM API"       ),
-    ("AA_agentic",        "23 Audit: Agentic flow",                "LLM API"       ),
+    ("S_scenetok",        "14 Analyze: SceneTok encoder+seg",      "GPU vision"    ),
+    ("C_base_search",     "15 Eval: Base search test",             "GPU embed"     ),
+    ("I_3dmap",           "16 Map: SfM + Gaussian Splat",          "GPU 3D"        ),
+    ("D_finetune",        "17 Adapt: SSL DINOv3 fine-tune",        "GPU train"     ),
+    ("E_distill",         "18 Adapt: Knowledge distillation",      "GPU train"     ),
+    ("F_export",          "19 Export: ONNX + gallery",             "CPU"           ),
+    ("G_ft_search",       "20 Eval: Fine-tuned search test",       "GPU embed"     ),
+    ("H_compare",         "21 Eval: Model comparison",             "GPU embed"     ),
+    ("T_multimodel",      "22 Audit: Multi-model comparison",      "GPU vision"    ),
+    ("Z_synthesis",       "23 Synthesize: Ontology+narrative",     "LLM API"       ),
+    ("AA_agentic",        "24 Audit: Agentic flow",                "LLM API"       ),
 ]
 
 
@@ -1551,9 +1583,15 @@ def print_run_stats(
     for key, label, comp_type in _STEP_LABELS:
         vals = [v.get("timings", {}).get(key, 0.0) for v in per_video]
         total_step = sum(vals)
-        # Only show rows where at least one video ran this step
-        if total_step > 0 or key in ("A_extract", "B_index"):
-            _log.info(_row(label, comp_type, *[_fmt_sec(s) for s in vals], _fmt_sec(total_step)))
+        # Always show these keys even when 0s — they are explicitly configured
+        # steps whose absence signals a skipped/unavailable sidecar, not that
+        # the step is irrelevant.  All other 0s rows are omitted to reduce noise.
+        _always_show = {"A_extract", "B_index", "S_scenetok", "S_unidrive"}
+        if total_step > 0 or key in _always_show:
+            if total_step == 0 and key in _always_show:
+                _log.info(_row(label + " (skipped)", comp_type, *["—"] * n_vids, "—"))
+            else:
+                _log.info(_row(label, comp_type, *[_fmt_sec(s) for s in vals], _fmt_sec(total_step)))
             for i, s in enumerate(vals):
                 col_totals[i] += s
             grand_total += total_step
@@ -1687,12 +1725,16 @@ def print_run_stats(
 
 def _fmt_analytics_coverage(summary: Dict[str, Any]) -> str:
     rh = summary.get("run_health", {}) or {}
-    return (
+    text = (
         f"{100.0 * float(rh.get('florence_caption_coverage', 0.0)):.0f}/"
         f"{100.0 * float(rh.get('qwen_caption_coverage', 0.0)):.0f}/"
         f"{100.0 * float(rh.get('asr_coverage', 0.0)):.0f}/"
         f"{100.0 * float(rh.get('ocr_coverage', 0.0)):.0f}%"
     )
+    parse_errors = int(rh.get("qwen_parse_error_count", 0) or 0)
+    if parse_errors > 0:
+        text += f" (Qwen parse={parse_errors})"
+    return text
 
 
 def _fmt_analytics_detections(summary: Dict[str, Any]) -> str:
@@ -1732,6 +1774,10 @@ def _fmt_analytics_map(summary: Dict[str, Any]) -> str:
     quality = "degraded" if ms.get("degraded") else "ok"
     points = int(ms.get("points", 0) or 0)
     poses = int(ms.get("poses", 0) or 0)
+    sfm_poses = int(ms.get("sfm_poses", poses) or poses)
+    anchors = int(ms.get("frame_anchor_count", poses) or poses)
+    if anchors != sfm_poses:
+        return f"{quality} ({points}p/{sfm_poses} SfM, {anchors} anchors)"
     return f"{quality} ({points}p/{poses} poses)"
 
 

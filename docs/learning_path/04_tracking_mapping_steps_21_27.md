@@ -448,16 +448,53 @@ The resulting model supports: view synthesis from arbitrary angles, real-time fl
 The pipeline only runs splatfacto after SfM succeeds (`pose_status = success`).
 If SfM fails (insufficient overlap, poor feature matches, featureless surfaces), the Gaussian Splat step is skipped.
 
+*Short-clip matching policy:*
+Short aerial clips often fail with purely sequential matching even when the frames are sharp.
+The local mapper now switches pycolmap to exhaustive matching automatically for short clips, which
+raises the chance of connecting the sequence into one component when there are only a few seconds of
+usable views.
+
+*Degraded-map recovery path:*
+The pipeline no longer collapses immediately to a tiny PCA placeholder when SfM is sparse.
+If only part of the sequence localizes, it interpolates the recovered trajectory and enriches the
+map with semantic pseudo-3D anchors derived from detections, tracks, and coarse depth cues.
+This produces a richer degraded map that is honest about its quality instead of pretending to be a
+full reconstruction.
+
+*Map quality advisor:*
+Every completed local run now writes a companion advisor:
+
+- `3d_map/map_quality_advisor.json`
+- `3d_map/map_quality_advisor.md`
+
+The advisor measures source-video properties that dominate reconstruction quality:
+
+- clip duration
+- resolution
+- exposure consistency
+- sharpness
+- feature richness
+- adjacent-frame matchability
+- parallax proxy
+- object scale / field size
+- coarse camera-angle hint
+
+That artifact exists to answer the question "was this video even suitable for a high-quality map?"
+before you waste time tuning thresholds.
+
 **Output artifact:**
 `maps/{mission_id}/splat.ply` — the 3DGS scene model (large file: 100 MB-2 GB depending on duration).
 Sparse point cloud: `sparse_reconstruction/` directory with COLMAP format files.
 Per-frame `pose_json`: camera pose (rotation + translation) for each frame that was successfully localized.
+Local-run diagnostics: `3d_map/map_stats.json`, `3d_map/map_quality_advisor.json`, and `3d_map/map_quality_advisor.md`.
 
 **Human focus:**
 - Understand why SfM needs overlap: a single frame cannot provide any 3D information alone.
 - Learn the SfM failure modes: texture-less surfaces (white walls, water), pure rotation without translation, too-fast camera motion.
 - Understand what a Gaussian Splat represents: not a mesh, not a point cloud, but a probabilistic volumetric representation.
 - Know the scale ambiguity problem: SfM without GPS produces a map in arbitrary units; GPS registration resolves this.
+- Learn to separate "mapper degraded" from "capture was poor" by reading `map_quality_advisor.md`.
+- Inspect whether weak mapping comes from low parallax, too-short duration, too-high altitude, or low resolution rather than from SfM code.
 
 **Common failure modes:**
 - Too few overlapping views (low `SFM_FPS`) → SfM produces a degenerate map or fails entirely.
@@ -465,6 +502,71 @@ Per-frame `pose_json`: camera pose (rotation + translation) for each frame that 
 - Pure rotation (drone pivoting in place without translation) → SfM has degenerate geometry; reconstruction is wrong.
 - Long video with scene changes → SfM may split into disconnected sub-models.
 - nerfstudio container not running → splatfacto step skipped; only sparse SfM output exists.
+- Short clip with mostly forward drift → enough matches for partial localization, but too little baseline for dense reliable geometry.
+- High-altitude nadir video with tiny vehicles and lane markings → map stays sparse even when ORB/SIFT matching looks healthy.
+
+### High-quality capture requirements for aerial 3D mapping
+
+The advisor and rebuilt drone run make one point very clear: high-quality 3D mapping is dominated
+by capture geometry, not only by reconstruction software.
+
+For very high quality mapping, optimize for these conditions:
+
+- Duration: `25-40 s` over the same region of interest is a strong practical target.
+- Resolution: at least `1280x720`, preferably `1920x1080` or higher.
+- Parallax: include real lateral viewpoint change, not only forward motion or hover.
+- Camera angle: use at least one pass around `25-40°` off nadir instead of only straight-down footage.
+- Field scale: static infrastructure should be large enough that lane markings, curbs, poles, and roof edges occupy meaningful pixels.
+- Overlap: maintain high forward overlap and a second cross-track pass when possible.
+- Exposure: lock exposure and white balance if the camera allows it.
+- Motion: keep translational speed low enough to avoid blur and to preserve correspondences.
+
+### Drone learning-path case study
+
+The current `drone_mission` run is a useful example because it is not a blur problem.
+Measured signals were approximately:
+
+- duration: `10.2 s`
+- resolution: `854x480`
+- brightness CV: `0.009`
+- sharpness mean: `671`
+- median ORB keypoints: `1200`
+- match inlier ratio: `0.92`
+- parallax proxy: `0.0049`
+- median vehicle area: `0.0004` of frame
+
+Interpretation:
+
+- exposure and sharpness are already good enough
+- matching is not the main bottleneck
+- parallax is weak
+- scene scale is too small
+- the clip is short
+
+So the bottleneck is capture geometry: the aircraft is effectively too high, too overhead, too
+wide, and too brief for a very high quality map.
+
+### Practical flight plan for very high quality area mapping
+
+For a road, junction, or built-up outdoor area, use a repeatable three-pass plan:
+
+1. Oblique orbit or arc
+   Fly a slow arc around the area of interest at roughly `25-40°` off nadir to establish
+   cross-view geometry and facade / roadside structure.
+2. Along-track pass
+   Fly one straight pass roughly aligned with the road or dominant axis of the scene with high
+   forward overlap.
+3. Cross-track pass
+   Fly a second pass roughly perpendicular to the first to create the side overlap that nadir-only
+   single-pass footage usually lacks.
+
+Operational guidance:
+
+- reduce altitude or narrow FOV until vehicles and lane markings are materially larger in frame
+- keep speed low enough that road texture stays crisp
+- avoid sudden yaw spins during mapping segments
+- keep the scene mostly static when possible; heavy moving traffic reduces correspondence quality
+- if available, record GPS / IMU and keep it time-aligned for later registration and smoothing
 
 ---
 

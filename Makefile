@@ -79,12 +79,10 @@ venv:
 				echo "Removing existing .venv..."; \
 				rm -rf .venv; \
 				uv venv .venv; \
-				./scripts/ensure_venv_pip.sh .venv; \
 				./scripts/install_requirements.sh vision,dev .venv \
 				;; \
 			u|U) \
 				echo "Updating requirements in existing .venv..."; \
-				./scripts/ensure_venv_pip.sh .venv; \
 				./scripts/install_requirements.sh vision,dev .venv \
 				;; \
 			*) \
@@ -94,14 +92,12 @@ venv:
 		esac \
 	else \
 		uv venv .venv; \
-		./scripts/ensure_venv_pip.sh .venv; \
 		./scripts/install_requirements.sh vision,dev .venv; \
 	fi
 
 # Force CUDA torch wheels regardless of nvidia-smi detection (use when GPU is present but nvidia-smi absent)
 venv-cuda:
 	uv venv .venv
-	./scripts/ensure_venv_pip.sh .venv
 	FORCE_CUDA=1 ./scripts/install_requirements.sh vision,dev .venv
 
 # Rebuild xformers from source targeting the GPU present on this machine.
@@ -111,7 +107,7 @@ venv-cuda:
 # Expected build time: 20-60 min.
 venv-rebuild-xformers:
 	@echo "Rebuilding xformers from source (20-60 min)..."
-	@./scripts/ensure_venv_pip.sh .venv
+	@uv pip install --python .venv pip
 	@_CC=$$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d ' '); \
 	_ARCH="$${_CC:+$${_CC}+PTX}"; \
 	_ARCH="$${_ARCH:-7.5;8.0;8.6;8.9;9.0+PTX}"; \
@@ -124,7 +120,7 @@ venv-rebuild-xformers:
 
 # Install pip into existing .venv (when uv created it without pip)
 venv-pip:
-	./scripts/ensure_venv_pip.sh .venv
+	uv pip install --python .venv pip
 
 # Fix ownership of data and cache (run if Qdrant fails with "Permission denied" on Snapshots)
 fix-data:
