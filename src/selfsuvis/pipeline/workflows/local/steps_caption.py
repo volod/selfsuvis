@@ -1047,6 +1047,9 @@ def _summarise_gemma_captions_to_structured_scene(
     )
     base = api_url.rstrip("/")
     endpoint = f"{base}/chat/completions"
+    # Ollama native endpoint — bypasses thinking-token routing for models like gemma4
+    ollama_base = base[:-3] if base.endswith("/v1") else base
+    ollama_endpoint = f"{ollama_base}/api/chat"
     t_req = time.time()
     try:
         resp = httpx.post(
@@ -1064,6 +1067,26 @@ def _summarise_gemma_captions_to_structured_scene(
         content = msg.get("content") or ""
         if isinstance(content, list):
             content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+        # Thinking models (e.g. gemma4:e4b) emit output as reasoning tokens, leaving
+        # content empty on the OpenAI path.  Fall back to the Ollama native endpoint
+        # which bypasses the thinking mechanism and writes directly to content.
+        if not content.strip():
+            try:
+                native_resp = httpx.post(
+                    ollama_endpoint,
+                    json={
+                        "model": model,
+                        "stream": False,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                    timeout=timeout,
+                )
+                native_resp.raise_for_status()
+                native_content = native_resp.json().get("message", {}).get("content", "")
+                if native_content.strip():
+                    content = native_content
+            except Exception:
+                pass
         if not content:
             content = msg.get("reasoning") or msg.get("thinking") or ""
         if "```" in content:
@@ -2147,6 +2170,30 @@ def step_ocr_extraction(
         )
     else:
         selected_frame_list = list(frame_list)
+
+    # Hard cap: aerial and wide-angle footage produces universally low Florence
+    # confidence, making the confidence prescreen select every frame.  Limit to
+    # OCR_MAX_FRAMES by evenly sampling the already-filtered set.
+    max_ocr = int(settings.OCR_MAX_FRAMES)
+    if max_ocr > 0 and len(selected_frame_list) > max_ocr:
+        pre_cap = len(selected_frame_list)
+        step = len(selected_frame_list) / max_ocr
+        capped = [selected_frame_list[int(i * step)] for i in range(max_ocr)]
+        capped_paths = {fp for fp, _ in capped}
+        for fp, t_sec in selected_frame_list:
+            if fp not in capped_paths:
+                skipped_by_caption[fp] = {
+                    "frame_path": fp,
+                    "t_sec": t_sec,
+                    "ocr_text": "",
+                    "ocr_model": ocr.model_id,
+                    "ocr_skipped_by_max_frames": True,
+                }
+        selected_frame_list = capped
+        _log.info(
+            "  OCR max-frames cap: %d → %d frames (OCR_MAX_FRAMES=%d)",
+            pre_cap, len(selected_frame_list), max_ocr,
+        )
 
     if not selected_frame_list and frame_list:
         selected_frame_list = _fallback_ocr_frame_sample(frame_list)

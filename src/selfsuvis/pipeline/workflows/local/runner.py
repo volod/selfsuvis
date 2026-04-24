@@ -1627,11 +1627,20 @@ def run_video_pipeline(
     # Submit the 3D-map build once sparse geometry can be enriched with the
     # already-computed depth, detection, and tracking cues. The CPU-bound map
     # stage still overlaps with the slower VLM/API stages that follow.
+    _sfm_min_dur = float(settings.SFM_MIN_DURATION_SEC)
+    _clip_dur    = float(stats.get("duration_sec", 0.0))
+    _run_sfm     = not args.no_sfm
+    if _run_sfm and _sfm_min_dur > 0 and _clip_dur < _sfm_min_dur:
+        _log.info(
+            "  SfM skipped: clip %.1fs < SFM_MIN_DURATION_SEC=%.0fs — using pseudo-3D fallback",
+            _clip_dur, _sfm_min_dur,
+        )
+        _run_sfm = False
     _log.info("  ▷ Submitting 3D-map step 16 to background thread (SfM+enrichment+Splat) …")
     _map_future = _map_executor.submit(
         step_create_3d_map,
         video_path, video_id, video_dir, frame_list, models,
-        run_sfm_flag=not args.no_sfm,
+        run_sfm_flag=_run_sfm,
         run_gsplat_flag=not getattr(args, "no_gsplat", False),
         device=device,
         depth_results=depth_result.get("depth_results", []),

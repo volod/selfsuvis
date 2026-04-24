@@ -270,6 +270,8 @@ def step_ssl_finetune(
         loss_fn   = NTXentLoss(temperature=c.temperature)
         best_loss = float("inf")
         best_path = os.path.join(c.output_dir, "dino_ssl_best.pt")
+        patience = 3
+        no_improve = 0
         for epoch in range(1, c.epochs + 1):
             tuner.train(); epoch_losses = []
             for v1, v2 in loader:
@@ -281,10 +283,18 @@ def step_ssl_finetune(
             avg = float(np.mean(epoch_losses)) if epoch_losses else float("inf")
             loss_history.append(avg)
             _log.info("    Epoch %d/%d  loss=%.4f", epoch, c.epochs, avg)
-            ckpt = os.path.join(c.output_dir, f"dino_ssl_{epoch:03d}.pt")
-            tuner.save_checkpoint(ckpt)
             if avg < best_loss:
-                best_loss = avg; tuner.save_checkpoint(best_path)
+                best_loss = avg
+                tuner.save_checkpoint(best_path)
+                no_improve = 0
+            else:
+                no_improve += 1
+                if no_improve >= patience:
+                    _log.info(
+                        "    Early stop at epoch %d/%d (no improvement for %d epochs)",
+                        epoch, c.epochs, patience,
+                    )
+                    break
         return best_path
 
     best_path = _run_capturing(cfg)

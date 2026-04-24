@@ -390,6 +390,29 @@ APP_ENV=dev .venv/bin/selfsuvis --mode local \
 # 16 GB variant:
 # Replace qwen2.5vl:3b -> qwen2.5vl:7b
 # Replace qwen3:8b     -> qwen3:14b
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+APP_ENV=dev .venv/bin/selfsuvis --mode local \
+  --videos-dir        data/videos \
+  --asr               \
+  --ocr               \
+  --depth             \
+  --detection         \
+  --qwen              \
+  --world-model       \
+  --unidrive          \
+  --rfdetr-model      base \
+  --gemma-api-url     http://localhost:11434/v1 \
+  --gemma-api-backend ollama \
+  --gemma-api-model   gemma4:e4b \
+  --qwen-api-url      http://localhost:11434/v1 \
+  --qwen-backend      ollama \
+  --qwen-model        qwen2.5vl:7b \
+  --unidrive-api-url  http://localhost:11434/v1 \
+  --unidrive-backend  ollama \
+  --unidrive-model    qwen2.5vl:7b \
+  --reasoning-api-url http://localhost:11434/v1 \
+  --reasoning-backend ollama \
+  --reasoning-model   qwen3:14b
 ```
 
 > **Why this is the realistic single-GPU path:** Ollama can evict Gemma, Qwen, and reasoning
