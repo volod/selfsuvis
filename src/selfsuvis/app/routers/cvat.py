@@ -18,7 +18,6 @@ Annotation workflow:
   5. CVAT fires POST /webhook/cvat  → frames updated to al_tag='annotated'.
 """
 
-from __future__ import annotations
 
 import hashlib
 import hmac

@@ -928,3 +928,35 @@ Resources are ordered basics → deep dive. Physical measurement sections includ
 **Deep dive**
 - Huang, "Review and Analysis of Multi-sensor Fusion Approaches for Autonomous Ground Vehicles" (2019). Survey of tight vs loose coupling, graph-based vs filter-based, and multi-hypothesis fusion — directly maps to the `pose_source` selection logic in the pipeline. [arxiv.org/abs/1906.02971](https://arxiv.org/abs/1906.02971)
 - Sun et al., "Scalability in Perception for Autonomous Driving" (2020). The nuScenes/Waymo ecosystem that established multi-sensor detection evaluation metrics — context for why `cross_modal_agreement` is a meaningful quality signal. [arxiv.org/abs/1912.00844](https://arxiv.org/abs/1912.00844)
+
+---
+
+## Perspective Directions For Physical Modeling And Realtime Threats
+
+Once you understand Steps 9-20 as context fusion, the next technical step is to ask:
+
+- how do these modalities become explicit beliefs about the physical world?
+
+The strongest directions are:
+
+1. **State estimation**
+   Promote sensor evidence into explicit platform, object, and scene state with uncertainty.
+2. **Field estimation**
+   Model hazards that are not objects: RF intensity, turbulence, smoke, dust, gas, radiation, and thermal gradients.
+3. **Local threat inference**
+   Turn aligned state into immediate safety outputs: collision risk, jamming likelihood, degraded pose trust, unstable terrain, nearby plume or hotspot.
+4. **Global threat aggregation**
+   Aggregate local alerts across time, space, and multiple nodes into sector-level risk, route advisories, and mission-level hazard maps.
+
+The critical human lesson is:
+
+- physical modeling is where multimodal evidence becomes operationally useful
+
+Without this layer, the system may describe the world well but still fail to answer:
+
+- what is dangerous now?
+- what is getting more dangerous over the next minute?
+- what should the platform or operator do differently?
+
+For the dedicated roadmap, see
+[15_future_directions_realtime_threat_analysis.md](15_future_directions_realtime_threat_analysis.md).

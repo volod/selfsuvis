@@ -16,6 +16,10 @@ python scripts/migrate_postgres.py
 
 `make up` creates writable `data/` and `cache/` directories, then starts `postgres`, `qdrant`, `api`, `worker`, `ui`, `nginx`, `mediamtx`, and any default compose services. Run `scripts/migrate_postgres.py` once after PostgreSQL is available to create the schema.
 
+`mediamtx` is configured from `docker/mediamtx.yml` with a publisher-friendly default path policy plus the internal control API on `:9997`. The compose stack publishes RTSP on `8554`, RTMP on `1935`, and HLS/WebRTC ports for live feeds.
+
+For the full live-stream and MediaMTX operator guide, see [MediaMTX streaming](streaming-mediamtx.md).
+
 Optional helpers:
 
 - `make cvat-up` to start CVAT services

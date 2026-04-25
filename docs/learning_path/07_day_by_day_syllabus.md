@@ -629,6 +629,159 @@ Use this review as a map for your ongoing learning.
 
 ---
 
+## Week 5: Future Direction Track (Advanced)
+
+**Audience:** Humans who already understand the current runtime and want to push
+the system toward stronger self-supervised vision, physical-world modeling, and
+realtime sensor-mesh threat analysis.
+
+**Prerequisites:** Weeks 1-4 complete.
+
+### Day 29 — Temporal Self-Supervised Vision
+
+**Topics:**
+- Re-read Step 23 (RSSM surprise) and Step 28 (SSL DINO fine-tuning) as one temporal-learning story.
+- Read [15_future_directions_realtime_threat_analysis.md](15_future_directions_realtime_threat_analysis.md), Sections 2 and 10.
+- Focus on track-aware, clip-aware, and cross-view self-supervision.
+
+**Exercise:**
+Pick one mission and list five failure cases where frame-only embeddings are too weak:
+- viewpoint shift
+- scale change
+- occlusion
+- motion blur
+- repeated texture
+
+For each case, write which temporal SSL signal would help most:
+- track continuity
+- clip prediction
+- multiview consistency
+- cross-modal consistency
+
+**Concept checkpoint:**
+Why is temporal SSL a better next step than just swapping in a larger image encoder?
+
+### Day 30 — Cross-Modal Self-Supervision
+
+**Topics:**
+- Treat sensor agreement as a training signal, not just a report signal.
+- Study RGB-depth, RGB-thermal, camera-IMU, and camera-radar consistency ideas.
+
+**Exercise:**
+Choose three modality pairs relevant to your mission domain.
+For each pair, define:
+1. what should agree physically
+2. what typical disagreement means
+3. whether that disagreement is more likely to indicate anomaly, calibration error, or sensor failure
+
+**Concept checkpoint:**
+What is the difference between using another sensor as a label source and using it as a noisy self-supervised constraint?
+
+### Day 31 — Physical Models And Field Models
+
+**Topics:**
+- Move from semantic descriptions to state, flow, occupancy, and field estimates.
+- Revisit the fusion docs with environmental fields in mind: wind, RF, plume, thermal spread, visibility.
+
+**Exercise:**
+Design one physical model for your mission type:
+- plume spread
+- RF interference field
+- occupancy flow
+- terrain traversability
+
+Write:
+1. the state variables
+2. the measurements
+3. the update cadence
+4. the failure modes
+5. the output artifact you would want in `selfsuvis`
+
+**Concept checkpoint:**
+Why are many important hazards better modeled as fields than as detected objects?
+
+### Day 32 — Local Threat Inference
+
+**Topics:**
+- Define a platform-centered local threat window.
+- Separate threat primitives from high-level threat labels.
+
+**Exercise:**
+For one platform (drone, vehicle, or fixed tower), define:
+- 5 local threat primitives
+- the evidence sources for each
+- the confidence and freshness conditions required before escalation
+
+Example primitives:
+- collision risk
+- pose loss
+- RF jamming suspicion
+- local gas hotspot
+- hidden thermal agent
+
+**Concept checkpoint:**
+Why should local threat inference remain causal and low-latency instead of depending on a large reasoning model?
+
+### Day 33 — Global Threat Aggregation
+
+**Topics:**
+- Sector-level risk maps, route advisories, and mission-wide hazard persistence.
+- Temporal persistence and cross-node confirmation.
+
+**Exercise:**
+Design a simple global threat table with columns:
+- sector
+- threat type
+- persistence score
+- cross-sensor support
+- confidence
+- recommended action
+
+Then describe how local threat outputs from multiple nodes would populate it.
+
+**Concept checkpoint:**
+Why is a global threat map mostly an aggregation and evidence-management problem, not a single-model prediction problem?
+
+### Day 34 — Realtime Sensor-Mesh Architecture Proposal
+
+**Topics:**
+- Draft a concrete extension of `selfsuvis` from current fusion outputs toward realtime threat analysis.
+- Use the proposed layers in [15_future_directions_realtime_threat_analysis.md](15_future_directions_realtime_threat_analysis.md).
+
+**Exercise:**
+Write a one-page architecture proposal with these layers:
+1. ingest
+2. representation
+3. physical-state
+4. threat primitive
+5. local threat
+6. global threat
+7. audit
+
+For each layer, specify:
+- input
+- output
+- latency target
+- one hard failure mode
+
+**Concept checkpoint:**
+Which layer is the first one that must be trustworthy enough for operator action?
+
+### Day 35 — Personal Research And Build Plan
+
+**Exercise:**
+Write a concrete next-quarter plan for yourself:
+1. one self-supervised vision improvement
+2. one physical-model improvement
+3. one realtime threat-analysis improvement
+4. one evaluation protocol for each
+5. one artifact or dashboard you would add for humans
+
+Force yourself to choose only one item in each category.
+Breadth is less useful than a coherent direction.
+
+---
+
 ## Summary: Study Milestones
 
 | Milestone | Day | Indicator |
@@ -642,6 +795,9 @@ Use this review as a map for your ongoing learning.
 | Can run a full pipeline and inspect all artifacts | 20 | After Day 20 |
 | Can identify and explain any step's failure modes | 24 | After Day 24 |
 | Can design a new step that fits the architecture | 23 | After Day 23 |
+| Can explain a credible next-stage SSL direction | 29 | After Day 29 |
+| Can define local vs global threat inference | 33 | After Day 33 |
+| Can propose a realtime sensor-mesh architecture | 34 | After Day 34 |
 
 ---
 
@@ -687,6 +843,7 @@ These are the papers that introduced the models and techniques used directly in 
 | Mildenhall et al., "NeRF" (2020) | Step 27 | [2003.08934](https://arxiv.org/abs/2003.08934) |
 | Kerbl et al., "3D Gaussian Splatting" (2023) | Step 27 | [2308.04079](https://arxiv.org/abs/2308.04079) |
 | Chen et al., "SimCLR" (2020) | Step 28 — context | [2002.05709](https://arxiv.org/abs/2002.05709) |
+| Grill et al., "Bootstrap Your Own Latent" (BYOL, 2020) | Step 28 / advanced SSL direction | [2006.07733](https://arxiv.org/abs/2006.07733) |
 | He et al., "MAE" (2021) | Step 28 — context | [2111.06377](https://arxiv.org/abs/2111.06377) |
 | Hinton et al., "Distilling the Knowledge in a Neural Network" (2015) | Step 29 | [1503.02531](https://arxiv.org/abs/1503.02531) |
 | Gou et al., "Knowledge Distillation: A Survey" (2021) | Step 29 | [2006.05525](https://arxiv.org/abs/2006.05525) |
@@ -706,6 +863,8 @@ These go deeper into specific subsystems or provide the broader research context
 | Park et al., "Generative Agents" (2023) — [2304.03442](https://arxiv.org/abs/2304.03442) | Agent memory design (Step 35 / VideoKnowledge) |
 | Mialon et al., "Augmented Language Models" (2023) — [2302.07842](https://arxiv.org/abs/2302.07842) | Tool use and retrieval in LLM systems |
 | Nagel et al., "A White Paper on Neural Network Quantization" (2021) — [2106.08295](https://arxiv.org/abs/2106.08295) | INT8 quantization for ONNX export (Step 30) |
+| Bar-Shalom, Li & Kirubarajan, *Estimation with Applications to Tracking and Navigation* (2001) | Multi-target tracking, IMM, data association for physical-model extensions |
+| Yilmaz, Javed & Shah, "Object Tracking: A Survey" (2006) — [cs.rochester.edu/u/omer/PDFs/ObjectTracking.pdf](https://www.cs.rochester.edu/u/omer/PDFs/ObjectTracking.pdf) | Tracking design space before extending threat primitives |
 
 ### HuggingFace quick-reference
 

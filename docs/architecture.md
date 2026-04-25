@@ -52,8 +52,19 @@ Optional services:
 
 - `nerfstudio` for splat generation
 - `mapper` for map registration/fusion work
-- `mediamtx` for stream ingestion
+- `mediamtx` for stream ingestion and live RTSP/RTMP path management
 - `cvat` for annotation workflows
+
+### MediaMTX role
+
+`mediamtx` is the live media edge for production deployments:
+
+- accepts RTSP / RTMP publishers from drones, cameras, or test ffmpeg clients
+- can proxy upstream RTSP / RTMP sources into a named path
+- exposes an internal control API consumed by the FastAPI `/realtime/streams` endpoints
+- provides the RTSP endpoint consumed by the background `RtspCaptioner` runtime
+
+The SelfSuvis API service owns stream path lifecycle. Operators interact with `/realtime/streams`; the API then talks to MediaMTX over the internal compose network.
 
 ## Indexing flow
 

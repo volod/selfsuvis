@@ -352,6 +352,7 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> bool:
     # Expandable segments let the allocator grow existing blocks rather than
     # searching for a new contiguous region — eliminates most fragmentation OOMs
     # when moving models on/off GPU between pipeline steps.
+    _os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     _os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
     # Free any GPU memory held by objects that were just released before trying to
     # restore the backbones — prevents partial moves caused by transient OOM.
@@ -517,6 +518,21 @@ def _reduce_llm_sample_frames(
             if len(kept) >= min_keep:
                 break
     return kept
+
+
+def _adaptive_sparse_budget(
+    frame_list: List[Tuple[str, float]],
+    *,
+    configured_max: int,
+    seconds_per_sample: float,
+    floor: int,
+) -> int:
+    """Scale sparse expert-pass budgets down on short clips."""
+    if not frame_list:
+        return max(1, min(configured_max, floor))
+    duration_sec = max(0.0, float(frame_list[-1][1]) - float(frame_list[0][1]))
+    duration_budget = int(duration_sec / max(seconds_per_sample, 1e-6)) + 1
+    return max(1, min(configured_max, max(floor, duration_budget)))
 
 
 def _select_qwen_frames(
@@ -1887,9 +1903,15 @@ def step_qwen_captioning(
     domain = knowledge.domain_hint() if knowledge else ""
     if domain:
         _log.info("  Qwen domain hint: %s", domain)
+    qwen_budget = _adaptive_sparse_budget(
+        frame_list,
+        configured_max=max(1, int(settings.QWEN_MAX_FRAMES)),
+        seconds_per_sample=0.9,
+        floor=8,
+    )
     sampled_frame_list = _select_qwen_frames(
         frame_list,
-        max_frames=max(1, int(settings.QWEN_MAX_FRAMES)),
+        max_frames=qwen_budget,
         knowledge=knowledge,
         ocr_map=ocr_map,
     )
@@ -2002,7 +2024,12 @@ def step_unidrive_analysis(
         _log.info("  To enable local mode: cache HF weights with scripts/prepare_models.py --unidrive --unidrive-backend vllm")
         return result
 
-    max_frames = max(1, int(getattr(settings, "UNIDRIVE_MAX_FRAMES", 24) or 24))
+    max_frames = _adaptive_sparse_budget(
+        frame_list,
+        configured_max=max(1, int(getattr(settings, "UNIDRIVE_MAX_FRAMES", 24) or 24)),
+        seconds_per_sample=1.4,
+        floor=6,
+    )
     sample_step = max(1, len(frame_list) // max_frames)
     sampled_frames = frame_list[::sample_step][:max_frames]
     ocr_map: Dict[float, str] = {

@@ -14,6 +14,7 @@ from selfsuvis.app.routers.query import router as query_router
 from selfsuvis.app.routers.realtime import router as realtime_router
 from selfsuvis.app.routers.robot import router as robot_router
 from selfsuvis.app.routers.scene import router as scene_router
+from selfsuvis.app.services.live_streams import MediaMtxClient, RealtimeStreamManager
 from selfsuvis.app.services.form_templates import get_index_form_html
 
 @asynccontextmanager
@@ -21,9 +22,12 @@ async def lifespan(app: FastAPI):
     """Initialize and tear down shared resources."""
     await init_processed_db()
     await init_db_pool(app)
+    app.state.mediamtx_client = MediaMtxClient()
+    app.state.realtime_stream_manager = RealtimeStreamManager(getattr(app.state, "db_pool", None))
     try:
         yield
     finally:
+        await app.state.realtime_stream_manager.shutdown()
         await close_db_pool(app)
 
 

@@ -193,6 +193,62 @@ class FakeConn:
         raise AssertionError(f"unexpected fetch query: {query}")
 
 
+class FakeMediaMtxClient:
+    def __init__(self):
+        self.created = []
+        self.deleted = []
+
+    async def ensure_path(self, path_name: str, *, source_url=None, source_on_demand=False):
+        self.created.append(
+            {
+                "path_name": path_name,
+                "source_url": source_url,
+                "source_on_demand": source_on_demand,
+            }
+        )
+        return True
+
+    async def list_paths(self):
+        return [{"name": "live/drone-a", "ready": True, "bytesReceived": 1234}]
+
+    async def delete_path(self, path_name: str):
+        self.deleted.append(path_name)
+        return True
+
+
+class FakeRealtimeStreamManager:
+    def __init__(self):
+        self.streams: Dict[str, Dict[str, Any]] = {}
+
+    async def start(self, *, session_id, mission_id, robot_id, path_name, caption_fps=None):
+        data = {
+            "session_id": session_id,
+            "mission_id": mission_id,
+            "robot_id": robot_id,
+            "path_name": path_name,
+            "rtsp_url": f"rtsp://mediamtx:8554/{path_name}",
+            "caption_fps": float(caption_fps or 0.5),
+            "started_at": "2026-04-25T12:00:00+00:00",
+            "status": "running",
+            "error": None,
+        }
+        self.streams[session_id] = data
+        return data
+
+    async def list(self):
+        return list(self.streams.values())
+
+    async def get(self, session_id: str):
+        if session_id not in self.streams:
+            raise LookupError("live stream not found")
+        return self.streams[session_id]
+
+    async def stop(self, session_id: str):
+        stream = await self.get(session_id)
+        stream["status"] = "stopped"
+        return stream
+
+
 def _app():
     app = FastAPI()
 
@@ -372,3 +428,42 @@ async def test_finalize_session_creates_mission_and_optional_job():
             assert data["job_id"]
             assert "mission_live" in conn.missions
             assert data["job_id"] in conn.jobs
+
+
+@pytest.mark.anyio
+async def test_live_stream_start_list_and_stop():
+    conn = FakeConn()
+    app = _app()
+    app.state.mediamtx_client = FakeMediaMtxClient()
+    app.state.realtime_stream_manager = FakeRealtimeStreamManager()
+
+    with patch("selfsuvis.app.routers.realtime.get_db_pool", return_value=FakePool(conn)):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            start = await client.post(
+                "/realtime/streams",
+                json={
+                    "robot_id": "drone_live",
+                    "path_name": "live/drone-a",
+                    "mission_id": "mission_live_rtsp",
+                    "caption_fps": 1.0,
+                },
+            )
+            assert start.status_code == 200
+            data = start.json()
+            session_id = data["session_id"]
+            assert data["publish_url"] == "rtsp://localhost:8554/live/drone-a"
+            assert data["analysis"]["status"] == "running"
+
+            listed = await client.get("/realtime/streams")
+            assert listed.status_code == 200
+            listed_data = listed.json()
+            assert listed_data["streams"][0]["session_id"] == session_id
+            assert listed_data["mediamtx_paths"][0]["name"] == "live/drone-a"
+
+            stopped = await client.post(
+                f"/realtime/streams/{session_id}/stop",
+                json={"delete_path": True},
+            )
+            assert stopped.status_code == 200
+            assert stopped.json()["deleted_path"] is True

@@ -4,7 +4,6 @@ This module provides a small CLI so bash scripts can delegate JSON parsing and
 numeric calculations to named Python functions instead of inline heredocs.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

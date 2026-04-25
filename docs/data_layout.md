@@ -5,6 +5,7 @@ By default the repository writes runtime data to `./data` and model caches to `.
 ```text
 data/
   videos/         stored video inputs
+  mediamtx/       MediaMTX recordings and stream-side assets
   frames/         extracted keyframes and dense SfM frames
   tiles/          tile crops used for retrieval
   audio/          temporary audio extracted for ASR
@@ -28,6 +29,13 @@ Common map layouts:
 data/maps/{mission_id}/splat.ply
 data/maps/{mission_id}/scene-0/splat.ply
 data/maps/{mission_id}/colmap/
+```
+
+MediaMTX-related runtime data is stored under:
+
+```text
+data/mediamtx/
+  ...             MediaMTX-mounted runtime directory; recordings land here when enabled
 ```
 
 Integration tests use `data/` and `cache_test/` directories.

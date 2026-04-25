@@ -17,6 +17,7 @@ Deep-dive entry points:
 - [Adaptation, evaluation, and audit, Steps 28-35](learning_path/05_adaptation_eval_steps_28_35.md)
 - [Agentic knowledge flow](learning_path/06_agentic_knowledge_flow.md)
 - [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md)
+- [Perspective directions: SSL, RL, physical models, and realtime threats](learning_path/15_future_directions_realtime_threat_analysis.md)
 - [Day-by-day syllabus](learning_path/07_day_by_day_syllabus.md)
 
 ## How To Use This Path
@@ -25,6 +26,17 @@ Deep-dive entry points:
 2. Pick the deep-dive document for the phase you are working on.
 3. Before the sensor phase, read the sensor-fusion fundamentals session once so clocks, calibration, and contradiction handling are already in your head.
 4. Use the day-by-day syllabus if you want a realistic study plan instead of reading everything at once.
+5. Once the current runtime makes sense, use the future-directions document to decide what to study next instead of reading research topics randomly.
+
+## Human Recommendations
+
+For a human learner, the highest-return sequence is:
+
+1. Learn the current runner and its artifacts well enough to spot silent failure.
+2. Learn temporal alignment, uncertainty, and coordinate frames before adding new modalities.
+3. Learn self-supervised representation learning before reaching for larger multimodal models.
+4. Learn physical state estimation before trying to infer “threats” from captions and detections alone.
+5. Treat realtime threat analysis as a systems-and-inference problem, not only an LLM prompt problem.
 
 ## The 35 Steps, Short Version
 
@@ -95,6 +107,7 @@ For the longer version, see [the full syllabus](learning_path/07_day_by_day_syll
 | 20 | End-to-end run: predict artifacts before running, check after |
 | 21 | Write your own one-page pipeline explanation from memory |
 | 22-28 | Application week: custom queries, failure inventory, architecture extension (see full syllabus) |
+| 29-35 | Advanced extension: self-supervised temporal learning, physical models, and realtime sensor-mesh threat analysis |
 
 ## Recommended Reading Order
 
@@ -108,3 +121,4 @@ If you only have time for a fast pass:
 6. [Adaptation and audit](learning_path/05_adaptation_eval_steps_28_35.md)
 7. [Agentic knowledge flow](learning_path/06_agentic_knowledge_flow.md)
 8. [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md)
+9. [Perspective directions: SSL, RL, physical models, and realtime threats](learning_path/15_future_directions_realtime_threat_analysis.md)

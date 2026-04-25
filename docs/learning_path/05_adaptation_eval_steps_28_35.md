@@ -599,3 +599,31 @@ The central theme of this phase is the feedback loop: observation → representa
 **Deep dive — Agentic systems**
 - Weng, "LLM-powered Autonomous Agents" (Lilian Weng's blog, 2023). The clearest system-level description of tool-use, memory, and planning in LLM agents — directly maps to `VideoKnowledge` (memory), the step runner (planning), and the audit step (provenance). [lilianweng.github.io/posts/2023-06-23-agent](https://lilianweng.github.io/posts/2023-06-23-agent)
 - Mialon et al., "Augmented Language Models: a Survey" (Meta AI, 2023). Comprehensive survey of tool use, retrieval augmentation, and grounding — the design space the pipeline's agentic flow occupies. [arxiv.org/abs/2302.07842](https://arxiv.org/abs/2302.07842)
+
+---
+
+## Perspective Directions For Self-Supervised Vision
+
+After you understand Steps 28-35 as they exist today, the next useful question is not
+"which larger model should I add?" It is:
+
+- what structure is still missing from the representation?
+
+The most promising next directions are:
+
+1. **Temporal SSL**
+   Move from frame-only adaptation toward track-aware and clip-aware learning.
+   Learn invariance across motion, viewpoint, occlusion, and short temporal gaps.
+2. **Cross-modal SSL**
+   Use agreement between RGB, depth, thermal, radar, IMU, and audio as a self-supervised signal.
+   This is especially valuable when labels are scarce but synchronization exists.
+3. **Geometry-aware SSL**
+   Use multiview consistency, map consistency, and object permanence as training constraints, not only as downstream evaluation artifacts.
+4. **Anomaly-aware SSL**
+   Use RSSM surprise, track break statistics, and cross-modal contradiction as sampling signals for adaptation, not only retrieval uncertainty.
+
+The practical human recommendation is:
+
+- study temporal and cross-modal SSL before adding more prompt-heavy reasoning layers
+
+That path improves retrieval, tracking, anomaly detection, and later realtime threat analysis at the same time.

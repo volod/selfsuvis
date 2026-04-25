@@ -34,6 +34,7 @@ Recent local-run builds also apply adaptive runtime controls by default to keep 
 | [Setup](docs/setup.md) | Detailed setup options, GPU, CVAT |
 | [Configuration](docs/configuration.md) | All env vars with defaults and security notes |
 | [API reference](docs/api.md) | HTTP endpoints, robot pose API |
+| [MediaMTX streaming](docs/streaming-mediamtx.md) | Production live-stream ingress, MediaMTX control, and realtime stream API |
 | [UI guide](docs/ui.md) | Streamlit UI usage |
 | [Architecture](docs/architecture.md) | System components and service topology |
 | [Pipeline](docs/pipeline.md) | Agentic pipeline architecture and data flow |

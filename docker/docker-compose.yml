@@ -139,10 +139,20 @@ services:
       - api
 
   mediamtx:
-    image: bluenviron/mediamtx:1.9.0
+    image: bluenviron/mediamtx:1
+    user: "0:0"
     ports:
       - "8554:8554"   # RTSP
       - "1935:1935"   # RTMP
+      - "8888:8888"   # HLS / HTTP
       - "8889:8889"   # WebRTC
+      - "8890:8890/udp" # WebRTC ICE/UDP
+      - "8189:8189/udp" # WebRTC ICE/UDP
     environment:
-      MTX_PROTOCOLS: tcp
+      MTX_API: "yes"
+      MTX_APIADDRESS: ":9997"
+      MTX_RTSPTRANSPORTS: tcp
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIAMTX_WEBRTC_HOST:-127.0.0.1}
+    volumes:
+      - ../docker/mediamtx.yml:/mediamtx.yml:ro
+      - ../data/mediamtx:/recordings

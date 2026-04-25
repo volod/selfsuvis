@@ -55,6 +55,8 @@ make up
 
 This builds images and starts `postgres`, `qdrant`, `api`, `worker`, `ui`, `nginx`, and `mediamtx`. Wait until you see `api-1 | Application startup complete`.
 
+MediaMTX is started with RTSP, RTMP, HLS/WebRTC ports and its internal control API enabled. The API container talks to MediaMTX over the compose network through `http://mediamtx:9997`; that control port is not published on the host.
+
 ---
 
 ## 4. Run the database migration (first run only)
@@ -158,6 +160,51 @@ curl -X POST http://localhost:8000/query/image \
 ```
 
 Both endpoints return a ranked list of matching frames with paths, captions, and scores. The UI exposes both via the search bar and image-upload widget.
+
+### Live drone stream ingestion
+
+Create a managed live stream and attach the realtime caption pipeline:
+
+```bash
+curl -X POST http://localhost:8000/realtime/streams \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "robot_id": "drone-1",
+    "mission_id": "mission-live-drone-1",
+    "path_name": "live/drone-1",
+    "caption_fps": 1.0
+  }'
+```
+
+The response returns the `publish_url` / `read_url`. Push a drone or test video feed into MediaMTX with RTSP or RTMP. Example with ffmpeg:
+
+```bash
+ffmpeg -re -i /path/to/drone.mp4 -c copy -f rtsp rtsp://localhost:8554/live/drone-1
+```
+
+To have MediaMTX pull an upstream RTSP / RTMP source instead of publishing into it, pass `source_url` when creating the stream:
+
+```bash
+curl -X POST http://localhost:8000/realtime/streams \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "robot_id": "drone-2",
+    "path_name": "live/drone-2",
+    "source_url": "rtsp://camera.example.com:554/stream"
+  }'
+```
+
+List or stop live streams:
+
+```bash
+curl http://localhost:8000/realtime/streams -H "X-API-Key: $API_KEY"
+curl -X POST http://localhost:8000/realtime/streams/<session_id>/stop \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"delete_path": true}'
+```
 
 ---
 

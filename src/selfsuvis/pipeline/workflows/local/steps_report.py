@@ -48,7 +48,7 @@ def write_search_md(
         f"",
         f"## Top {len(results)} Similar Frames",
         f"",
-        f"Query frame self-match is excluded from the ranking.",
+        f"Query frame self-match and near-temporal neighbours (±1.0s) are excluded from the ranking.",
         f"",
         f"| Rank | Score | Timestamp | Frame |",
         f"|------|-------|-----------|-------|",
@@ -1663,7 +1663,7 @@ def print_run_stats(
     _log.info(_row("Fine-tuned infer (ms/fr)",
                    *[f"{v.get('ft_infer_ms', 0.0):.1f}" for v in per_video]))
     _log.info("")
-    _log.info("  SEARCH QUALITY  (top-1 cosine score, self-match excluded)")
+    _log.info("  SEARCH QUALITY  (top-1 cosine score, self/near-temporal matches excluded)")
     _log.info("  " + SEP[:W-2])
     _log.info(_row("Base model (pretrained)",
                    *[f"{v.get('base_top_score', 0.0):.4f}" for v in per_video]))

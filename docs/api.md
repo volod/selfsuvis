@@ -162,5 +162,88 @@ Registers a CVAT task ID to selfsuvis frame IDs.
 
 Consumes CVAT webhook events, marks mapped frames annotated, and may enqueue supervised fine-tuning.
 
+## Realtime routes
+
+### `POST /realtime/session/start`
+
+Creates a sensor-oriented realtime session in PostgreSQL.
+
+### `POST /realtime/session/{session_id}/packet`
+
+Ingests realtime packets such as GPS / IMU samples into the current session.
+
+### `GET /realtime/session/{session_id}/state`
+
+Returns realtime session metadata, packet counts, and the latest fused pose if available.
+
+### `GET /realtime/session/{session_id}/pose/latest`
+
+Returns the latest fused pose for a realtime session.
+
+### `POST /realtime/session/{session_id}/map/tile`
+
+Publishes or updates a realtime map tile entry.
+
+### `GET /realtime/session/{session_id}/map/latest`
+
+Returns recent realtime map tiles.
+
+### `POST /realtime/session/{session_id}/semantic`
+
+Publishes a semantic observation for a realtime session.
+
+### `GET /realtime/session/{session_id}/semantic-nearby`
+
+Returns recent semantic observations for a realtime session.
+
+### `POST /realtime/session/{session_id}/stop`
+
+Stops a sensor-oriented realtime session.
+
+### `POST /realtime/session/{session_id}/finalize`
+
+Finalizes a realtime session and can optionally enqueue downstream indexing.
+
+## MediaMTX-backed live stream routes
+
+### `POST /realtime/streams`
+
+Creates or reuses a MediaMTX path, starts a realtime session, and launches background RTSP frame analysis.
+
+Body fields:
+
+- `robot_id`
+- `mission_id`
+- `path_name`
+- `sensors`
+- `caption_fps`
+- optional `source_url`
+- optional `source_on_demand`
+
+Returns:
+
+- realtime `session_id`
+- `publish_url`
+- `read_url`
+- whether the MediaMTX path was newly created
+- current background analysis status
+
+### `GET /realtime/streams`
+
+Returns:
+
+- active SelfSuvis live stream runtimes
+- current MediaMTX path list from the control API
+
+### `GET /realtime/streams/{session_id}`
+
+Returns one active or completed live stream runtime entry.
+
+### `POST /realtime/streams/{session_id}/stop`
+
+Stops a live stream runtime. With `{"delete_path": true}`, also deletes the MediaMTX path.
+
+For deployment and publish examples, see [MediaMTX streaming](streaming-mediamtx.md).
+
 ---
 [← Develop](develop.md) | [UI →](ui.md)

@@ -48,6 +48,10 @@ def apply_local_env(args: Any) -> None:
     except ImportError:
         pass
 
+    # Reduce CUDA allocator fragmentation OOM on large models. Set both names
+    # because PyTorch ≥ 2.0 reads PYTORCH_CUDA_ALLOC_CONF; older builds use
+    # PYTORCH_ALLOC_CONF. setdefault lets a user override from the shell.
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
     # Propagate HF_TOKEN → HUGGING_FACE_HUB_TOKEN so transformers / huggingface_hub

@@ -7,6 +7,12 @@ from pydantic import BaseModel, Field
 
 from selfsuvis.app.db import get_db_pool
 from selfsuvis.app.deps import rate_limit, require_api_key
+from selfsuvis.app.services.live_streams import (
+    MediaMtxClient,
+    RealtimeStreamManager,
+    build_rtsp_stream_url,
+    validate_stream_path,
+)
 from selfsuvis.app.services.realtime import (
     fetch_map_tiles,
     fetch_semantic_observations,
@@ -16,7 +22,7 @@ from selfsuvis.app.services.realtime import (
     publish_semantic_observation,
     start_realtime_session,
 )
-from selfsuvis.pipeline.core import get_logger, settings
+from selfsuvis.pipeline.core import get_logger
 from selfsuvis.pipeline.realtime import pose_freshness_ms
 from selfsuvis.pipeline.storage.realtime import fetch_realtime_state, stop_robot_session
 
@@ -90,6 +96,64 @@ class SessionStopResponse(BaseModel):
     enqueued_index_job: bool = False
 
 
+class LiveStreamStartRequest(BaseModel):
+    robot_id: str = Field(min_length=1, default="robot_0")
+    mission_id: Optional[str] = None
+    sensors: List[str] = Field(default_factory=lambda: ["camera"])
+    path_name: str = Field(min_length=1)
+    source_url: Optional[str] = None
+    source_on_demand: bool = False
+    caption_fps: Optional[float] = Field(default=None, gt=0.0, le=4.0)
+
+
+class LiveStreamStatus(BaseModel):
+    session_id: str
+    mission_id: str
+    robot_id: str
+    path_name: str
+    rtsp_url: str
+    caption_fps: float
+    started_at: str
+    status: str
+    error: Optional[str] = None
+
+
+class LivePathInfo(BaseModel):
+    name: Optional[str] = None
+    ready: Optional[bool] = None
+    source: Optional[Dict[str, Any]] = None
+    tracks: Optional[List[Dict[str, Any]]] = None
+    bytes_received: Optional[int] = None
+    bytes_sent: Optional[int] = None
+
+
+class LiveStreamStartResponse(BaseModel):
+    session_id: str
+    mission_id: str
+    robot_id: str
+    path_name: str
+    publish_url: str
+    read_url: str
+    mediamtx_path_created: bool
+    analysis: LiveStreamStatus
+
+
+class LiveStreamsResponse(BaseModel):
+    streams: List[LiveStreamStatus]
+    mediamtx_paths: List[LivePathInfo]
+
+
+class LiveStreamStopRequest(BaseModel):
+    delete_path: bool = False
+
+
+class LiveStreamStopResponse(BaseModel):
+    session_id: str
+    path_name: str
+    status: str
+    deleted_path: bool = False
+
+
 class MapTileIn(BaseModel):
     tile_key: str
     map_type: str = "occupancy"
@@ -161,6 +225,35 @@ def _pose_response(session_id: str, row: Dict[str, Any]) -> PoseResponse:
     )
 
 
+def _get_mediamtx_client(request: Request) -> MediaMtxClient:
+    client = getattr(request.app.state, "mediamtx_client", None)
+    if client is None:
+        raise HTTPException(status_code=503, detail="MediaMTX client is not configured")
+    return client
+
+
+def _get_stream_manager(request: Request) -> RealtimeStreamManager:
+    manager = getattr(request.app.state, "realtime_stream_manager", None)
+    if manager is None:
+        raise HTTPException(status_code=503, detail="realtime stream manager is not configured")
+    return manager
+
+
+def _live_stream_status(data: Dict[str, Any]) -> LiveStreamStatus:
+    return LiveStreamStatus(**data)
+
+
+def _live_path_info(item: Dict[str, Any]) -> LivePathInfo:
+    return LivePathInfo(
+        name=item.get("name"),
+        ready=item.get("ready"),
+        source=item.get("source") if isinstance(item.get("source"), dict) else None,
+        tracks=item.get("tracks") if isinstance(item.get("tracks"), list) else None,
+        bytes_received=item.get("bytesReceived"),
+        bytes_sent=item.get("bytesSent"),
+    )
+
+
 @router.post("/session/start", response_model=SessionStartResponse)
 async def start_session(body: SessionStartRequest, request: Request) -> SessionStartResponse:
     db_pool = get_db_pool(request)
@@ -172,6 +265,124 @@ async def start_session(body: SessionStartRequest, request: Request) -> SessionS
             sensors=body.sensors,
         )
     return SessionStartResponse(**started)
+
+
+@router.post("/streams", response_model=LiveStreamStartResponse)
+async def start_live_stream(body: LiveStreamStartRequest, request: Request) -> LiveStreamStartResponse:
+    db_pool = get_db_pool(request)
+    manager = _get_stream_manager(request)
+    mediamtx = _get_mediamtx_client(request)
+    try:
+        path_name = validate_stream_path(body.path_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    mission_id = body.mission_id or f"live-{path_name.replace('/', '-')}"
+    try:
+        mediamtx_created = await mediamtx.ensure_path(
+            path_name,
+            source_url=body.source_url,
+            source_on_demand=body.source_on_demand,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    async with db_pool.acquire() as conn:
+        started = await start_realtime_session(
+            conn,
+            robot_id=body.robot_id,
+            mission_id=mission_id,
+            sensors=body.sensors,
+        )
+    try:
+        analysis = await manager.start(
+            session_id=started["session_id"],
+            mission_id=mission_id,
+            robot_id=body.robot_id,
+            path_name=path_name,
+            caption_fps=body.caption_fps,
+        )
+    except RuntimeError as exc:
+        async with db_pool.acquire() as conn:
+            await stop_robot_session(conn, started["session_id"])
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    public_rtsp_url = build_rtsp_stream_url(path_name, public=True)
+    return LiveStreamStartResponse(
+        session_id=started["session_id"],
+        mission_id=mission_id,
+        robot_id=body.robot_id,
+        path_name=path_name,
+        publish_url=public_rtsp_url,
+        read_url=public_rtsp_url,
+        mediamtx_path_created=mediamtx_created,
+        analysis=_live_stream_status(analysis),
+    )
+
+
+@router.get("/streams", response_model=LiveStreamsResponse)
+async def list_live_streams(request: Request) -> LiveStreamsResponse:
+    manager = _get_stream_manager(request)
+    mediamtx = _get_mediamtx_client(request)
+    try:
+        mediamtx_paths = await mediamtx.list_paths()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    streams = await manager.list()
+    return LiveStreamsResponse(
+        streams=[_live_stream_status(item) for item in streams],
+        mediamtx_paths=[_live_path_info(item) for item in mediamtx_paths],
+    )
+
+
+@router.get("/streams/{session_id}", response_model=LiveStreamStatus)
+async def get_live_stream(session_id: str, request: Request) -> LiveStreamStatus:
+    manager = _get_stream_manager(request)
+    try:
+        return _live_stream_status(await manager.get(session_id))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/streams/{session_id}/stop", response_model=LiveStreamStopResponse)
+async def stop_live_stream(
+    session_id: str,
+    body: LiveStreamStopRequest,
+    request: Request,
+) -> LiveStreamStopResponse:
+    db_pool = get_db_pool(request)
+    manager = _get_stream_manager(request)
+    mediamtx = _get_mediamtx_client(request)
+    try:
+        runtime = await manager.get(session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        stopped = await manager.stop(session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    async with db_pool.acquire() as conn:
+        state = await fetch_realtime_state(conn, session_id)
+        if state is not None:
+            await stop_robot_session(conn, session_id)
+
+    deleted = False
+    if body.delete_path:
+        try:
+            deleted = await mediamtx.delete_path(runtime["path_name"])
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return LiveStreamStopResponse(
+        session_id=session_id,
+        path_name=runtime["path_name"],
+        status=stopped["status"],
+        deleted_path=deleted,
+    )
 
 
 @router.post("/session/{session_id}/packet", response_model=PacketIngestResponse)

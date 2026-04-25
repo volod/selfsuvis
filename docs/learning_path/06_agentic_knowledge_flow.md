@@ -64,7 +64,7 @@ Each step either deposits data into it or queries it.
 | 6 (OCR) | `add_ocr()` | `_ocr` |
 | 7 (Depth) | `add_depth()` | `_depth` |
 | 8 (Detection) | `add_detections()` | `_detections`, `known_entities` |
-| 24 (Qwen) | `update_qwen_state()` | `_last_qwen` |
+| 12 (Qwen) | `update_qwen_state()` | `_last_qwen` |
 
 All per-frame data is keyed by `t_sec` (timestamp in seconds from video start).
 Retrieval uses nearest-timestamp lookup within a configurable window (default ±2 seconds).
@@ -169,7 +169,7 @@ Evidence accumulated by the end of Step 24, available in `VideoKnowledge`:
 | `_ocr[t]` | OCR (Step 6) | Per-frame | ±1 s lookup |
 | `_depth[t]` | Depth (Step 7) | Per-frame | ±2 s lookup |
 | `_detections[t]` | Detection (Step 8) | Per-frame | ±2 s lookup |
-| `_last_qwen` | Qwen (Step 24) | Rolling | Previous frame only |
+| `_last_qwen` | Qwen (Step 12) | Rolling | Previous frame only |
 
 ---
 
@@ -181,7 +181,7 @@ The most impactful contamination sources, ranked by severity:
 
 1. **Wrong Gemma scene type** (Step 3): contaminates `domain_hint()` → every Florence caption is off-domain → every Qwen system prompt is wrong for the entire video.
 
-2. **Wrong prior Qwen state** (Step 24): a Qwen hallucination at frame N becomes a "fact" in frame N+1's context. Errors can compound over many frames before a scene change resets the state.
+2. **Wrong prior Qwen state** (Step 12): a Qwen hallucination at frame N becomes a "fact" in frame N+1's context. Errors can compound over many frames before a scene change resets the state. The LangGraph path mitigates this with a parse-error retry and by skipping `update_qwen_state()` for confirmed-bad frames.
 
 3. **Wrong OCR text** (Step 6): OCR noise is injected into `[Visible text]` lines. Qwen may incorporate garbled characters as "evidence".
 
@@ -189,6 +189,120 @@ The most impactful contamination sources, ranked by severity:
 
 The audit step (Step 35) is designed to surface these contamination paths.
 If you see a wrong synthesis output, start with the audit document.
+
+---
+
+## LangGraph Orchestration Layer
+
+The pipeline has a LangGraph-based orchestrator (`runner_graph.py`) that replaces the
+monolithic `run_video_pipeline()` function. Activate it with `SELFSUVIS_USE_GRAPH=1`.
+
+### PipelineState — the graph's state schema
+
+`graph_state.py` defines `PipelineState`, a `TypedDict` that is the single container
+for all data flowing through the graph. Each node receives the full state and returns
+only the keys it writes; LangGraph merges them with last-writer-wins.
+
+Selected fields and their relation to `VideoKnowledge`:
+
+| State field | Type | Source node | Relation to VideoKnowledge |
+|-------------|------|-------------|---------------------------|
+| `knowledge` | `VideoKnowledge` | `p1_extract_frames` | The same `VideoKnowledge` instance — mutated in-place and returned |
+| `video_context` | `Dict` | Every node | Serialisable mirror of VideoKnowledge for LLM synthesis prompts |
+| `agentic_trace` | `List[Dict]` | Every node | The same trace list passed to `step_agentic_flow_artifact` |
+| `gemma_result` | `Dict` | `p2_gemma_analysis` | Feeds `knowledge.add_gemma()` in `p2_merge_parallel` |
+| `caption_results` | `List` | `p2_florence_caption` | Feeds `knowledge.add_captions()` in `p2_merge_parallel` |
+| `qwen_result` | `Dict` | `p2_qwen_caption` | Result of step that calls `knowledge.update_qwen_state()` |
+
+The `knowledge` field is a Python object reference — not serialised — so it survives
+in-process across all 24 nodes with zero copying overhead. For `SqliteSaver` persistence
+across process restarts it is reconstructed from `video_context` via the
+`_reconstruct_knowledge` helper in `graph_state.py`.
+
+### Graph topology
+
+```
+Phase 1:  init_state → extract_frames → index_vectors
+Phase 2:  gemma_analysis
+            ↓ [fan-out: runs concurrently]
+          florence_caption  asr  ocr  depth  detection
+            ↓ [fan-in]
+          merge_parallel → platform_fusion → yolo_sam → gemma_tracking
+          → map_3d_submit → world_model → qwen_caption → unidrive
+          → scenetok → base_search → map_3d_join → full_fusion
+Phase 3:  ssl_finetune → [ssl_gate] → distill → onnx_export → ft_search → compare
+                                    ↘ (gate fails) ─────────────────────────────┐
+Phase 4:  multi_model_compare → synthesis → audit → emit_analytics → END ◄──────┘
+```
+
+Steps 4–8 (Florence, ASR, OCR, depth, detection) run concurrently — they write
+distinct state keys (`caption_results`, `asr_result`, `ocr_result`, `depth_result`,
+`det_result`) so there is no reducer conflict. `merge_parallel` is the fan-in barrier
+that calls all the `knowledge.add_*()` methods in dependency order.
+
+The 3D map (step 16) is still submitted to a background `ThreadPoolExecutor` via
+`map_3d_submit` and joined at `map_3d_join` — the same pattern as in the monolith,
+preserving overlap with the slower VLM steps that follow.
+
+### Agentic node improvements
+
+The LangGraph path upgrades the six LLM nodes. Key design patterns used:
+
+**Claim verification (step 3 — `node_p2_gemma_analysis`)**
+
+After `step_gemma_analysis()` returns, every `fact_verification` claim is scored against
+the already-computed CLIP frame embeddings in the in-memory store. No new model load;
+cost is a numpy dot product per claim. Claims below cosine similarity 0.25 are marked
+`clip_verified=false`. This makes the Gemma domain-hint failure mode visible before it
+propagates to Florence and Qwen.
+
+**JSON-guard fallback (step 10 — `node_p2_gemma_tracking`)**
+
+The existing step already retries three times on JSON parse failure. The graph wrapper
+detects the post-retry state where `n_tracked_objects == 0` and `target_labels == []`
+and injects `DEFAULT_TRACKING_TARGETS = ["person", "vehicle", "sign"]`. RF-DETR now
+always has something to track when Gemma fails, rather than silently skipping the step.
+
+**Parse-error retry with prior-state preservation (step 12 — `node_p2_qwen_caption`)**
+
+Frames with `parse_error=True` are retried once with a simplified prompt (no extra
+context, domain hint only). If the retry succeeds, the result replaces the error entry.
+Critically, `knowledge.update_qwen_state()` is only called on confirmed-good results —
+the prior-state chain now skips bad frames rather than anchoring on them.
+
+**MoE consensus scoring (step 13 — `node_p2_unidrive`)**
+
+Per-frame Jaccard similarity across expert `recommended_action` fields gives a consensus
+score. Frames below 0.5 are flagged `low_moe_agreement=true` and logged as warnings.
+The `mean_moe_agreement` and `low_agreement_frame_count` fields are surfaced in the
+agentic trace, making disagreement explicit for the audit step.
+
+**Draft → critique → conditional regeneration (step 23 — `node_p4_synthesis`)**
+
+1. `step_video_synthesis()` generates the ontology and narrative (unchanged logic).
+2. A critique prompt asks the LLM to compare the generation against a factual evidence
+   summary built from CLIP-grounded detections, captions, and ASR — not another LLM call.
+3. If the verdict is `MAJOR_CONTRADICTION`, synthesis is re-run with the critique note
+   prepended to `video_context`. The regenerated file overwrites the original.
+
+**Reflection sub-loop (step 24 — `node_p4_audit`)**
+
+After `step_agentic_flow_artifact()` produces `agentic_flow.md`, a reflection prompt
+checks whether every step ID in `agentic_trace` appears in the audit text, and whether
+cross-step context propagation risk is mentioned. If the verdict is `HAS_GAPS`, the gap
+list is appended as a `## Reflection Gaps` section. This is the minimum viable version
+of a ReAct loop — one self-check round, deterministic fallback on failure.
+
+### Shared helpers (`graph_nodes/agentic_helpers.py`)
+
+| Helper | Used by |
+|--------|---------|
+| `json_guard(raw, required_keys)` | Step 10 — validates Gemma JSON before acting on it |
+| `llm_call_with_retry(endpoint, payload, *, max_attempts, backoff_base)` | Steps 23, 24 |
+| `critique_pass(endpoint, model, generation, evidence_summary)` | Step 23 |
+| `moe_consensus_score(expert_outputs, field)` | Step 13 |
+| `low_agreement_frames(results, threshold)` | Step 13 |
+| `build_evidence_summary(state)` | Steps 23, 24 — builds CLIP-grounded evidence string |
 
 ---
 
@@ -200,6 +314,9 @@ To understand the agentic part of the pipeline, read these in order:
 2. [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — how Florence, ASR, OCR, depth, and detection deposit into `VideoKnowledge`
 3. [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — how Qwen queries `context_for_frame()` and updates rolling state
 4. [`pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py) — the top-level orchestration and the `VideoKnowledge` lifecycle
+5. [`pipeline/workflows/local/graph_state.py`](../../src/selfsuvis/pipeline/workflows/local/graph_state.py) — `PipelineState` TypedDict and how it wraps `VideoKnowledge`
+6. [`pipeline/workflows/local/runner_graph.py`](../../src/selfsuvis/pipeline/workflows/local/runner_graph.py) — graph topology, node wiring, and `run_graph_pipeline()`
+7. [`pipeline/workflows/local/graph_nodes/agentic_helpers.py`](../../src/selfsuvis/pipeline/workflows/local/graph_nodes/agentic_helpers.py) — shared agentic primitives
 
 ## Questions To Ask While Reading
 

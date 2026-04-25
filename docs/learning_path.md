@@ -19,6 +19,7 @@ Recommended reading order:
 7. [Agentic knowledge flow](learning_path/06_agentic_knowledge_flow.md)
 8. [Local run artifact analysis](learning_path/08_local_run_artifact_analysis.md)
 9. [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md)
+10. [Perspective directions and realtime threat analysis](learning_path/15_future_directions_realtime_threat_analysis.md)
 
 If you were sent here by an older script or document, use this page as the compatibility entry point.
 
@@ -48,3 +49,4 @@ After completing your first local run, use the analytics toolkit to inspect resu
 
 - [Analytics & Visualization guide](analytics.md) — charts, HTML report, Python API
 - [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md) — derived metrics, equations, and interpretation rules
+- [Perspective directions and realtime threat analysis](learning_path/15_future_directions_realtime_threat_analysis.md) — what to study next once the current runtime is understood

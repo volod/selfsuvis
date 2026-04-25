@@ -5,8 +5,12 @@ that the API, worker, and local full-analysis pipeline can start without network
 
 Usage
 -----
-    # Core models (always needed):
-    python scripts/prepare_models.py                # OpenCLIP + DINOv2/v3 (default)
+    # Download everything (default):
+    python scripts/prepare_models.py                # all configured models
+    python scripts/prepare_models.py --all          # explicit form
+
+    # Core models only:
+    python scripts/prepare_models.py --clip --dino
     python scripts/prepare_models.py --clip         # OpenCLIP only
     python scripts/prepare_models.py --dino         # DINOv2/v3 hub archive + weights only
 
@@ -36,12 +40,15 @@ Usage
     python scripts/prepare_models.py --yolo        --yolo-model yolo11x
     python scripts/prepare_models.py --sam         --sam-model facebook/sam2-hiera-large
 
-    # Download everything (including flash-attn and gated models):
-    python scripts/prepare_models.py --all
+    # Step 14: SceneTok streaming scene encoder + segmentation decoder (~24 GB VRAM to run):
+    # Checkpoints are downloaded from MPI Nextcloud (public, no login required).
+    python scripts/prepare_models.py --scenetok                                    # default: va-videodc_re10k
+    python scripts/prepare_models.py --scenetok --scenetok-checkpoint va-videodc_dl3dv
+    python scripts/prepare_models.py --scenetok --scenetok-checkpoint va-wan_dl3dv
 
     # Check what is already cached (no network):
-    python scripts/prepare_models.py --verify
-    python scripts/prepare_models.py --verify --all    # verify all, not just defaults
+    python scripts/prepare_models.py --verify          # verify all configured models
+    python scripts/prepare_models.py --verify --clip --dino
 
     # Force Hugging Face as the download source (useful when GitHub is unreachable):
     python scripts/prepare_models.py --dino --source hf
@@ -130,6 +137,11 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("prepare_models")
+# Suppress httpx/httpcore request-level logs — they flood the output with
+# expected 404s from HF library probes for optional files (chat_template.jinja,
+# audio_tokenizer_config.json, additional_chat_templates/, etc.).
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 @contextlib.contextmanager
@@ -172,6 +184,24 @@ _UNIDRIVE_OLLAMA_FALLBACK_MODEL = "qwen2.5vl:7b"
 # Reasoning / agentic-audit model (step 24).  Served via Ollama by default.
 # deepseek-r1:14b is a strong alternative if qwen3 is not available.
 _REASONING_DEFAULT_MODEL = "qwen3:14b"
+
+# SceneTok — step 14 streaming scene encoder + segmentation decoder.
+_SCENETOK_GITHUB_URL = "https://github.com/mohammadasim98/scenetok"
+_SCENETOK_HF_DEPS = [
+    "hustvl/vavae-imagenet256-f16d32-dinov2",
+    "hpcai-tech/Open-Sora-v2-Video-DC-AE",
+]
+_SCENETOK_DEFAULT_CHECKPOINT = "va-videodc_re10k"
+_SCENETOK_CHECKPOINT_VARIANTS = ["va-videodc_re10k", "va-videodc_dl3dv", "va-wan_dl3dv"]
+# Checkpoint cache dir matches _checkpoint_path() in scenetok_server.py.
+_SCENETOK_CACHE_DIR = Path.home() / ".cache" / "selfsuvis" / "scenetok"
+# Checkpoints are hosted on MPI Nextcloud — not on HuggingFace.
+# Append /download to each share link to get a direct binary download.
+_SCENETOK_CHECKPOINT_URLS: dict = {
+    "va-videodc_re10k": "https://nextcloud.mpi-klsb.mpg.de/index.php/s/6Y7EsosfbnpcRxj/download",
+    "va-videodc_dl3dv": "https://nextcloud.mpi-klsb.mpg.de/index.php/s/aYBX7atFNKkmdSE/download",
+    "va-wan_dl3dv":     "https://nextcloud.mpi-klsb.mpg.de/index.php/s/X7yzk7QANtwawPc/download",
+}
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -637,6 +667,164 @@ def _download_yolo(model_id: str) -> None:
 def _is_yolo_cached(model_id: str) -> bool:
     model_file = model_id if model_id.endswith(".pt") else f"{model_id}.pt"
     return (Path.home() / ".cache" / "ultralytics" / model_file).exists()
+
+
+def _is_editable_installed(package_name: str) -> bool:
+    """Return True if *package_name* is installed as an editable package.
+
+    importlib.util.find_spec() misses editable installs created by newer pip
+    (PEP 660 / direct-url installs use a finder registered via .pth rather than
+    an egg-link, so find_spec finds the package only after the .pth file has been
+    processed — which doesn't happen when find_spec is called before import).
+    Checking for a dist-info directory is reliable across pip versions.
+    """
+    try:
+        import importlib.metadata
+        importlib.metadata.distribution(package_name)
+        return True
+    except importlib.metadata.PackageNotFoundError:
+        return False
+
+
+def _is_scenetok_cached(checkpoint_name: str) -> bool:
+    ckpt_file = _normalize_scenetok_checkpoint_name(checkpoint_name)
+    return (_SCENETOK_CACHE_DIR / ckpt_file).exists()
+
+
+def _normalize_scenetok_checkpoint_name(checkpoint_name: str) -> str:
+    raw = (checkpoint_name or "").strip()
+    if not raw:
+        raise ValueError(
+            "SceneTok checkpoint name is empty. "
+            f"Known checkpoints: {', '.join(_SCENETOK_CHECKPOINT_VARIANTS)}"
+        )
+    ckpt_key = raw[:-5] if raw.endswith(".ckpt") else raw
+    if ckpt_key not in _SCENETOK_CHECKPOINT_URLS:
+        known = ", ".join(_SCENETOK_CHECKPOINT_VARIANTS)
+        raise ValueError(
+            f"Unknown SceneTok checkpoint {checkpoint_name!r}. "
+            f"Known checkpoints: {known}"
+        )
+    return f"{ckpt_key}.ckpt"
+
+
+def _download_scenetok(checkpoint_name: str) -> None:
+    """Install the scenetok package, download HF dependencies, and cache the checkpoint.
+
+    Checkpoint is stored at ``~/.cache/selfsuvis/scenetok/<name>.ckpt`` — the
+    same path that ``scenetok_server.py:_checkpoint_path()`` resolves at runtime.
+    """
+    ckpt_file = _normalize_scenetok_checkpoint_name(checkpoint_name)
+    ckpt_path = _SCENETOK_CACHE_DIR / ckpt_file
+    log.info("SceneTok — checkpoint=%s", checkpoint_name)
+
+    # 1. Install the scenetok package from GitHub if not already importable.
+    # The repo ships no setup.py / pyproject.toml, so `pip install git+URL`
+    # fails.  Instead: clone to a persistent cache dir, synthesise a minimal
+    # setup.py that handles both flat and src/ layouts, then `pip install -e`.
+    #
+    # find_spec() misses editable installs in newer pip (direct-url / no egg-link).
+    # Check the dist-info directory as a more reliable "already installed" signal.
+    src_dir = _SCENETOK_CACHE_DIR.parent / "scenetok_src"
+    _scenetok_installed = importlib.util.find_spec("scenetok") is not None or _is_editable_installed("scenetok")
+    if not _scenetok_installed:
+        t0 = time.monotonic()
+        if not src_dir.exists():
+            log.info("  scenetok package not found — cloning from %s …", _SCENETOK_GITHUB_URL)
+            src_dir.mkdir(parents=True, exist_ok=True)
+            clone_result = subprocess.run(
+                ["git", "clone", "--depth", "1", _SCENETOK_GITHUB_URL, str(src_dir)],
+                check=False,
+            )
+            if clone_result.returncode != 0:
+                shutil.rmtree(src_dir, ignore_errors=True)
+                raise RuntimeError(
+                    f"git clone failed (exit {clone_result.returncode}).\n"
+                    "  Ensure git is installed and github.com is reachable."
+                )
+        else:
+            log.info("  scenetok source already cloned at %s — skipping clone", src_dir)
+
+        # Synthesise setup.py if the repo provides none (handles flat and src/ layouts).
+        if not (src_dir / "setup.py").exists() and not (src_dir / "pyproject.toml").exists():
+            if (src_dir / "src" / "scenetok").is_dir():
+                pkg_spec = "package_dir={'': 'src'}, packages=find_packages(where='src')"
+            else:
+                pkg_spec = "packages=find_packages()"
+            (src_dir / "setup.py").write_text(
+                "from setuptools import setup, find_packages\n"
+                f"setup(name='scenetok', version='0.1.0', {pkg_spec})\n"
+            )
+            log.info("  synthesised setup.py for unpackaged repo")
+
+        install_result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", str(src_dir), "-q"],
+            check=False,
+        )
+        if install_result.returncode != 0:
+            raise RuntimeError(
+                f"pip install -e {src_dir} failed (exit {install_result.returncode}).\n"
+                f"  Manual fix: pip install -e {src_dir}"
+            )
+        log.info("  ✓ scenetok package installed  (%.1fs)  src=%s", time.monotonic() - t0, src_dir)
+    else:
+        log.info("  ✓ scenetok package already installed")
+
+    # 2. Download HuggingFace model dependencies (vavae + Open-Sora DC-AE).
+    for hf_dep in _SCENETOK_HF_DEPS:
+        log.info("  HF dep — %s", hf_dep)
+        if _is_hf_cached(hf_dep):
+            log.info("  ✓ already cached — %s", hf_dep)
+            continue
+        t0 = time.monotonic()
+        from huggingface_hub import snapshot_download
+        local_dir = snapshot_download(
+            repo_id=hf_dep,
+            ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
+        )
+        log.info("  ✓ %s  (%.1fs)  cache=%s", hf_dep, time.monotonic() - t0, local_dir)
+
+    # 3. Download the checkpoint file from MPI Nextcloud.
+    # Checkpoints are NOT on HuggingFace — they are public Nextcloud shares.
+    if ckpt_path.exists():
+        log.info("  ✓ checkpoint already cached — %s", ckpt_path)
+        return
+
+    # Strip .ckpt extension to look up the URL map.
+    ckpt_key = ckpt_file[:-5]
+    url = _SCENETOK_CHECKPOINT_URLS.get(ckpt_key)
+
+    _SCENETOK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path = ckpt_path.with_suffix(".ckpt.part")
+    t0 = time.monotonic()
+    log.info("  Downloading %s from MPI Nextcloud …", ckpt_file)
+    try:
+        import urllib.request
+        _last_log = [0.0]
+        def _reporthook(block_num, block_size, total_size):
+            now = time.monotonic()
+            if now - _last_log[0] >= 30.0:
+                _last_log[0] = now
+                downloaded_mb = block_num * block_size / 1_048_576
+                if total_size > 0:
+                    log.info("    %.0f / %.0f MiB", downloaded_mb, total_size / 1_048_576)
+                else:
+                    log.info("    %.0f MiB downloaded …", downloaded_mb)
+        urllib.request.urlretrieve(url, tmp_path, reporthook=_reporthook)
+        tmp_path.rename(ckpt_path)
+        size_mb = ckpt_path.stat().st_size / 1_048_576
+        log.info(
+            "  ✓ checkpoint ready  (%.1fs  %.0f MiB)  path=%s",
+            time.monotonic() - t0, size_mb, ckpt_path,
+        )
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        log.warning(
+            "  Checkpoint download failed: %s\n"
+            "  Download %s manually from %s and place at:\n    %s",
+            exc, ckpt_file, _SCENETOK_GITHUB_URL, ckpt_path,
+        )
+        raise
 
 
 def _sam3_accessible() -> bool:
@@ -1222,6 +1410,21 @@ def _build_parser() -> argparse.ArgumentParser:
                        "facebook/sam2-hiera-base-plus"
                    ))
 
+    _default_scenetok = os.getenv("SCENETOK_CHECKPOINT", _SCENETOK_DEFAULT_CHECKPOINT)
+    p.add_argument("--scenetok", action="store_true",
+                   help=(
+                       "Install scenetok package, download HF dependencies, and cache checkpoint "
+                       f"(step 14 — streaming scene encoder + segmentation decoder; "
+                       f"requires ~24 GB VRAM to run)"
+                   ))
+    p.add_argument("--scenetok-checkpoint", default=_default_scenetok, metavar="CHECKPOINT",
+                   help=(
+                       "SceneTok checkpoint variant to cache. "
+                       f"Default: {_SCENETOK_DEFAULT_CHECKPOINT} (RealEstate10K). "
+                       f"Options: {' | '.join(_SCENETOK_CHECKPOINT_VARIANTS)}. "
+                       "Set SCENETOK_CHECKPOINT env var to override the default."
+                   ))
+
     return p
 
 
@@ -1237,15 +1440,20 @@ def _resolve_hf_model(task: str, override: str) -> str:
     return selected or ""
 
 
-def main() -> None:
-    args = _build_parser().parse_args()
-
-    _any_flag = (args.clip or args.dino or args.gemma or args.flash_attn or args.whisper
-                 or args.florence or args.ocr or args.depth or args.detection or args.world_model
-                 or args.unidrive or args.reasoning or args.yolo or args.sam or args.all)
-    # Default (no flag given) → behave as --all
-    if not _any_flag:
+def _default_all_if_no_selection(args: argparse.Namespace) -> argparse.Namespace:
+    selected = (
+        args.clip or args.dino or args.gemma or args.flash_attn or args.whisper
+        or args.florence or args.ocr or args.depth or args.detection or args.world_model
+        or args.unidrive or args.reasoning or args.yolo or args.sam or args.scenetok
+        or args.all
+    )
+    if not selected:
         args.all = True
+    return args
+
+
+def main() -> None:
+    args = _default_all_if_no_selection(_build_parser().parse_args())
     do_clip        = args.clip        or args.all
     do_dino        = args.dino        or args.all
     do_gemma       = args.gemma       or args.all
@@ -1260,6 +1468,7 @@ def main() -> None:
     do_reasoning   = args.reasoning   or args.all
     do_yolo        = args.yolo        or args.all
     do_sam         = args.sam         or args.all
+    do_scenetok    = args.scenetok    or args.all
 
     device = args.device
     if device == "auto":
@@ -1334,6 +1543,9 @@ def main() -> None:
                 return _is_hf_cached(m) or _is_hf_cached(fb)
             label = f"SAM {sm} (or {_SAM2_FALLBACK} fallback)"
             specs.append((label, _sam_cached))
+        if do_scenetok:
+            sc = args.scenetok_checkpoint
+            specs.append((f"SceneTok {sc}", lambda c=sc: _is_scenetok_cached(c)))
 
         ok, missing = _verify_models(specs)
         for label in ok:
@@ -1484,6 +1696,14 @@ def main() -> None:
         except Exception as exc:
             log.error("SAM [%s] download failed: %s", sam_id, exc)
             errors.append(("SAM", exc))
+
+    if do_scenetok:
+        scenetok_ckpt = args.scenetok_checkpoint
+        try:
+            _download_scenetok(scenetok_ckpt)
+        except Exception as exc:
+            log.error("SceneTok [%s] download failed: %s", scenetok_ckpt, exc)
+            errors.append(("SceneTok", exc))
 
     if errors:
         log.error("%d download(s) failed — see above.", len(errors))

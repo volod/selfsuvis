@@ -39,6 +39,10 @@ dependencies = [
     # AI service clients
     "openai>=1.0",
     "google-genai>=1.0",
+    # Orchestration
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    "langsmith>=0.1",
     # Utilities
     "psutil>=5.9",
     "verovio>=3.12",

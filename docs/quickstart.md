@@ -41,6 +41,7 @@ Choose your path based on your use case:
 After completing your chosen quick start:
 
 - [Configuration](configuration.md) — full env var reference and security settings
+- [MediaMTX streaming](streaming-mediamtx.md) — live RTSP/RTMP ingress, path control, and realtime stream analysis
 - [Data layout](data_layout.md) — where files are written, sensor sidecars, output artifacts
 - [API reference](api.md) — HTTP endpoints including the robot pose API
 - [Troubleshooting](troubleshooting.md) — common errors and fixes

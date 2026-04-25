@@ -70,28 +70,34 @@ Run this once before the first pipeline run. All weights are cached locally; sub
 **Core models only** (OpenCLIP + DINOv2/v3 — always required):
 
 ```bash
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --clip --dino
+.venv/bin/python -m selfsuvis.scripts.prepare_models --clip --dino
 ```
 
 **Balanced set** (adds Florence-2 captioning, YOLO11, SAM):
 
 ```bash
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models \
+.venv/bin/python -m selfsuvis.scripts.prepare_models \
   --clip --dino --florence --yolo --sam
 ```
 
 **Full set** (everything including ASR, OCR, depth, detection, world model):
 
 ```bash
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --all
+.venv/bin/python -m selfsuvis.scripts.prepare_models --all
+```
+
+**flash-attn** (optional — CUDA only; speeds up Florence-2 and Gemma attention; uses a prebuilt wheel when available, otherwise compiles from source which takes several minutes):
+
+```bash
+.venv/bin/python -m selfsuvis.scripts.prepare_models --flash-attn
 ```
 
 **Reasoning model** (optional — Step 24, agentic flow audit; pulled via Ollama):
 
 ```bash
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --reasoning
+.venv/bin/python -m selfsuvis.scripts.prepare_models --reasoning
 # pull a different tag:
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --reasoning --reasoning-model deepseek-r1:14b
+.venv/bin/python -m selfsuvis.scripts.prepare_models --reasoning --reasoning-model deepseek-r1:14b
 ```
 
 Default tag is `qwen3:14b` (~8 GB). `deepseek-r1:14b` (~9 GB) is a strong alternative. The pipeline auto-selects a reasoning model when this flag is omitted, but pulling it in advance avoids a cold-start delay at step 24.
@@ -99,27 +105,33 @@ Default tag is `qwen3:14b` (~8 GB). `deepseek-r1:14b` (~9 GB) is a strong altern
 **SceneTok** (optional — Step 14, streaming scene encoder + segmentation decoder; requires **~24 GB VRAM**, RTX 4090 minimum):
 
 ```bash
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --scenetok
+.venv/bin/python -m selfsuvis.scripts.prepare_models --scenetok
 ```
 
-This clones the SceneTok repository, downloads `va-videodc_re10k.ckpt`, and fetches its HuggingFace dependencies (`hustvl/vavae-imagenet256-f16d32-dinov2`, `hpcai-tech/Open-Sora-v2-Video-DC-AE`). Checkpoint variants available: `va-videodc_re10k` (default, RealEstate10K), `va-videodc_dl3dv`, `va-wan_dl3dv`.
+This installs the scenetok package from GitHub, downloads `va-videodc_re10k.ckpt` from MPI Nextcloud (public, no login required), and fetches its HuggingFace dependencies (`hustvl/vavae-imagenet256-f16d32-dinov2`, `hpcai-tech/Open-Sora-v2-Video-DC-AE`). Checkpoint variants available: `va-videodc_re10k` (default, RealEstate10K), `va-videodc_dl3dv`, `va-wan_dl3dv`.
+
+```bash
+# Non-default checkpoint variant:
+.venv/bin/python -m selfsuvis.scripts.prepare_models \
+  --scenetok --scenetok-checkpoint va-videodc_dl3dv
+```
 
 > **Segmentation decoder note:** The base SceneTok checkpoint produces novel-view RGB renders via a rectified flow decoder. The segmentation decoder — which replaces the RGB head with a mask output head to produce per-frame 3D-stable segmentation masks — must be fine-tuned separately. Pass `--scenetok-checkpoint` to point the pipeline at a trained segmentation checkpoint.
 
 **Gemma open-weight** (optional — loads locally instead of via Ollama sidecar; requires `HF_TOKEN` in `.env` and license accepted at `huggingface.co/google/gemma-3-4b-it`):
 
 ```bash
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --gemma
+.venv/bin/python -m selfsuvis.scripts.prepare_models --gemma
 # or a smaller variant:
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models \
+.venv/bin/python -m selfsuvis.scripts.prepare_models \
   --gemma --gemma-model google/gemma-3-1b-it
 ```
 
 **Check what is already cached** (no downloads):
 
 ```bash
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --verify
-APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --verify --all
+.venv/bin/python -m selfsuvis.scripts.prepare_models --verify
+.venv/bin/python -m selfsuvis.scripts.prepare_models --verify --all
 ```
 
 **Per-step model reference:**
@@ -128,6 +140,7 @@ APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --verify --all
 |---|---|---|
 | `--clip` | Step 2 — embedding | `ViT-B-16 / openai` |
 | `--dino` | Step 2 — embedding | `dinov2_vitb14`, `dinov3_vitb14` |
+| `--flash-attn` | — (attention kernel) | prebuilt wheel or source build (CUDA only) |
 | `--florence` | Step 4 — captioning | `microsoft/Florence-2-large` |
 | `--whisper` | Step 5 — ASR | `openai/whisper-large-v3-turbo` |
 | `--ocr` | Step 6 — OCR | auto-selected by VRAM |
@@ -272,7 +285,7 @@ Full sidecar naming reference:
 **Minimal run** — fewest dependencies, in-memory store, no 3D reconstruction:
 
 ```bash
-APP_ENV=dev .venv/bin/selfsuvis --mode local \
+.venv/bin/selfsuvis --mode local \
   --videos-dir data/videos \
   --no-qdrant \
   --no-sfm \
@@ -285,14 +298,14 @@ APP_ENV=dev .venv/bin/selfsuvis --mode local \
 # Start Qdrant if not already running:
 docker compose -f docker/docker-compose.yml up -d qdrant
 
-APP_ENV=dev .venv/bin/selfsuvis --mode local \
+.venv/bin/selfsuvis --mode local \
   --videos-dir data/videos
 ```
 
 **Fast iteration** — skip slow optional steps (ASR, OCR, depth, captioning):
 
 ```bash
-APP_ENV=dev .venv/bin/selfsuvis --mode local \
+.venv/bin/selfsuvis --mode local \
   --videos-dir data/videos \
   --no-qdrant \
   --no-sfm \
@@ -363,8 +376,7 @@ ollama pull qwen3:8b
 # - Qwen via Ollama for detailed captioning
 # - "UniDrive" step also uses the same Qwen sidecar endpoint/model
 # - SceneTok disabled
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-APP_ENV=dev .venv/bin/selfsuvis --mode local \
+.venv/bin/selfsuvis --mode local \
   --videos-dir        data/videos \
   --asr               \
   --ocr               \
@@ -390,8 +402,7 @@ APP_ENV=dev .venv/bin/selfsuvis --mode local \
 # 16 GB variant:
 # Replace qwen2.5vl:3b -> qwen2.5vl:7b
 # Replace qwen3:8b     -> qwen3:14b
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-APP_ENV=dev .venv/bin/selfsuvis --mode local \
+.venv/bin/selfsuvis --mode local \
   --videos-dir        data/videos \
   --asr               \
   --ocr               \
@@ -480,15 +491,13 @@ ollama pull qwen2.5vl:7b      # Step 12       — detailed captioning           
 ollama pull qwen3:14b         # Step 24       — agentic flow audit / reasoning        (~8 GB)
 
 # Cache local-only weights once before the run:
-# APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --unidrive
-# APP_ENV=dev .venv/bin/python -m selfsuvis.scripts.prepare_models --scenetok
+# .venv/bin/python -m selfsuvis.scripts.prepare_models --unidrive
+# .venv/bin/python -m selfsuvis.scripts.prepare_models --scenetok
 
 # —— Terminal 2: pipeline ————————————————————————————————————————————————————————
-# PYTORCH_CUDA_ALLOC_CONF     — expandable segments avoid fragmentation OOM
 # All available steps enabled. UniDrive runs locally if HF weights are cached.
 # SceneTok runs locally only if the machine has enough VRAM; otherwise omit --scenetok.
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-APP_ENV=dev .venv/bin/selfsuvis --mode local \
+.venv/bin/selfsuvis --mode local \
   --videos-dir        data/videos \
   --asr               \
   --ocr               \
@@ -527,7 +536,6 @@ and let the pipeline's inter-step eviction (`keep_alive=0` equivalent) clear KV 
 # —— Terminal 1: Gemma 12B — Steps 3, 23, 24 (scene analysis, video synthesis, audit) —
 # Gemma 12B is reused for both scene analysis and the agentic-audit reasoning step.
 # ~10 GB VRAM at 0.45 utilisation; use a 24 GB card or reduce utilisation on 16 GB.
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 python -m vllm.entrypoints.openai.api_server \
   --model              google/gemma-3-12b-it \
   --port               11434 \
@@ -538,7 +546,6 @@ python -m vllm.entrypoints.openai.api_server \
 
 # —— Terminal 2: Qwen2.5-VL — Step 12 (detailed captioning) ———————————————————
 # ~5 GB VRAM at 0.45 utilisation; start AFTER Gemma is ready if sharing one GPU
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 python -m vllm.entrypoints.openai.api_server \
   --model              Qwen/Qwen2.5-VL-7B-Instruct \
   --port               8010 \
@@ -549,7 +556,6 @@ python -m vllm.entrypoints.openai.api_server \
 
 # —— Terminal 3: UniDriveVLA — Step 13 (expert driving analysis) ————————————————
 # ~4 GB VRAM; requires HF weights downloaded via prepare_models --unidrive
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 python -m vllm.entrypoints.openai.api_server \
   --model              owl10/UniDriveVLA_Nusc_Base_Stage3 \
   --port               8030 \
@@ -567,8 +573,7 @@ SCENETOK_CHECKPOINT=va-videodc_re10k.ckpt \
 
 # —— Terminal 5: pipeline ——————————————————————————————————————————————————————
 # Steps enabled: all including unidrive (Step 13) and scenetok (Step 14)
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-APP_ENV=dev .venv/bin/selfsuvis --mode local \
+.venv/bin/selfsuvis --mode local \
   --videos-dir        data/videos \
   --asr               \
   --ocr               \
@@ -652,12 +657,69 @@ After a successful run, `data/local_runs/<video_name>/` contains:
 
 ---
 
+## LangGraph orchestration (opt-in)
+
+The pipeline ships a LangGraph-based orchestrator alongside the default monolithic runner.
+Activate it with a single env var — no CLI change needed:
+
+```bash
+SELFSUVIS_USE_GRAPH=1 APP_ENV=dev .venv/bin/selfsuvis --mode local \
+  --videos-dir data/videos
+```
+
+Both paths produce byte-for-byte identical artifacts. The graph path additionally provides:
+
+- **Parallel execution of steps 4–8** (Florence, ASR, OCR, depth, detection run concurrently; they serialise on GPU automatically via the existing VRAM guard)
+- **Resumable checkpoints** — set `SELFSUVIS_CHECKPOINT_PATH` to persist node state to SQLite; set `SELFSUVIS_RESUME_THREAD_ID` to skip already-completed nodes after a crash
+- **Optional LangSmith tracing** — set `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` to see full execution graphs in the LangSmith UI
+- **Agentic quality improvements** on the six LLM steps (steps 3, 10, 12, 13, 23, 24)
+
+### Agentic improvements (LangGraph path only)
+
+| Step | What changed |
+|------|-------------|
+| 03 Gemma analysis | Every `fact_verification` claim is scored against CLIP frame embeddings; claims below cosine similarity 0.25 are flagged `clip_verified=false` |
+| 10 Gemma tracking | JSON parse failure now falls back to `["person","vehicle","sign"]` instead of silently tracking nothing |
+| 12 Qwen captioning | Frames with `parse_error=True` get one retry with a simplified prompt; the prior-state chain skips confirmed-bad frames |
+| 13 UniDriveVLA | Per-frame Jaccard MoE consensus score computed; frames below 0.5 flagged and logged as warnings |
+| 23 Video synthesis | Draft → critique (evidence-grounded) → conditional regeneration on `MAJOR_CONTRADICTION` verdict |
+| 24 Agentic audit | Reflection loop checks that all 24 step IDs are covered; appends a `## Reflection Gaps` section to `agentic_flow.md` when gaps are found |
+
+### Checkpointing and resume
+
+```bash
+# Run with persistent checkpoints
+SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=data/checkpoints.db \
+  APP_ENV=dev .venv/bin/selfsuvis --mode local --videos-dir data/videos
+# Logs: "Starting graph pipeline for drone_mission (thread_id=drone_mission_1714123456)"
+
+# Resume after failure — completed nodes are skipped
+SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=data/checkpoints.db \
+  SELFSUVIS_RESUME_THREAD_ID=drone_mission_1714123456 \
+  APP_ENV=dev .venv/bin/selfsuvis --mode local --videos-dir data/videos
+```
+
+Without `SELFSUVIS_CHECKPOINT_PATH` the graph uses an in-memory `MemorySaver` — state
+survives exceptions within the same process but not across restarts.
+
+### Graph env vars reference
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `SELFSUVIS_USE_GRAPH` | `` (off) | `1` to activate the LangGraph path |
+| `SELFSUVIS_CHECKPOINT_PATH` | `` | SQLite file path for persistent checkpoints |
+| `SELFSUVIS_RESUME_THREAD_ID` | `` | Thread ID to resume from; printed in run logs |
+| `LANGCHAIN_TRACING_V2` | `` | `true` to emit traces to LangSmith |
+| `LANGCHAIN_API_KEY` | `` | LangSmith API key |
+
+---
+
 ## Runtime notes
 
 - OCR is prescreened from Florence caption confidence in local full-analysis runs, so it may process only a subset of frames.
 - Qwen detailed captioning uses bounded sampled-frame selection rather than captioning every extracted frame.
 - Depth `auto` now prefers a faster local profile by default; use `DEPTH_AUTO_PROFILE=quality` if you want the heavier path.
-- The final agentic audit uses a simple first-pass prompt and only retries when that answer is empty or structurally incomplete.
+- In the monolith path the agentic audit uses a simple first-pass prompt and only retries when the answer is empty or structurally incomplete. In the LangGraph path a reflection sub-loop also runs after a successful generation.
 - SceneTok (Step 14) is off by default. Pass `--scenetok` to enable it; it is skipped silently if available VRAM is detected as below 20 GB unless the sidecar URL is set. The base checkpoint outputs novel-view RGB renders; the segmentation-decoder variant (`scenetok_masks/`) is experimental and requires a separately fine-tuned checkpoint where the rectified flow decoder head has been replaced with a mask prediction head.
 
 ---

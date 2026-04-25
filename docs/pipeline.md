@@ -137,36 +137,110 @@ selfsuvis --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-mo
 The local full-analysis flow combines local models and sidecar-backed models for Gemma,
 Qwen, Florence, UniDrive, and final reasoning.
 
-### Local Step Order (23 top-level steps)
+### LangGraph orchestration (opt-in)
 
-The current local runner executes 23 top-level steps. This list matches
-`src/selfsuvis/pipeline/workflows/local/runner.py`.
+The pipeline has a LangGraph-based orchestrator as an opt-in replacement for the monolithic
+`run_video_pipeline()` in `runner.py`. Activate it with an env var — no CLI change needed:
 
-| Step | Phase | Description |
-|------|-------|-------------|
-| 01 | Ingest | Frame extraction |
-| 02 | Ingest | Vector store indexing (CLIP + DINOv3) |
-| 03 | Analyze | Gemma multimodal analysis |
-| 04 | Analyze | Florence-2 scene captioning |
-| 05 | Analyze | ASR transcription |
-| 06 | Analyze | OCR text extraction |
-| 07 | Analyze | Depth estimation |
-| 08 | Analyze | Object detection |
-| 09 | Analyze | YOLO11 + SAM2/3 detection and semantic graph construction |
-| 10 | Analyze | Gemma 4 directed tracking |
-| 11 | Analyze | World model video embeddings |
-| 12 | Analyze | Qwen VLM detailed captioning |
-| 13 | Analyze | UniDriveVLA expert analysis |
-| 14 | Eval | Base model transformation test |
-| 15 | Map | 3D map + Gaussian Splat |
-| 16 | Adapt | SSL DINOv3 fine-tuning |
-| 17 | Adapt | Knowledge distillation |
-| 18 | Export | ONNX export + gallery build |
-| 19 | Eval | Fine-tuned model transformation test |
-| 20 | Eval | Model comparison + video description |
-| 21 | Audit | Multi-model comparison |
-| 22 | Synthesize | Video synthesis |
-| 23 | Audit | Agentic flow audit |
+```bash
+SELFSUVIS_USE_GRAPH=1 APP_ENV=dev selfsuvis --mode local --videos-dir data/videos
+```
+
+Both paths produce identical artifacts. The graph path adds:
+
+- **Parallel fan-out** — steps 4–8 (Florence, ASR, OCR, depth, detection) are dispatched
+  concurrently; they serialise only on GPU via the existing `_prep_vram_for_step` guard.
+- **Resumable checkpoints** — each node's output is persisted; a failed run resumes from
+  the last completed node rather than starting over.
+- **LangSmith tracing** — full execution traces visible in the LangSmith UI when
+  `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` are set.
+- **Agentic quality improvements** on the six LLM nodes (see below).
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `pipeline/workflows/local/graph_state.py` | `PipelineState` TypedDict — single state schema |
+| `pipeline/workflows/local/runner_graph.py` | `build_graph()` + `run_graph_pipeline()` entry point |
+| `pipeline/workflows/local/graph_nodes/phase1.py` | Nodes: init, extract, index |
+| `pipeline/workflows/local/graph_nodes/phase2_parallel.py` | Nodes: Florence, ASR, OCR, depth, detection |
+| `pipeline/workflows/local/graph_nodes/phase2_serial.py` | Nodes: Gemma, merge, platform fusion, world model, Qwen, UniDrive, SceneTok, base search, full fusion |
+| `pipeline/workflows/local/graph_nodes/phase2_tracking.py` | Nodes: YOLO+SAM, Gemma tracking |
+| `pipeline/workflows/local/graph_nodes/phase2_map.py` | Nodes: 3D map submit/join |
+| `pipeline/workflows/local/graph_nodes/phase3_ssl.py` | Nodes: SSL finetune, distill, ONNX export, FT search, compare |
+| `pipeline/workflows/local/graph_nodes/phase4.py` | Nodes: multi-model compare, synthesis, audit, analytics |
+| `pipeline/workflows/local/graph_nodes/agentic_helpers.py` | Shared helpers: `json_guard`, `llm_call_with_retry`, `critique_pass`, `moe_consensus_score` |
+
+**Environment variables for the graph path:**
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `SELFSUVIS_USE_GRAPH` | `` (off) | Set to `1` to activate the LangGraph orchestrator |
+| `SELFSUVIS_CHECKPOINT_PATH` | `` (in-memory) | Path to a SQLite file for persistent checkpoints across process restarts |
+| `SELFSUVIS_RESUME_THREAD_ID` | `` | Thread ID of a prior run to resume from its last checkpoint |
+| `LANGCHAIN_TRACING_V2` | `` (off) | Set to `true` to emit execution traces to LangSmith |
+| `LANGCHAIN_API_KEY` | `` | LangSmith API key (required when tracing is on) |
+
+**Resuming a failed run** (persistent checkpoints only):
+
+```bash
+# First run — note the thread_id printed in the logs
+SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=data/checkpoints.db \
+  selfsuvis --mode local --videos-dir data/videos
+# => "Starting graph pipeline for drone_mission (thread_id=drone_mission_1714123456)"
+
+# Resume after failure — nodes already completed are skipped
+SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=data/checkpoints.db \
+  SELFSUVIS_RESUME_THREAD_ID=drone_mission_1714123456 \
+  selfsuvis --mode local --videos-dir data/videos
+```
+
+### Agentic improvements in the LangGraph path
+
+The six LLM nodes have targeted quality enhancements that are only active when
+`SELFSUVIS_USE_GRAPH=1`:
+
+| Step | Improvement |
+|------|-------------|
+| 03 Gemma analysis | Post-hoc CLIP cosine similarity check on every `fact_verification` claim; claims below threshold flagged as `clip_verified=false`; `unverified_claims` count surfaced in trace |
+| 10 Gemma tracking | JSON-guard fallback: when Gemma JSON parse fails and returns empty `target_labels`, RF-DETR falls back to `["person","vehicle","sign"]` instead of silently tracking nothing |
+| 12 Qwen captioning | One retry pass for frames with `parse_error=True` using a simplified prompt (no extra context); prior-state chain skips confirmed-bad frames rather than anchoring on them |
+| 13 UniDriveVLA | Per-frame Jaccard MoE consensus score computed across expert outputs; frames below threshold 0.5 flagged as `low_moe_agreement=true` and logged as warnings |
+| 23 Video synthesis | Draft → CLIP-evidence-grounded critique pass → conditional regeneration when verdict is `MAJOR_CONTRADICTION` |
+| 24 Agentic audit | Reflection sub-loop after generation: checks whether all pipeline step IDs are covered; appends a `## Reflection Gaps` section to `agentic_flow.md` when gaps are found |
+
+### Local Step Order (24 top-level steps)
+
+The local runner executes 24 top-level steps. This list matches
+`src/selfsuvis/pipeline/workflows/local/runner.py` (and the graph nodes in
+`runner_graph.py`).
+
+| Step | Phase | Description | LangGraph node |
+|------|-------|-------------|----------------|
+| 01 | Ingest | Frame extraction | `p1_extract_frames` |
+| 02 | Ingest | Vector store indexing (CLIP + DINOv3) | `p1_index_vectors` |
+| 03 | Analyze | Gemma multimodal analysis *(agentic)*  | `p2_gemma_analysis` |
+| 04 | Analyze | Florence-2 scene captioning | `p2_florence_caption` *(parallel)* |
+| 05 | Analyze | ASR transcription | `p2_asr` *(parallel)* |
+| 06 | Analyze | OCR text extraction | `p2_ocr` *(parallel)* |
+| 07 | Analyze | Depth estimation | `p2_depth` *(parallel)* |
+| 08 | Analyze | Object detection | `p2_detection` *(parallel)* |
+| 09 | Analyze | YOLO11 + SAM2/3 detection | `p2_yolo_sam` |
+| 10 | Analyze | Gemma 4 directed tracking *(agentic)* | `p2_gemma_tracking` |
+| 11 | Analyze | World model video embeddings | `p2_world_model` |
+| 12 | Analyze | Qwen VLM detailed captioning *(agentic)* | `p2_qwen_caption` |
+| 13 | Analyze | UniDriveVLA expert analysis *(agentic)* | `p2_unidrive` |
+| 14 | Analyze | SceneTok streaming encoder + segmentation decoder | `p2_scenetok` |
+| 15 | Eval | Base model transformation test | `p2_base_search` |
+| 16 | Map | 3D map + Gaussian Splat *(background thread)* | `p2_map_3d_submit` / `p2_map_3d_join` |
+| 17 | Adapt | SSL DINOv3 fine-tuning | `p3_ssl_finetune` |
+| 18 | Adapt | Knowledge distillation | `p3_distill` *(SSL gate required)* |
+| 19 | Export | ONNX export + gallery build | `p3_onnx_export` *(SSL gate required)* |
+| 20 | Eval | Fine-tuned model transformation test | `p3_ft_search` *(SSL gate required)* |
+| 21 | Eval | Model comparison + video description | `p3_compare` *(SSL gate required)* |
+| 22 | Audit | Multi-model comparison | `p4_multi_model_compare` |
+| 23 | Synthesize | Video synthesis *(agentic)* | `p4_synthesis` |
+| 24 | Audit | Agentic flow audit *(agentic)* | `p4_audit` |
 
 Not every step runs on every machine or configuration. Steps may be skipped when a
 feature flag is disabled, a sidecar URL is not configured, a resource gate blocks the
@@ -177,8 +251,8 @@ Current local-run optimizations also make a few steps adaptive instead of fully 
 - Step 06 (OCR) prescreens frames from Florence caption confidence before sending them to the OCR model or sidecar.
 - Step 12 (Qwen) uses bounded sampled-frame selection instead of captioning every frame.
 - Step 07 (Depth) uses a fast auto profile by default unless an explicit model or quality profile is requested.
-- Step 23 (agentic flow audit) uses a simple first-pass prompt and accepts that answer when it satisfies the required output structure; a compact fallback prompt is only used when the first response is empty or incomplete.
-- The local pipeline now also runs a probabilistic platform-state fusion example and writes `state_fusion.md` / `state_fusion.json` when GPS telemetry is available.
+- Step 24 (agentic flow audit) in the monolith uses a simple first-pass prompt and accepts that answer when it satisfies the required output structure; in the LangGraph path a reflection sub-loop also runs.
+- The local pipeline runs a probabilistic platform-state fusion pass and writes `state_fusion.md` / `state_fusion.json` when GPS telemetry is available.
 
 ### Step 13 — UniDriveVLA expert analysis
 
@@ -252,6 +326,19 @@ default `base`), `RFDETR_CONFIDENCE` (default `0.35`).
 **Production**: `VideoIndexer._run_gemma_directed_tracking_pass` stores tracking results in
 `frame_facts_json["gemma_tracking"]` for each frame record when both `RFDETR_ENABLED=true`
 and `GEMMA_API_URL` are set.
+
+## Perspective Directions
+
+This page describes the current runtime.
+The forward-looking roadmap now lives in the learning-path deep dive:
+
+- [Perspective directions: self-supervised vision, reinforcement learning, physical models, and realtime threat analysis](learning_path/15_future_directions_realtime_threat_analysis.md)
+
+Use that document for:
+
+- the recommended next technical directions after the current runner
+- the main papers behind temporal SSL, world models, RL, and physical-state estimation
+- the proposed expansion from context fusion toward local/global threat analysis over a realtime sensor mesh
 
 ## Pipeline outputs
 

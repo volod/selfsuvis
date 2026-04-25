@@ -1126,11 +1126,20 @@ def run_video_pipeline(
 ) -> Dict[str, Any]:
     """Run all pipeline steps for a single video. Returns per-video stats dict.
 
+    When ``SELFSUVIS_USE_GRAPH=1`` is set this function delegates to the
+    LangGraph-based orchestrator in ``runner_graph.py`` and returns its result
+    directly.  All existing callers remain unaffected.
+
     *_out* is an optional external dict that is used as the stats container.
     When provided, callers can inspect it for partial results if an exception
     escapes — the timings and frame counts recorded up to the failure point
     are preserved.
     """
+    import os as _os
+    if _os.getenv("SELFSUVIS_USE_GRAPH", "").lower() in ("1", "true", "yes"):
+        from .runner_graph import run_graph_pipeline
+        return run_graph_pipeline(args, video_path, output_dir, models, store, is_qdrant, device)
+
     from .steps_embed import (
         step_extract_frames,
         step_index_to_store,

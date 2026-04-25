@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Rules
 
 - **Never make git commits without an explicit user request.** Do not commit as part of any workflow, review, or copy operation unless the user explicitly says "commit" or "make a commit."
+- **Never add `from __future__ import annotations`.** The codebase targets Python 3.10+, which supports `X | Y` union syntax and `list[int]` / `dict[str, Any]` generics natively. The future import is unnecessary and must not be added to any file.
 
 ## What this project is
 

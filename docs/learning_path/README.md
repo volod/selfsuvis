@@ -32,6 +32,7 @@ They are written to answer:
 | [11_probabilistic_state_fusion_architecture.md](11_probabilistic_state_fusion_architecture.md) | Actual subsystem architecture: package layout, data flow, layer responsibilities, configuration, degradation modes |
 | [12_probabilistic_state_fusion_implementation_order.md](12_probabilistic_state_fusion_implementation_order.md) | Delivery status for all five phases, what is still missing, validation sequence for future extensions |
 | [13_probabilistic_fusion_deep_dive.md](13_probabilistic_fusion_deep_dive.md) | **Mathematical deep dive**: Kalman filter equations, Umeyama Sim(3) derivation, RTS smoother, Mahalanobis gating, Hungarian assignment, semantic noise priors, worked example, artifact reading guide |
+| [15_future_directions_realtime_threat_analysis.md](15_future_directions_realtime_threat_analysis.md) | Perspective-directions roadmap: what a human should study next, the main SSL / RL / physical-model papers, and how to build realtime local/global threat analysis over a sensor mesh |
 
 ## Probabilistic State Fusion — Quick Reference
 
@@ -73,6 +74,11 @@ If you are entering the sensor phase for the first time, read
 framework for reasoning about clocks, coordinate frames, calibration, and
 uncertainty.
 
+If you already understand the current runner and want to reason about where the
+system should go next, read
+[15_future_directions_realtime_threat_analysis.md](15_future_directions_realtime_threat_analysis.md)
+after the fusion and adaptation docs.
+
 ## If You Are New Here
 
 Use this order:
@@ -83,9 +89,10 @@ Use this order:
 4. [06_agentic_knowledge_flow.md](06_agentic_knowledge_flow.md)
 5. [04_tracking_mapping_steps_21_27.md](04_tracking_mapping_steps_21_27.md)
 6. [05_adaptation_eval_steps_28_35.md](05_adaptation_eval_steps_28_35.md)
+7. [15_future_directions_realtime_threat_analysis.md](15_future_directions_realtime_threat_analysis.md)
 
 That route gets you from “what is this repo?” to “how does evidence move?” before
-you dive into adaptation and evaluation.
+you dive into adaptation, physical-world modeling, and realtime threat analysis.
 
 ## Step-To-Document Map
 
@@ -106,6 +113,7 @@ Supporting sessions:
 - [Probabilistic state fusion implementation order](12_probabilistic_state_fusion_implementation_order.md): delivery status, gaps, validation sequence
 - [**Probabilistic fusion deep dive**](13_probabilistic_fusion_deep_dive.md): full math, worked example, artifact reading guide
 - [**Local analytics math and methodology**](14_local_analytics_math_methodology.md): diagnostic equations, quality scoring, and failure interpretation
+- [**Future directions and realtime threat analysis**](15_future_directions_realtime_threat_analysis.md): recommended next learning track after the current runtime is understood
 
 ## Related Repo Docs
 

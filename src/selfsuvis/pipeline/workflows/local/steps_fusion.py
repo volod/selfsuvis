@@ -1,6 +1,5 @@
 """Local-run platform-state fusion helpers."""
 
-from __future__ import annotations
 
 import json
 from pathlib import Path
