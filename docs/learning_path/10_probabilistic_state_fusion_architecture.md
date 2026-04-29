@@ -3,7 +3,7 @@
 This document describes the actual subsystem architecture that was built.
 
 For the mathematical deep dive into each component, see
-[13_probabilistic_fusion_deep_dive.md](13_probabilistic_fusion_deep_dive.md).
+[12_probabilistic_fusion_deep_dive.md](12_probabilistic_fusion_deep_dive.md).
 
 ## Design Goal
 
@@ -268,6 +268,6 @@ MAP_FUSION_SMOOTH                 (bool, default true)
 
 ## Related Deep Dives
 
-- [10_probabilistic_state_fusion_requirements.md](10_probabilistic_state_fusion_requirements.md)
-- [12_probabilistic_state_fusion_implementation_order.md](12_probabilistic_state_fusion_implementation_order.md)
-- [13_probabilistic_fusion_deep_dive.md](13_probabilistic_fusion_deep_dive.md)
+- [09_probabilistic_state_fusion_requirements.md](09_probabilistic_state_fusion_requirements.md)
+- [11_probabilistic_state_fusion_implementation_order.md](11_probabilistic_state_fusion_implementation_order.md)
+- [12_probabilistic_fusion_deep_dive.md](12_probabilistic_fusion_deep_dive.md)

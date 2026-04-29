@@ -345,6 +345,9 @@ class VideoKnowledge:
         # Last Qwen result: feeds into next Qwen call as "previous state"
         self._last_qwen: Dict[str, Any] = {}
 
+        # Physical state summary (step_physical_state)
+        self._physical_state: Optional[Dict[str, Any]] = None
+
     # ── Deposit methods ───────────────────────────────────────────────────────
 
     def add_gemma(self, task_results: Dict[str, Any], mnn_dino: float = 0.0) -> None:
@@ -406,6 +409,11 @@ class VideoKnowledge:
                 counts[lbl] = counts.get(lbl, 0) + 1
         self.known_entities = [k for k, _ in sorted(counts.items(), key=lambda x: -x[1])[:15]]
 
+    def add_physical_state(self, summary: Dict[str, Any]) -> None:
+        """Deposit physical state summary (step_physical_state)."""
+        if not summary.get("skipped"):
+            self._physical_state = summary
+
     def add_state_fusion(self, posterior_samples: List[Any]) -> None:
         """Deposit fused platform-state posterior samples."""
         self._state_fusion = {
@@ -422,6 +430,18 @@ class VideoKnowledge:
 
     # ── Query methods ─────────────────────────────────────────────────────────
 
+    def physical_state_hint(self) -> str:
+        """One-line physical state summary for prompt injection."""
+        ps = self._physical_state
+        if not ps:
+            return ""
+        return (
+            f"pose_conf={ps.get('platform_pose_confidence', 0.0):.2f}  "
+            f"occupancy={ps.get('near_field_occupancy_density', 0.0):.2f}  "
+            f"free_space={ps.get('free_space_estimate', 1.0):.2f}  "
+            f"tracks={ps.get('confirmed_tracks', 0)}"
+        )
+
     def domain_hint(self) -> str:
         """Short domain summary for use as a model prompt prefix."""
         parts: List[str] = []
@@ -431,6 +451,9 @@ class VideoKnowledge:
             parts.append(f"Known objects: {', '.join(self.known_entities[:6])}")
         if self.n_transitions:
             parts.append(f"Visual transitions: {self.n_transitions}")
+        phys = self.physical_state_hint()
+        if phys:
+            parts.append(f"Physical: {phys}")
         return " | ".join(parts)
 
     def context_for_frame(self, t_sec: float, asr_window: float = 2.0) -> str:

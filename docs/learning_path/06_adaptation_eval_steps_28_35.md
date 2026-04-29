@@ -504,8 +504,8 @@ Good engineering requires all four.
 
 ## Related Docs
 
-- [Tracking and mapping: Steps 21-27](04_tracking_mapping_steps_21_27.md)
-- [Agentic knowledge flow](06_agentic_knowledge_flow.md)
+- [Tracking and mapping: Steps 21-27](05_tracking_mapping_steps_21_27.md)
+- [Agentic knowledge flow](07_agentic_knowledge_flow.md)
 - [Runtime and study guide](01_runtime_and_study_guide.md)
 - [Pipeline architecture](../pipeline.md)
 
@@ -626,4 +626,4 @@ The practical human recommendation is:
 
 - study temporal and cross-modal SSL before adding more prompt-heavy reasoning layers
 
-That path improves retrieval, tracking, anomaly detection, and later realtime threat analysis at the same time.
+That path improves retrieval, tracking, anomaly detection, and later global-threat and sensor-mesh extensions at the same time.

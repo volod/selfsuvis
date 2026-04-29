@@ -8,7 +8,7 @@ A practical rule: **treat each sensor as a hypothesis generator, not a ground tr
 The pipeline merges them in Step 20 precisely because no single sensor is always right.
 
 Before you study individual modalities, read
-[Sensor Fusion Fundamentals](09_sensor_fusion_fundamentals.md).
+[Sensor Fusion Fundamentals](03_sensor_fusion_fundamentals.md).
 That session gives the conceptual base for everything in this file:
 clocks, coordinate frames, calibration, uncertainty, contradiction handling,
 and the difference between integration and true fusion.
@@ -727,12 +727,12 @@ That exercise produces much better understanding than memorizing sensor catalogs
 
 ## Related Docs
 
-- [Sensor fusion fundamentals](09_sensor_fusion_fundamentals.md)
+- [Sensor fusion fundamentals](03_sensor_fusion_fundamentals.md)
 - [Perception core: Steps 1-8](02_perception_core_steps_01_08.md)
-- [Agentic knowledge flow](06_agentic_knowledge_flow.md)
-- [Tracking and mapping: Steps 21-27](04_tracking_mapping_steps_21_27.md)
+- [Agentic knowledge flow](07_agentic_knowledge_flow.md)
+- [Tracking and mapping: Steps 21-27](05_tracking_mapping_steps_21_27.md)
 - [Pipeline architecture](../pipeline.md)
-- [Day-by-day syllabus](07_day_by_day_syllabus.md)
+- [Day-by-day syllabus](00_day_by_day_syllabus.md)
 
 ---
 
@@ -959,4 +959,4 @@ Without this layer, the system may describe the world well but still fail to ans
 - what should the platform or operator do differently?
 
 For the dedicated roadmap, see
-[15_future_directions_realtime_threat_analysis.md](15_future_directions_realtime_threat_analysis.md).
+[future_implementation_directions.md](../future_implementation_directions.md).

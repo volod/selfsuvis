@@ -168,7 +168,7 @@ python -m selfsuvis.scripts.migrate_postgres
 - Local runs write `state_fusion.json` (GPS-only baseline) and `full_state_fusion.json` (all four layers: platform + visual-pose + object-state + map-state with RTS smoothing).
 - GPS sidecar: place `<videoname>.gps.jsonl` next to the video; IMU: `<videoname>.imu.jsonl`; baro: `<videoname>.baro.jsonl`.
 - `full_state_fusion.json` is written after step 15 (SfM join) so it has access to SfM poses, RF-DETR tracking results, and Gemma/RSSM semantic analysis.
-- Semantic priors: Gemma's `scene_type` drives process noise scale; RSSM mean surprise drives temporal noise scale; urban canyon objects drive GPS noise inflation. See [`docs/learning_path/13_probabilistic_fusion_deep_dive.md`](learning_path/13_probabilistic_fusion_deep_dive.md) for the full noise table.
+- Semantic priors: Gemma's `scene_type` drives process noise scale; RSSM mean surprise drives temporal noise scale; urban canyon objects drive GPS noise inflation. See [`docs/learning_path/12_probabilistic_fusion_deep_dive.md`](learning_path/12_probabilistic_fusion_deep_dive.md) for the full noise table.
 - On local Ollama defaults, Qwen uses a smaller sampled-frame budget and OCR only runs on lower-confidence Florence-captioned frames.
 - Local agentic-flow audit runs a simple prompt first and only retries with a compact fallback when the first answer is empty or structurally incomplete.
 - Depth `auto` uses the fast profile by default for local runs; set `DEPTH_AUTO_PROFILE=quality` or an explicit `DEPTH_MODEL` to opt into heavier inference.

@@ -585,9 +585,9 @@ Adaptation is only valuable if you know what the baseline is and where it fails.
 
 ## Related Docs
 
-- [Sensors and fusion: Steps 9-20](03_sensor_steps_09_20.md)
-- [Adaptation and audit: Steps 28-35](05_adaptation_eval_steps_28_35.md)
-- [Agentic knowledge flow](06_agentic_knowledge_flow.md)
+- [Sensors and fusion: Steps 9-20](04_sensor_steps_09_20.md)
+- [Adaptation and audit: Steps 28-35](06_adaptation_eval_steps_28_35.md)
+- [Agentic knowledge flow](07_agentic_knowledge_flow.md)
 - [3D Gaussian Splat](../gaussian_splat.md)
 
 ---

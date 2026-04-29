@@ -329,8 +329,8 @@ To understand the agentic part of the pipeline, read these in order:
 ## Related Docs
 
 - [Perception core: Steps 1-8](02_perception_core_steps_01_08.md)
-- [Tracking and mapping: Steps 21-27](04_tracking_mapping_steps_21_27.md)
-- [Adaptation and audit: Steps 28-35](05_adaptation_eval_steps_28_35.md)
+- [Tracking and mapping: Steps 21-27](05_tracking_mapping_steps_21_27.md)
+- [Adaptation and audit: Steps 28-35](06_adaptation_eval_steps_28_35.md)
 - [Pipeline architecture](../pipeline.md)
 
 ---

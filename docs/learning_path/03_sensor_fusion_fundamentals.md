@@ -5,7 +5,7 @@ This session is the bridge between "I know what each sensor measures" and
 lying to itself."
 
 Read this before or alongside
-[03_sensor_steps_09_20.md](03_sensor_steps_09_20.md).
+[04_sensor_steps_09_20.md](04_sensor_steps_09_20.md).
 
 The goal is not to turn you into a specialist in Kalman filtering or Bayesian
 state estimation in one sitting. The goal is to give you the minimum mental
@@ -343,11 +343,11 @@ For each contradiction, say whether the most likely explanation is:
 
 After this session:
 
-1. Read [03_sensor_steps_09_20.md](03_sensor_steps_09_20.md)
+1. Read [04_sensor_steps_09_20.md](04_sensor_steps_09_20.md)
 2. Re-read the `VideoKnowledge` and `context_for_frame()` flow in
    [01_runtime_and_study_guide.md](01_runtime_and_study_guide.md)
 3. Then continue to
-   [04_tracking_mapping_steps_21_27.md](04_tracking_mapping_steps_21_27.md)
+   [05_tracking_mapping_steps_21_27.md](05_tracking_mapping_steps_21_27.md)
 
 ## Further Reading
 

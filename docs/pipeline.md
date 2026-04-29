@@ -332,7 +332,7 @@ and `GEMMA_API_URL` are set.
 This page describes the current runtime.
 The forward-looking roadmap now lives in the learning-path deep dive:
 
-- [Perspective directions: self-supervised vision, reinforcement learning, physical models, and realtime threat analysis](learning_path/15_future_directions_realtime_threat_analysis.md)
+- [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)
 
 Use that document for:
 

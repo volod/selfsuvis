@@ -47,7 +47,7 @@ from ._common import (
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_TOTAL_STEPS = 24
+_TOTAL_STEPS = 29
 _VIDEO_EXTS  = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 
 # Phase 3 SSL gate: skip distillation / ONNX / search comparison when the
@@ -616,6 +616,23 @@ def _build_context_prompt(video_name: str, video_context: Dict[str, Any]) -> str
             f"high-risk UniDrive frames: {mm.get('high_risk_frames', 0)}"
         )
 
+    local_threat = video_context.get("local_threat", {})
+    policy_decision = video_context.get("policy_decision", {})
+    if local_threat and not local_threat.get("skipped"):
+        parts.append("\nLocal threat assessment:")
+        parts.append(
+            f"  - score: {float(local_threat.get('local_threat_score', 0.0)):.3f} | "
+            f"recommended action: {policy_decision.get('recommended_action', local_threat.get('recommended_action', 'continue'))}"
+        )
+        for threat in (local_threat.get("top_threats") or [])[:3]:
+            evidence = threat.get("evidence") or {}
+            parts.append(
+                f"  - {threat.get('type', 'unknown')}: score={float(threat.get('score', 0.0)):.3f} "
+                f"| sources={', '.join(evidence.get('evidence_sources', []) or []) or 'none'} "
+                f"| frames={int(evidence.get('support_frames', 0) or 0)} "
+                f"| persistence={int(evidence.get('temporal_persistence', 0) or 0)}"
+            )
+
     return "\n".join(parts)
 
 
@@ -972,6 +989,7 @@ def step_agentic_flow_artifact(
         elapsed,
         result["model"],
         llm_analysis,
+        video_context,
     )
     _log_vram_snapshot("after reasoning sidecar use")
     result.update({"skipped": False, "elapsed_sec": elapsed, "output_path": str(output_path)})
@@ -988,7 +1006,7 @@ def step_video_synthesis(
     model: str,
     resources: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Step 22: synthesise video ontology + narrative via Ollama/vLLM API.
+    """Step 26: synthesise video ontology + narrative via Ollama/vLLM API.
 
     Uses all accumulated context from steps A–H as input.  No local model is
     loaded — this is a pure API call, so CLIP+DINO can remain offloaded.
@@ -1098,7 +1116,16 @@ def step_video_synthesis(
 
     write_video_synthesis_md(
         video_dir / "video_synthesis.md",
-        video_name, ontology, narrative, elapsed, model,
+        video_name,
+        ontology,
+        narrative,
+        elapsed,
+        model,
+        video_context.get("local_threat", {}),
+        video_context.get("policy_decision", {}),
+        video_context.get("threat_primitives", {}),
+        video_context.get("unidrive_analysis", []),
+        video_context.get("physical_state", {}),
     )
     if ontology:
         (video_dir / "video_ontology.json").write_text(
@@ -2035,6 +2062,55 @@ def run_video_pipeline(
     stats["full_fusion_scene"] = full_fusion_result.get("scene_type", "unknown")
     video_context["full_state_fusion"] = full_fusion_result.get("summary", {})
 
+    _step(17, _TOTAL_STEPS, "Physical scene state summary → physical_state_summary.json")
+    from .steps_physical_state import step_physical_state as _step_physical_state
+    with _Timer(T, "PS_physical_state"):
+        physical_state_result = _step_physical_state(
+            full_fusion_result=full_fusion_result,
+            depth_result=depth_result,
+            gemma_tracking_result=gemma_tracking_result,
+            yolo_sam_result=yolo_sam_result,
+            frame_list=frame_list,
+            video_dir=video_dir,
+            video_name=video_name,
+        )
+    knowledge.add_physical_state(physical_state_result)
+    video_context["physical_state"] = physical_state_result
+
+    _step(18, _TOTAL_STEPS, "Environmental field state → field_state_summary.json")
+    from .steps_field_state import step_field_state as _step_field_state
+    with _Timer(T, "PS_field_state"):
+        field_state_result = _step_field_state(
+            video_path=video_path,
+            video_dir=video_dir,
+            video_name=video_name,
+            frame_list=frame_list,
+            depth_result=depth_result,
+            physical_state_result=physical_state_result,
+            caption_results=caption_results,
+            unidrive_result=unidrive_result,
+        )
+    video_context["field_state"] = field_state_result
+
+    _step(19, _TOTAL_STEPS, "Threat primitives → threat_primitives.json")
+    from .steps_threat_primitives import step_threat_primitives as _step_threat_primitives
+    with _Timer(T, "PS_threat_primitives"):
+        threat_primitives_result = _step_threat_primitives(
+            physical_state_result=physical_state_result,
+            field_state_result=field_state_result,
+            depth_result=depth_result,
+            caption_results=caption_results,
+            unidrive_result=unidrive_result,
+            gemma_tracking_result=gemma_tracking_result,
+            full_fusion_result=full_fusion_result,
+            frame_list=frame_list,
+            sfm_poses=int(stats.get("sfm_poses", 0)),
+            map_degraded=bool(stats.get("map_degraded", False)),
+            video_dir=video_dir,
+            video_name=video_name,
+        )
+    video_context["threat_primitives"] = threat_primitives_result
+
     # ── Phase 3: SSL-gated adaptation (SSL gate required) ─────────────────────
     # Step 16 (SSL fine-tuning) always runs to evaluate the gate.
     # Steps E, F, G, H only proceed when D produces a valid checkpoint with
@@ -2047,8 +2123,8 @@ def run_video_pipeline(
     if models.get("uses_api_embedder"):
         T["D_finetune"] = 0.0
         T["E_distill"] = 0.0
-        _step(17, _TOTAL_STEPS, "SSL DINOv3 fine-tuning (skipped — API embedder)")
-        _step(18, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
+        _step(20, _TOTAL_STEPS, "SSL DINOv3 fine-tuning (skipped — API embedder)")
+        _step(21, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
         student_backbone = None; student_dim = 768
     else:
         if device == "cuda":
@@ -2065,7 +2141,7 @@ def run_video_pipeline(
             )
             _guard_min_free_vram("SSL fine-tuning")
             clip_dino_on_gpu = False
-        _step(17, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
+        _step(20, _TOTAL_STEPS, "SSL DINOv3 fine-tuning → finetune_stats.md")
         # Adaptive epoch count: scale up for short clips so the training sees
         # ~200 gradient steps regardless of frame count.  Short homogeneous
         # videos (< 100 frames) have few batches per epoch and under-train at
@@ -2080,8 +2156,18 @@ def run_video_pipeline(
                 _ssl_epochs, args.epochs, len(frame_list), _n_batches_per_epoch,
             )
         with _Timer(T, "D_finetune"):
-            d = step_ssl_finetune(video_id, video_name, video_dir, frame_list, device,
-                                  epochs=_ssl_epochs, batch_size=args.batch_size)
+            d = step_ssl_finetune(
+                video_id, video_name, video_dir, frame_list, device,
+                epochs=_ssl_epochs, batch_size=args.batch_size,
+                tracking_results=(
+                    gemma_tracking_result.get("tracking_results") or []
+                    if not gemma_tracking_result.get("skipped") else []
+                ),
+                depth_result=depth_result,
+                platform_state_fusion=platform_fusion_result,
+                full_fusion_result=full_fusion_result,
+                physical_state_result=physical_state_result,
+            )
         stats["best_loss"] = d["best_loss"]; stats["ckpt_mb"] = d["ckpt_mb"]
         checkpoint_path    = d["checkpoint"]
         _append_agentic_step(
@@ -2152,7 +2238,7 @@ def run_video_pipeline(
                 _gemma_teacher = models["clip"]
                 _log.info("  Using GemmaVisionTeacher for distillation (max hydration)")
 
-            _step(18, _TOTAL_STEPS, "Knowledge distillation (max hydration) → ViT-S/14 student")
+            _step(21, _TOTAL_STEPS, "Knowledge distillation (max hydration) → ViT-S/14 student")
             with _Timer(T, "E_distill"):
                 e_distill = step_distill(
                     checkpoint_path, frame_list, video_name, video_dir, device,
@@ -2194,7 +2280,7 @@ def run_video_pipeline(
         else:
             T["E_distill"] = 0.0
             _gate_reason = "SSL gate did not pass" if not ssl_gate_passed else "--no-distill"
-            _step(18, _TOTAL_STEPS, f"Knowledge distillation (skipped — {_gate_reason})")
+            _step(21, _TOTAL_STEPS, f"Knowledge distillation (skipped — {_gate_reason})")
             _append_agentic_step(
                 agentic_trace,
                 step_id="18",
@@ -2245,7 +2331,7 @@ def run_video_pipeline(
         if device == "cuda" and not clip_dino_on_gpu:
             _restore_models_to_gpu(models, device)
             clip_dino_on_gpu = _models_on_device(models, device)
-        _step(19, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
+        _step(22, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
         with _Timer(T, "F_export"):
             e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
                                   no_onnx=args.no_onnx,
@@ -2272,7 +2358,7 @@ def run_video_pipeline(
     else:
         T["F_export"] = 0.0
         stats.setdefault("onnx_mb", 0.0); stats.setdefault("onnx_exported", False)
-        _step(19, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
+        _step(22, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="19",
@@ -2288,7 +2374,7 @@ def run_video_pipeline(
     # Step 19: Fine-tuned search — only if SSL gate passed (needs fine-tuned or distilled backbone)
     ft_results: List[Dict] = []
     if ssl_gate_passed:
-        _step(20, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
+        _step(23, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
         with _Timer(T, "G_ft_search"):
             f = step_finetuned_model_search_test(frame_list, store, is_qdrant, models,
                                                  query_frame, query_t_sec, video_id, video_name,
@@ -2315,7 +2401,7 @@ def run_video_pipeline(
     else:
         T["G_ft_search"] = 0.0
         stats.setdefault("ft_top_score", 0.0)
-        _step(20, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
+        _step(23, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="20",
@@ -2330,7 +2416,7 @@ def run_video_pipeline(
 
     # Step 20: Comparison + description — only runs when ssl_gate_passed (needs ft_results)
     if ssl_gate_passed:
-        _step(21, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
+        _step(24, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
         with _Timer(T, "H_compare"):
             g = step_compare_and_describe(frame_list, store, is_qdrant, base_results, ft_results,
                                           models, video_id, video_name, video_dir,
@@ -2360,7 +2446,7 @@ def run_video_pipeline(
         )
     else:
         T["H_compare"] = 0.0
-        _step(21, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
+        _step(24, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="21",
@@ -2375,7 +2461,7 @@ def run_video_pipeline(
 
     # Step 21: Multi-model comparison — Gemma vs Qwen vs UniDriveVLA
     if not qwen_result.get("skipped") and not unidrive_result.get("skipped"):
-        _step(22, _TOTAL_STEPS, "Multi-model comparison → multi_model_comparison.md")
+        _step(25, _TOTAL_STEPS, "Multi-model comparison → multi_model_comparison.md")
         with _Timer(T, "T_multimodel"):
             mm = step_multi_model_compare(video_name, video_dir, j, qwen_result, unidrive_result)
         video_context["multi_model_comparison"] = mm
@@ -2400,7 +2486,7 @@ def run_video_pipeline(
         )
     else:
         T["T_multimodel"] = 0.0
-        _step(22, _TOTAL_STEPS, "Multi-model comparison (skipped — requires Qwen and UniDrive)")
+        _step(25, _TOTAL_STEPS, "Multi-model comparison (skipped — requires Qwen and UniDrive)")
         _append_agentic_step(
             agentic_trace,
             step_id="22",
@@ -2413,12 +2499,78 @@ def run_video_pipeline(
             artifacts=[],
         )
 
+    # Step 26: Local threat aggregation — collapse persisted primitives to clip level.
+    _step(26, _TOTAL_STEPS, "Local threat inference → local_threat_assessment.json")
+    from .steps_local_threat import step_local_threat
+    with _Timer(T, "PS_local_threat"):
+        local_threat_result = step_local_threat(
+            threat_primitives_result=threat_primitives_result,
+            video_dir=video_dir,
+            video_name=video_name,
+            unidrive_rows=video_context.get("unidrive_analysis", []),
+            physical_state=physical_state_result,
+        )
+    video_context["local_threat"] = local_threat_result
+    _append_agentic_step(
+        agentic_trace,
+        step_id="26",
+        title="Local threat inference",
+        description="Aggregate persisted threat primitives across the full video window into a policy-free threat estimate.",
+        status="ok" if not local_threat_result.get("skipped") else "skipped",
+        context_inputs=["threat primitives", "temporal persistence threshold"],
+        context_outputs=[
+            f"local threat score {float(local_threat_result.get('local_threat_score', 0.0)):.3f}",
+            f"automation confidence {float(local_threat_result.get('automation_confidence', 1.0)):.3f}",
+        ] if not local_threat_result.get("skipped") else ["no active local threat output"],
+        risks=[
+            "persistence threshold can suppress short but real hazards",
+            "clip-level aggregation can hide when a threat is localized to a brief segment",
+            "threat estimate can be over-trusted if policy and sensor-health checks are skipped downstream",
+        ],
+        artifacts=["local_threat_assessment.json"] if not local_threat_result.get("skipped") else [],
+    )
+
+    _step(27, _TOTAL_STEPS, "Action policy → policy_decision.json")
+    from .steps_policy import step_policy
+    with _Timer(T, "PS_policy"):
+        policy_result = step_policy(
+        local_threat_result,
+        video_dir,
+        video_name,
+        sensor_health={
+                "degraded": float(local_threat_result.get("trust_penalty", 0.0) or 0.0) >= 0.30,
+                "health_warnings": [
+                    conflict.get("pattern", "unknown")
+                    for conflict in (local_threat_result.get("source_pair_conflicts") or [])[:3]
+                ],
+                "missing_sensors": [],
+            },
+        )
+    video_context["policy_decision"] = policy_result
+    _append_agentic_step(
+        agentic_trace,
+        step_id="27",
+        title="Action policy",
+        description="Map the threat estimate, confidence, and sensor-health context into a fixed action vocabulary without changing the threat score semantics.",
+        status="ok" if not policy_result.get("skipped") else "skipped",
+        context_inputs=["local threat estimate", "automation confidence", "sensor-health indicators"],
+        context_outputs=[
+            f"recommended action {policy_result.get('recommended_action', 'continue')}",
+            f"policy reason {policy_result.get('policy_reason', 'n/a')}",
+        ] if not policy_result.get("skipped") else ["no policy decision"],
+        risks=[
+            "policy defaults may not match mission-specific objectives",
+            "sensor-health heuristics can over-trigger inspect-sensor in noisy environments",
+        ],
+        artifacts=["policy_decision.json"] if not policy_result.get("skipped") else [],
+    )
+
     # ── Finalization (always runs regardless of SSL gate) ──────────────────────
-    # Step 22: Video synthesis — offload CLIP+DINO; Ollama API call only (no local model)
+    # Step 28: Video synthesis — offload CLIP+DINO; Ollama API call only (no local model)
     if device == "cuda" and clip_dino_on_gpu:
         _offload_models_to_cpu(models)
         clip_dino_on_gpu = False  # noqa: F841
-    _step(23, _TOTAL_STEPS, "Video synthesis (ontology + narrative) → video_synthesis.md")
+    _step(28, _TOTAL_STEPS, "Video synthesis (ontology + narrative) → video_synthesis.md")
     _qwen_url   = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
     _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
     with _Timer(T, "Z_synthesis"):
@@ -2428,13 +2580,14 @@ def run_video_pipeline(
         )
     _append_agentic_step(
         agentic_trace,
-        step_id="23",
+        step_id="28",
         title="Video synthesis",
         description="Use accumulated multimodal context to generate a structured ontology and narrative summary of the whole video.",
         status="ok" if _qwen_url else "skipped",
         context_inputs=[
             "Gemma summary",
             "captions, ASR, OCR, detections, Qwen frame reasoning",
+            "local threat assessment",
             "retrieval description and map summary",
         ],
         context_outputs=[
@@ -2449,8 +2602,8 @@ def run_video_pipeline(
         artifacts=["video_synthesis.md", "video_ontology.json"] if _qwen_url else [],
     )
 
-    # Step 23: Agentic flow artifact — prefer Gemma reasoning, fall back to Qwen, then deterministic text.
-    _step(24, _TOTAL_STEPS, "Agentic flow audit → agentic_flow.md")
+    # Step 29: Agentic flow artifact — prefer Gemma reasoning, fall back to Qwen, then deterministic text.
+    _step(29, _TOTAL_STEPS, "Agentic flow audit → agentic_flow.md")
     _agentic_url = (
         getattr(args, "reasoning_api_url", "")
         or getattr(settings, "REASONING_API_URL", "")
@@ -2467,7 +2620,7 @@ def run_video_pipeline(
     )
     _append_agentic_step(
         agentic_trace,
-        step_id="24",
+        step_id="29",
         title="Agentic flow audit",
         description="Audit the full context chain, explain step-to-step reasoning state, and register per-step risks of misidentification and wrong context.",
         status="ok",
@@ -2509,6 +2662,7 @@ def run_video_pipeline(
         encoding="utf-8",
     )
     stats["analysis_summary"] = _emit_local_run_analytics(video_dir) or {}
+    stats["video_dir"] = str(video_dir)
 
     _banner(f"✓ Video complete: {video_path.name}")
     _log.info("  Output dir: %s", video_dir)
@@ -2535,6 +2689,7 @@ def _run_video_pipeline_safe(
     except Exception as exc:
         _log.error("Pipeline failed for %s: %s", video_path.name, exc, exc_info=True)
         _out.setdefault("name", video_path.stem)
+        _out.setdefault("video_dir", str(output_dir / video_path.stem))
         _out["error"] = str(exc)
         _out.setdefault("timings", {})
         _out.setdefault("frames", 0)
@@ -2778,6 +2933,13 @@ def run_local(args: Any) -> None:
         if per_video_stats:
             total_elapsed = time.time() - t_start
             stats_path    = output_dir / "final_stats.md"
+            from .steps_global_threat import step_global_threat
+            from .steps_threat_eval import write_threat_calibration, write_threat_eval_summary
+            from selfsuvis.pipeline.fusion import persist_threat_memory
+            global_threat_result = step_global_threat(output_dir, per_video_stats)
+            persist_threat_memory(output_dir, per_video_stats, global_threat_result)
+            write_threat_calibration(output_dir, per_video_stats)
+            write_threat_eval_summary(output_dir, per_video_stats)
             write_final_stats_md(stats_path, per_video_stats, total_elapsed)
             print_run_stats(per_video_stats, total_elapsed, init_elapsed, device)
             _log.warning("  Partial results written to: %s", stats_path)
@@ -2789,10 +2951,21 @@ def run_local(args: Any) -> None:
 
     total_elapsed = time.time() - t_start
     stats_path    = output_dir / "final_stats.md"
+    from .steps_global_threat import step_global_threat
+    from .steps_threat_eval import write_threat_calibration, write_threat_eval_summary
+    from selfsuvis.pipeline.fusion import persist_threat_memory
+    global_threat_result = step_global_threat(output_dir, per_video_stats)
+    persist_threat_memory(output_dir, per_video_stats, global_threat_result)
+    write_threat_calibration(output_dir, per_video_stats)
+    write_threat_eval_summary(output_dir, per_video_stats)
     write_final_stats_md(stats_path, per_video_stats, total_elapsed)
     print_run_stats(per_video_stats, total_elapsed, init_elapsed, device)
 
     _log.info("  Final statistics: %s", stats_path)
+    _log.info("  Global threat summary: %s", output_dir / "global_threat_summary.json")
+    _log.info("  Threat memory: %s", output_dir / "threat_memory")
+    _log.info("  Threat calibration: %s", output_dir / "threat_calibration.json")
+    _log.info("  Threat evaluation: %s", output_dir / "threat_eval_summary.json")
     _log.info("")
     _log.info("  Next steps:")
     _log.info("    • Edge inference:  EdgeClassifier('edge_models/dino_local.onnx', 'edge_models/gallery.npz')")

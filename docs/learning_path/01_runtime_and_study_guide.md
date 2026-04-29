@@ -104,7 +104,7 @@ Weak questions:
 ## One Required Conceptual Detour
 
 Before you go deep on Steps 9-20, read
-[09_sensor_fusion_fundamentals.md](09_sensor_fusion_fundamentals.md).
+[03_sensor_fusion_fundamentals.md](03_sensor_fusion_fundamentals.md).
 
 That session covers the concepts that most often cause confusion in this repo:
 
@@ -180,10 +180,10 @@ That keeps you moving from orchestration to evidence flow to specialized interna
 ## Where To Go Next
 
 - For Steps 1-8: [02_perception_core_steps_01_08.md](02_perception_core_steps_01_08.md)
-- For Steps 9-20: [03_sensor_steps_09_20.md](03_sensor_steps_09_20.md)
-- For Steps 21-27: [04_tracking_mapping_steps_21_27.md](04_tracking_mapping_steps_21_27.md)
-- For Steps 28-35: [05_adaptation_eval_steps_28_35.md](05_adaptation_eval_steps_28_35.md)
-- For context accumulation: [06_agentic_knowledge_flow.md](06_agentic_knowledge_flow.md)
+- For Steps 9-20: [04_sensor_steps_09_20.md](04_sensor_steps_09_20.md)
+- For Steps 21-27: [05_tracking_mapping_steps_21_27.md](05_tracking_mapping_steps_21_27.md)
+- For Steps 28-35: [06_adaptation_eval_steps_28_35.md](06_adaptation_eval_steps_28_35.md)
+- For context accumulation: [07_agentic_knowledge_flow.md](07_agentic_knowledge_flow.md)
 
 ---
 

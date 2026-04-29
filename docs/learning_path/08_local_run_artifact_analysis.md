@@ -62,7 +62,7 @@ This gives you:
 - a diagnostics block with modality completeness, quality score, fragmentation, map coverage, temporal surprise dispersion, and adaptation efficiency
 
 For the equations behind those diagnostics, read
-[Local analytics math and methodology](14_local_analytics_math_methodology.md).
+[Local analytics math and methodology](13_local_analytics_math_methodology.md).
 
 ## Questions To Ask Per Artifact Family
 

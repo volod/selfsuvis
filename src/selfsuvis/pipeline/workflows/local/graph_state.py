@@ -1,4 +1,4 @@
-"""LangGraph state schema for the 24-step local learning pipeline.
+"""LangGraph state schema for the 27-step local learning pipeline.
 
 ``PipelineState`` is a TypedDict consumed by every graph node.  Each node
 returns a *partial* dict containing only the keys it writes; LangGraph merges
@@ -59,6 +59,11 @@ class PipelineState(TypedDict, total=False):
     map_result: Dict[str, Any]
     semantic_graph_result: Dict[str, Any]
     full_fusion_result: Dict[str, Any]
+    physical_state_result: Dict[str, Any]
+    field_state_result: Dict[str, Any]
+    threat_primitives_result: Dict[str, Any]
+    local_threat_result: Dict[str, Any]
+    policy_result: Dict[str, Any]
 
     # ── Phase 3 SSL outputs ───────────────────────────────────────────────────
     ssl_result: Dict[str, Any]

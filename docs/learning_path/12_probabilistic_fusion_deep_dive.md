@@ -6,8 +6,8 @@ understand, modify, or extend the fusion subsystem.
 
 Read after:
 
-- [09_sensor_fusion_fundamentals.md](09_sensor_fusion_fundamentals.md)
-- [11_probabilistic_state_fusion_architecture.md](11_probabilistic_state_fusion_architecture.md)
+- [03_sensor_fusion_fundamentals.md](03_sensor_fusion_fundamentals.md)
+- [10_probabilistic_state_fusion_architecture.md](10_probabilistic_state_fusion_architecture.md)
 
 The code lives in `src/selfsuvis/pipeline/fusion/`.
 
@@ -641,7 +641,7 @@ existing code.
 
 ## Related Deep Dives
 
-- [09_sensor_fusion_fundamentals.md](09_sensor_fusion_fundamentals.md)
-- [10_probabilistic_state_fusion_requirements.md](10_probabilistic_state_fusion_requirements.md)
-- [11_probabilistic_state_fusion_architecture.md](11_probabilistic_state_fusion_architecture.md)
-- [12_probabilistic_state_fusion_implementation_order.md](12_probabilistic_state_fusion_implementation_order.md)
+- [03_sensor_fusion_fundamentals.md](03_sensor_fusion_fundamentals.md)
+- [09_probabilistic_state_fusion_requirements.md](09_probabilistic_state_fusion_requirements.md)
+- [10_probabilistic_state_fusion_architecture.md](10_probabilistic_state_fusion_architecture.md)
+- [11_probabilistic_state_fusion_implementation_order.md](11_probabilistic_state_fusion_implementation_order.md)

@@ -18,6 +18,12 @@ from ._common import (
     _analyze_caption_sequence,
     _jaccard,
 )
+from ._threat_contradictions import (
+    contradiction_signals_for_threat,
+    sensor_sources_from_evidence,
+    summarize_contradictions,
+    support_frame_names,
+)
 
 
 # ── Markdown helpers ──────────────────────────────────────────────────────────
@@ -564,7 +570,24 @@ def write_finetune_stats_md(
         f"",
     ]
 
-    if cfg.approach == "temporal":
+    if cfg.approach == "track_cycle":
+        lines += [
+            f"**Track cycle-consistency triplets** — RF-DETR track IDs provide triplets "
+            f"(A, B, C) of the same tracked object at times t, t+k, t+2k.",
+            f"Loss: NTXent(A,B) + NTXent(B,C) + 0.3·NTXent(A,C). "
+            f"The cycle term enforces that object identity is stable across the widest "
+            f"temporal gap in the triplet, preventing embedding drift along long tracks.",
+        ]
+    elif cfg.approach == "track":
+        lines += [
+            f"**Track pairs** — RF-DETR track IDs provide pairs (A, B) of the same "
+            f"tracked object at two different times (gap 2–5 appearances). "
+            f"Crops are taken around the tracked bbox with 15 % padding.",
+            f"Rationale: same-object pairs encode identity consistency that full-frame "
+            f"temporal pairs cannot — the model must match the object across viewpoint "
+            f"and appearance changes, not just spatial proximity.",
+        ]
+    elif cfg.approach == "temporal":
         lines += [
             f"**Temporal pairs** — consecutive frames within ±{cfg.max_gap} positions "
             f"in the frame sequence form positive pairs.",
@@ -934,12 +957,17 @@ def write_final_stats_md(
         f"| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step 05) |",
         f"| `state_fusion.md` | Probabilistic platform-state posterior summary and covariance samples |",
         f"| `state_fusion.json` | Raw local probabilistic platform-state posterior payload |",
+        f"| `physical_state_summary.json` | Clip-level physical state summary: pose confidence, occupancy, object velocity, free-space estimate |",
+        f"| `field_state_summary.json` | Coarse local environmental field summary for visibility, RF interference, and thermal anomaly evidence |",
+        f"| `threat_primitives.json` | Structured evidence-gated threat primitives with score, uncertainty, support, and persistence |",
+        f"| `local_threat_assessment.json` | Clip-level threat estimate, top threats, automation confidence, and contradiction metrics (step 26) |",
+        f"| `policy_decision.json` | Separated action-policy output with recommended action, rationale, and sensor-health context (step 27) |",
         f"| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps 06-11) |",
         f"| `detailed_captions.md` | Qwen VLM detailed per-frame scene captions with ASR context (step 12) |",
         f"| `unidrive_analysis.md` | UniDriveVLA understanding, perception, planning, and MoE consensus (step 13) |",
-        f"| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison and MoE agreement summary (step 22) |",
-        f"| `video_synthesis.md` | LLM video ontology + fine-grained narrative (step 23) |",
-        f"| `agentic_flow.md` | Step-by-step agentic context trace, risk analysis, and context-propagation audit (step 24) |",
+        f"| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison and MoE agreement summary (step 24) |",
+        f"| `video_synthesis.md` | LLM video ontology + fine-grained narrative (step 28) |",
+        f"| `agentic_flow.md` | Step-by-step agentic context trace, risk analysis, and context-propagation audit (step 29) |",
         f"| `video_ontology.json` | Structured ontology JSON (domain, environment, activities, objects) |",
         f"| `3d_map/sparse_map.npz` | 3D point cloud (from SfM or PCA fallback) |",
         f"| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
@@ -1401,6 +1429,60 @@ def write_multi_model_comparison_md(
     }
 
 
+def _normalise_threat_rows(
+    local_threat: Optional[Dict[str, Any]],
+    policy_decision: Optional[Dict[str, Any]],
+    threat_primitives_result: Optional[Dict[str, Any]],
+    unidrive_rows: Optional[List[Dict[str, Any]]],
+    physical_state: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    local_threat = local_threat or {}
+    policy_decision = policy_decision or {}
+    threat_primitives_result = threat_primitives_result or {}
+    unidrive_rows = unidrive_rows or []
+    physical_state = physical_state or {}
+
+    primitive_by_type = {
+        str(p.get("type", "")): p
+        for p in (threat_primitives_result.get("primitives") or [])
+        if p.get("type")
+    }
+    rows: List[Dict[str, Any]] = []
+    for threat in (local_threat.get("top_threats") or []):
+        threat_type = str(threat.get("type", "unknown"))
+        primitive = primitive_by_type.get(threat_type, {})
+        evidence = dict(threat.get("evidence") or {})
+        evidence_sources = list(evidence.get("evidence_sources") or primitive.get("evidence_sources") or [])
+        contradiction_signals = contradiction_signals_for_threat(
+            threat_type,
+            primitive,
+            unidrive_rows,
+            physical_state,
+        )
+        sensor_sources = sensor_sources_from_evidence(evidence_sources)
+        disagreeing_sources = [
+            str(signal.get("description", "") or "")
+            for signal in contradiction_signals
+            if signal.get("description")
+        ]
+        rows.append({
+            "threat_type": threat_type,
+            "score": float(threat.get("score", 0.0) or 0.0),
+            "uncertainty": float(evidence.get("uncertainty", primitive.get("uncertainty", 0.0)) or 0.0),
+            "sensor_sources": sensor_sources,
+            "disagreeing_sources": disagreeing_sources,
+            "contradiction_signals": contradiction_signals,
+            "recommended_action": str(policy_decision.get("recommended_action", local_threat.get("recommended_action", "continue"))),
+            "support_frames": support_frame_names(primitive.get("spatial_support") or []),
+            "confidence": max(
+                0.0,
+                1.0 - float(evidence.get("uncertainty", primitive.get("uncertainty", 0.0)) or 0.0),
+            ),
+            "evidence_sources": evidence_sources,
+        })
+    return rows
+
+
 def write_video_synthesis_md(
     output_path: Path,
     video_name: str,
@@ -1408,6 +1490,11 @@ def write_video_synthesis_md(
     narrative: str,
     elapsed_sec: float,
     model_id: str,
+    local_threat: Optional[Dict[str, Any]] = None,
+    policy_decision: Optional[Dict[str, Any]] = None,
+    threat_primitives_result: Optional[Dict[str, Any]] = None,
+    unidrive_rows: Optional[List[Dict[str, Any]]] = None,
+    physical_state: Optional[Dict[str, Any]] = None,
 ) -> None:
     lines = [
         f"# Video Synthesis — {video_name}",
@@ -1434,7 +1521,55 @@ def write_video_synthesis_md(
             narrative,
             f"",
         ]
-    lines += ["---", f"*Produced by {_RUNNER_LABEL} · synthesis step 22 · context from steps 01-20*"]
+    if local_threat and not local_threat.get("skipped"):
+        threat_rows = _normalise_threat_rows(
+            local_threat,
+            policy_decision,
+            threat_primitives_result,
+            unidrive_rows,
+            physical_state,
+        )
+        lines += [
+            f"## Local Threat Assessment",
+            f"",
+            f"- Local threat score: {float(local_threat.get('local_threat_score', 0.0)):.3f}",
+            f"- Recommended action: `{(policy_decision or {}).get('recommended_action', local_threat.get('recommended_action', 'continue'))}`",
+            f"- Automation confidence: {float(local_threat.get('automation_confidence', 1.0)):.3f}",
+            f"- Trust penalty: {float(local_threat.get('trust_penalty', 0.0)):.3f}",
+            f"",
+            f"## Threat Evidence",
+            f"",
+            f"| threat_type | score | uncertainty | sensor_sources | disagreeing_sources | recommended_action |",
+            f"|-------------|-------|-------------|----------------|---------------------|--------------------|",
+        ]
+        if threat_rows:
+            for row in threat_rows:
+                lines.append(
+                    f"| {row['threat_type']} | "
+                    f"{row['score']:.3f} | "
+                    f"{row['uncertainty']:.3f} | "
+                    f"{'; '.join(row['sensor_sources']) or 'none'} | "
+                    f"{'; '.join(row['disagreeing_sources']) or 'none'} | "
+                    f"{row['recommended_action']} |"
+                )
+        else:
+            lines.append("| — | 0.000 | 0.000 | none | none | continue |")
+        contradiction_summary = summarize_contradictions(threat_rows)
+        conflict_patterns = [
+            f"{row['pattern']} ({row['count']})"
+            for row in contradiction_summary.get("source_pair_conflicts", [])[:4]
+        ]
+        lines += [
+            "",
+            "## Contradiction Metrics",
+            "",
+            f"- disagreement_count: {int(contradiction_summary.get('disagreement_count', 0))}",
+            f"- disagreement_rate: {float(contradiction_summary.get('disagreement_rate', 0.0)):.3f}",
+            f"- trust_penalty: {float(local_threat.get('trust_penalty', contradiction_summary.get('trust_penalty', 0.0))):.3f}",
+            f"- source_pair_conflicts: {', '.join(conflict_patterns) if conflict_patterns else 'none'}",
+        ]
+        lines.append("")
+    lines += ["---", f"*Produced by {_RUNNER_LABEL} · synthesis step 28 · context from steps 01-27*"]
     output_path.write_text("\n".join(lines), encoding="utf-8")
     _log.info("  ✓ Written %s", output_path)
 
@@ -1446,7 +1581,9 @@ def write_agentic_flow_md(
     elapsed_sec: float,
     model_id: str,
     llm_analysis: str,
+    video_context: Optional[Dict[str, Any]] = None,
 ) -> None:
+    video_context = video_context or {}
     lines = [
         f"# Agentic Flow Trace — {video_name}",
         f"",
@@ -1470,6 +1607,48 @@ def write_agentic_flow_md(
             f"{outputs.replace('|', '&#124;')[:180]} | "
             f"{risks.replace('|', '&#124;')[:180]} |"
         )
+
+    threat_rows = _normalise_threat_rows(
+        video_context.get("local_threat", {}),
+        video_context.get("policy_decision", {}),
+        video_context.get("threat_primitives", {}),
+        video_context.get("unidrive_analysis", []),
+        video_context.get("physical_state", {}),
+    )
+    if threat_rows:
+        contradiction_summary = summarize_contradictions(threat_rows)
+        lines += ["", "## Threat Evidence", ""]
+        lines += [
+            "| threat_type | score | uncertainty | sensor_sources | disagreeing_sources | recommended_action |",
+            "|-------------|-------|-------------|----------------|---------------------|--------------------|",
+        ]
+        for row in threat_rows:
+            lines.append(
+                f"| {row['threat_type']} | {row['score']:.3f} | {row['uncertainty']:.3f} | "
+                f"{'; '.join(row['sensor_sources']) or 'none'} | "
+                f"{'; '.join(row['disagreeing_sources']) or 'none'} | "
+                f"{row['recommended_action']} |"
+            )
+        lines += [
+            "",
+            "## Contradiction Metrics",
+            "",
+            f"- disagreement_count: {int(contradiction_summary.get('disagreement_count', 0))}",
+            f"- disagreement_rate: {float(contradiction_summary.get('disagreement_rate', 0.0)):.3f}",
+            f"- trust_penalty: {float(video_context.get('local_threat', {}).get('trust_penalty', contradiction_summary.get('trust_penalty', 0.0))):.3f}",
+        ]
+        lines += ["", "## Threat Provenance", ""]
+        for row in threat_rows:
+            frames = ", ".join(row["support_frames"]) or "none"
+            evidence = ", ".join(row["evidence_sources"]) or "none"
+            disagreements = "; ".join(row["disagreeing_sources"]) or "none"
+            lines.append(
+                f"- **{row['threat_type']}**: frames={frames}; "
+                f"confidence={row['confidence']:.3f}; evidence_sources={evidence}; "
+                f"sensor_sources={', '.join(row['sensor_sources']) or 'none'}; "
+                f"disagreeing_sources={disagreements}; "
+                f"recommended_action={row['recommended_action']}."
+            )
 
     lines += ["", "## Agentic Analysis", ""]
     if llm_analysis.strip():
@@ -1502,14 +1681,18 @@ _STEP_LABELS: List[Tuple[str, str, str]] = [
     ("S_scenetok",        "14 Analyze: SceneTok encoder+seg",      "GPU vision"    ),
     ("C_base_search",     "15 Eval: Base search test",             "GPU embed"     ),
     ("I_3dmap",           "16 Map: SfM + Gaussian Splat",          "GPU 3D"        ),
-    ("D_finetune",        "17 Adapt: SSL DINOv3 fine-tune",        "GPU train"     ),
-    ("E_distill",         "18 Adapt: Knowledge distillation",      "GPU train"     ),
-    ("F_export",          "19 Export: ONNX + gallery",             "CPU"           ),
-    ("G_ft_search",       "20 Eval: Fine-tuned search test",       "GPU embed"     ),
-    ("H_compare",         "21 Eval: Model comparison",             "GPU embed"     ),
-    ("T_multimodel",      "22 Audit: Multi-model comparison",      "GPU vision"    ),
-    ("Z_synthesis",       "23 Synthesize: Ontology+narrative",     "LLM API"       ),
-    ("AA_agentic",        "24 Audit: Agentic flow",                "LLM API"       ),
+    ("PS_physical_state", "17 Analyze: Physical scene state",      "CPU fusion"    ),
+    ("PS_threat_primitives", "18 Analyze: Threat primitives",      "CPU fusion"    ),
+    ("D_finetune",        "19 Adapt: SSL DINOv3 fine-tune",        "GPU train"     ),
+    ("E_distill",         "20 Adapt: Knowledge distillation",      "GPU train"     ),
+    ("F_export",          "21 Export: ONNX + gallery",             "CPU"           ),
+    ("G_ft_search",       "22 Eval: Fine-tuned search test",       "GPU embed"     ),
+    ("H_compare",         "23 Eval: Model comparison",             "GPU embed"     ),
+    ("T_multimodel",      "24 Audit: Multi-model comparison",      "GPU vision"    ),
+    ("PS_local_threat",   "25 Analyze: Local threat inference",    "CPU fusion"    ),
+    ("PS_policy",         "26 Decide: Action policy",              "CPU policy"    ),
+    ("Z_synthesis",       "27 Synthesize: Ontology+narrative",     "LLM API"       ),
+    ("AA_agentic",        "28 Audit: Agentic flow",                "LLM API"       ),
 ]
 
 

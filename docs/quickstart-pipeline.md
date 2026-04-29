@@ -337,7 +337,7 @@ artifacts first after the run finishes:
 For a full artifact-by-artifact walkthrough, read:
 
 - [Local run artifact analysis](learning_path/08_local_run_artifact_analysis.md)
-- [Tracking, world models, and 3D mapping](learning_path/04_tracking_mapping_steps_21_27.md)
+- [Tracking, world models, and 3D mapping](learning_path/05_tracking_mapping_steps_21_27.md)
 - [Local run analytics](analytics.md)
 
 **Full run — realistic single GPU (12 GB minimum, sequential Ollama sidecars)**:

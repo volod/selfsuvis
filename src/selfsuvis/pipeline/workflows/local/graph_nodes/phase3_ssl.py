@@ -76,6 +76,11 @@ def node_p3_ssl_finetune(state: PipelineState) -> Dict[str, Any]:
     d = step_ssl_finetune(
         state["video_id"], state["video_name"], Path(state["video_dir"]),
         frame_list, device, epochs=_ssl_epochs, batch_size=args.batch_size,
+        tracking_results=((state.get("gemma_tracking_result") or {}).get("tracking_results") or []),
+        depth_result=state.get("depth_result"),
+        platform_state_fusion=state.get("platform_fusion_result"),
+        full_fusion_result=state.get("full_fusion_result"),
+        physical_state_result=state.get("physical_state_result"),
     )
     elapsed = time.monotonic() - t0
 

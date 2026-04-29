@@ -5,8 +5,8 @@ in `selfsuvis` and tracks which requirements have been met.
 
 Read this before or alongside:
 
-- [09_sensor_fusion_fundamentals.md](09_sensor_fusion_fundamentals.md)
-- [13_probabilistic_fusion_deep_dive.md](13_probabilistic_fusion_deep_dive.md)
+- [03_sensor_fusion_fundamentals.md](03_sensor_fusion_fundamentals.md)
+- [12_probabilistic_fusion_deep_dive.md](12_probabilistic_fusion_deep_dive.md)
 
 ## Implementation Status
 
@@ -261,6 +261,6 @@ Planned unit tests (not yet written):
 
 ## Related Deep Dives
 
-- [11_probabilistic_state_fusion_architecture.md](11_probabilistic_state_fusion_architecture.md)
-- [12_probabilistic_state_fusion_implementation_order.md](12_probabilistic_state_fusion_implementation_order.md)
-- [13_probabilistic_fusion_deep_dive.md](13_probabilistic_fusion_deep_dive.md)
+- [10_probabilistic_state_fusion_architecture.md](10_probabilistic_state_fusion_architecture.md)
+- [11_probabilistic_state_fusion_implementation_order.md](11_probabilistic_state_fusion_implementation_order.md)
+- [12_probabilistic_fusion_deep_dive.md](12_probabilistic_fusion_deep_dive.md)

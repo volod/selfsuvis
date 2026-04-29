@@ -286,7 +286,7 @@ Give one example of each that would be useful in a real mission.
 ### Day 12 — Sensor Fusion (Step 20)
 
 **Topics:**
-- Read [09_sensor_fusion_fundamentals.md](09_sensor_fusion_fundamentals.md).
+- Read [03_sensor_fusion_fundamentals.md](03_sensor_fusion_fundamentals.md).
 - Step 20: timestamp alignment, lag tolerance, contradiction detection, missing data handling.
 - Read the `VideoKnowledge` class again with sensor fusion in mind.
 - Read [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `context_for_frame()`.
@@ -641,7 +641,7 @@ realtime sensor-mesh threat analysis.
 
 **Topics:**
 - Re-read Step 23 (RSSM surprise) and Step 28 (SSL DINO fine-tuning) as one temporal-learning story.
-- Read [15_future_directions_realtime_threat_analysis.md](15_future_directions_realtime_threat_analysis.md), Sections 2 and 10.
+- Read [future_implementation_directions.md](../future_implementation_directions.md), Sections 2 and 10.
 - Focus on track-aware, clip-aware, and cross-view self-supervision.
 
 **Exercise:**
@@ -745,8 +745,8 @@ Why is a global threat map mostly an aggregation and evidence-management problem
 ### Day 34 — Realtime Sensor-Mesh Architecture Proposal
 
 **Topics:**
-- Draft a concrete extension of `selfsuvis` from current fusion outputs toward realtime threat analysis.
-- Use the proposed layers in [15_future_directions_realtime_threat_analysis.md](15_future_directions_realtime_threat_analysis.md).
+- Draft a concrete extension of `selfsuvis` from current fusion outputs toward global threat inference and sensor-mesh operation.
+- Use the proposed layers in [future_implementation_directions.md](../future_implementation_directions.md).
 
 **Exercise:**
 Write a one-page architecture proposal with these layers:

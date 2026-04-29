@@ -409,8 +409,8 @@ If any of those lines is missing or clearly wrong, trace it back to the step tha
 ## Related Docs
 
 - [Runtime and study guide](01_runtime_and_study_guide.md)
-- [Sensors and fusion: Steps 9-20](03_sensor_steps_09_20.md)
-- [Agentic knowledge flow](06_agentic_knowledge_flow.md)
+- [Sensors and fusion: Steps 9-20](04_sensor_steps_09_20.md)
+- [Agentic knowledge flow](07_agentic_knowledge_flow.md)
 
 ---
 

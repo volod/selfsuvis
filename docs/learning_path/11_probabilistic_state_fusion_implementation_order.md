@@ -3,7 +3,7 @@
 This document records what has been delivered and what is not yet done.
 
 For the detailed math behind each component, see
-[13_probabilistic_fusion_deep_dive.md](13_probabilistic_fusion_deep_dive.md).
+[12_probabilistic_fusion_deep_dive.md](12_probabilistic_fusion_deep_dive.md).
 
 ## What Was Delivered
 
@@ -138,6 +138,6 @@ For any future extension of the fusion stack, use this order:
 
 ## Related Deep Dives
 
-- [10_probabilistic_state_fusion_requirements.md](10_probabilistic_state_fusion_requirements.md)
-- [11_probabilistic_state_fusion_architecture.md](11_probabilistic_state_fusion_architecture.md)
-- [13_probabilistic_fusion_deep_dive.md](13_probabilistic_fusion_deep_dive.md)
+- [09_probabilistic_state_fusion_requirements.md](09_probabilistic_state_fusion_requirements.md)
+- [10_probabilistic_state_fusion_architecture.md](10_probabilistic_state_fusion_architecture.md)
+- [12_probabilistic_fusion_deep_dive.md](12_probabilistic_fusion_deep_dive.md)

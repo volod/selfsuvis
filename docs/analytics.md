@@ -113,7 +113,7 @@ and the local pipeline `analysis_summary.json`.
 | `artifact_mb_per_min` | Artifact size normalized by video duration |
 
 For the equations and interpretation rules, read
-[Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md).
+[Local analytics math and methodology](learning_path/13_local_analytics_math_methodology.md).
 
 ## Mapping Diagnostics And Advisor Artifacts
 
@@ -186,5 +186,5 @@ report_path = generate_report(summary)
 Use the deep-dive companion after your first run:
 
 - [Local run artifact analysis](learning_path/08_local_run_artifact_analysis.md)
-- [Local analytics math and methodology](learning_path/14_local_analytics_math_methodology.md)
-- [Day-by-day syllabus](learning_path/07_day_by_day_syllabus.md)
+- [Local analytics math and methodology](learning_path/13_local_analytics_math_methodology.md)
+- [Day-by-day syllabus](learning_path/00_day_by_day_syllabus.md)
