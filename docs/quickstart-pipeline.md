@@ -333,11 +333,20 @@ artifacts first after the run finishes:
    What the mapper actually recovered: SfM poses, anchors, points, and fallback path.
 6. `3d_map/map_quality_advisor.md`
    Why the map quality is good or poor from a capture-quality perspective.
+7. `<video_name>/local_threat_assessment.json`
+   Clip-level threat score, automation confidence, top threats, and contradiction metrics. Check
+   `local_threat_score` and `recommended_action` first.
+8. `<video_name>/threat_primitives.json`
+   The raw evidence behind the threat score: each primitive includes `type`, `score`,
+   `uncertainty`, `persistence_sec`, and `evidence_sources`.
+9. `global_threat_summary.json` *(root of output dir — appears after all videos complete)*
+   Cross-video aggregated threat: sector risk levels, persistent anomalies, and route advisories.
 
 For a full artifact-by-artifact walkthrough, read:
 
 - [Local run artifact analysis](learning_path/08_local_run_artifact_analysis.md)
 - [Tracking, world models, and 3D mapping](learning_path/05_tracking_mapping_steps_21_27.md)
+- [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md)
 - [Local run analytics](analytics.md)
 
 **Full run — realistic single GPU (12 GB minimum, sequential Ollama sidecars)**:
@@ -647,6 +656,11 @@ After a successful run, `data/local_runs/<video_name>/` contains:
 | `sparse_map.npz` | Pycolmap sparse point-cloud (or PCA fallback) |
 | `captions.json` | Florence-2 caption per frame |
 | `knowledge.json` | Gemma scene analysis |
+| `physical_state_summary.json` | Clip-level physical state: pose confidence, near-field occupancy, tracked object velocities, free-space estimate |
+| `field_state_summary.json` | Environmental field estimates: visibility hazard, RF interference intensity, thermal anomaly strength |
+| `threat_primitives.json` | Structured evidence-gated threat primitives with type, score, uncertainty, persistence, and evidence sources |
+| `local_threat_assessment.json` | Clip-level threat score, top threats, automation confidence, source-pair contradictions, and trust penalty |
+| `policy_decision.json` | Recommended operator action (`continue` / `reduce_speed` / `reroute` / `abort` / `inspect_sensor`) with reason |
 | `checkpoints/` | SSL fine-tuned DINOv3 checkpoint |
 | `student_distilled.pth` | Knowledge-distilled student weights |
 | `model.onnx` | ONNX-exported model ready for deployment |
@@ -654,6 +668,187 @@ After a successful run, `data/local_runs/<video_name>/` contains:
 | `scenetok_tokens.npz` | Compressed SceneTok scene tokens — permutation-invariant latent representation of the full video |
 | `scenetok_views/` | Novel view renders from the rectified flow decoder (one image per sampled viewpoint) |
 | `scenetok_masks/` | Per-frame segmentation masks from the fine-tuned segmentation decoder *(experimental — requires a trained segmentation checkpoint)* |
+
+After all videos complete, `data/local_runs/` also contains run-level artifacts:
+
+| Path | Contents |
+|---|---|
+| `final_stats.md` | Step timings, skipped stages, and top-level warnings |
+| `global_threat_summary.json` | Cross-video threat aggregation: sector risk levels, persistent anomalies, route advisories |
+| `threat_memory/` | Cross-mission persistent threat records keyed by sector |
+| `threat_calibration.json` | Reliability diagram, threat score histogram, disagreement-rate trends, persistence threshold sweeps |
+| `threat_eval_summary.json` | False positive / false negative analysis when ground-truth labels are present |
+
+---
+
+## Threat and physical state pipeline
+
+The pipeline now runs five threat-aware steps automatically — no additional flags are required.
+
+### Per-video steps (always run)
+
+**Step 17 — Physical state summary**
+Aggregates depth, tracking, Kalman-filtered pose, and object detections into a compact
+`physical_state_summary.json`. Key fields to read:
+
+```bash
+cat data/local_runs/drone_mission/physical_state_summary.json | python3 -m json.tool | \
+  grep -E "platform_pose_confidence|near_field_occupancy|free_space_estimate|confirmed_tracks"
+```
+
+| Field | Meaning |
+|---|---|
+| `platform_pose_confidence` | 0–1; 1 = tightly constrained SfM pose |
+| `near_field_occupancy_density` | fraction of central image area occupied by tracked bboxes |
+| `free_space_estimate` | conservative lower bound on clear space ahead |
+| `confirmed_tracks` | number of tracks with at least two observations |
+
+**Step 18 — Environmental field state**
+Estimates coarse hazard fields from RGB captions, depth, and sensor sidecars.
+
+```bash
+cat data/local_runs/drone_mission/field_state_summary.json | python3 -m json.tool
+```
+
+Each entry in `field_cells` has `field_type` (`visibility`, `rf_interference`, `thermal`),
+`intensity_mean` (0–1), and `temporal_gradient` (positive = worsening over clip duration).
+
+**Step 19 — Threat primitives**
+Combines physical state, field state, and multi-modal evidence into structured primitives.
+
+```bash
+# List primitive types and scores
+python3 -c "
+import json, pathlib
+p = json.loads(pathlib.Path('data/local_runs/drone_mission/threat_primitives.json').read_text())
+for prim in p.get('primitives', []):
+    print(f\"{prim['type']:30s} score={prim['score']:.3f}  persist={prim.get('persistence_sec', 0):.1f}s\")
+"
+```
+
+**Step 26 — Local threat inference**
+Aggregates persisted primitives into a clip-level threat estimate.
+
+```bash
+python3 -c "
+import json, pathlib
+t = json.loads(pathlib.Path('data/local_runs/drone_mission/local_threat_assessment.json').read_text())
+print('threat score        :', t['local_threat_score'])
+print('automation confidence:', t['automation_confidence'])
+print('top threats:')
+for th in t.get('top_threats', [])[:3]:
+    print(' ', th['type'], th['score'])
+"
+```
+
+**Step 27 — Action policy**
+Maps the threat estimate and sensor-health context into a fixed operator action vocabulary.
+
+```bash
+python3 -c "
+import json, pathlib
+p = json.loads(pathlib.Path('data/local_runs/drone_mission/policy_decision.json').read_text())
+print('action:', p['recommended_action'])
+print('reason:', p['policy_reason'])
+"
+```
+
+The fixed action vocabulary is: `continue` | `reduce_speed` | `reroute` | `abort` | `inspect_sensor`.
+
+### Run-level: global threat, memory, and calibration
+
+After all videos in the batch finish, the runner aggregates across videos and writes run-level
+artifacts. These always appear in the `--output-dir` root (default: `data/local_runs/`).
+
+**Global threat summary**
+
+```bash
+python3 -c "
+import json, pathlib
+g = json.loads(pathlib.Path('data/local_runs/global_threat_summary.json').read_text())
+print('global threat score:', g.get('global_threat_score', 0.0))
+print('sector risk levels:')
+for k, v in g.get('sector_risk_levels', {}).items():
+    print(f'  {k}: {v}')
+print('persistent anomalies:', len(g.get('persistent_anomalies', [])))
+print('route advisories:', len(g.get('route_advisories', [])))
+"
+```
+
+**Threat memory** — persists threat evidence across runs. Sector records accumulate under
+`threat_memory/<sector_id>.json`. Each record has `threat_type`, `mean_score`, `occurrence_count`,
+`last_seen`, and `persistence_trend`.
+
+**Threat calibration** — read the reliability diagram and score histogram to diagnose whether
+the threat scorer is well-calibrated for your mission domain:
+
+```bash
+python3 -c "
+import json, pathlib
+c = json.loads(pathlib.Path('data/local_runs/threat_calibration.json').read_text())
+print('records:', c['record_count'])
+print('histogram bins:', c['threat_score_histogram'])
+"
+```
+
+To enable false-positive / false-negative analysis, create `data/local_runs/threat_labels.json`
+with video-level ground-truth (`{"drone_mission": true, "safe_flight": false}`). The runner reads
+it automatically and writes results to `threat_eval_summary.json`.
+
+---
+
+## Sensor mesh replay (Python API)
+
+The `selfsuvis.pipeline.realtime` module lets you replay a completed local-run output directory
+as ordered sensor-mesh event envelopes. This is how you simulate multi-node operation from
+single-GPU run artifacts.
+
+```python
+from pathlib import Path
+from selfsuvis.pipeline.realtime import replay_local_run, write_replay_jsonl
+from selfsuvis.pipeline.realtime import RealtimeThreatAggregator
+
+# Replay all video sub-directories in the output dir as timestamped events
+output_dir = Path("data/local_runs")
+events = replay_local_run(
+    output_dir,
+    node_id_prefix="uav",                          # node IDs become uav_1, uav_2, …
+    ingest_delay_sec_by_kind={"threat": 1.5},       # simulate 1.5 s latency for threat events
+)
+
+# Write the event stream to a JSONL file for inspection
+write_replay_jsonl(events, output_dir / "replay.jsonl")
+print(f"Replayed {len(events)} events")
+
+# Feed events into the aggregator to get operator snapshots
+agg = RealtimeThreatAggregator()
+agg.consume_all(events)
+snapshot = agg.snapshot()
+
+print("sector threat rows:", len(snapshot["sector_rows"]))
+print("degraded mode:", snapshot.get("degraded_mode", {}).get("active", False))
+for row in snapshot["sector_rows"][:3]:
+    print(f"  sector={row['sector_id']}  score={row['aggregated_score']:.3f}  freshness={row['freshness_weight']:.2f}")
+```
+
+Each event envelope contains `event_kind` (`sensor` | `threat` | `node_health`), `event_time`,
+`ingest_time`, `sector_id`, `node_id`, `sensor_type`, and a `freshness_weight` in [0, 1] that
+decays as the event ages. Events with `freshness_weight < 0.1` are treated as expired by the
+aggregator.
+
+To inspect the raw replay stream without Python:
+
+```bash
+# Write JSONL, then view
+python3 -c "
+from pathlib import Path
+from selfsuvis.pipeline.realtime import replay_local_run, write_replay_jsonl
+events = replay_local_run(Path('data/local_runs'))
+write_replay_jsonl(events, Path('data/local_runs/replay.jsonl'))
+print(len(events), 'events written')
+"
+head -5 data/local_runs/replay.jsonl | python3 -m json.tool
+```
 
 ---
 

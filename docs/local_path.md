@@ -64,6 +64,9 @@ For a human learner, the highest-return sequence is:
 | 18. Chemical / gas / radiation sensing | Add invisible hazard indicators. | [Sensors and fusion](learning_path/04_sensor_steps_09_20.md#step-18-chemical--gas--radiation-sensing) |
 | 19. Acoustic sensing | Add sound evidence from engines, speech, impacts, and ambience. | [Sensors and fusion](learning_path/04_sensor_steps_09_20.md#step-19-acoustic-sensing) |
 | 20. Sensor fusion | Merge all side channels into one time-aligned context block. | [Sensors and fusion](learning_path/04_sensor_steps_09_20.md#step-20-sensor-fusion-analysis) |
+| 20a. Physical state summary | Aggregate depth, tracking, and pose into a clip-level physical state: pose confidence, occupancy, object velocities, free-space estimate. Writes `physical_state_summary.json`. | [Temporal SSL and physical state](learning_path/14_temporal_ssl_physical_state.md) |
+| 20b. Environmental field state | Estimate coarse hazard fields (visibility, RF, thermal) from captions, depth, and sensor sidecars. Writes `field_state_summary.json`. | [Temporal SSL and physical state](learning_path/14_temporal_ssl_physical_state.md) |
+| 20c. Threat primitives | Combine physical state, field state, and multi-modal evidence into structured, evidence-gated threat primitives. Writes `threat_primitives.json`. | [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md) |
 | 21. YOLO + SAM detection and segmentation | Refine object localization and add masks for spatial structure. | [Tracking and mapping](learning_path/05_tracking_mapping_steps_21_27.md#step-21-yolo--sam-detection-and-segmentation) |
 | 22. Gemma directed tracking | Use language-guided context to focus tracking on what matters. | [Tracking and mapping](learning_path/05_tracking_mapping_steps_21_27.md#step-22-gemma-directed-tracking) |
 | 23. World model embeddings | Move from isolated frames to temporal clip representations. | [Tracking and mapping](learning_path/05_tracking_mapping_steps_21_27.md#step-23-world-model-video-embeddings) |
@@ -71,6 +74,8 @@ For a human learner, the highest-return sequence is:
 | 25. UniDriveVLA expert analysis | Add domain-specific understanding, perception, and planning structure. | [Tracking and mapping](learning_path/05_tracking_mapping_steps_21_27.md#step-25-unidrivevla-expert-analysis) |
 | 26. Base model search test | Check whether the baseline embedding space retrieves useful neighbors. | [Tracking and mapping](learning_path/05_tracking_mapping_steps_21_27.md#step-26-base-model-search-test) |
 | 27. 3D map and Gaussian Splat | Turn 2D evidence into reusable geometry and scene structure. | [Tracking and mapping](learning_path/05_tracking_mapping_steps_21_27.md#step-27-3d-map-and-gaussian-splat) |
+| 27a. Local threat inference | Aggregate persisted threat primitives across the full video into a clip-level threat score and automation confidence. Writes `local_threat_assessment.json`. | [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md) |
+| 27b. Action policy | Map threat score and sensor-health context to a fixed operator action vocabulary (`continue` / `reduce_speed` / `reroute` / `abort` / `inspect_sensor`). Writes `policy_decision.json`. | [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md) |
 | 28. SSL DINO fine-tuning | Adapt the representation to the current mission without labels. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-28-ssl-dino-fine-tuning) |
 | 29. Knowledge distillation | Compress the strong teacher into a smaller deployment model. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-29-knowledge-distillation) |
 | 30. ONNX export and gallery build | Package the adapted model for lightweight inference. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-30-onnx-export-and-gallery-build) |
@@ -109,7 +114,7 @@ For the longer version, see [the full syllabus](learning_path/00_day_by_day_syll
 | 20 | End-to-end run: predict artifacts before running, check after |
 | 21 | Write your own one-page pipeline explanation from memory |
 | 22-28 | Application week: custom queries, failure inventory, architecture extension (see full syllabus) |
-| 29-35 | Advanced extension: self-supervised temporal learning, physical models, global threat inference, and sensor-mesh runtime |
+| 29-35 | Advanced extension: self-supervised temporal learning, physical models, global threat inference, sensor-mesh runtime, and threat calibration — read `threat_primitives.json`, `local_threat_assessment.json`, and `global_threat_summary.json` after a full run |
 
 ## Recommended Reading Order
 

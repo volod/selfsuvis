@@ -8,6 +8,7 @@ Contains: model/store init, per-video orchestrator, and the top-level
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -804,9 +805,17 @@ def _agentic_flow_required_sections(simple: bool) -> List[str]:
     ]
 
 
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_thinking_tokens(text: str) -> str:
+    """Remove <think>…</think> blocks emitted by qwen3 / deepseek-r1 thinking models."""
+    return _THINK_RE.sub("", text or "").strip()
+
+
 def _is_valid_agentic_flow_analysis(text: str, *, simple: bool) -> bool:
     """Return True when the reasoning output is usable without a retry."""
-    body = (text or "").strip()
+    body = _strip_thinking_tokens(text)
     if not body:
         return False
     if len(body) < 120:
@@ -928,7 +937,9 @@ def step_agentic_flow_artifact(
                         timeout=timeout_sec,
                     )
                     resp.raise_for_status()
-                    candidate = resp.json()["choices"][0]["message"]["content"].strip()
+                    candidate = _strip_thinking_tokens(
+                        resp.json()["choices"][0]["message"]["content"]
+                    )
                     if _is_valid_agentic_flow_analysis(candidate, simple=is_simple and attempt["label"] == "simple"):
                         llm_analysis = candidate
                         result["llm_used"] = True
@@ -964,7 +975,9 @@ def step_agentic_flow_artifact(
                         timeout=timeout_sec,
                     )
                     resp.raise_for_status()
-                    candidate = resp.json()["choices"][0]["message"]["content"].strip()
+                    candidate = _strip_thinking_tokens(
+                        resp.json()["choices"][0]["message"]["content"]
+                    )
                     if _is_valid_agentic_flow_analysis(candidate, simple=False):
                         llm_analysis = candidate
                         result["llm_used"] = True
