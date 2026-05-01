@@ -21,3 +21,17 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# coop_pilot — IoT stack secrets and Frigate runtime state
+config/coop/mosquitto/pwfile
+config/coop/mosquitto/pwfile.tmp
+config/coop/mosquitto/certs/*.key
+config/coop/frigate/.jwt_secret
+config/coop/frigate/frigate.db
+config/coop/frigate/frigate.db-shm
+config/coop/frigate/frigate.db-wal
+config/coop/frigate/.exports
+config/coop/frigate/.timeline
+config/coop/frigate/.vacuum
+config/coop/frigate/.search_stats.json
+coop-data/

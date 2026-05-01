@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "openremote-proxy"
+    static_configs:
+      - targets: ["proxy:8404"]
+
+  - job_name: "openremote-manager"
+    static_configs:
+      - targets: ["manager:8405"]

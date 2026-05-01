@@ -1,6 +1,12 @@
 # Quick Start — Learning Path Pipeline
 
-Run the full 24-step learning pipeline (`selfsuvis --mode local`) directly on your machine — no API server or Docker stack needed. It processes videos, runs every perception and captioning step, fine-tunes a DINOv3 model on the mission frames, and exports it to ONNX.
+Run the full local learning pipeline (`selfsuvis --mode local`) directly on your
+machine. It processes videos, runs every enabled perception and captioning stage,
+fine-tunes a DINOv3 model on the mission frames, and exports it to ONNX.
+
+The local runner has 30 reported runtime/post-run steps and maps to the 35-step
+conceptual learning path. The optional `coop_pilot` extension adds Steps 36-42
+for live IoT site monitoring after the video pipeline run.
 
 > **Setting up the API/worker/UI service stack instead?**
 > See [Quick Start — Local Service Setup](quickstart-local.md).
@@ -31,6 +37,8 @@ HF_TOKEN=hf_xxxx bash scripts/setup_local_full.sh
 ```
 
 **Already ran `setup_local_full.sh`?** Skip directly to [Step 6 — Run the pipeline](#step-6--run-the-pipeline).
+If you already completed the video pipeline and only want the coop extension, skip
+to [Optional Step 7 — Run coop_pilot Steps 36-42](#optional-step-7--run-coop_pilot-steps-36-42).
 
 ---
 
@@ -292,6 +300,10 @@ Full sidecar naming reference:
   --no-gsplat
 ```
 
+For the highest-quality local run on this profile, keep `SELFSUVIS_USE_GRAPH=1`
+in `.env` or export it before the command. The graph path retries Qwen structured
+caption parse failures and usually produces better `detailed_captions.md`.
+
 **Standard run** — with Qdrant for base-model search (Step 15) and fine-tuned search (Step 20):
 
 ```bash
@@ -341,6 +353,8 @@ artifacts first after the run finishes:
    `uncertainty`, `persistence_sec`, and `evidence_sources`.
 9. `global_threat_summary.json` *(root of output dir — appears after all videos complete)*
    Cross-video aggregated threat: sector risk levels, persistent anomalies, and route advisories.
+10. `model_run_advisor.md` *(root of output dir — appears after all videos complete)*
+   Post-run findings plus recommended `.env` updates, model pulls, and rerun commands for the current machine.
 
 For a full artifact-by-artifact walkthrough, read:
 
@@ -348,6 +362,113 @@ For a full artifact-by-artifact walkthrough, read:
 - [Tracking, world models, and 3D mapping](learning_path/05_tracking_mapping_steps_21_27.md)
 - [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md)
 - [Local run analytics](analytics.md)
+
+## Optional Step 7 — Run coop_pilot Steps 36-42
+
+`coop_pilot` is not part of a single `selfsuvis --mode local` video run. It is the
+continuous site-awareness extension after the local learning pipeline. Use this
+when you want to practice Steps 36-42 locally: MQTT/LoRaWAN ingestion, Frigate
+events, rolling site state, RTSP/acoustic evidence, site mesh, scene synthesis,
+and realtime threat sectors.
+
+### 7.1 Install coop extras
+
+If you used `make venv`, install the optional coop dependencies into the same venv:
+
+```bash
+.venv/bin/pip install -e ".[coop_pilot]"
+```
+
+### 7.2 Start the coop stack
+
+Use `APP_ENV=test` for a localhost-bound learning stack. Bootstrap creates
+`data/.env`, writable data directories, Mosquitto TLS certs, and MQTT users when
+they are missing.
+
+```bash
+APP_ENV=test ./scripts/coop/bootstrap.sh up -d
+```
+
+Check container health:
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}"
+```
+
+Expected coop containers include:
+
+- `coop-mosquitto`
+- `coop-chirpstack`
+- `coop-cs-gwbridge`
+- `coop-cs-rest`
+- `coop-cs-postgres`
+- `coop-cs-redis`
+- `coop-frigate`
+
+### 7.3 Start the local API with coop enabled
+
+Run this after Step 4/5 from the local service setup, so Postgres is up and migrated.
+The API starts the coop MQTT subscriber during FastAPI lifespan startup.
+
+```bash
+APP_ENV=dev \
+COOP_MQTT_HOST=localhost \
+COOP_MQTT_PORT=1883 \
+COOP_MQTT_TLS=false \
+COOP_FRIGATE_API_URL=http://localhost:8971 \
+COOP_CHIRPSTACK_TOPIC='application/+/device/+/event/up' \
+COOP_FRIGATE_TOPIC_PREFIX=frigate \
+.venv/bin/uvicorn selfsuvis.app.main:app --host 0.0.0.0 --port 8000
+```
+
+Set `REASONING_API_URL` as well if you want `/site/synthesis` to call an
+OpenAI-compatible reasoning backend:
+
+```bash
+REASONING_API_URL=http://localhost:11434/v1
+```
+
+### 7.4 Inspect the coop endpoints
+
+In another terminal:
+
+```bash
+curl -s http://localhost:8000/site/state | python -m json.tool
+curl -s http://localhost:8000/site/sensors | python -m json.tool
+curl -s http://localhost:8000/site/cameras | python -m json.tool
+curl -s http://localhost:8000/site/mesh | python -m json.tool
+curl -s http://localhost:8000/site/synthesis | python -m json.tool
+curl -s http://localhost:8000/site/threat | python -m json.tool
+```
+
+At first these may be empty. They populate when ChirpStack publishes uplinks on
+`application/+/device/+/event/up` or Frigate publishes detection events under
+`frigate/#`.
+
+### 7.5 Run the coop checks
+
+```bash
+.venv/bin/python -m pytest -q tests/coop tests/unit/coop_pilot/test_sensor_decoders.py
+```
+
+For a broader check of the site-state API and realtime threat bridge:
+
+```bash
+.venv/bin/python -m pytest -q \
+  tests/coop \
+  tests/unit/coop_pilot/test_sensor_decoders.py \
+  tests/unit/app/routers/test_site_state.py \
+  tests/unit/pipeline/realtime
+```
+
+### 7.6 Stop the coop stack
+
+```bash
+APP_ENV=test ./scripts/coop/compose.sh down
+```
+
+The short study sequence is in [Local Learning Path](local_path.md#coop_pilot-extension-steps).
+The deep dive is [coop_pilot IoT edge monitoring](learning_path/16_coop_pilot_iot_edge_monitoring.md).
 
 **Full run — realistic single GPU (12 GB minimum, sequential Ollama sidecars)**:
 
@@ -369,15 +490,11 @@ OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_NUM_PARALLEL=1 OLLAMA_KEEP_ALIVE=0 \
   ollama serve
 
 # Pull once before the first run:
-# 12 GB GPU: prefer qwen2.5vl:3b + qwen3:8b
-# 16 GB GPU: qwen2.5vl:7b + qwen3:14b is usually workable
+# 12 GB GPU with 48+ GB RAM: prefer qwen2.5vl:7b + qwen3:14b for quality.
+# If you hit OOM or swapping, fall back to qwen2.5vl:3b + qwen3:8b.
 ollama pull gemma4:e4b
-ollama pull qwen2.5vl:3b
-ollama pull qwen3:8b
-
-# 16 GB variant:
-# ollama pull qwen2.5vl:7b
-# ollama pull qwen3:14b
+ollama pull qwen2.5vl:7b
+ollama pull qwen3:14b
 
 # —— Terminal 2: pipeline ————————————————————————————————————————————————————————
 # Single-GPU realistic maximum:
@@ -385,32 +502,6 @@ ollama pull qwen3:8b
 # - Qwen via Ollama for detailed captioning
 # - "UniDrive" step also uses the same Qwen sidecar endpoint/model
 # - SceneTok disabled
-.venv/bin/selfsuvis --mode local \
-  --videos-dir        data/videos \
-  --asr               \
-  --ocr               \
-  --depth             \
-  --detection         \
-  --qwen              \
-  --world-model       \
-  --unidrive          \
-  --rfdetr-model      base \
-  --gemma-api-url     http://localhost:11434/v1 \
-  --gemma-api-backend ollama \
-  --gemma-api-model   gemma4:e4b \
-  --qwen-api-url      http://localhost:11434/v1 \
-  --qwen-backend      ollama \
-  --qwen-model        qwen2.5vl:3b \
-  --unidrive-api-url  http://localhost:11434/v1 \
-  --unidrive-backend  ollama \
-  --unidrive-model    qwen2.5vl:3b \
-  --reasoning-api-url http://localhost:11434/v1 \
-  --reasoning-backend ollama \
-  --reasoning-model   qwen3:8b
-
-# 16 GB variant:
-# Replace qwen2.5vl:3b -> qwen2.5vl:7b
-# Replace qwen3:8b     -> qwen3:14b
 .venv/bin/selfsuvis --mode local \
   --videos-dir        data/videos \
   --asr               \
@@ -678,6 +769,8 @@ After all videos complete, `data/local_runs/` also contains run-level artifacts:
 | `threat_memory/` | Cross-mission persistent threat records keyed by sector |
 | `threat_calibration.json` | Reliability diagram, threat score histogram, disagreement-rate trends, persistence threshold sweeps |
 | `threat_eval_summary.json` | False positive / false negative analysis when ground-truth labels are present |
+| `model_run_advisor.md` | Post-run warnings analysis and recommended model/env changes for this hardware |
+| `model_run_advisor.json` | Machine-readable version of the model/run advisor |
 
 ---
 

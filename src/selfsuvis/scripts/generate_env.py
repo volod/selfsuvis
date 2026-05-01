@@ -91,13 +91,13 @@ def _profile_defaults(profile: str) -> Dict[str, str]:
     if profile == "full":
         return {
             "gemma_backend": "ollama",
-            "qwen_backend": "vllm",
-            "unidrive_backend": "vllm",
+            "qwen_backend": "ollama",
+            "unidrive_backend": "ollama",
             "reasoning_backend": "ollama",
         }
     return {
         "gemma_backend": "ollama",
-        "qwen_backend": "vllm",
+        "qwen_backend": "ollama",
         "unidrive_backend": "none",
         "reasoning_backend": "ollama",
     }
@@ -117,8 +117,8 @@ def _recommend_ollama_gemma_models(resources: ResourceProfile) -> Tuple[str, str
       ≥ 32 GB free VRAM  → qwen3:30b        (A100 / single H100)
       ≥ 18 GB free VRAM  → deepseek-r1:14b  (RTX 3090/4090 headroom)
       ≥ 14 GB free VRAM  → qwen3:14b        (24 GB card with other models evicted)
-      ≥  8 GB free VRAM  → qwen3:14b        (16 GB card; fits quantised Q4)
-      ≥  4 GB free VRAM  → qwen3:8b         (12 GB card; tight but workable)
+      ≥  8 GB free VRAM  → qwen3:14b        (12-16 GB card with one sidecar resident)
+      ≥  4 GB free VRAM  → qwen3:8b         (fallback for tighter 8-12 GB systems)
       CPU / low VRAM     → falls back to RAM tiers
     """
     vram = resources.vram_gb
@@ -163,7 +163,7 @@ def _recommend_qwen_model(resources: ResourceProfile, backend: str) -> str:
     free_vram = resources.free_vram_gb if resources.free_vram_gb > 0 else vram
 
     if backend == "ollama":
-        return "qwen2.5vl:7b" if free_vram >= 14 or vram >= 16 else "qwen2.5vl:3b"
+        return "qwen2.5vl:7b" if free_vram >= 10 or vram >= 12 else "qwen2.5vl:3b"
     if free_vram >= 64 or vram >= 80:
         return "Qwen/Qwen2.5-VL-32B-Instruct"
     if free_vram >= 14 or vram >= 16:
@@ -222,6 +222,7 @@ def build_env_plan(options: EnvGenerationOptions, existing: Optional[Mapping[str
     values.setdefault("YOLO_SSG_ENABLED", "true")
     values.setdefault("SAM_ENABLED", "true")
     values.setdefault("RFDETR_ENABLED", "true")
+    values["SELFSUVIS_USE_GRAPH"] = "1" if options.profile == "full" else values.get("SELFSUVIS_USE_GRAPH", "")
 
     _apply_sidecar(values, "GEMMA", gemma_backend, gemma_model, default_port=11434)
     _apply_sidecar(values, "QWEN", qwen_backend, qwen_model, default_port=8010)
@@ -347,6 +348,7 @@ def render_env(plan: EnvPlan) -> str:
         ("pipeline", (
             "YOLO_ENABLED", "YOLO_MODEL", "YOLO_SSG_ENABLED",
             "SAM_ENABLED", "SAM_MODEL", "RFDETR_ENABLED", "RFDETR_MODEL",
+            "SELFSUVIS_USE_GRAPH",
             "SAMPLE_FPS_BASE", "SAMPLE_FPS_MIN", "SAMPLE_FPS_MAX",
             "HIST_THRESH", "EMBED_DRIFT_THRESH", "MAX_GAP_SEC",
             "TILE_SIZE", "STRIDE", "MAX_TILES_PER_SEGMENT", "DEDUP_COS_SIM_THRESH",
@@ -445,8 +447,8 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
     # ── 4. Reasoning model ───────────────────────────────────────────────────
     if args.reasoning_backend != "none":
         _reasoning_options = {
-            "qwen3:8b":          "~5 GB  — fast, fits any 12 GB+ card",
-            "qwen3:14b":         "~8 GB  — recommended ≥ 14 GB free VRAM (default for 16 GB+ cards)",
+            "qwen3:8b":          "~5 GB  — fast fallback for tighter 8-12 GB systems",
+            "qwen3:14b":         "~8 GB  — recommended for 12 GB+ cards when Ollama keeps one model loaded",
             "deepseek-r1:14b":   "~9 GB  — R1-distilled reasoning specialist, similar size",
             "qwen3:30b":         "~18 GB — high quality, needs 24+ GB free VRAM",
             "deepseek-r1:32b":   "~19 GB — best reasoning quality, needs 32+ GB free VRAM",

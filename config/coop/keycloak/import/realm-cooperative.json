@@ -1,0 +1,21 @@
+{
+  "realm": "cooperative",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "clients": [
+    {
+      "clientId": "openremote",
+      "enabled": true,
+      "publicClient": true,
+      "redirectUris": [
+        "https://coop.example.org/*"
+      ],
+      "webOrigins": [
+        "https://coop.example.org"
+      ]
+    }
+  ]
+}

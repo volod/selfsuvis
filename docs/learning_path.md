@@ -22,7 +22,8 @@ Recommended reading order:
 10. [Local analytics math and methodology](learning_path/13_local_analytics_math_methodology.md)
 11. [Temporal SSL and physical state](learning_path/14_temporal_ssl_physical_state.md)
 12. [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md)
-13. [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)
+13. [coop_pilot IoT edge monitoring](learning_path/16_coop_pilot_iot_edge_monitoring.md)
+14. [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)
 
 If you were sent here by an older script or document, use this page as the compatibility entry point.
 
@@ -53,3 +54,17 @@ After completing your first local run, use the analytics toolkit to inspect resu
 - [Analytics & Visualization guide](analytics.md) — charts, HTML report, Python API
 - [Local analytics math and methodology](learning_path/13_local_analytics_math_methodology.md) — derived metrics, equations, and interpretation rules
 - [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md) — what to study next once the current local stack is understood
+
+## coop_pilot IoT Edge Monitoring
+
+The `coop_pilot` layer adds continuous site awareness on top of the mission-indexing
+pipeline. It connects Mosquitto MQTT, ChirpStack LoRaWAN uplinks, Frigate NVR events,
+MediaMTX RTSP bridge sessions, acoustic FFT/Whisper analysis, rolling site-state
+aggregation, scene synthesis, and realtime threat-sector ingestion.
+
+Start with:
+
+- [coop_pilot IoT edge monitoring deep dive](learning_path/16_coop_pilot_iot_edge_monitoring.md)
+- [Day-by-day syllabus, Days 36-42](learning_path/00_day_by_day_syllabus.md#week-6-iot-edge-monitoring-with-coop_pilot)
+- [coop_pilot getting started](coop/getting-started.md)
+- [coop_pilot integration guide](coop/integration.md)

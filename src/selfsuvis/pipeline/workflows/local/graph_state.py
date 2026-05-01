@@ -16,8 +16,18 @@ Design notes
   to ``knowledge`` and ``video_context``.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Annotated, Any, Dict, List, Optional, Tuple
 from typing_extensions import TypedDict
+
+
+def _merge_stats(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge two stats dicts — deep-merges the 'timings' sub-dict."""
+    result = dict(a)
+    timings_a = dict(result.get("timings") or {})
+    timings_b = dict((b or {}).get("timings") or {})
+    result.update(b or {})
+    result["timings"] = {**timings_a, **timings_b}
+    return result
 
 
 class PipelineState(TypedDict, total=False):
@@ -82,7 +92,7 @@ class PipelineState(TypedDict, total=False):
     audit_result: Dict[str, Any]
 
     # ── Cross-cutting accumulation ────────────────────────────────────────────
-    stats: Dict[str, Any]               # timing dict T + numeric summaries
+    stats: Annotated[Dict[str, Any], _merge_stats]  # timing dict T + numeric summaries
     video_context: Dict[str, Any]       # rich context fed to LLM synthesis/audit
     agentic_trace: List[Dict[str, Any]]
 

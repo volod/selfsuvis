@@ -209,11 +209,11 @@ The six LLM nodes have targeted quality enhancements that are only active when
 | 23 Video synthesis | Draft → CLIP-evidence-grounded critique pass → conditional regeneration when verdict is `MAJOR_CONTRADICTION` |
 | 24 Agentic audit | Reflection sub-loop after generation: checks whether all pipeline step IDs are covered; appends a `## Reflection Gaps` section to `agentic_flow.md` when gaps are found |
 
-### Local Step Order (24 top-level steps)
+### Local Step Order
 
-The local runner executes 24 top-level steps. This list matches
-`src/selfsuvis/pipeline/workflows/local/runner.py` (and the graph nodes in
-`runner_graph.py`).
+The local runner reports 30 runtime/post-run steps. The LangGraph path covers the
+main 24 graph nodes through per-video analytics; the monolithic runner also reports
+the physical-state, threat-policy, synthesis, audit, and model/run advisor steps.
 
 | Step | Phase | Description | LangGraph node |
 |------|-------|-------------|----------------|
@@ -241,10 +241,31 @@ The local runner executes 24 top-level steps. This list matches
 | 22 | Audit | Multi-model comparison | `p4_multi_model_compare` |
 | 23 | Synthesize | Video synthesis *(agentic)* | `p4_synthesis` |
 | 24 | Audit | Agentic flow audit *(agentic)* | `p4_audit` |
+| 30 | Optimize | Model/run advisor from `analysis_summary.json`, warnings, resources, and `.env` | run-level postprocessing |
 
 Not every step runs on every machine or configuration. Steps may be skipped when a
 feature flag is disabled, a sidecar URL is not configured, a resource gate blocks the
 stage, or an earlier fine-tune quality gate does not pass.
+
+### coop_pilot learning extension
+
+`coop_pilot` is a continuous site-awareness extension, not another stage inside a
+single `selfsuvis --mode local` video run. In the learning path it follows the
+35-step conceptual local curriculum as Steps 36-42:
+
+| Step | Focus | Runtime surface |
+|------|-------|-----------------|
+| 36 | Coop stack bootstrap and health | `scripts/coop/bootstrap.sh`, `scripts/coop/compose.sh`, `tests/coop/test_stack_health.py` |
+| 37 | MQTT and LoRaWAN ingestion | ChirpStack MQTT uplinks, `LoRaWANDecoder`, `SensorReading` |
+| 38 | Frigate event ingestion | Frigate MQTT events, `FrigateEventDecoder`, `CameraEvent` |
+| 39 | Rolling site state | `SiteStateAggregator`, `/site/state`, `/site/sensors`, `/site/cameras` |
+| 40 | RTSP bridge and acoustic evidence | MediaMTX bridge sessions, live-stream analysis, synthetic acoustic events |
+| 41 | Site mesh and scene synthesis | GPS proximity graph, `/site/mesh`, `/site/synthesis` |
+| 42 | Realtime threat bridge and analytics | `coop_ingest`, `/site/threat`, `coop-analytics` |
+
+Use [Local Learning Path](local_path.md#coop_pilot-extension-steps) for the short
+study sequence and [coop_pilot IoT edge monitoring](learning_path/16_coop_pilot_iot_edge_monitoring.md)
+for the deep dive.
 
 Current local-run optimizations also make a few steps adaptive instead of fully exhaustive:
 
@@ -339,6 +360,7 @@ Use that document for:
 - the recommended next technical directions after the current runner
 - the main papers behind temporal SSL, world models, RL, and physical-state estimation
 - the proposed expansion from context fusion toward local/global threat analysis over a realtime sensor mesh
+- the post-run model advisor that inspects `analysis_summary.json`, warnings, hardware resources, and `.env`
 
 ## Pipeline outputs
 
@@ -352,6 +374,8 @@ Expect artifacts under `data/` such as:
 - `data/checkpoints/`
 - `data/models/`
 - `data/gallery/`
+- `data/local_runs/model_run_advisor.md`
+- `data/local_runs/model_run_advisor.json`
 
 Relevant semantic-graph artifacts:
 

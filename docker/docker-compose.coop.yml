@@ -1,0 +1,219 @@
+# docker-compose.coop.yml
+#
+# Extends the selfsuvis main stack with the coop-pilot IoT edge services:
+#   mosquitto   — MQTT broker (TLS port 8883 / plain 1883)
+#   chirpstack  — LoRaWAN Network Server + gateway bridge + REST API
+#   frigate     — NVR with RTSP + object detection
+#   prometheus  — Metrics scraping (optional, gated by COOP_METRICS_ENABLED)
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.coop.yml up -d
+#
+# Required env vars (add to .env or export):
+#   COOP_DATA_DIR          — bind-mount root for coop services (default: ./coop-data)
+#   COOP_MQTT_USER / COOP_MQTT_PASSWORD — Mosquitto credentials for selfsuvis API
+#   CHIRPSTACK_PG_USER / CHIRPSTACK_PG_PASSWORD / CHIRPSTACK_PG_DB
+#   CHIRPSTACK_MQTT_USERNAME / CHIRPSTACK_MQTT_PASSWORD
+#   CHIRPSTACK_API_SECRET
+#
+# Env vars consumed by coop_pilot Python module (set in .env):
+#   COOP_MQTT_HOST=mosquitto   COOP_MQTT_PORT=1883
+#   COOP_CHIRPSTACK_TOPIC=application/+/device/+/event/up
+#   COOP_FRIGATE_TOPIC_PREFIX=frigate
+#   COOP_FRIGATE_API_URL=http://frigate:8971
+
+networks:
+  # Joins the same network as the main selfsuvis stack so the API container
+  # can reach mosquitto / frigate directly.
+  default:
+    name: selfsuvis-net
+
+volumes:
+  coop_chirpstack_pg_data:
+  coop_chirpstack_redis_data:
+
+services:
+
+  # ── MQTT Broker ─────────────────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: coop-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"           # plain MQTT (internal use only)
+      - "8883:8883"           # MQTT over TLS (external sensors)
+    volumes:
+      - ./config/coop/mosquitto:/mosquitto/config:ro
+      - ${DATA_DIR:-./data}/mosquitto/data:/mosquitto/data
+      - ${DATA_DIR:-./data}/mosquitto/log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -u ${MOSQUITTO_HEALTH_USER:-health} -P ${MOSQUITTO_HEALTH_PASSWORD:-health} || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  # ── ChirpStack LoRaWAN Network Server ────────────────────────────────────────
+  chirpstack-postgres:
+    image: postgres:14-alpine
+    container_name: coop-cs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${CHIRPSTACK_PG_USER:-chirpstack}
+      POSTGRES_PASSWORD: ${CHIRPSTACK_PG_PASSWORD:-chirpstack}
+      POSTGRES_DB: ${CHIRPSTACK_PG_DB:-chirpstack}
+    volumes:
+      - coop_chirpstack_pg_data:/var/lib/postgresql/data
+      - ./config/coop/postgresql/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CHIRPSTACK_PG_USER:-chirpstack}"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 1024M
+
+  chirpstack-redis:
+    image: redis:7-alpine
+    container_name: coop-cs-redis
+    restart: unless-stopped
+    volumes:
+      - coop_chirpstack_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  chirpstack:
+    image: chirpstack/chirpstack:4
+    container_name: coop-chirpstack
+    restart: unless-stopped
+    command: --config /etc/chirpstack
+    depends_on:
+      chirpstack-postgres:
+        condition: service_healthy
+      chirpstack-redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"   # ChirpStack UI + API
+    volumes:
+      - ./config/coop/chirpstack:/etc/chirpstack:ro
+    environment:
+      POSTGRESQL_HOST: chirpstack-postgres
+      REDIS_HOST: chirpstack-redis
+      MQTT_BROKER_HOST: mosquitto
+      CHIRPSTACK_PG_USER: ${CHIRPSTACK_PG_USER:-chirpstack}
+      CHIRPSTACK_PG_PASSWORD: ${CHIRPSTACK_PG_PASSWORD:-chirpstack}
+      CHIRPSTACK_PG_DB: ${CHIRPSTACK_PG_DB:-chirpstack}
+      CHIRPSTACK_MQTT_USERNAME: ${CHIRPSTACK_MQTT_USERNAME:-chirpstack}
+      CHIRPSTACK_MQTT_PASSWORD: ${CHIRPSTACK_MQTT_PASSWORD:-chirpstack}
+      CHIRPSTACK_API_SECRET: ${CHIRPSTACK_API_SECRET:-change_me}
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
+
+  chirpstack-gateway-bridge:
+    image: chirpstack/chirpstack-gateway-bridge:4
+    container_name: coop-cs-gwbridge
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    ports:
+      - "1700:1700/udp"   # Semtech UDP packet forwarder
+    environment:
+      INTEGRATION__MQTT__EVENT_TOPIC_TEMPLATE: "eu868/gateway/{{ .GatewayID }}/event/{{ .EventType }}"
+      INTEGRATION__MQTT__COMMAND_TOPIC_TEMPLATE: "eu868/gateway/{{ .GatewayID }}/command/#"
+      INTEGRATION__MQTT__AUTH__GENERIC__SERVER: "tcp://mosquitto:1883"
+      INTEGRATION__MQTT__AUTH__GENERIC__USERNAME: ${CHIRPSTACK_MQTT_USERNAME:-chirpstack}
+      INTEGRATION__MQTT__AUTH__GENERIC__PASSWORD: ${CHIRPSTACK_MQTT_PASSWORD:-chirpstack}
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+  chirpstack-rest-api:
+    image: chirpstack/chirpstack-rest-api:4
+    container_name: coop-cs-rest
+    restart: unless-stopped
+    depends_on:
+      - chirpstack
+    ports:
+      - "127.0.0.1:8090:8090"
+    command: --server chirpstack:8080 --bind 0.0.0.0:8090 --insecure
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+  # ── Frigate NVR ──────────────────────────────────────────────────────────────
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: coop-frigate
+    restart: unless-stopped
+    privileged: true          # required for /dev/dri hardware decoding
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8971:8971"   # Frigate Web UI + API
+      - "127.0.0.1:8554:8554"   # RTSP re-stream (feeds into selfsuvis MediaMTX)
+    volumes:
+      - ./config/coop/frigate:/config
+      - ${DATA_DIR:-./data}/frigate-media:/media/frigate
+    environment:
+      FRIGATE_RTSP_PASSWORD: ${FRIGATE_RTSP_PASSWORD:-}
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8971/api/version || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "3.00"
+          memory: 4096M
+
+  # ── Prometheus (optional) ─────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: coop-prometheus
+    restart: unless-stopped
+    profiles:
+      - metrics
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./config/coop/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${DATA_DIR:-./data}/prometheus:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M

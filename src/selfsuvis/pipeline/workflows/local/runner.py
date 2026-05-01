@@ -48,7 +48,7 @@ from ._common import (
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_TOTAL_STEPS = 29
+_TOTAL_STEPS = 31
 _VIDEO_EXTS  = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 
 # Phase 3 SSL gate: skip distillation / ONNX / search comparison when the
@@ -2666,6 +2666,50 @@ def run_video_pipeline(
             ]
         )
 
+    # ── Step 30: Drone-detection edge model training ──────────────────────────
+    _drone_enabled = getattr(args, "drone_detection", None)
+    if _drone_enabled is None:
+        _drone_enabled = True  # on by default when not explicitly disabled
+    if _drone_enabled:
+        from .steps_drone_detection import step_drone_detection_training
+        _step(30, _TOTAL_STEPS, "Drone detection training → drone_detection/")
+        _append_agentic_step(
+            agentic_trace,
+            step_id="30",
+            title="Drone detection edge training",
+            description=(
+                "Train YOLOv8n on seraphim-drone-detection-dataset + mission hard negatives; "
+                "export ONNX fp32 (Cortex-A76) and int8 (RV1106G3 NPU)."
+            ),
+            status="ok",
+            context_inputs=["extracted mission frames", "seraphim HF dataset batch_001"],
+            context_outputs=[
+                "drone_yolo8n_a76.onnx",
+                "drone_yolo8n_rv1106_int8.onnx",
+                "drone_detection_report.md",
+            ],
+            risks=[
+                "small dataset subset limits generalisation",
+                "false positives increase without sufficient hard negatives",
+                "rknn-toolkit2 required for full NPU deployment on RV1106G3",
+            ],
+            artifacts=["drone_detection/drone_detection_report.md"],
+        )
+        with _Timer(T, "AC_drone_detection"):
+            drone_result = step_drone_detection_training(
+                frame_list, video_name, video_dir, output_dir, device, args
+            )
+        stats["drone_detection"] = drone_result
+        _log.info(
+            "  Drone detection: map50=%.4f | fp32=%s | int8=%s | rknn=%s",
+            drone_result.get("map50", float("nan")),
+            "✓" if drone_result.get("model_fp32") else "✗",
+            "✓" if drone_result.get("model_int8") else "✗",
+            "✓" if drone_result.get("model_rknn") else "skipped",
+        )
+    else:
+        _step(30, _TOTAL_STEPS, "Drone detection training (skipped — pass --drone-detection to enable)")
+
     stats["pipeline_sec"] = sum(T.values())
     runtime_metrics = get_runtime_telemetry()
     stats["vram_wait_time_sec"] = runtime_metrics.get("vram_wait_time_sec", 0.0)
@@ -2698,7 +2742,10 @@ def _run_video_pipeline_safe(
     """
     _out: Dict[str, Any] = {}
     try:
-        run_video_pipeline(args, video_path, output_dir, models, store, is_qdrant, device, _out=_out)
+        result = run_video_pipeline(args, video_path, output_dir, models, store, is_qdrant, device, _out=_out)
+        # The graph-pipeline path returns a new dict without mutating _out; merge it back.
+        if result and result is not _out:
+            _out.update(result)
     except Exception as exc:
         _log.error("Pipeline failed for %s: %s", video_path.name, exc, exc_info=True)
         _out.setdefault("name", video_path.stem)
@@ -2709,6 +2756,7 @@ def _run_video_pipeline_safe(
         _out.setdefault("duration_sec", 0.0)
         timings = _out.get("timings", {})
         _out.setdefault("pipeline_sec", sum(timings.values()))
+    _out.setdefault("name", video_path.stem)
     return _out
 
 
@@ -2965,16 +3013,49 @@ def run_local(args: Any) -> None:
     total_elapsed = time.time() - t_start
     stats_path    = output_dir / "final_stats.md"
     from .steps_global_threat import step_global_threat
+    from .steps_model_advisor import write_model_run_advisor
     from .steps_threat_eval import write_threat_calibration, write_threat_eval_summary
     from selfsuvis.pipeline.fusion import persist_threat_memory
     global_threat_result = step_global_threat(output_dir, per_video_stats)
     persist_threat_memory(output_dir, per_video_stats, global_threat_result)
     write_threat_calibration(output_dir, per_video_stats)
     write_threat_eval_summary(output_dir, per_video_stats)
+    _step(31, _TOTAL_STEPS, "Model/run advisor → model_run_advisor.md")
+    t_advisor = time.monotonic()
+    env_values = {
+        key: str(getattr(settings, key, "") or os.getenv(key, ""))
+        for key in (
+            "APP_ENV",
+            "GEMMA_API_URL",
+            "GEMMA_API_BACKEND",
+            "GEMMA_API_MODEL",
+            "QWEN_API_URL",
+            "QWEN_BACKEND",
+            "QWEN_MODEL",
+            "REASONING_API_URL",
+            "REASONING_BACKEND",
+            "REASONING_MODEL",
+            "UNIDRIVE_ENABLED",
+            "UNIDRIVE_API_URL",
+            "UNIDRIVE_BACKEND",
+            "UNIDRIVE_MODEL",
+        )
+    }
+    write_model_run_advisor(
+        output_dir,
+        per_video_stats,
+        resources=resources,
+        env_values=env_values,
+    )
+    if per_video_stats:
+        per_video_stats[-1].setdefault("timings", {})["AB_model_advisor"] = (
+            time.monotonic() - t_advisor
+        )
     write_final_stats_md(stats_path, per_video_stats, total_elapsed)
     print_run_stats(per_video_stats, total_elapsed, init_elapsed, device)
 
     _log.info("  Final statistics: %s", stats_path)
+    _log.info("  Model run advisor: %s", output_dir / "model_run_advisor.md")
     _log.info("  Global threat summary: %s", output_dir / "global_threat_summary.json")
     _log.info("  Threat memory: %s", output_dir / "threat_memory")
     _log.info("  Threat calibration: %s", output_dir / "threat_calibration.json")

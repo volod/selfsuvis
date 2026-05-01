@@ -284,5 +284,13 @@ def build_parser() -> argparse.ArgumentParser:
                              "empty = auto-select from detected hardware")
     parser.add_argument("--reasoning-backend", default="", choices=["", "vllm", "ollama"],
                         help="[local] Reasoning backend type. Empty = auto-detect")
+    parser.add_argument("--drone-detection", dest="drone_detection",
+                        action="store_const", const=True, default=None,
+                        help="[local] Train a YOLOv8n drone detector and export edge models "
+                             "(ONNX fp32 for Cortex-A76, int8 for RV1106G3). "
+                             "Downloads seraphim-drone-detection-dataset subset from HuggingFace.")
+    parser.add_argument("--no-drone-detection", dest="drone_detection",
+                        action="store_const", const=False,
+                        help="[local] Skip drone detection training (step 30)")
 
     return parser

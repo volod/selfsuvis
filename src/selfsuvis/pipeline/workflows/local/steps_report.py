@@ -924,11 +924,11 @@ def write_final_stats_md(
         f"| Video | Frames | Index (s) | Finetune loss | Distill loss | SfM poses | Ckpt (MB) |",
         f"|-------|--------|-----------|---------------|--------------|-----------|-----------|",
     ]
-    for v in per_video:
+    for i, v in enumerate(per_video):
         distill_loss = v.get("distill_loss", float("nan"))
         distill_str  = f"{distill_loss:.4f}" if not math.isnan(distill_loss) else "skipped"
         lines.append(
-            f"| {v['name']} | {v.get('frames', 0)} | "
+            f"| {v.get('name', f'video{i}')} | {v.get('frames', 0)} | "
             f"{v.get('index_sec', 0):.1f} | "
             f"{v.get('best_loss', float('nan')):.4f} | "
             f"{distill_str} | "
@@ -973,6 +973,13 @@ def write_final_stats_md(
         f"| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
         f"| `3d_map/map_quality_advisor.json` | Measured mapping-quality diagnostics and readiness score |",
         f"| `3d_map/map_quality_advisor.md` | Capture guidance and flight-plan recommendations for higher-quality maps |",
+        f"",
+        f"Run-level artifacts are written under `{output_path.parent}/`:",
+        f"",
+        f"| File | Description |",
+        f"|------|-------------|",
+        f"| `model_run_advisor.json` | Post-run model, environment, and rerun recommendations for the current hardware |",
+        f"| `model_run_advisor.md` | Human-readable model/run optimization plan based on warnings and analytics |",
         f"",
         f"---",
         f"*Run `python main.py --mode local --help` for all options.*",
@@ -1694,6 +1701,7 @@ _STEP_LABELS: List[Tuple[str, str, str]] = [
     ("PS_policy",            "27 Decide: Action policy",              "CPU policy"    ),
     ("Z_synthesis",          "28 Synthesize: Ontology+narrative",     "LLM API"       ),
     ("AA_agentic",           "29 Audit: Agentic flow",                "LLM API"       ),
+    ("AB_model_advisor",      "30 Optimize: Model/run advisor",        "CPU analysis"  ),
 ]
 
 

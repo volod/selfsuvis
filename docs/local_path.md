@@ -15,11 +15,12 @@ Deep-dive entry points:
 - [Probabilistic state fusion implementation order](learning_path/11_probabilistic_state_fusion_implementation_order.md)
 - [Physical sensors and fusion, Steps 9-20](learning_path/04_sensor_steps_09_20.md)
 - [Tracking, world models, and 3D mapping, Steps 21-27](learning_path/05_tracking_mapping_steps_21_27.md)
-- [Adaptation, evaluation, and audit, Steps 28-35](learning_path/06_adaptation_eval_steps_28_35.md)
+- [Adaptation, evaluation, and audit, Steps 28-36](learning_path/06_adaptation_eval_steps_28_35.md)
 - [Agentic knowledge flow](learning_path/07_agentic_knowledge_flow.md)
 - [Local analytics math and methodology](learning_path/13_local_analytics_math_methodology.md)
 - [Temporal SSL and physical state](learning_path/14_temporal_ssl_physical_state.md)
 - [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md)
+- [coop_pilot IoT edge monitoring](learning_path/16_coop_pilot_iot_edge_monitoring.md)
 - [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)
 
 ## How To Use This Path
@@ -40,7 +41,7 @@ For a human learner, the highest-return sequence is:
 4. Learn physical state estimation before trying to infer “threats” from captions and detections alone.
 5. Treat advanced threat reasoning as a systems-and-inference problem, not only an LLM prompt problem.
 
-## The 35 Steps, Short Version
+## The 36 Steps, Short Version
 
 | Step | Essential purpose | Go deeper |
 |---|---|---|
@@ -78,16 +79,41 @@ For a human learner, the highest-return sequence is:
 | 27b. Action policy | Map threat score and sensor-health context to a fixed operator action vocabulary (`continue` / `reduce_speed` / `reroute` / `abort` / `inspect_sensor`). Writes `policy_decision.json`. | [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md) |
 | 28. SSL DINO fine-tuning | Adapt the representation to the current mission without labels. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-28-ssl-dino-fine-tuning) |
 | 29. Knowledge distillation | Compress the strong teacher into a smaller deployment model. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-29-knowledge-distillation) |
-| 30. ONNX export and gallery build | Package the adapted model for lightweight inference. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-30-onnx-export-and-gallery-build) |
-| 31. Fine-tuned search test | Measure whether adaptation actually improved retrieval. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-31-fine-tuned-search-test) |
-| 32. Model comparison and video description | Compare baseline vs adapted behavior and produce a clip-level summary. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-32-model-comparison-and-video-description) |
-| 33. Multi-model comparison | Check agreement and disagreement across major multimodal analyzers. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-33-multi-model-comparison) |
-| 34. Video synthesis | Turn many artifacts into one human-readable report. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-34-video-synthesis) |
-| 35. Agentic flow audit | Explain how context moved through the pipeline and where risk can propagate. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-35-agentic-flow-audit) |
+| 30. Drone detection edge training | Train a YOLOv8n drone detector from a public dataset plus mission hard negatives; export ONNX fp32 for Arm Cortex-A76 and int8 for Rockchip RV1106G3. | [Runbook](runbooks/drone-detection.md) · [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-30-drone-detection-edge-training) |
+| 31. ONNX export and gallery build | Package the adapted model for lightweight inference. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-31-onnx-export-and-gallery-build) |
+| 32. Fine-tuned search test | Measure whether adaptation actually improved retrieval. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-32-fine-tuned-search-test) |
+| 33. Model comparison and video description | Compare baseline vs adapted behavior and produce a clip-level summary. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-33-model-comparison-and-video-description) |
+| 34. Multi-model comparison | Check agreement and disagreement across major multimodal analyzers. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-34-multi-model-comparison) |
+| 35. Video synthesis | Turn many artifacts into one human-readable report. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-35-video-synthesis) |
+| 36. Agentic flow audit | Explain how context moved through the pipeline and where risk can propagate. | [Adaptation and audit](learning_path/06_adaptation_eval_steps_28_35.md#step-36-agentic-flow-audit) |
+
+## coop_pilot Extension Steps
+
+These steps are not part of one `selfsuvis --mode local` video run. They are the
+reasonable next learning layer after Step 36: take the same evidence concepts from
+the local pipeline and study how they behave in a continuous IoT site-awareness
+runtime.
+
+| Step | Essential purpose | Go deeper |
+|---|---|---|
+| 37. Coop stack bootstrap and health | Start Mosquitto, ChirpStack, Frigate, Redis, Postgres, and the REST bridge; verify container health and credentials before debugging higher-level code. | [coop getting started](coop/getting-started.md) |
+| 38. MQTT and LoRaWAN ingestion | Trace ChirpStack MQTT uplinks into `SensorReading` objects; learn which fields are physical measurements vs radio-link metadata. | [coop deep dive](learning_path/16_coop_pilot_iot_edge_monitoring.md#2-mqtt-lorawan-and-frigate) |
+| 39. Frigate event ingestion | Trace Frigate MQTT detection events into `CameraEvent` objects and rolling camera summaries. | [coop integration](coop/integration.md) |
+| 40. Rolling site state | Understand `SiteStateAggregator`: timestamp eviction, per-device deques, `/site/state`, `/site/sensors`, and `/site/cameras`. | [coop deep dive](learning_path/16_coop_pilot_iot_edge_monitoring.md#3-rolling-window-model-and-sitestateaggregator) |
+| 41. RTSP bridge and acoustic evidence | Bridge Frigate streams through MediaMTX for live captioning, then add FFT/Whisper acoustic observations as synthetic camera events. | [coop deep dive](learning_path/16_coop_pilot_iot_edge_monitoring.md#5-acoustic-analysis) |
+| 42. Site mesh and scene synthesis | Build GPS-proximity sensor graphs, query `/site/mesh`, and fuse live state plus `scene_timeline` captions into `/site/synthesis`. | [coop deep dive](learning_path/16_coop_pilot_iot_edge_monitoring.md#4-sensor-mesh-fusion-and-gps-proximity-linking) |
+| 43. Realtime threat bridge and analytics | Convert coop readings into `SensorEvent` / `ThreatEvent`, inspect `/site/threat`, and use `coop-analytics` to diagnose stack health. | [coop deep dive](learning_path/16_coop_pilot_iot_edge_monitoring.md#8-threat-pipeline-integration) |
+
+The mental bridge from local to coop is:
+
+- Local Steps 1-8 teach how raw media becomes structured visual/audio/text evidence.
+- Local Steps 9-20 teach sidecar sensor alignment, uncertainty, and fusion.
+- Local Steps 20c and 27a-27b teach evidence-gated threat primitives and policy actions.
+- Coop Steps 37-43 apply those ideas to live MQTT/RTSP streams, rolling windows, and sector-level threat snapshots.
 
 ## Realistic Day-By-Day Syllabus
 
-Use this if you want a practical study sequence instead of trying to absorb all 35 steps at once.
+Use this if you want a practical study sequence instead of trying to absorb all 36 steps at once.
 For the longer version, see [the full syllabus](learning_path/00_day_by_day_syllabus.md).
 
 | Day | Focus |
@@ -115,6 +141,7 @@ For the longer version, see [the full syllabus](learning_path/00_day_by_day_syll
 | 21 | Write your own one-page pipeline explanation from memory |
 | 22-28 | Application week: custom queries, failure inventory, architecture extension (see full syllabus) |
 | 29-35 | Advanced extension: self-supervised temporal learning, physical models, global threat inference, sensor-mesh runtime, and threat calibration — read `threat_primitives.json`, `local_threat_assessment.json`, and `global_threat_summary.json` after a full run |
+| 36-42 | coop_pilot extension: bootstrap the IoT stack, trace MQTT/RTSP evidence, inspect `/site/state`, `/site/mesh`, `/site/synthesis`, `/site/threat`, and run `coop-analytics` |
 
 ## Recommended Reading Order
 
@@ -130,4 +157,5 @@ If you only have time for a fast pass:
 8. [Local analytics math and methodology](learning_path/13_local_analytics_math_methodology.md)
 9. [Temporal SSL and physical state](learning_path/14_temporal_ssl_physical_state.md)
 10. [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md)
-11. [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)
+11. [coop_pilot IoT edge monitoring](learning_path/16_coop_pilot_iot_edge_monitoring.md)
+12. [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)

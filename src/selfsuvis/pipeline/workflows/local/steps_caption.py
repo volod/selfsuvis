@@ -742,8 +742,8 @@ def _recommend_gemma_sidecar_models(resources: Dict[str, float]) -> Tuple[str, s
         return "gemma4:12b", "qwen3:30b"
     if free_vram >= 18 or vram >= 24:
         return "gemma4:4b", "deepseek-r1:14b"
-    if free_vram >= 10 or vram >= 16:
-        return "gemma4:e4b", "deepseek-r1:14b"
+    if free_vram >= 10 or vram >= 12:
+        return "gemma4:e4b", "qwen3:14b"
 
     # CPU / mixed RAM-heavy fallback. Keep analysis lighter; spend RAM on the final audit.
     if ram >= 96:

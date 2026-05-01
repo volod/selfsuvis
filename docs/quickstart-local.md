@@ -2,7 +2,7 @@
 
 Set up the SelfSuvis API, worker, and UI for local development with hot-reload. This covers the Docker-backed service stack only.
 
-> **Running the 35-step learning pipeline (`selfsuvis --mode local`) instead?**
+> **Running the local learning pipeline (`selfsuvis --mode local`) instead?**
 > See [Quick Start — Learning Path Pipeline](quickstart-pipeline.md).
 
 ---
@@ -152,6 +152,43 @@ curl -X POST http://localhost:8000/index/video \
 ```
 
 See the [Production Quick Start](quickstart-production.md) for full pipeline and querying details.
+
+---
+
+## Optional: run coop_pilot locally
+
+For learning-path Steps 36-42, run the coop Docker stack and point the local API at
+the localhost MQTT and Frigate ports:
+
+```bash
+.venv/bin/pip install -e ".[coop_pilot]"
+APP_ENV=test ./scripts/coop/bootstrap.sh up -d
+
+APP_ENV=dev \
+COOP_MQTT_HOST=localhost \
+COOP_MQTT_PORT=1883 \
+COOP_MQTT_TLS=false \
+COOP_FRIGATE_API_URL=http://localhost:8971 \
+.venv/bin/uvicorn selfsuvis.app.main:app \
+  --reload --host 0.0.0.0 --port 8000
+```
+
+Verify:
+
+```bash
+curl -s http://localhost:8000/site/state | python -m json.tool
+curl -s http://localhost:8000/site/cameras | python -m json.tool
+curl -s http://localhost:8000/site/threat | python -m json.tool
+```
+
+Stop coop containers:
+
+```bash
+APP_ENV=test ./scripts/coop/compose.sh down
+```
+
+For the full local learning sequence, see
+[Quick Start — Learning Path Pipeline](quickstart-pipeline.md#optional-step-7--run-coop_pilot-steps-36-42).
 
 ---
 

@@ -1,0 +1,13 @@
+user health
+topic read $SYS/#
+
+user chirpstack
+topic readwrite eu868/#
+topic readwrite application/#
+topic readwrite device/#
+
+user chirpstack_gw
+topic readwrite eu868/gateway/#
+
+user frigate
+topic readwrite frigate/#

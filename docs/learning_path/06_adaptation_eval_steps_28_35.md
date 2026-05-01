@@ -1,4 +1,4 @@
-# Adaptation, Evaluation, And Audit: Steps 28-35
+# Adaptation, Evaluation, And Audit: Steps 28-36
 
 This phase asks the practical engineering questions:
 
@@ -148,8 +148,78 @@ Distillation loss curve: per-epoch loss values.
 
 ---
 
-<a id="step-30-onnx-export-and-gallery-build"></a>
-## Step 30. ONNX export and gallery build
+<a id="step-30-drone-detection-edge-training"></a>
+## Step 30. Drone detection edge training
+
+**What it does:**
+Train a YOLOv8n drone detector using a public dataset (`lgrzybowski/seraphim-drone-detection-dataset`) plus up to 80 mission frames injected as hard negatives.
+Export two edge-ready models:
+- `drone_yolo8n_a76.onnx` — fp32 ONNX for Arm Cortex-A76 (Raspberry Pi 5, Jetson Orin A76 cores, onnxruntime CPU)
+- `drone_yolo8n_rv1106_int8.onnx` — int8 ONNX for Rockchip RV1106G3 (Luckfox Pico / IPC-AI, onnxruntime on Cortex-A7)
+- `drone_yolo8n_rv1106.rknn` — (optional) RKNN NPU model for the RV1106G3, generated when `rknn-toolkit2` is installed
+
+**Why it matters:**
+Deploying object detection to constrained edge hardware requires a different engineering workflow than cloud inference.
+YOLOv8n (nano, ~3 MB) fits within the RV1106G3's NPU budget and runs at 8-15 ms per frame — fast enough for real-time airspace monitoring.
+The int8 quantization step (via `onnxruntime.quantization.quantize_dynamic`) reduces model size by ~4× with minimal accuracy degradation when the calibration set is well-chosen.
+Mission frames injected as hard negatives directly counteract the primary failure mode of drone detectors: false positives on sky, buildings, and foliage from the deployment environment.
+
+**Implementation:**
+- [`pipeline/workflows/local/steps_drone_detection.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_detection.py)
+- Operational runbook: [`docs/runbooks/drone-detection.md`](../runbooks/drone-detection.md)
+
+**Key concepts:**
+
+*Hard negative injection:*
+A hard negative is an image with no bounding boxes (empty label file) that the detector sees during training.
+The training loss penalizes any box the detector fires on a hard negative frame.
+Mission frames make ideal hard negatives: they contain the exact sky, terrain, and structure the deployed detector will encounter, ensuring false-positive suppression is calibrated to the deployment environment, not a generic dataset.
+
+*YOLOv8n augmentation strategy:*
+Mosaic (p=1.0) — combines four images into one, exposing partial drones at artificial frame edges and forcing the model to localize drones under occlusion.
+Copy-paste (p=0.10) — pastes drone crops from positive examples onto hard-negative backgrounds, directly synthesizing the primary failure case (drone over sky/foliage with no other drones present).
+Scale ±30% — simulates altitude variation; a drone at 200 m appears the same pixel size as a different drone at 100 m with half the wingspan.
+
+*ONNX int8 dynamic quantization:*
+`onnxruntime.quantization.quantize_dynamic()` applies post-training quantization without a calibration dataset.
+Weights are quantized to INT8; activations are quantized at runtime.
+This is less accurate than static (calibration-based) quantization but requires no labeled calibration set and is sufficient for object detection where box coordinates are float outputs.
+
+*RKNN export:*
+The Rockchip NPU on the RV1106G3 requires a `.rknn` binary compiled from ONNX by `rknn-toolkit2`.
+The toolkit is optional: if absent, the step produces the int8 ONNX fallback and logs a warning.
+The NPU path delivers 8-15 ms; the Cortex-A7 CPU fallback delivers 80-150 ms.
+
+**Output artifacts:**
+All outputs land in `data/local_runs/{video_name}/drone_detection/`:
+- `exports/drone_yolo8n_a76.onnx` — fp32 model for Cortex-A76
+- `exports/drone_yolo8n_rv1106_int8.onnx` — int8 model for RV1106G3
+- `exports/drone_yolo8n_rv1106.rknn` — (optional) RKNN NPU model
+- `test_a76.py` — inference test script for Cortex-A76
+- `test_rv1106.py` — inference test script for RV1106G3
+- `drone_detection_report.md` — training metrics, model sizes, and deployment commands
+- Cross-run model advisor updated at `data/local_runs/model_run_advisor.md`
+
+**Human focus:**
+- Read `drone_detection_report.md` and locate: mAP@50, final box loss, fp32 model size, int8 model size.
+- Run `test_a76.py` on one frame from the mission to verify the exported model loads and inferences correctly.
+- Understand what "hard negative" means by opening `drone_detection/dataset/train/labels/` and finding the empty `.txt` files that correspond to mission frames.
+- Understand why the demo uses only `batch_001` (~400 images) and what mAP@50 improvement you would expect from the full 4-batch dataset.
+
+**Common failure modes:**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `HuggingFace download failed` | No internet / rate-limit | Pre-populate `_drone_detection_cache/train_images/` manually |
+| `YOLOv8n training failed: ultralytics not installed` | Missing dep | `pip install ultralytics` |
+| mAP@50 < 0.30 after 5 epochs | Too few images | Download batch_002–004 to the cache directory |
+| High false-positive rate on sky | Insufficient hard negatives | Set `_MAX_NEGATIVES = 150` in `steps_drone_detection.py` |
+| `rknn-toolkit2 not found` | Normal on x86 machines | Install from Airockchip releases to enable NPU export |
+
+---
+
+<a id="step-31-onnx-export-and-gallery-build"></a>
+## Step 31. ONNX export and gallery build
 
 **What it does:**
 Export the student model (or the fine-tuned teacher if no student exists) to ONNX format.
@@ -203,8 +273,8 @@ Search is then: embed query → cosine similarity against gallery → return top
 
 ---
 
-<a id="step-31-fine-tuned-search-test"></a>
-## Step 31. Fine-tuned search test
+<a id="step-32-fine-tuned-search-test"></a>
+## Step 32. Fine-tuned search test
 
 **What it does:**
 Re-run the same test queries from Step 26 against the fine-tuned model's gallery.
@@ -219,7 +289,7 @@ The fine-tuned model might:
 - Make no meaningful difference (fine-tuning was unnecessary for this mission type).
 - Get worse overall (the SSL gate should have caught this; if it did not, the evaluation will).
 
-Step 31 is the only honest measure of whether Steps 28-30 were worth doing.
+Step 32 is the only honest measure of whether Steps 28-31 were worth doing.
 
 **Implementation:**
 - [`pipeline/workflows/local/steps_embed.py`](../../src/selfsuvis/pipeline/workflows/local/steps_embed.py)
@@ -252,8 +322,8 @@ Summary: `{baseline_p_at_k, finetuned_p_at_k, delta, improved_queries, degraded_
 
 ---
 
-<a id="step-32-model-comparison-and-video-description"></a>
-## Step 32. Model comparison and video description
+<a id="step-33-model-comparison-and-video-description"></a>
+## Step 33. Model comparison and video description
 
 **What it does:**
 Produce a side-by-side comparison of baseline vs fine-tuned model behavior across a sample of frames.
@@ -303,8 +373,8 @@ The description should be read critically: check which claims are supported by w
 
 ---
 
-<a id="step-33-multi-model-comparison"></a>
-## Step 33. Multi-model comparison
+<a id="step-34-multi-model-comparison"></a>
+## Step 34. Multi-model comparison
 
 **What it does:**
 For a sample of key frames, collect outputs from multiple multimodal analyzers:
@@ -355,8 +425,8 @@ Summary: list of frames with lowest agreement (most uncertain or ambiguous).
 
 ---
 
-<a id="step-34-video-synthesis"></a>
-## Step 34. Video synthesis
+<a id="step-35-video-synthesis"></a>
+## Step 35. Video synthesis
 
 **What it does:**
 Collect all intermediate artifacts from the full pipeline run and produce a single structured HTML report:
@@ -414,8 +484,8 @@ Linked: frame gallery images, ASR transcript, GPS track overlay.
 
 ---
 
-<a id="step-35-agentic-flow-audit"></a>
-## Step 35. Agentic flow audit
+<a id="step-36-agentic-flow-audit"></a>
+## Step 36. Agentic flow audit
 
 **What it does:**
 Produce a provenance-style audit document that traces how context moved through the pipeline:
@@ -486,7 +556,7 @@ The audit traces which Gemma call produced the wrong classification and when it 
 Learn to separate these four questions and ask them independently:
 
 1. **Did the representation get better?**
-   Compare P@K from Steps 26 and 31. Not just the numbers, but which queries improved.
+   Compare P@K from Steps 26 and 32. Not just the numbers, but which queries improved.
 
 2. **Did the smaller model preserve the right structure?**
    Compare the teacher's embeddings to the student's embeddings on held-out frames.
@@ -508,10 +578,11 @@ Good engineering requires all four.
 - [Agentic knowledge flow](07_agentic_knowledge_flow.md)
 - [Runtime and study guide](01_runtime_and_study_guide.md)
 - [Pipeline architecture](../pipeline.md)
+- [Drone detection runbook](../runbooks/drone-detection.md)
 
 ---
 
-## Learning Resources — Adaptation, Distillation, and Evaluation (Steps 28-35)
+## Learning Resources — Adaptation, Distillation, and Evaluation (Steps 28-36)
 
 The central theme of this phase is the feedback loop: observation → representation → improvement. Resources are ordered basics → deep dive.
 
@@ -553,7 +624,28 @@ The central theme of this phase is the feedback loop: observation → representa
 
 ---
 
-### Step 30 — ONNX Export and Gallery Build
+### Step 30 — Drone Detection Edge Training
+
+**Why it matters:** Edge object detection combines three engineering disciplines at once: small-model training (YOLOv8n), quantization-aware export (ONNX int8), and hardware-specific compilation (RKNN NPU). Hard negative injection from the mission directly addresses the deployment environment's false-positive profile, a practice with measurable impact on precision that generic datasets cannot replicate.
+
+**Basics — Object detection and YOLO**
+- Redmon et al., "You Only Look Once: Unified, Real-Time Object Detection" (YOLOv1, 2016). The original YOLO paper — read Sections 2-3 to understand why single-stage detectors trade some accuracy for dramatically higher inference speed. [arxiv.org/abs/1506.02640](https://arxiv.org/abs/1506.02640)
+- Ultralytics YOLOv8 documentation: [docs.ultralytics.com](https://docs.ultralytics.com). The API used in `steps_drone_detection.py`. Focus on the `train()` function signature and augmentation hyperparameters.
+
+**Core reference — Quantization**
+- Nagel et al., "A White Paper on Neural Network Quantization" (Qualcomm AI Research, 2021). The most rigorous treatment of INT8 quantization: symmetric vs asymmetric, per-tensor vs per-channel, post-training vs quantization-aware training, calibration methods. Directly relevant to the int8 export for the RV1106G3. [arxiv.org/abs/2106.08295](https://arxiv.org/abs/2106.08295)
+- ONNX Runtime quantization documentation: [onnxruntime.ai/docs/performance/quantization.html](https://onnxruntime.ai/docs/performance/quantization.html). Explains `quantize_dynamic` vs `quantize_static` and when each is appropriate.
+
+**Deep dive — Edge deployment**
+- Rockchip RV1106G3 NPU documentation: [github.com/airockchip/rknn-toolkit2](https://github.com/airockchip/rknn-toolkit2). The RKNN toolkit converts ONNX to a hardware-optimized binary for the Rockchip NPU. Read the README and the quantization section before attempting the RKNN export.
+- Howard et al., "MobileNets" (2017). The architectural trade-offs that make small models deployable — directly applicable to understanding why YOLOv8n (nano) fits the RV1106G3 budget while larger YOLO variants do not. [arxiv.org/abs/1704.04861](https://arxiv.org/abs/1704.04861)
+
+**Runbook**
+- [`docs/runbooks/drone-detection.md`](../runbooks/drone-detection.md): complete operational guide covering dataset expansion, hard negative tuning, inference on Cortex-A76 and RV1106G3, RKNN offline conversion, and troubleshooting.
+
+---
+
+### Step 31 — ONNX Export and Gallery Build
 
 **Why it matters:** ONNX is the portability layer between PyTorch research code and any edge runtime (TensorRT, ONNX Runtime, CoreML, TFLite). Getting the dynamic axes right — so that batch size and image size are not hardcoded — is the difference between an ONNX export that deploys and one that silently fails on non-standard input sizes.
 
@@ -566,11 +658,10 @@ The central theme of this phase is the feedback loop: observation → representa
 
 **Deep dive**
 - Han et al., "A Survey on Model Compression and Acceleration for Deep Learning" (2015). Reviews pruning, quantization, and factorization in addition to distillation — maps the full space of model compression that ONNX export enables. [arxiv.org/abs/1710.09282](https://arxiv.org/abs/1710.09282)
-- Nagel et al., "A White Paper on Neural Network Quantization" (Qualcomm AI Research, 2021). The most rigorous treatment of INT8 quantization: symmetric vs asymmetric, per-tensor vs per-channel, calibration methods. Directly relevant when post-processing ONNX exports for INT8 inference. [arxiv.org/abs/2106.08295](https://arxiv.org/abs/2106.08295)
 
 ---
 
-### Steps 31-33 — Retrieval Evaluation and Model Comparison
+### Steps 32-34 — Retrieval Evaluation and Model Comparison
 
 **Why it matters:** Precision@K and Recall@K are only honest if the query set was designed before looking at the retrieval results. Post-hoc query design — choosing queries that the fine-tuned model happens to get right — produces metrics that look like improvement but measure nothing.
 
@@ -586,7 +677,7 @@ The central theme of this phase is the feedback loop: observation → representa
 
 ---
 
-### Steps 34-35 — Synthesis, Reporting, and Agentic Audit
+### Steps 35-36 — Synthesis, Reporting, and Agentic Audit
 
 **Why it matters:** The synthesis report is the human-readable output of the entire pipeline. Its quality determines whether an operator can make decisions from it. The audit step is the provenance chain — without it, a hallucinated synthesis claim is indistinguishable from a grounded one.
 
@@ -604,7 +695,7 @@ The central theme of this phase is the feedback loop: observation → representa
 
 ## Perspective Directions For Self-Supervised Vision
 
-After you understand Steps 28-35 as they exist today, the next useful question is not
+After you understand Steps 28-36 as they exist today, the next useful question is not
 "which larger model should I add?" It is:
 
 - what structure is still missing from the representation?

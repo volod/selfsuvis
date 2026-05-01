@@ -54,6 +54,49 @@ Optional services:
 - `mapper` for map registration/fusion work
 - `mediamtx` for stream ingestion and live RTSP/RTMP path management
 - `cvat` for annotation workflows
+- `coop_pilot` IoT edge stack: Mosquitto, ChirpStack, Frigate (see below)
+
+### coop_pilot — IoT edge monitoring layer
+
+The `coop_pilot` subpackage adds a stationary site-monitoring layer on top of the
+core selfsuvis API. It is fully optional: all components are lazy-imported and the
+API starts normally when the MQTT broker is unreachable or `aiomqtt` is not installed.
+
+```text
+LoRaWAN sensors ──► ChirpStack ──► Mosquitto MQTT ──┐
+Frigate cameras ─────────────────────────────────────┤
+                                                      ▼
+                                               MqttSubscriber
+                                               (background task)
+                                                      │
+                       ┌──────────────────────────────┤
+                       ▼                              ▼
+               SiteStateAggregator           CoopRealtimeIngestor
+               SensorMeshFusion                       │
+               SceneSynthesizer              RealtimeThreatAggregator
+                       │                              │
+               GET /site/*                   GET /site/threat
+               WS  /site/stream              robot advisory API
+```
+
+**CoopStreamService** (FastAPI lifespan):
+  - Queries Frigate `/api/cameras` to discover enabled cameras
+  - Registers each as `coop/{camera}` in MediaMTX (RTSP re-stream)
+  - Starts an `RtspCaptioner` session per camera writing to `scene_timeline`
+  - Optionally starts `SoundAnalyzer` per camera (faster-whisper + FFT)
+
+**SceneSynthesizer**:
+  - Fuses `SiteState` + `scene_timeline` captions into a prompt
+  - Sends to `REASONING_API_URL` (OpenAI-compatible backend)
+  - Returns `SceneSynthesis` (cached 10 s) at `GET /site/synthesis`
+
+**pipeline/realtime/coop_ingest.py**:
+  - `sensor_reading_to_event()` → `SensorEvent(sensor_type="lorawan")`
+  - `camera_event_to_threat()` → `ThreatEvent(sensor_type="camera")`
+  - Sector ID derived from GPS grid at ~110 m resolution
+
+Docker compose: `docker/docker-compose.coop.yml` joins `selfsuvis-net`.
+Full reference: [coop_pilot — Integration Guide](coop/integration.md).
 
 ### MediaMTX role
 

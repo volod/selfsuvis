@@ -25,7 +25,7 @@ They are written to answer:
 | [03_sensor_fusion_fundamentals.md](03_sensor_fusion_fundamentals.md) | Knowledge session on clocks, calibration, uncertainty, contradiction handling, and what fusion means in the current `selfsuvis` architecture |
 | [04_sensor_steps_09_20.md](04_sensor_steps_09_20.md) | Optional physical sensor families and fusion thinking — useful when sidecar data exists, ignorable when it does not |
 | [05_tracking_mapping_steps_21_27.md](05_tracking_mapping_steps_21_27.md) | Semantic graph construction, Gemma-directed tracking, world-model context, Qwen, UniDriveVLA, and 3D mapping |
-| [06_adaptation_eval_steps_28_35.md](06_adaptation_eval_steps_28_35.md) | Fine-tuning, distillation, ONNX export, retrieval evaluation, synthesis, and audit — the “did the system improve?” phase |
+| [06_adaptation_eval_steps_28_35.md](06_adaptation_eval_steps_28_35.md) | Fine-tuning, distillation, drone detection edge training, ONNX export, retrieval evaluation, synthesis, and audit — the “did the system improve?” phase |
 | [07_agentic_knowledge_flow.md](07_agentic_knowledge_flow.md) | `VideoKnowledge` structure, evidence accumulation, context reuse, contamination risks, and debugging strategy |
 | [08_local_run_artifact_analysis.md](08_local_run_artifact_analysis.md) | How to inspect a completed run, detect silent failures, and connect artifacts back to code |
 | [09_probabilistic_state_fusion_requirements.md](09_probabilistic_state_fusion_requirements.md) | Requirements for probabilistic state fusion, with implementation status for each requirement |
@@ -35,6 +35,7 @@ They are written to answer:
 | [13_local_analytics_math_methodology.md](13_local_analytics_math_methodology.md) | The math and interpretation rules behind local-run diagnostics |
 | [14_temporal_ssl_physical_state.md](14_temporal_ssl_physical_state.md) | Track-aware SSL: why frame augmentation is insufficient, how RF-DETR track IDs produce identity-consistent positive pairs, and how cycle-consistency loss prevents embedding drift along long tracks |
 | [15_threat_primitives_local_inference.md](15_threat_primitives_local_inference.md) | Threat primitive layer: structured evidence-gated threat signals from physical state + fusion; schema design, the two-source gate, and why free-text hazards are insufficient |
+| [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) | IoT edge monitoring deep dive: MQTT, LoRaWAN/ChirpStack, Frigate, MediaMTX RTSP bridge, acoustic analysis, rolling site state, scene synthesis, and realtime threat ingestion |
 
 ## Probabilistic State Fusion — Quick Reference
 
@@ -53,7 +54,7 @@ Entry point for the math: [12_probabilistic_fusion_deep_dive.md](12_probabilisti
 ## Current Runtime vs Conceptual Path
 
 The current local runner executes **27 top-level steps**.
-Some older learning-path documents still group the system using a broader **35-step conceptual map**.
+Some older learning-path documents still group the system using a broader **36-step conceptual map**.
 That is intentional:
 
 - the **runtime** view matches the current code in `src/selfsuvis/pipeline/workflows/local/runner.py`
@@ -97,7 +98,8 @@ Use this order:
 9. [13_local_analytics_math_methodology.md](13_local_analytics_math_methodology.md)
 10. [14_temporal_ssl_physical_state.md](14_temporal_ssl_physical_state.md)
 11. [15_threat_primitives_local_inference.md](15_threat_primitives_local_inference.md)
-12. [../future_implementation_directions.md](../future_implementation_directions.md)
+12. [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md)
+13. [../future_implementation_directions.md](../future_implementation_directions.md)
 
 That route gets you from “what is this repo?” to “how does evidence move?” before
 you branch into adaptation, physical-world modeling, and advanced global-threat work.
@@ -109,7 +111,8 @@ you branch into adaptation, physical-world modeling, and advanced global-threat 
 | 1-8 | [Perception core](02_perception_core_steps_01_08.md) |
 | 9-20 | [Sensors and fusion](04_sensor_steps_09_20.md) |
 | 21-27 | [Tracking and mapping](05_tracking_mapping_steps_21_27.md) |
-| 28-35 | [Adaptation and audit](06_adaptation_eval_steps_28_35.md) |
+| 28-36 | [Adaptation and audit](06_adaptation_eval_steps_28_35.md) |
+| 37-43 | [coop_pilot IoT edge monitoring](16_coop_pilot_iot_edge_monitoring.md) |
 
 Supporting sessions:
 
@@ -124,11 +127,15 @@ Supporting sessions:
 - [**Advanced directions: global threats, sensor meshes, and cross-modal world models**](../future_implementation_directions.md): what to study after the local stack, including cross-modal SSL, field models, contradiction-aware scoring, global threat inference, realtime mesh runtime, and calibration
 - [**Temporal SSL and track-aware representation learning**](14_temporal_ssl_physical_state.md): implementation deep dive for the track-pair and cycle-consistency SSL upgrade (Area 1 of future directions §11)
 - [**Threat primitives and local inference**](15_threat_primitives_local_inference.md): structured evidence-gated threat signals from physical state, the two-source gate, and why free-text hazards are insufficient for decision-making (Area 3 of future directions §11)
+- [**Drone detection runbook**](../runbooks/drone-detection.md): operational guide for step 30 — YOLOv8n training, hard negative injection, ONNX fp32/int8 export, RKNN NPU conversion, and edge inference on Cortex-A76 and RV1106G3
+- [**coop_pilot IoT edge monitoring**](16_coop_pilot_iot_edge_monitoring.md): continuous site-awareness layer with MQTT sensor ingestion, LoRaWAN decoding, Frigate event handling, RTSP bridge sessions, acoustic analysis, scene synthesis, and realtime threat-sector integration
 
 ## Related Repo Docs
 
 - [Pipeline architecture](../pipeline.md)
 - [Architecture](../architecture.md)
+- [coop_pilot getting started](../coop/getting-started.md)
+- [coop_pilot integration](../coop/integration.md)
 - [Configuration](../configuration.md)
 - [Setup](../setup.md)
 - [3D Gaussian Splat](../gaussian_splat.md)

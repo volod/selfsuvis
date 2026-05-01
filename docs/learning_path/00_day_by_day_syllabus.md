@@ -1,12 +1,17 @@
 # Day-By-Day Syllabus
 
-A realistic 28-day study plan for a human who wants to understand the local pipeline deeply.
-The first 21 days build understanding from foundation to advanced.
-Days 22-28 are a practical application week: re-run, write, and verify.
+A realistic study plan for a human who wants to understand the local pipeline and IoT edge
+monitoring layer deeply.
+The first 22 days build understanding from foundation to advanced.
+Days 23-29 are a practical application week: re-run, write, and verify.
+Days 30-36 cover advanced threat modeling and global inference (from the future directions docs).
+**Days 37-43 cover the coop_pilot IoT edge layer** — MQTT, LoRaWAN, Frigate, acoustic
+analysis, scene synthesis, and threat pipeline integration.
 
 **How to use this:**
 - Do not skip days within a week; each day builds on the previous.
 - Do skip weeks if you already have strong background in that domain (e.g., skip Week 2 if you have worked with sensors before).
+- Skip Week 6 (coop) until you are comfortable with the core pipeline — it builds on fusion fundamentals from Weeks 2-3.
 - Every exercise is tied to a real artifact or code file. If you cannot find the artifact, the exercise is telling you something ran or was configured incorrectly.
 
 ---
@@ -422,16 +427,14 @@ How does RSSM surprise improve the quality of SSL contrastive pairs compared to 
 
 ---
 
-### Day 17 — Distillation And Export (Steps 29-30)
+### Day 17 — Knowledge Distillation (Step 29)
 
 **Topics:**
 - Step 29: soft targets vs hard targets, temperature scaling, teacher-student capacity gap.
-- Step 30: ONNX tracing vs scripting, dynamic axes, gallery build.
-- Read [`pipeline/workflows/local/steps_distill.py`](../../src/selfsuvis/pipeline/workflows/local/steps_distill.py).
+- Read [`pipeline/workflows/local/steps_distill.py`](../../src/selfsuvis/pipeline/workflows/local/steps_distill.py) and [`pipeline/training/distill.py`](../../src/selfsuvis/pipeline/training/distill.py).
 
 **Pre-reading:**
 - Hinton et al., "Distilling the Knowledge in a Neural Network" (2015) — all five pages. [arxiv.org/abs/1503.02531](https://arxiv.org/abs/1503.02531)
-- ONNX Runtime documentation quickstart: [onnxruntime.ai/docs/get-started/with-python.html](https://onnxruntime.ai/docs/get-started/with-python.html)
 - What is "dark knowledge" in the context of soft targets?
 
 **Exercise:**
@@ -445,12 +448,41 @@ What metric would you use to measure whether the student preserved the teacher's
 
 ---
 
-### Day 18 — Evaluation And Cross-Model Comparison (Steps 31-33)
+### Day 18 — Drone Detection Edge Training (Step 30)
 
 **Topics:**
-- Step 31: comparing baseline vs fine-tuned retrieval — P@K delta, rank shift, visual inspection.
-- Step 32: model comparison dimensions — embedding distance, retrieval rank, subjective quality.
-- Step 33: cross-model agreement, sources of disagreement, ensemble false confidence.
+- Step 30: YOLOv8n training from a public dataset plus mission hard negatives.
+- Hard negative injection: why mission frames reduce scene-specific false positives.
+- ONNX fp32 export for Arm Cortex-A76; int8 dynamic quantization for Rockchip RV1106G3.
+- Optional RKNN NPU model for the RV1106G3 — 8-15 ms vs 80-150 ms on the CPU fallback.
+- Read [`pipeline/workflows/local/steps_drone_detection.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_detection.py) and the [drone detection runbook](../runbooks/drone-detection.md).
+
+**Pre-reading:**
+- Ultralytics YOLOv8 documentation: [docs.ultralytics.com](https://docs.ultralytics.com) — training and export sections.
+- ONNX Runtime quantization documentation: [onnxruntime.ai/docs/performance/quantization.html](https://onnxruntime.ai/docs/performance/quantization.html) — `quantize_dynamic` vs `quantize_static`.
+- Nagel et al., "A White Paper on Neural Network Quantization" (2021) — Sections 1-3 (INT8 basics, symmetric vs asymmetric). [arxiv.org/abs/2106.08295](https://arxiv.org/abs/2106.08295)
+- What is mAP@50? How does it differ from mAP@50-95?
+
+**Exercise:**
+After a run with `--drone-detection`, open `drone_detection_report.md`.
+- Record mAP@50, final box loss, fp32 and int8 model sizes.
+- Open `drone_detection/dataset/train/labels/` and find the empty `.txt` files corresponding to mission hard negatives.
+- Count how many hard negatives were injected vs how many seraphim training images were used.
+- Run `python test_a76.py path/to/frame.jpg` and verify the model loads and outputs detections (or no detections — both are valid).
+
+**Concept checkpoint:**
+Why does injecting empty-label mission frames reduce false positives specifically for the deployment environment?
+What would happen to precision if the hard negatives were drawn from an unrelated dataset (e.g., indoor scenes)?
+Why does the int8 model have lower mAP than fp32 and by how much would you expect this to be?
+
+---
+
+### Day 19 — Evaluation And Cross-Model Comparison (Steps 32-34)
+
+**Topics:**
+- Step 32: comparing baseline vs fine-tuned retrieval — P@K delta, rank shift, visual inspection.
+- Step 33: model comparison dimensions — embedding distance, retrieval rank, subjective quality.
+- Step 34: cross-model agreement, sources of disagreement, ensemble false confidence.
 - Read `comparison.md` and `multi_model_comparison.md` from an output directory.
 
 **Pre-reading:**
@@ -469,11 +501,11 @@ What makes a well-designed retrieval test hard to game?
 
 ---
 
-### Day 19 — Synthesis And Audit (Steps 34-35)
+### Day 20 — Synthesis And Audit (Steps 35-36)
 
 **Topics:**
-- Step 34: synthesis structure, evidence sourcing, active learning tags, change detection.
-- Step 35: provenance, silent failures, context contamination, audit trail.
+- Step 35: synthesis structure, evidence sourcing, active learning tags, change detection.
+- Step 36: provenance, silent failures, context contamination, audit trail.
 - Read `agentic_flow.md` from an output directory.
 
 **Pre-reading:**
@@ -492,13 +524,13 @@ Explain your reasoning.
 
 ---
 
-### Day 20 — End-To-End Review Run
+### Day 21 — End-To-End Review Run
 
 **Topics:**
 - End-to-end run of `selfsuvis --mode local` on a short video (1-5 minutes).
 
 **Exercise:**
-Before running: write down what you expect to find in the output for each of the 35 steps.
+Before running: write down what you expect to find in the output for each of the 36 steps.
 After running: open each artifact in the expected order and check your predictions.
 Record: which predictions were right, which were wrong, and why.
 
@@ -507,10 +539,11 @@ Record: which predictions were right, which were wrong, and why.
 - Does `gemma_analysis.md` show the right scene type?
 - Does `agentic_flow.md` show any skipped or failed steps?
 - Is the retrieval in `comparison.md` better after fine-tuning for at least one query?
+- Is `drone_detection_report.md` present and does mAP@50 look reasonable?
 
 ---
 
-### Day 21 — Consolidation
+### Day 22 — Consolidation
 
 **Exercise:**
 Write your own one-page explanation of the full local pipeline from memory.
@@ -782,6 +815,244 @@ Breadth is less useful than a coherent direction.
 
 ---
 
+## Week 6: IoT Edge Monitoring With coop_pilot
+
+**Prerequisites:** Completed Weeks 1-2 (pipeline basics + sensor fusion fundamentals).
+You do not need GPU hardware for this week — all coop_pilot components run on CPU.
+
+**Required reading before Day 36:**
+- [coop_pilot — IoT Edge Monitoring Deep Dive](16_coop_pilot_iot_edge_monitoring.md) — read sections 1-2.
+- [coop_pilot — Integration Guide](../coop/integration.md) — the API endpoint reference.
+- [coop_pilot — Getting Started](../coop/getting-started.md) — ensure you can start the stack.
+
+---
+
+### Day 36 — MQTT and LoRaWAN Fundamentals
+
+**Topics:**
+- What MQTT is: publish-subscribe messaging, topics, QoS levels, retained messages.
+- What LoRaWAN adds: long-range low-power radio, the gateway-to-network-server path.
+- How ChirpStack decodes device payloads and publishes uplinks as JSON to Mosquitto.
+- Read [`coop_pilot/sensors/lorawan_decoder.py`](../../src/selfsuvis/coop_pilot/sensors/lorawan_decoder.py).
+
+**Pre-reading:**
+- MQTT specification v5.0 §4 (Topic Names and Filters) — single/multi-level wildcards.
+- ChirpStack documentation: "Integrations → MQTT" for the uplink payload JSON schema.
+
+**Exercise:**
+Start Mosquitto in the coop stack. Run:
+```bash
+docker exec -it coop-mosquitto mosquitto_sub -t '#' -u health -P health
+```
+Trigger a test uplink from ChirpStack (use the "Enqueue downlink" or a simulator).
+Capture the raw MQTT payload. Parse it by hand using the field descriptions in
+`lorawan_decoder.py`. Identify which fields in the JSON map to which `SensorReading`
+attributes.
+
+**Concept checkpoint:**
+What does `rssi` measure — the environment or the radio link?
+Why does a low `rssi` not necessarily mean the sensor reading is unreliable?
+
+---
+
+### Day 37 — Rolling Window Aggregation and SiteState
+
+**Topics:**
+- The `SiteStateAggregator` rolling deque model and timestamp-based eviction.
+- `asyncio.Lock` for safe concurrent access from MQTT callback and API handlers.
+- The `SiteState`, `SensorSummary`, and `CameraEventSummary` Pydantic models.
+- Read [`coop_pilot/mesh/site_state.py`](../../src/selfsuvis/coop_pilot/mesh/site_state.py).
+
+**Exercise:**
+Write a test that inserts 10 `SensorReading` objects with timestamps spanning 8 minutes
+into a `SiteStateAggregator` configured with a 5-minute window (`sensor_window_sec=300`).
+Call `get_state()` and assert that only readings within the window appear. Then
+insert a reading exactly at the cutoff boundary and verify the edge case.
+
+Call `GET /site/state` on a running stack and identify which fields are computed
+(like `active_motion`) versus which are direct copies of the latest reading.
+
+**Concept checkpoint:**
+Why does `get_state()` hold the asyncio lock during snapshot construction?
+What would happen if it released the lock before returning — could a concurrent
+`ingest_sensor_reading()` corrupt the snapshot?
+
+---
+
+### Day 38 — Sensor Mesh and GPS-Proximity Linking
+
+**Topics:**
+- `SensorMeshFusion` and the `SiteMesh` / `MeshNode` graph model.
+- Haversine distance formula and why great-circle distance matters for GPS coordinates.
+- The `_GRID_DEG` constant in `coop_ingest.py` and how sector IDs are derived.
+- Read [`coop_pilot/mesh/fusion.py`](../../src/selfsuvis/coop_pilot/mesh/fusion.py) and
+  [`pipeline/realtime/coop_ingest.py`](../../src/selfsuvis/pipeline/realtime/coop_ingest.py).
+
+**Exercise:**
+Choose four GPS coordinates that represent a realistic site layout (a corner of a
+building, a gate, a parking lot, a field sensor at 200 m range). Compute:
+1. Haversine distances between each pair using `_haversine_m()`.
+2. Sector IDs for each using `_sector_from_gps()` with the default `_GRID_DEG=0.001`.
+3. Which sensors share a sector and which don't?
+
+Then answer: how would you adjust `_GRID_DEG` to make the sector grid finer or coarser?
+What is the tradeoff — why not always use the finest possible grid?
+
+Call `GET /site/mesh` on a running stack with at least two GPS-equipped sensors.
+Verify that the `neighbours` list contains entries for sensors within 100 m.
+
+**Concept checkpoint:**
+What is the key difference between a sensor mesh (spatial proximity graph) and a
+physical state Kalman filter? Which is better suited for heterogeneous IoT sensors
+that may be static or mobile?
+
+---
+
+### Day 39 — Acoustic Analysis: FFT Classification and Whisper
+
+**Topics:**
+- The `SoundAnalyzer` architecture: ffmpeg capture → FFT classification → Whisper transcription.
+- How `rfft` and `rfftfreq` map audio samples to frequency bins.
+- Energy ratio thresholding and the four built-in acoustic signatures.
+- Read [`coop_pilot/sensors/sound_analyzer.py`](../../src/selfsuvis/coop_pilot/sensors/sound_analyzer.py).
+
+**Pre-reading:**
+- [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) §5 (Acoustic Analysis).
+- Numpy FFT documentation: `np.fft.rfft` and `np.fft.rfftfreq`.
+
+**Exercise (no hardware required):**
+```python
+import numpy as np
+
+_SAMPLE_RATE = 16_000
+_CHUNK_SAMPLES = _SAMPLE_RATE * 4   # 4-second chunk
+
+# Generate a 3 kHz sine wave (should trigger "alarm")
+t = np.linspace(0, 4, _CHUNK_SAMPLES, endpoint=False)
+audio = (np.sin(2 * np.pi * 3000 * t) * 32767).astype(np.int16)
+
+# Compute FFT manually
+float_audio = audio.astype(np.float64) / 32768.0
+spectrum = np.abs(np.fft.rfft(float_audio))
+freqs = np.fft.rfftfreq(len(float_audio), d=1.0 / _SAMPLE_RATE)
+total_energy = float(np.sum(spectrum ** 2))
+
+# Check alarm band: 2000-4000 Hz
+mask = (freqs >= 2000) & (freqs <= 4000)
+ratio = float(np.sum(spectrum[mask] ** 2)) / total_energy
+print(f"alarm energy ratio: {ratio:.3f}")   # expect ~1.0
+```
+Then mix in a 200 Hz sine wave at half amplitude and recheck. Which signatures fire?
+
+**Concept checkpoint:**
+Why is the energy ratio calculated relative to total energy, not absolute energy?
+What would happen to the thresholds if you used absolute spectral energy instead?
+
+---
+
+### Day 40 — RTSP Bridge: Frigate Cameras Into MediaMTX
+
+**Topics:**
+- `FrigateRtspBridge` discovery loop and per-camera startup sequence.
+- Why MediaMTX sits between Frigate and `RtspCaptioner` (decoupling, multi-consumer).
+- How `RtspCaptioner` writes to `scene_timeline` and what fields it populates.
+- Read [`coop_pilot/sensors/rtsp_bridge.py`](../../src/selfsuvis/coop_pilot/sensors/rtsp_bridge.py) and
+  [`app/services/coop_streams.py`](../../src/selfsuvis/app/services/coop_streams.py).
+
+**Exercise:**
+Start the full coop stack with at least one Frigate camera configured.
+Watch `GET /site/cameras` in a loop (or the WebSocket `/site/stream`) until a `session_id`
+appears for the camera.
+
+Then run:
+```sql
+SELECT mission_id, ts, LEFT(caption, 100)
+FROM scene_timeline
+ORDER BY ts DESC
+LIMIT 10;
+```
+Verify that captions are being written for your camera's `mission_id` (format: `coop-live-{camera}`).
+
+Now temporarily disable the camera in Frigate and wait 70 seconds (one discovery cycle).
+Confirm that `GET /site/cameras` no longer shows the camera.
+
+**Concept checkpoint:**
+What happens to the `RtspCaptioner` session when the Frigate camera is disabled?
+Does `scene_timeline` accumulate stale captions for the stopped session?
+How would you detect and handle stale captions in `SceneSynthesizer`?
+
+---
+
+### Day 41 — Scene Synthesis: Multi-Modal LLM Narrative
+
+**Topics:**
+- `SceneSynthesizer` input assembly: `SiteState` + `scene_timeline` captions.
+- Prompt construction in `_build_prompt()` and the JSON schema constraint.
+- LLM call with OpenAI-compatible API, timeout handling, and cache logic.
+- `_parse_llm_response()` JSON extraction and fallback strategy.
+- Read [`coop_pilot/mesh/scene_synthesis.py`](../../src/selfsuvis/coop_pilot/mesh/scene_synthesis.py).
+
+**Pre-reading:**
+- [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) §7 (Scene Synthesis).
+
+**Exercise:**
+Build a synthetic `SiteState` with:
+- Two sensors: one with `temperature_c=28.0, motion=True`, one with `co2_ppm=1200`
+- One camera: `entrance` with recent detections `[person(0.91), car(0.73)]`
+- Three synthetic captions from `scene_timeline`
+
+Call `_build_prompt()` manually and print the result. Assess:
+1. Would a capable LLM produce a useful narrative from this prompt?
+2. What real-site information is missing that would make the narrative more actionable?
+3. What would the narrative say about the `co2_ppm=1200` reading — is 1200 ppm alarming?
+
+Then call `GET /site/synthesis?force=true` on a running stack and compare the actual
+narrative to what you expected from the manual prompt inspection.
+
+**Concept checkpoint:**
+Why is the synthesis cached for 10 seconds rather than computed on every request?
+What is the cost of caching — what events could be missed during the 10-second window?
+How would you design a smarter cache invalidation strategy?
+
+---
+
+### Day 42 — Threat Pipeline Integration
+
+**Topics:**
+- `CoopRealtimeIngestor` converting coop observations into `SensorEvent` / `ThreatEvent`.
+- The GPS grid sector assignment and its effect on threat aggregation.
+- Probabilistic combination of independent threat scores in `RealtimeThreatAggregator`.
+- `GET /site/threat` and its compatibility with the robot advisory schema.
+- Read [`pipeline/realtime/coop_ingest.py`](../../src/selfsuvis/pipeline/realtime/coop_ingest.py) and
+  [`pipeline/realtime/aggregator.py`](../../src/selfsuvis/pipeline/realtime/aggregator.py).
+
+**Pre-reading:**
+- [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) §8 (Threat Pipeline Integration).
+- [Threat primitives and local inference](15_threat_primitives_local_inference.md) §2 (The primitive schema).
+
+**Exercise:**
+Manually construct two `ThreatEvent` objects for the same sector with scores 0.7 and 0.6.
+Feed them to a `RealtimeThreatAggregator` instance and call `snapshot()`.
+Verify the sector `threat_score` using the probabilistic combination formula:
+```
+aggregated = 1.0 - (1.0 - 0.7) * (1.0 - 0.6) = 1.0 - 0.3 * 0.4 = 0.88
+threat_score = min(1.0, 0.88 + support_bonus)
+```
+
+Then call `GET /site/threat` on a running stack with active Frigate detections and
+verify that the sector `risk_level` matches the expected value from the formula.
+
+Design exercise: your site has cameras at known GPS positions. Write the `camera_sector_map`
+dict that would assign each camera to the correct grid sector. Verify by checking that
+camera threats now appear under the correct sector in `GET /site/threat`.
+
+**Concept checkpoint:**
+Why does the threat aggregator use probabilistic combination (1 - product of complements)
+rather than averaging scores? When does the difference matter most — with many low-score
+events or with a few high-score events?
+
+---
+
 ## Summary: Study Milestones
 
 | Milestone | Day | Indicator |
@@ -798,6 +1069,7 @@ Breadth is less useful than a coherent direction.
 | Can explain a credible next-stage SSL direction | 29 | After Day 29 |
 | Can define local vs global threat inference | 33 | After Day 33 |
 | Can propose a realtime sensor-mesh architecture | 34 | After Day 34 |
+| Can operate and debug the coop_pilot IoT edge layer | 42 | After Day 42 |
 
 ---
 
@@ -847,6 +1119,19 @@ These are the papers that introduced the models and techniques used directly in 
 | He et al., "MAE" (2021) | Step 28 — context | [2111.06377](https://arxiv.org/abs/2111.06377) |
 | Hinton et al., "Distilling the Knowledge in a Neural Network" (2015) | Step 29 | [1503.02531](https://arxiv.org/abs/1503.02531) |
 | Gou et al., "Knowledge Distillation: A Survey" (2021) | Step 29 | [2006.05525](https://arxiv.org/abs/2006.05525) |
+
+### Tier 2b — IoT Edge Monitoring References (read during Week 6)
+
+These resources support the `coop_pilot` layer added in Days 36-42.
+
+| Resource | Covers |
+|---|---|
+| MQTT v5.0 specification — [mqtt.org](https://mqtt.org/mqtt-specification/) | Broker semantics, topic wildcards, retained messages, QoS |
+| ChirpStack documentation — [chirpstack.io/docs](https://www.chirpstack.io/docs/) | LoRaWAN Network Server, device profiles, codec-decoded uplink payloads |
+| LoRaWAN 1.0.4 specification — [LoRa Alliance](https://lora-alliance.org/resource_hub/lorawan-104-specification-package/) | Frame counters, spreading factors, ADR, security model |
+| Frigate documentation — [docs.frigate.video](https://docs.frigate.video) | NVR camera configuration, MQTT event schema, RTSP re-streaming |
+| MediaMTX documentation — [github.com/bluenviron/mediamtx](https://github.com/bluenviron/mediamtx) | RTSP relay paths, multi-consumer stream fan-out, control API |
+| faster-whisper — [github.com/SYSTRAN/faster-whisper](https://github.com/SYSTRAN/faster-whisper) | CPU/GPU Whisper inference used by `SoundAnalyzer` |
 
 ### Tier 3 — Deep Dives (read during Week 4 and beyond)
 

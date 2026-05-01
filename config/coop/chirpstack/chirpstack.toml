@@ -1,0 +1,29 @@
+[logging]
+level = "info"
+
+[postgresql]
+dsn = "postgres://$CHIRPSTACK_PG_USER:$CHIRPSTACK_PG_PASSWORD@$POSTGRESQL_HOST/$CHIRPSTACK_PG_DB?sslmode=disable"
+max_open_connections = 10
+min_idle_connections = 0
+
+[redis]
+servers = ["redis://$REDIS_HOST/"]
+tls_enabled = false
+cluster = false
+
+[network]
+net_id = "000000"
+enabled_regions = ["eu868"]
+
+[api]
+bind = "0.0.0.0:8080"
+secret = "$CHIRPSTACK_API_SECRET"
+
+[integration]
+enabled = ["mqtt"]
+
+[integration.mqtt]
+server = "tcp://$MQTT_BROKER_HOST:1883/"
+username = "$CHIRPSTACK_MQTT_USERNAME"
+password = "$CHIRPSTACK_MQTT_PASSWORD"
+json = true
