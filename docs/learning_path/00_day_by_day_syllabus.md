@@ -455,7 +455,7 @@ What metric would you use to measure whether the student preserved the teacher's
 - Hard negative injection: why mission frames reduce scene-specific false positives.
 - ONNX fp32 export for Arm Cortex-A76; int8 dynamic quantization for Rockchip RV1106G3.
 - Optional RKNN NPU model for the RV1106G3 — 8-15 ms vs 80-150 ms on the CPU fallback.
-- Read [`pipeline/workflows/local/steps_drone_detection.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_detection.py) and the [drone detection runbook](../runbooks/drone-detection.md).
+- Read [`pipeline/workflows/local/steps_drone_detection.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_detection.py), [`pipeline/training/drone_detector.py`](../../src/selfsuvis/pipeline/training/drone_detector.py), and the [drone detection runbook](../runbooks/drone-detection.md).
 
 **Pre-reading:**
 - Ultralytics YOLOv8 documentation: [docs.ultralytics.com](https://docs.ultralytics.com) — training and export sections.
@@ -469,11 +469,21 @@ After a run with `--drone-detection`, open `drone_detection_report.md`.
 - Open `drone_detection/dataset/train/labels/` and find the empty `.txt` files corresponding to mission hard negatives.
 - Count how many hard negatives were injected vs how many seraphim training images were used.
 - Run `python test_a76.py path/to/frame.jpg` and verify the model loads and outputs detections (or no detections — both are valid).
+- Trace Step 30 from `runner.py` and write down which code path actually ran: `steps_drone_detection.py` or `pipeline/training/drone_detector.py`.
+- In `pipeline/training/drone_detector.py`, list the new public entrypoints and state whether each one is currently exercised by the local pipeline.
+
+Then open `data/local_runs/model_run_advisor.md`.
+- Find the `## Edge Deployment — Drone Detection` section. Does it report `✓ generated` for Cortex-A76 and RV1106G3?
+- Find the `## Sequential VLLM Graph Profile` section. List the four VLLM steps in recommended order and the model assigned to each.
+- Check `## Recommended .env Updates` — which model was recommended for Qwen, and why (find the rationale in the `## Rationale` section)?
+- If `rv1106_rknn` is `⚠ install rknn-toolkit2`, explain what the int8 ONNX fallback does instead and how much slower it is.
 
 **Concept checkpoint:**
 Why does injecting empty-label mission frames reduce false positives specifically for the deployment environment?
 What would happen to precision if the hard negatives were drawn from an unrelated dataset (e.g., indoor scenes)?
 Why does the int8 model have lower mAP than fp32 and by how much would you expect this to be?
+What does `OLLAMA_MAX_LOADED_MODELS=1` accomplish in the sequential VLLM graph profile, and why does it matter for VRAM?
+Why is it risky to document a new training helper as "the pipeline step" before the runner is actually wired to call it?
 
 ---
 

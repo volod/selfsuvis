@@ -166,7 +166,13 @@ Mission frames injected as hard negatives directly counteract the primary failur
 
 **Implementation:**
 - [`pipeline/workflows/local/steps_drone_detection.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_detection.py)
+- Experimental standalone student-model helper: [`pipeline/training/drone_detector.py`](../../src/selfsuvis/pipeline/training/drone_detector.py)
 - Operational runbook: [`docs/runbooks/drone-detection.md`](../runbooks/drone-detection.md)
+
+**Important scope note:**
+Step 30 currently executes the YOLOv8n workflow in `steps_drone_detection.py`.
+The newer `pipeline/training/drone_detector.py` module is a standalone training/export helper for a custom MobileNetV3-small student detector and is not yet called by the runner.
+When you review the code, separate "what the pipeline runs today" from "what exists as a training API for a future migration".
 
 **Key concepts:**
 
@@ -205,6 +211,7 @@ All outputs land in `data/local_runs/{video_name}/drone_detection/`:
 - Run `test_a76.py` on one frame from the mission to verify the exported model loads and inferences correctly.
 - Understand what "hard negative" means by opening `drone_detection/dataset/train/labels/` and finding the empty `.txt` files that correspond to mission frames.
 - Understand why the demo uses only `batch_001` (~400 images) and what mAP@50 improvement you would expect from the full 4-batch dataset.
+- Read `pipeline/training/drone_detector.py` and identify which public functions it adds (`DroneDetectorConfig`, `run_drone_detection_training`, `export_drone_detector_onnx`, `export_drone_detector_rknn`) and which of them are not yet invoked by Step 30.
 
 **Common failure modes:**
 
@@ -215,6 +222,96 @@ All outputs land in `data/local_runs/{video_name}/drone_detection/`:
 | mAP@50 < 0.30 after 5 epochs | Too few images | Download batch_002–004 to the cache directory |
 | High false-positive rate on sky | Insufficient hard negatives | Set `_MAX_NEGATIVES = 150` in `steps_drone_detection.py` |
 | `rknn-toolkit2 not found` | Normal on x86 machines | Install from Airockchip releases to enable NPU export |
+
+---
+
+### Standalone student-model helper
+
+**Why it matters:** The custom student-model module is the first step toward replacing the generic YOLOv8n demo with a smaller detector tailored for Cortex-A76 and RV1106-class deployment. It adds a dedicated training surface under `pipeline/training/` instead of embedding all logic inside the workflow step, which is the right long-term layering if the project later supports multiple training backends.
+
+**Public API introduced**
+- `DroneDetectorConfig` — hyperparameters and edge-target export settings
+- `run_drone_detection_training()` — standalone training entrypoint
+- `export_drone_detector_onnx()` — ONNX export with quantization fallback
+- `export_drone_detector_rknn()` — RKNN conversion helper
+
+**Current limitation:** this helper is not yet integrated into `runner.py` or `steps_drone_detection.py`, so a normal local run still produces YOLOv8n artifacts and metrics. If you are validating behaviour from pipeline outputs, inspect Step 30. If you are reviewing the new training API itself, inspect `pipeline/training/drone_detector.py`.
+
+**Human focus:**
+- Trace the call graph from `runner.py` Step 30 and confirm which module actually executes.
+- Compare the artifact contract in `steps_drone_detection.py` with the return payload from `run_drone_detection_training()`.
+- Check whether the standalone helper reports real evaluation metrics or only training-loss-derived proxies before using it for deployment decisions.
+
+---
+
+<a id="model-run-advisor"></a>
+## Model Run Advisor (runner Step 31)
+
+**What it does:**
+After all per-video steps complete, the runner calls `write_model_run_advisor()` once for the entire run.
+It aggregates analytics from every video's `analysis_summary` dict and emits two artifacts:
+- `data/local_runs/model_run_advisor.json` — machine-readable optimization plan
+- `data/local_runs/model_run_advisor.md` — human-readable report with recommended `.env` updates and rerun command
+
+Three categories of findings are evaluated:
+1. **VLM captioning quality** — Qwen parse errors and caption coverage. Low coverage or high parse-error counts indicate the running model is too small for the JSON schema required by the pipeline.
+2. **SfM pose recovery** — degraded maps or zero pose coverage. Signals a capture problem (short clip, no parallax, motion blur), not a model problem.
+3. **Artifact volume** — artifact density > 4096 MB/min. Flags expensive full-recipe runs during a hyperparameter-tuning session.
+
+The advisor also reads the drone detection summary (Step 30) and appends an edge deployment profile: mAP@50, which export files were generated, and whether `rknn-toolkit2` was available.
+
+**Why it matters:**
+Without a cross-run advisor, diagnosing a degraded run requires reading raw log files across multiple steps.
+The advisor collapses that work into a single document with a concrete recommended `.env` block and a ready-to-paste rerun command.
+The model recommendations are hardware-aware: they read actual VRAM and RAM from the run context, not static defaults.
+
+**Implementation:**
+- [`pipeline/workflows/local/steps_model_advisor.py`](../../src/selfsuvis/pipeline/workflows/local/steps_model_advisor.py)
+
+**Key concepts:**
+
+*Hardware-aware model recommendation:*
+`_recommend_qwen_model()` and `_recommend_reasoning_model()` use actual VRAM and RAM readings to select the largest model tier that fits:
+- `qwen2.5vl:7b` when `vram_gb ≥ 12` or `free_vram_gb ≥ 10` or `ram_gb ≥ 48` (can offload to CPU RAM)
+- `qwen2.5vl:3b` below those thresholds
+- Reasoning model: `deepseek-r1:14b` (≥ 24 GB VRAM), `qwen3:14b` (≥ 12 GB), `qwen3:8b` (RAM ≥ 32 GB), `gemma4:e4b` (fallback)
+
+This means the same pipeline code emits a different recommendation on a workstation with 24 GB VRAM than on a laptop with 8 GB — without any manual configuration.
+
+*Sequential VLLM graph profile:*
+The advisor outputs a `sequential_vllm_graph_profile` block that specifies execution order:
+1. `gemma_analysis` — scene understanding
+2. `qwen_captioning` — detailed structured captioning
+3. `unidrive` — VLA planning
+4. `reasoning_audit` — final quality audit
+
+The critical constraint is `OLLAMA_MAX_LOADED_MODELS=1`: only one model is in VRAM at a time, so each step gets the full VRAM budget.
+Setting `OLLAMA_KEEP_ALIVE=0` evicts the model immediately after inference, freeing headroom for the next one.
+This sequential pattern trades latency (models load and unload per step) for correctness: no OOM and no KV-cache interference between models on a 12 GB card.
+
+*Cross-run scope:*
+Unlike per-video step outputs (which land in `data/local_runs/{video_name}/`), the advisor writes to `data/local_runs/` at the run level and aggregates evidence from all videos in one invocation.
+If three videos were processed and two had degraded maps, the `sfm_pose_recovery_degraded` finding covers both.
+
+**Output artifacts:**
+- `data/local_runs/model_run_advisor.json` — full structured output (findings, recommendations, recommended_env_updates, edge_deployment, sequential_vllm_graph_profile, recommended_ollama_pulls, recommended_rerun)
+- `data/local_runs/model_run_advisor.md` — sections: Hardware, Findings, Recommended `.env` Updates, Pull/Serve Models, Recommended Rerun, Rationale, Edge Deployment, Sequential VLLM Graph Profile
+
+**Human focus:**
+- Open `model_run_advisor.md` after every run. Read the Findings section first.
+- If `qwen_structured_captioning_degraded` is present: apply the `recommended_env_updates` block — upgrade QWEN_MODEL and enable UNIDRIVE.
+- If `sfm_pose_recovery_degraded` is present: read the `capture_guidance` bullets. A larger model does not fix zero SfM poses; the capture geometry must change.
+- Locate the `Sequential VLLM Graph Profile` table and verify `OLLAMA_MAX_LOADED_MODELS=1` is set in your environment before re-running with multiple VLM steps enabled.
+- Review the `recommended_rerun` command — it includes the correct flags (`--qwen --unidrive --world-model --rfdetr-model base --drone-detection`) for a full-quality run.
+
+**Common failure modes:**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Advisor recommends `qwen2.5vl:3b` but you have 24 GB VRAM | `free_vram_gb` was near 0.0 at report time (GPU was full during the run) | Check `nvidia-smi` before re-running; pass post-run free VRAM to the advisor |
+| `sfm_pose_recovery_degraded` persists after model upgrade | Map degradation is a capture problem, not a model problem | Follow `capture_guidance`: longer clip, lateral motion, higher frame overlap |
+| Advisor writes no findings | All metrics were within bounds | Expected for a healthy run; the general recommendation is to keep the current plan |
+| `recommended_ollama_pulls` lists fewer models than expected | Two roles mapped to the same model tier | `dict.fromkeys()` deduplicates automatically; this is correct behaviour |
 
 ---
 
@@ -642,6 +739,18 @@ The central theme of this phase is the feedback loop: observation → representa
 
 **Runbook**
 - [`docs/runbooks/drone-detection.md`](../runbooks/drone-detection.md): complete operational guide covering dataset expansion, hard negative tuning, inference on Cortex-A76 and RV1106G3, RKNN offline conversion, and troubleshooting.
+
+---
+
+### Model Run Advisor
+
+**Why it matters:** The advisor is the feedback loop closer — it converts run-health signals into concrete `.env` changes and a ready-to-paste rerun command. The sequential VLLM graph profile it emits encodes the correct multi-model orchestration strategy for a single-GPU machine: load one model, infer, evict (`KEEP_ALIVE=0`), load the next. Without this, running gemma + qwen + reasoning concurrently on a 12 GB card causes OOM or KV-cache fragmentation that silently degrades output quality.
+
+**Core reference — Ollama concurrency model**
+- Ollama documentation on concurrency: [github.com/ollama/ollama](https://github.com/ollama/ollama). The `OLLAMA_MAX_LOADED_MODELS`, `OLLAMA_NUM_PARALLEL`, and `OLLAMA_KEEP_ALIVE` environment variables control VRAM multiplexing. Read the README concurrency section before adjusting these values — the interactions between them are non-obvious.
+
+**Deep dive — Graph-based step orchestration**
+- LangGraph documentation: [langchain-ai.github.io/langgraph](https://langchain-ai.github.io/langgraph). The graph-based orchestration model that `SELFSUVIS_USE_GRAPH=1` enables. The concepts of nodes, edges, and conditional routing map directly to the advisor's `sequential_vllm_graph_profile` `recommended_order` — each entry is a node; the sequential constraint is an edge ordering.
 
 ---
 

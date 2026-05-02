@@ -41,6 +41,23 @@ selfsuvis --mode local --videos-dir data/videos --no-drone-detection ...
 
 ---
 
+## Code paths
+
+The shipped local pipeline step is [`steps_drone_detection.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_detection.py).
+That is the code path the runner executes for Step 30, and it currently trains a YOLOv8n model, exports ONNX, and optionally builds an RKNN artifact.
+
+There is also a newer standalone training helper at [`drone_detector.py`](../../src/selfsuvis/pipeline/training/drone_detector.py) with:
+
+- `DroneDetectorConfig`
+- `run_drone_detection_training()`
+- `export_drone_detector_onnx()`
+- `export_drone_detector_rknn()`
+
+That module implements a custom MobileNetV3-small student detector intended for edge deployment, but it is **not wired into the local runner yet**.
+Treat it as an experimental training API until Step 30 is explicitly migrated to call it.
+
+---
+
 ## Dataset
 
 **Source:** [`lgrzybowski/seraphim-drone-detection-dataset`](https://huggingface.co/datasets/lgrzybowski/seraphim-drone-detection-dataset)
