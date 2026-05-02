@@ -6,14 +6,14 @@ Self-improvement loop: each mission auto-tags uncertain and novel frames for ann
 
 ## Local run pipeline
 
-The local pipeline is a 35-step research and training workflow that goes well beyond the Docker stack. It processes a mission video end-to-end through four phases:
+The local pipeline is a 36-step research and training workflow that goes well beyond the Docker stack. It processes a mission video end-to-end through four phases:
 
 | Phase | Steps | What happens |
 |---|---|---|
 | **Perception core** | 1–8 | Frame extraction, CLIP+DINOv3 embedding, Gemma scene analysis, Florence-2 captioning, Whisper ASR, OCR, depth estimation, object detection |
 | **Sensor fusion** | 9–20 | Optional physical sensor sidecars — RF/SDR, thermal, multispectral, event camera, LiDAR, radar, GNSS-R, IMU, barometer, atmospheric, gas/radiation, acoustic — fused into a single time-aligned context block |
 | **Tracking and 3D mapping** | 21–27 | YOLO+SAM segmentation, Gemma-directed RF-DETR tracking, world model video embeddings, Qwen+UniDriveVLA dense captioning, pycolmap SfM + nerfstudio 3D Gaussian Splat |
-| **Adaptation and evaluation** | 28–35 | SSL fine-tuning, edge model distillation (ONNX), multi-model comparison, Qwen3 reasoning audit, aggregate statistics |
+| **Adaptation and evaluation** | 28–36 | SSL fine-tuning, two-stage edge model distillation (ViT-S/14 + EfficientViT-B1 ONNX), multi-model comparison, Qwen3 reasoning audit, aggregate statistics |
 
 The local pipeline is the primary path for understanding how the system works, building training datasets, and adapting models to a new domain. The Docker stack runs steps 1, 2, 4, and 7–8 continuously as a production service. See the [local learning path](docs/local_path.md) for step-by-step guidance.
 
@@ -45,8 +45,8 @@ Recent local-run builds also apply adaptive runtime controls by default to keep 
 | [Tests](docs/tests.md) | Unit and integration test guide |
 | [Development](docs/develop.md) | Contributing, code style, project conventions |
 | [Runbooks](docs/runbooks/README.md) | Per-component operational runbooks |
-| [Local learning path](docs/local_path.md) | 35-step essentials + day-by-day syllabus |
+| [Local learning path](docs/local_path.md) | 36-step essentials + day-by-day syllabus |
 | [Learning path deep dives](docs/learning_path/README.md) | Detailed study set per pipeline phase |
 | [Analytics and visualization](docs/analytics.md) | Post-run artifact analysis, charts, HTML report, and CLI usage |
 | [Architecture decisions](docs/adr/README.md) | ADR log |
-| [Design docs](docs/design/outdoor-autonomy-perception-stack.md) | Original design document |
+| [Model catalog](docs/model-catalog.md) | Model options, VRAM budgets, and GPU resource guide |

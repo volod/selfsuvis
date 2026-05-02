@@ -1,10 +1,9 @@
 """PostgreSQL helpers for realtime drone sessions, poses, tiles, and semantics."""
 
-
-import json
 from typing import Any, Dict, Iterable, List, Optional
 
 from selfsuvis.pipeline.core import utcnow
+from selfsuvis.pipeline.storage.common import jsonb, jsonb_optional, row_dict, row_dicts
 
 
 async def create_robot_session(
@@ -33,7 +32,7 @@ async def create_robot_session(
         session_id,
         robot_id,
         mission_id,
-        json.dumps(sensor_profile or {}),
+        jsonb(sensor_profile, default={}),
         status,
         now,
         now,
@@ -64,7 +63,7 @@ async def fetch_robot_session(conn, session_id: str) -> Optional[Dict[str, Any]]
         """,
         session_id,
     )
-    return dict(row) if row else None
+    return row_dict(row)
 
 
 async def insert_sensor_packets(
@@ -90,7 +89,7 @@ async def insert_sensor_packets(
                 row["t_device"],
                 now,
                 row.get("seq"),
-                json.dumps(row.get("payload") or {}),
+                jsonb(row.get("payload"), default={}),
             )
             for row in rows
         ],
@@ -123,10 +122,10 @@ async def insert_realtime_pose(
         session_id,
         source,
         t_sec,
-        json.dumps(position_enu),
-        json.dumps(orientation_quat) if orientation_quat is not None else None,
-        json.dumps(velocity_enu) if velocity_enu is not None else None,
-        json.dumps(covariance) if covariance is not None else None,
+        jsonb(position_enu),
+        jsonb_optional(orientation_quat),
+        jsonb_optional(velocity_enu),
+        jsonb_optional(covariance),
         tracking_status,
         global_map_id,
     )
@@ -144,7 +143,7 @@ async def fetch_latest_realtime_pose(conn, session_id: str) -> Optional[Dict[str
         """,
         session_id,
     )
-    return dict(row) if row else None
+    return row_dict(row)
 
 
 async def fetch_realtime_state(conn, session_id: str) -> Optional[Dict[str, Any]]:
@@ -166,6 +165,29 @@ async def fetch_realtime_state(conn, session_id: str) -> Optional[Dict[str, Any]
         "session": session,
         "latest_pose": latest_pose,
         "packet_counts": {row["sensor_type"]: int(row["n"]) for row in packet_counts},
+    }
+
+
+async def summarize_realtime_session(conn, session_id: str) -> Optional[Dict[str, Any]]:
+    state = await fetch_realtime_state(conn, session_id)
+    if state is None:
+        return None
+    row = await conn.fetchrow(
+        """
+        SELECT MIN(t_device) AS t_min, MAX(t_device) AS t_max
+        FROM sensor_packets
+        WHERE session_id = $1
+        """,
+        session_id,
+    )
+    t_min = row["t_min"] if row else None
+    t_max = row["t_max"] if row else None
+    duration_sec = None
+    if t_min is not None and t_max is not None:
+        duration_sec = max(0.0, float(t_max) - float(t_min))
+    return {
+        **state,
+        "duration_sec": duration_sec,
     }
 
 
@@ -204,8 +226,8 @@ async def upsert_map_tile(
         map_type,
         storage_path,
         resolution_m,
-        json.dumps(bounds or {}),
-        json.dumps(stats or {}),
+        jsonb(bounds, default={}),
+        jsonb(stats, default={}),
         now,
     )
 
@@ -243,7 +265,7 @@ async def list_map_tiles(
             session_id,
             limit,
         )
-    return [dict(row) for row in rows]
+    return row_dicts(rows)
 
 
 async def insert_semantic_observation(
@@ -272,12 +294,71 @@ async def insert_semantic_observation(
         frame_id,
         class_name,
         confidence,
-        json.dumps(position_enu) if position_enu is not None else None,
-        json.dumps(bbox) if bbox is not None else None,
+        jsonb_optional(position_enu),
+        jsonb_optional(bbox),
         mask_ref,
         track_id,
-        json.dumps(facts or {}),
+        jsonb(facts, default={}),
     )
+
+
+async def upsert_realtime_frame(
+    conn,
+    *,
+    session_id: str,
+    frame_id: str,
+    t_sec: float,
+    image_path: str,
+    pose: Optional[Dict[str, Any]] = None,
+    depth_path: Optional[str] = None,
+    tile_key: Optional[str] = None,
+    map_type: str = "occupancy",
+    stats: Optional[Dict[str, Any]] = None,
+) -> None:
+    now = utcnow()
+    await conn.execute(
+        """
+        INSERT INTO realtime_frames
+            (session_id, frame_id, t_sec, image_path, pose_json, depth_path, tile_key, map_type, stats_json, updated_at)
+        VALUES
+            ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::jsonb, $10)
+        ON CONFLICT (session_id, frame_id) DO UPDATE SET
+            t_sec = EXCLUDED.t_sec,
+            image_path = EXCLUDED.image_path,
+            pose_json = EXCLUDED.pose_json,
+            depth_path = EXCLUDED.depth_path,
+            tile_key = EXCLUDED.tile_key,
+            map_type = EXCLUDED.map_type,
+            stats_json = EXCLUDED.stats_json,
+            updated_at = EXCLUDED.updated_at
+        """,
+        session_id,
+        frame_id,
+        t_sec,
+        image_path,
+        jsonb_optional(pose),
+        depth_path,
+        tile_key,
+        map_type,
+        jsonb(stats, default={}),
+        now,
+    )
+
+
+async def list_realtime_frames(conn, session_id: str, limit: int = 10000) -> List[Dict[str, Any]]:
+    rows = await conn.fetch(
+        """
+        SELECT id, session_id, frame_id, t_sec, image_path, pose_json, depth_path,
+               tile_key, map_type, stats_json, updated_at
+        FROM realtime_frames
+        WHERE session_id = $1
+        ORDER BY t_sec ASC, id ASC
+        LIMIT $2
+        """,
+        session_id,
+        limit,
+    )
+    return row_dicts(rows)
 
 
 async def list_semantic_observations(
@@ -313,4 +394,4 @@ async def list_semantic_observations(
             session_id,
             limit,
         )
-    return [dict(row) for row in rows]
+    return row_dicts(rows)

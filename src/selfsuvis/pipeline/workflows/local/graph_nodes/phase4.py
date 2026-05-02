@@ -176,7 +176,7 @@ def _synthesis_critique(
     return synthesis_result
 
 
-# ── Step 24: Agentic flow audit (with reflection loop) ───────────────────────
+# ── Agentic flow audit (with reflection loop) — runner step 30 ───────────────
 
 def node_p4_audit(state: PipelineState) -> Dict[str, Any]:
     """Agentic flow audit with a reflection sub-loop.

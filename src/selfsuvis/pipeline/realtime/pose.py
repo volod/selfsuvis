@@ -12,6 +12,10 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
+from selfsuvis.pipeline.core import settings
+from selfsuvis.pipeline.realtime.sidecar import RealtimeSidecarClient
+from selfsuvis.realtime_pilot.adapters import create_pose_adapter
+
 
 def _coerce_float(value: Any) -> Optional[float]:
     try:
@@ -272,6 +276,62 @@ def build_fused_pose_from_packets(
 
 def build_stub_pose_from_packet(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return build_fused_pose_from_packets([packet], max_lag_ms=0)
+
+
+def normalize_pose_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    position = dict(payload.get("position_enu") or {})
+    orientation = payload.get("orientation_quat")
+    velocity = payload.get("velocity_enu")
+    covariance = payload.get("covariance")
+    if "x" not in position or "y" not in position:
+        raise ValueError("pose payload requires position_enu.x and position_enu.y")
+    return {
+        "source": str(payload.get("source") or "sidecar"),
+        "t_sec": float(payload["t_sec"]),
+        "position_enu": {
+            "x": float(position["x"]),
+            "y": float(position["y"]),
+            "z": float(position.get("z", 0.0) or 0.0),
+        },
+        "orientation_quat": dict(orientation) if isinstance(orientation, dict) else None,
+        "velocity_enu": dict(velocity) if isinstance(velocity, dict) else None,
+        "covariance": dict(covariance) if isinstance(covariance, dict) else None,
+        "tracking_status": str(payload.get("tracking_status") or "ok"),
+        "global_map_id": _payload_global_map_id(payload),
+    }
+
+
+class RealtimePoseClient(RealtimeSidecarClient):
+    """HTTP client for external realtime pose backends."""
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        *,
+        timeout_sec: float = 5.0,
+    ) -> None:
+        adapter = create_pose_adapter(settings.REALTIME_POSE_BACKEND)
+        resolved_url = base_url or settings.REALTIME_POSE_API_URL or adapter.api_url
+        super().__init__(
+            backend_name=adapter.name,
+            base_url=resolved_url,
+            timeout_sec=timeout_sec,
+        )
+
+    async def estimate_pose(
+        self,
+        *,
+        session_id: str,
+        packets: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        if not self.is_configured:
+            return None
+        payload = {"session_id": session_id, "packets": packets}
+        data = await self._request_json("POST", "/estimate_pose", payload=payload)
+        pose = self.unwrap_dict_payload(data, field="pose")
+        if not isinstance(pose, dict):
+            return None
+        return normalize_pose_payload(pose)
 
 
 def pose_freshness_ms(created_at: Any, now: Optional[datetime] = None) -> Optional[int]:

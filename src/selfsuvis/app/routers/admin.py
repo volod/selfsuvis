@@ -546,12 +546,24 @@ async def reembed_all(request: Request) -> Dict[str, Any]:
 
     Returns the job_id immediately. Monitor progress via GET /jobs/{job_id}.
     Each batch of 256 frames checkpoints last_offset so the sweep is resumable.
+    Returns 409 if a reembed job is already pending or running.
     """
+    from fastapi import HTTPException
+
     from selfsuvis.pipeline.storage.jobs import create_job
 
     job_id = uuid.uuid4().hex
     pool = get_db_pool(request)
     async with pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            "SELECT id FROM jobs WHERE type = 'reembed' "
+            "AND status IN ('pending', 'running') LIMIT 1"
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Reembed job already active: {existing['id']}",
+            )
         await create_job(conn, job_id, {}, job_type="reembed")
 
     return {"job_id": job_id}

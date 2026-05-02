@@ -1,7 +1,5 @@
 """One-process realtime aggregator boundary for sector/global threat updates."""
 
-from __future__ import annotations
-
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -9,6 +7,16 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from .degraded_mode import apply_degraded_mode_to_threat, evaluate_degraded_mode
+from .event_access import (
+    event_freshness_sec,
+    event_kind,
+    event_node_id,
+    event_payload,
+    event_sector_id,
+    event_sensor_type,
+    payload_float,
+    payload_text,
+)
 from .freshness import downweight_score, expire_event
 
 
@@ -21,7 +29,7 @@ class RealtimeThreatAggregator:
         self._node_health_events: List[Dict[str, Any]] = []
 
     def consume(self, event: Dict[str, Any]) -> None:
-        kind = str(event.get("event_kind", "")).strip().lower()
+        kind = event_kind(event)
         if kind == "sensor":
             self._sensor_events.append(dict(event))
         elif kind == "threat":
@@ -73,7 +81,7 @@ class RealtimeThreatAggregator:
         for event in self._threat_events:
             if expire_event(event, hard_expiry_sec=120.0):
                 continue
-            grouped[str(event.get("sector_id", "unknown"))].append(event)
+            grouped[event_sector_id(event)].append(event)
 
         rows: List[Dict[str, Any]] = []
         for sector_id, events in sorted(grouped.items()):
@@ -82,18 +90,20 @@ class RealtimeThreatAggregator:
             route_ids: List[str] = []
             primitive_types: List[str] = []
             for event in events:
-                payload = dict(event.get("payload") or {})
-                if str(event.get("sensor_type", "")) == "local_threat":
-                    score = float(payload.get("local_threat_score", 0.0) or 0.0)
+                payload = event_payload(event)
+                sensor_type = event_sensor_type(event)
+                if sensor_type == "local_threat":
+                    score = payload_float(payload, "local_threat_score")
                 else:
-                    score = float(payload.get("score", 0.0) or 0.0)
-                score_terms.append(downweight_score(score, float(event.get("freshness_sec", 0.0) or 0.0)))
-                if event.get("node_id") not in nodes:
-                    nodes.append(str(event.get("node_id")))
-                route_id = str(payload.get("route_id", "") or "")
+                    score = payload_float(payload, "score")
+                score_terms.append(downweight_score(score, event_freshness_sec(event)))
+                node_id = event_node_id(event)
+                if node_id not in nodes:
+                    nodes.append(node_id)
+                route_id = payload_text(payload, "route_id")
                 if route_id and route_id not in route_ids:
                     route_ids.append(route_id)
-                threat_type = str(payload.get("threat_type", event.get("sensor_type", "")) or "")
+                threat_type = payload_text(payload, "threat_type", default=sensor_type)
                 if threat_type and threat_type not in primitive_types:
                     primitive_types.append(threat_type)
 
@@ -143,7 +153,7 @@ class RealtimeThreatAggregator:
                     "route_id": route_id,
                     "advisory_score": round(max_score, 4),
                     "recommended_action": action,
-                    "sector_ids": [str(row.get("sector_id", "unknown")) for row in rows],
+                    "sector_ids": [event_sector_id(row) for row in rows],
                     "automation_confidence": health["automation_confidence"],
                 }
             )
@@ -152,11 +162,12 @@ class RealtimeThreatAggregator:
     def _persistent_anomalies(self) -> List[Dict[str, Any]]:
         grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
         for event in self._threat_events:
-            if str(event.get("sensor_type", "")) == "local_threat":
+            sensor_type = event_sensor_type(event)
+            if sensor_type == "local_threat":
                 continue
-            payload = dict(event.get("payload") or {})
-            threat_type = str(payload.get("threat_type", event.get("sensor_type", "")) or "")
-            grouped[(threat_type, str(event.get("sector_id", "unknown")))].append(event)
+            payload = event_payload(event)
+            threat_type = payload_text(payload, "threat_type", default=sensor_type)
+            grouped[(threat_type, event_sector_id(event))].append(event)
         rows: List[Dict[str, Any]] = []
         for (threat_type, sector_id), events in sorted(grouped.items()):
             if len(events) < 2:
@@ -167,7 +178,7 @@ class RealtimeThreatAggregator:
                     "anomaly_type": threat_type,
                     "sector_ids": [sector_id],
                     "persistence_count": len(events),
-                    "supporting_nodes": sorted({str(event.get('node_id', 'unknown')) for event in events}),
+                    "supporting_nodes": sorted({event_node_id(event) for event in events}),
                 }
             )
         return rows
@@ -177,7 +188,7 @@ class RealtimeThreatAggregator:
         route_sequences: Dict[str, List[str]] = defaultdict(list)
         for row in self._sector_rows():
             for route_id in row.get("route_ids") or []:
-                route_sequences[route_id].append(str(row.get("sector_id", "unknown")))
+                route_sequences[route_id].append(event_sector_id(row))
         for sectors in route_sequences.values():
             for left, right in zip(sectors, sectors[1:]):
                 if not left or not right or left == right:
@@ -195,7 +206,7 @@ class RealtimeThreatAggregator:
             0.0,
             min(
                 1.0,
-                sum(float((event.get("payload") or {}).get("automation_confidence", 1.0) or 1.0) for event in self._node_health_events)
+                sum(payload_float(event_payload(event), "automation_confidence", 1.0) for event in self._node_health_events)
                 / len(self._node_health_events),
             ),
         )

@@ -18,11 +18,11 @@ Usage (in worker):
 """
 import ipaddress
 import socket
-import subprocess
 from typing import Optional
 from urllib.parse import urlparse
 
 from selfsuvis.pipeline.core import get_logger, settings
+from selfsuvis.pipeline.media.subprocess_common import run_checked
 
 logger = get_logger(__name__)
 
@@ -115,5 +115,5 @@ def record_rtsp(
         "RTSP ingest: recording url=%s duration=%s output=%s",
         url, effective_duration, output_path,
     )
-    subprocess.run(cmd, check=True, timeout=timeout_sec)
+    run_checked(cmd, timeout=timeout_sec)
     logger.info("RTSP ingest: recording complete output=%s", output_path)

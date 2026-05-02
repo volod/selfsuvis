@@ -1,8 +1,6 @@
 """Typed realtime event envelopes for streaming threat/runtime fusion."""
 
-from __future__ import annotations
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, ClassVar, Dict
 

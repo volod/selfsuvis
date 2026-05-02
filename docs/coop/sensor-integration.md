@@ -119,12 +119,12 @@ cameras:
 ### Prerequisites
 
 - USB camera connected to the host
-- Run `./scripts/test_usb_cameras.sh` to verify detection
+- Run `./scripts/coop-test-usb-cameras.sh` to verify detection
 
 ### Step 1: Test USB Camera
 
 ```bash
-./scripts/test_usb_cameras.sh
+./scripts/coop-test-usb-cameras.sh
 ```
 
 This lists V4L2 devices and tests basic capture. Note the device path (e.g. `/dev/video0`).
@@ -256,13 +256,13 @@ Use the `add_camera` script to add cameras without manual config editing:
 
 ```bash
 # Add RTSP camera
-python scripts/add_camera.py --name front_door --rtsp rtsp://user:pass@ip:554/stream1 --restart
+./scripts/coop-camera.sh --name front_door --rtsp rtsp://user:pass@ip:554/stream1 --restart
 
 # Add USB camera (pass /dev/video0 to Frigate in docker-compose first)
-python scripts/add_camera.py --name usb_cam --usb /dev/video0 --restart
+./scripts/coop-camera.sh --name usb_cam --usb /dev/video0 --restart
 
 # List cameras
-python scripts/add_camera.py --list
+./scripts/coop-camera.sh --list
 ```
 
 Note: Frigate requires a restart to pick up new cameras. Use `--restart` to restart automatically.

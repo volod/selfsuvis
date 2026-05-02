@@ -1,7 +1,7 @@
 """Realtime semantic-observation helpers."""
 
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 def normalize_semantic_observation(observation: Dict[str, Any]) -> Dict[str, Any]:
     class_name = str(observation.get("class_name", "")).strip().lower()
@@ -19,4 +19,34 @@ def normalize_semantic_observation(observation: Dict[str, Any]) -> Dict[str, Any
         "mask_ref": observation.get("mask_ref"),
         "track_id": observation.get("track_id"),
         "facts": dict(observation.get("facts") or {}),
+    }
+
+
+def project_detection_to_enu(
+    *,
+    pose: Dict[str, Any],
+    bbox: Dict[str, Any],
+    range_m: Optional[float] = None,
+) -> Optional[Dict[str, float]]:
+    """Approximate ENU backprojection for a detection.
+
+    This is intentionally lightweight: it uses the bbox center as an angular hint
+    and projects it forward from the current ENU pose with a coarse range.
+    """
+    position = dict(pose.get("position_enu") or {})
+    if "x" not in position or "y" not in position:
+        return None
+    x1 = float(bbox.get("x1", bbox.get("xmin", 0.0)) or 0.0)
+    x2 = float(bbox.get("x2", bbox.get("xmax", 1.0)) or 1.0)
+    y1 = float(bbox.get("y1", bbox.get("ymin", 0.0)) or 0.0)
+    y2 = float(bbox.get("y2", bbox.get("ymax", 1.0)) or 1.0)
+    cx = max(0.0, min(1.0, (x1 + x2) / 2.0))
+    cy = max(0.0, min(1.0, (y1 + y2) / 2.0))
+    distance = float(range_m if range_m is not None else bbox.get("depth_m", bbox.get("range_m", 10.0)) or 10.0)
+    east_offset = (cx - 0.5) * distance
+    north_offset = (0.5 - cy) * distance
+    return {
+        "x": float(position["x"]) + east_offset,
+        "y": float(position["y"]) + north_offset,
+        "z": float(position.get("z", 0.0) or 0.0),
     }

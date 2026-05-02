@@ -1,9 +1,7 @@
 """Unit tests for app/routers/realtime.py."""
 
 
-import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 from unittest.mock import patch
 
 import httpx
@@ -12,185 +10,8 @@ from fastapi import FastAPI
 
 from selfsuvis.app.deps import rate_limit, require_api_key
 from selfsuvis.app.routers.realtime import router
-
-
-class _AcquireCtx:
-    def __init__(self, conn):
-        self._conn = conn
-
-    async def __aenter__(self):
-        return self._conn
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
-
-
-class FakePool:
-    def __init__(self, conn):
-        self._conn = conn
-
-    def acquire(self):
-        return _AcquireCtx(self._conn)
-
-
-class FakeConn:
-    def __init__(self):
-        self.sessions: Dict[str, Dict[str, Any]] = {}
-        self.packets: List[Dict[str, Any]] = []
-        self.poses: List[Dict[str, Any]] = []
-        self.tiles: List[Dict[str, Any]] = []
-        self.semantic: List[Dict[str, Any]] = []
-        self.jobs: Dict[str, Dict[str, Any]] = {}
-        self.missions: Dict[str, Dict[str, Any]] = {}
-
-    async def execute(self, query: str, *args):
-        if "INSERT INTO robot_sessions" in query:
-            self.sessions[args[0]] = {
-                "id": args[0],
-                "robot_id": args[1],
-                "mission_id": args[2],
-                "sensor_profile_json": json.loads(args[3]),
-                "status": args[4],
-                "started_at": args[5],
-                "ended_at": None,
-                "updated_at": args[6],
-            }
-            return "INSERT 0 1"
-        if "UPDATE robot_sessions" in query:
-            session = self.sessions[args[2]]
-            session["status"] = args[0]
-            session["ended_at"] = args[1]
-            session["updated_at"] = args[1]
-            return "UPDATE 1"
-        if "INSERT INTO realtime_poses" in query:
-            self.poses.append(
-                {
-                    "id": len(self.poses) + 1,
-                    "session_id": args[0],
-                    "source": args[1],
-                    "t_sec": args[2],
-                    "position_enu_json": json.loads(args[3]),
-                    "orientation_quat_json": json.loads(args[4]) if args[4] else None,
-                    "velocity_enu_json": json.loads(args[5]) if args[5] else None,
-                    "covariance_json": json.loads(args[6]) if args[6] else None,
-                    "tracking_status": args[7],
-                    "global_map_id": args[8],
-                    "created_at": datetime.now(timezone.utc),
-                }
-            )
-            return "INSERT 0 1"
-        if "INSERT INTO map_tiles" in query:
-            row = {
-                "session_id": args[0],
-                "global_map_id": args[1],
-                "tile_key": args[2],
-                "map_type": args[3],
-                "storage_path": args[4],
-                "resolution_m": args[5],
-                "bounds_json": json.loads(args[6]),
-                "stats_json": json.loads(args[7]),
-                "updated_at": args[8],
-            }
-            self.tiles = [
-                existing
-                for existing in self.tiles
-                if not (
-                    existing["session_id"] == row["session_id"]
-                    and existing["tile_key"] == row["tile_key"]
-                    and existing["map_type"] == row["map_type"]
-                )
-            ]
-            self.tiles.append(row)
-            return "INSERT 0 1"
-        if "INSERT INTO semantic_observations" in query:
-            self.semantic.append(
-                {
-                    "id": len(self.semantic) + 1,
-                    "session_id": args[0],
-                    "frame_id": args[1],
-                    "class_name": args[2],
-                    "confidence": args[3],
-                    "position_enu_json": json.loads(args[4]) if args[4] else None,
-                    "bbox_json": json.loads(args[5]) if args[5] else None,
-                    "mask_ref": args[6],
-                    "track_id": args[7],
-                    "facts_json": json.loads(args[8]),
-                    "created_at": datetime.now(timezone.utc),
-                }
-            )
-            return "INSERT 0 1"
-        if "INSERT INTO jobs" in query:
-            self.jobs[args[0]] = {"id": args[0], "type": args[2], "payload_json": json.loads(args[4])}
-            return "INSERT 0 1"
-        if "INSERT INTO missions" in query:
-            self.missions[args[0]] = {
-                "id": args[0],
-                "video_id": args[1],
-                "video_path": args[2],
-                "job_id": args[3],
-                "robot_id": args[4],
-                "status": args[5],
-            }
-            return "INSERT 0 1"
-        raise AssertionError(f"unexpected execute query: {query}")
-
-    async def executemany(self, query: str, rows):
-        rows = list(rows)
-        if "INSERT INTO sensor_packets" in query:
-            for row in rows:
-                self.packets.append(
-                    {
-                        "session_id": row[0],
-                        "sensor_type": row[1],
-                        "t_device": row[2],
-                        "t_server": row[3],
-                        "seq": row[4],
-                        "payload_json": json.loads(row[5]),
-                    }
-                )
-            return
-        raise AssertionError(f"unexpected executemany query: {query}")
-
-    async def fetchrow(self, query: str, *args) -> Optional[Dict[str, Any]]:
-        if "FROM robot_sessions" in query:
-            return self.sessions.get(args[0])
-        if "FROM realtime_poses" in query:
-            matches = [row for row in self.poses if row["session_id"] == args[0]]
-            if not matches:
-                return None
-            return sorted(matches, key=lambda row: (row["t_sec"], row["id"]), reverse=True)[0]
-        raise AssertionError(f"unexpected fetchrow query: {query}")
-
-    async def fetch(self, query: str, *args):
-        if "FROM sensor_packets" in query and "GROUP BY sensor_type" in query:
-            session_id = args[0]
-            counts: Dict[str, int] = {}
-            for row in self.packets:
-                if row["session_id"] != session_id:
-                    continue
-                counts[row["sensor_type"]] = counts.get(row["sensor_type"], 0) + 1
-            return [{"sensor_type": key, "n": value} for key, value in sorted(counts.items())]
-        if "FROM map_tiles" in query:
-            session_id = args[0]
-            if len(args) == 3:
-                map_type = args[1]
-                limit = args[2]
-                rows = [row for row in self.tiles if row["session_id"] == session_id and row["map_type"] == map_type]
-            else:
-                limit = args[1]
-                rows = [row for row in self.tiles if row["session_id"] == session_id]
-            return list(reversed(rows))[:limit]
-        if "FROM semantic_observations" in query:
-            session_id = args[0]
-            if len(args) == 3:
-                class_name = args[1]
-                limit = args[2]
-                rows = [row for row in self.semantic if row["session_id"] == session_id and row["class_name"] == class_name]
-            else:
-                limit = args[1]
-                rows = [row for row in self.semantic if row["session_id"] == session_id]
-            return list(reversed(rows))[:limit]
-        raise AssertionError(f"unexpected fetch query: {query}")
+from tests.support.realtime_db import FakeRealtimeConn as FakeConn
+from tests.support.realtime_db import FakeRealtimePool as FakePool
 
 
 class FakeMediaMtxClient:
@@ -401,6 +222,133 @@ async def test_publish_map_tile_and_semantic_observation():
             nearby = await client.get(f"/realtime/session/{session_id}/semantic-nearby?class_name=tree")
             assert nearby.status_code == 200
             assert nearby.json()["observations"][0]["class_name"] == "tree"
+
+
+@pytest.mark.anyio
+async def test_integrate_frame_creates_pose_tile_and_semantic():
+    conn = FakeConn()
+    app = _app()
+
+    with patch("selfsuvis.app.routers.realtime.get_db_pool", return_value=FakePool(conn)):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            start = await client.post("/realtime/session/start", json={"robot_id": "drone_frame"})
+            session_id = start.json()["session_id"]
+
+            result = await client.post(
+                f"/realtime/session/{session_id}/frame/integrate",
+                json={
+                    "frame_id": "f1",
+                    "t_sec": 1.5,
+                    "image_path": "/tmp/frame1.jpg",
+                    "packets": [
+                        {
+                            "sensor_type": "gps",
+                            "t_device": 1.5,
+                            "payload": {"east": 5.0, "north": 6.0, "up": 1.0},
+                        }
+                    ],
+                    "semantic_observations": [
+                        {"class_name": "tree", "confidence": 0.7}
+                    ],
+                },
+            )
+            assert result.status_code == 200
+            data = result.json()
+            assert data["pose_updated"] is True
+            assert data["tile"]["tile_key"] == "frame-f1"
+            assert data["semantic_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_realtime_stats_endpoint():
+    conn = FakeConn()
+    app = _app()
+
+    with (
+        patch("selfsuvis.app.routers.realtime.get_db_pool", return_value=FakePool(conn)),
+        patch(
+            "selfsuvis.app.routers.realtime.collect_realtime_stats",
+            return_value={
+                "pose_backend": "vins_fusion",
+                "occupancy_backend": "nvblox",
+                "pose": {"configured": True, "ready": True},
+                "occupancy": {"configured": True, "tiles": 3},
+            },
+        ),
+    ):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            resp = await client.get("/realtime/stats")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["pose_backend"] == "vins_fusion"
+            assert data["occupancy_backend"] == "nvblox"
+
+
+@pytest.mark.anyio
+async def test_realtime_backends_endpoint():
+    conn = FakeConn()
+    app = _app()
+
+    with (
+        patch("selfsuvis.app.routers.realtime.get_db_pool", return_value=FakePool(conn)),
+        patch(
+            "selfsuvis.app.routers.realtime.list_realtime_backends",
+            return_value={
+                "selected": {
+                    "pose_backend": "vins_fusion",
+                    "occupancy_backend": "voxblox",
+                },
+                "pose_backends": {
+                    "vins_fusion": {
+                        "name": "vins_fusion",
+                        "role": "pose",
+                        "provider": "sidecar",
+                        "open_source": True,
+                        "service_name": "realtime-vins-fusion",
+                        "api_url": "http://realtime-vins-fusion:8101",
+                        "env_image_var": "REALTIME_VINS_FUSION_IMAGE",
+                        "default_image": "",
+                        "hardware_profile": "cpu_or_gpu",
+                        "required_modalities": ["camera", "imu"],
+                        "recommended_modalities": ["camera", "imu", "gps"],
+                        "pros": ["Strong visual-inertial pose estimation on drone-class RGB + IMU feeds."],
+                        "cons": ["Needs reliable camera/IMU calibration."],
+                        "integration_doc": "docs/runbooks/realtime-sidecars/vins-fusion.md",
+                        "notes": "RGB + IMU + GPS visual-inertial fusion sidecar.",
+                    }
+                },
+                "occupancy_backends": {
+                    "voxblox": {
+                        "name": "voxblox",
+                        "role": "occupancy",
+                        "provider": "sidecar",
+                        "open_source": True,
+                        "service_name": "realtime-voxblox",
+                        "api_url": "http://realtime-voxblox:8101",
+                        "env_image_var": "REALTIME_VOXBLOX_IMAGE",
+                        "default_image": "",
+                        "hardware_profile": "cpu",
+                        "required_modalities": ["pose", "depth"],
+                        "recommended_modalities": ["pose", "depth", "camera"],
+                        "pros": ["CPU-friendly volumetric mapping option."],
+                        "cons": ["Lower throughput than nvblox on dense depth streams."],
+                        "integration_doc": "docs/runbooks/realtime-sidecars/voxblox.md",
+                        "notes": "CPU occupancy mapping sidecar.",
+                    }
+                },
+            },
+        ),
+    ):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            resp = await client.get("/realtime/backends")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["selected"]["pose_backend"] == "vins_fusion"
+            assert data["pose_backends"]["vins_fusion"]["service_name"] == "realtime-vins-fusion"
+            assert data["occupancy_backends"]["voxblox"]["hardware_profile"] == "cpu"
 
 
 @pytest.mark.anyio

@@ -10,6 +10,8 @@ from selfsuvis.pipeline.realtime import (
     ThreatEvent,
     evaluate_degraded_mode,
     freshness_seconds,
+    load_jsonl_records,
+    replay_bridge_trace,
     replay_local_run,
 )
 
@@ -132,3 +134,17 @@ def test_degraded_mode_and_aggregator_reflect_stale_and_missing_inputs():
     assert snapshot["automation_confidence"] < 0.74
     assert snapshot["degraded"] is True
     assert snapshot["route_advisories"][0]["recommended_action"] == "inspect_sensor"
+
+
+def test_replay_bridge_trace_loads_recorded_mavlink_and_ros_samples():
+    fixture_dir = Path(__file__).resolve().parents[3] / "fixtures" / "realtime"
+
+    mav_records = load_jsonl_records(fixture_dir / "mavlink_trace.jsonl")
+    ros_records = load_jsonl_records(fixture_dir / "ros_trace.jsonl")
+    mav_packets = replay_bridge_trace(fixture_dir / "mavlink_trace.jsonl", backend="mavlink")
+    ros_packets = replay_bridge_trace(fixture_dir / "ros_trace.jsonl", backend="ros")
+
+    assert len(mav_records) == 4
+    assert len(ros_records) == 5
+    assert [packet["sensor_type"] for packet in mav_packets] == ["gps", "imu", "barometer", "magnetometer"]
+    assert [packet["sensor_type"] for packet in ros_packets] == ["gps", "imu", "barometer", "magnetometer", "camera"]

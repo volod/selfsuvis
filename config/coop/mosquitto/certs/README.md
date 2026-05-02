@@ -5,4 +5,4 @@ Place Mosquitto TLS materials here:
 - server.key
 
 For a pilot:
-./scripts/gen_mosquitto_selfsigned_tls.sh <hostname>
+./scripts/coop-mosquitto-tls.sh <hostname>

@@ -90,7 +90,7 @@ When Qdrant is not running, an `InMemoryStore` is used. It behaves identically f
 **Common failure modes:**
 - GPU OOM during batch embedding → embedder silently switches to CPU or crashes; check VRAM.
 - Wrong `OPENCLIP_PRETRAINED` value → model loads but embeddings are from a different pretrained weight; retrieval looks random.
-- Qdrant collection schema mismatch after switching `MODEL_NAME` → old and new embeddings are mixed; run `scripts/reset_qdrant.sh` first.
+- Qdrant collection schema mismatch after switching `MODEL_NAME` → old and new embeddings are mixed; run `scripts/selfsuvis-reset-qdrant.sh` first.
 
 ---
 

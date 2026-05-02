@@ -1,10 +1,10 @@
 """Offline calibration and evaluation artifacts for threat outputs."""
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from ._common import write_json_artifact
 
 
 def write_threat_calibration(
@@ -33,7 +33,7 @@ def write_threat_calibration(
         "persistence_threshold_sweeps": persistence_sweeps,
     }
     out = output_dir / "threat_calibration.json"
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_json_artifact(out, payload)
     return payload
 
 
@@ -71,7 +71,7 @@ def write_threat_eval_summary(
         ],
     }
     out = output_dir / "threat_eval_summary.json"
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_json_artifact(out, payload)
     return payload
 
 

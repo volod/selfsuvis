@@ -7,10 +7,10 @@ polling — no external lock manager required.
 All functions accept an asyncpg Connection (or pool) as their first argument
 so callers control connection lifecycle and transaction boundaries.
 """
-import json
 from typing import Any, Dict, Optional
 
 from selfsuvis.pipeline.core import datetime_to_ts, get_logger, to_utc_datetime, utcnow
+from selfsuvis.pipeline.storage.common import decoded_json, jsonb
 
 logger = get_logger(__name__)
 
@@ -49,7 +49,7 @@ async def create_job(conn, job_id: str, payload: Dict[str, Any], job_type: Optio
         "pending",
         job_type,
         "{}",
-        json.dumps(payload),
+        jsonb(payload),
         now,
     )
 
@@ -70,7 +70,7 @@ async def update_job(conn, job_id: str, **kwargs: Any) -> None:
         if k in {"progress", "payload"}:
             col = f"{k}_json"
             parts.append(f"{col} = ${placeholder}::jsonb")
-            values.append(json.dumps(v))
+            values.append(jsonb(v))
             placeholder += 1
             continue
         elif k in {"started_at", "finished_at"}:
@@ -132,12 +132,8 @@ async def fetch_queue_depth(conn) -> int:
 
 
 def _row_to_dict(row) -> Dict[str, Any]:
-    progress = row["progress_json"] or {}
-    payload = row["payload_json"] or {}
-    if isinstance(progress, str):
-        progress = json.loads(progress)
-    if isinstance(payload, str):
-        payload = json.loads(payload)
+    progress = decoded_json(row["progress_json"], default={})
+    payload = decoded_json(row["payload_json"], default={})
     return {
         "id": row["id"],
         "status": row["status"],

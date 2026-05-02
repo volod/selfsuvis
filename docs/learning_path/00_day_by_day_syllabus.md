@@ -665,7 +665,7 @@ Identify the embedding distance threshold that would suppress the false alarms w
 Write a personal review of the pipeline covering:
 1. The three decisions you would change in the current architecture and why.
 2. The two steps you understand least well and what you would need to read to understand them.
-3. One extension you would add that is not already in the 35-step path.
+3. One extension you would add that is not already in the 36-step path.
 4. Which step failure would be hardest to detect in a real deployment and why.
 
 Use this review as a map for your ongoing learning.

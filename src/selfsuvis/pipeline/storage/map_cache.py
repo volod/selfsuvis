@@ -35,6 +35,45 @@ logger = get_logger(__name__)
 _PAGE_SIZE = 1000
 
 
+def _append_bbox_filters(
+    must: List[Any],
+    qmodels: Any,
+    lat_min: Optional[float],
+    lat_max: Optional[float],
+    lon_min: Optional[float],
+    lon_max: Optional[float],
+) -> None:
+    if lat_min is not None and lat_max is not None:
+        must.append(
+            qmodels.FieldCondition(key="gps.lat", range=qmodels.Range(gte=lat_min, lte=lat_max))
+        )
+    if lon_min is not None and lon_max is not None:
+        must.append(
+            qmodels.FieldCondition(key="gps.lon", range=qmodels.Range(gte=lon_min, lte=lon_max))
+        )
+
+
+def _point_clip_vector(point: Any) -> Optional[List[float]]:
+    vector = point.vector
+    if isinstance(vector, dict):
+        clip = vector.get("clip")
+        return clip if clip is not None else None
+    return vector if isinstance(vector, list) else None
+
+
+def _payload_xyz(payload: Dict[str, Any], key: str, fields: List[str]) -> List[float]:
+    values = payload.get(key) or {}
+    return [values.get(field, math.nan) for field in fields]
+
+
+def _point_meta(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "mission_id": payload.get("mission_id"),
+        "frame_path": payload.get("frame_path"),
+        "robot_id": payload.get("robot_id"),
+    }
+
+
 def build_map_cache(
     qdrant_store,
     mission_ids: Optional[List[str]] = None,
@@ -70,14 +109,7 @@ def build_map_cache(
             )
         )
 
-    if lat_min is not None and lat_max is not None:
-        must.append(
-            qmodels.FieldCondition(key="gps.lat", range=qmodels.Range(gte=lat_min, lte=lat_max))
-        )
-    if lon_min is not None and lon_max is not None:
-        must.append(
-            qmodels.FieldCondition(key="gps.lon", range=qmodels.Range(gte=lon_min, lte=lon_max))
-        )
+    _append_bbox_filters(must, qmodels, lat_min, lat_max, lon_min, lon_max)
 
     scroll_filter = qmodels.Filter(must=must)
 
@@ -106,36 +138,16 @@ def build_map_cache(
 
         for pt in results:
             payload = pt.payload or {}
-            vec_dict = pt.vector if isinstance(pt.vector, dict) else {}
-            clip = vec_dict.get("clip")
-            if clip is None:
-                # Older single-vector format
-                clip = pt.vector if isinstance(pt.vector, list) else None
+            clip = _point_clip_vector(pt)
             if clip is None:
                 continue
 
             clip_vecs.append(clip)
-
-            gps = payload.get("gps") or {}
-            gps_rows.append([
-                gps.get("lat", math.nan),
-                gps.get("lon", math.nan),
-                gps.get("alt", math.nan),
-            ])
-
-            enu = payload.get("enu") or {}
-            enu_rows.append([
-                enu.get("tx", math.nan),
-                enu.get("ty", math.nan),
-                enu.get("tz", math.nan),
-            ])
+            gps_rows.append(_payload_xyz(payload, "gps", ["lat", "lon", "alt"]))
+            enu_rows.append(_payload_xyz(payload, "enu", ["tx", "ty", "tz"]))
 
             t_secs.append(float(payload.get("t_sec", 0.0)))
-            metas.append({
-                "mission_id": payload.get("mission_id"),
-                "frame_path": payload.get("frame_path"),
-                "robot_id": payload.get("robot_id"),
-            })
+            metas.append(_point_meta(payload))
 
         if next_offset is None or not results:
             break

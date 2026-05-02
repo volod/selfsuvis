@@ -1,7 +1,5 @@
 """Freshness scoring and staleness decay helpers for realtime events."""
 
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import Any, Dict
 

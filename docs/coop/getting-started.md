@@ -25,13 +25,13 @@ cd coop-stack-a-pilot
 
 ```bash
 # Production (default) — pinned images, OR_DEV_MODE=false
-./scripts/coop/gen-env.sh
+./scripts/coop-env.sh
 
 # Development — latest images, OR_DEV_MODE=true, databases exposed
-./scripts/coop/gen-env.sh dev
+./scripts/coop-env.sh dev
 
 # Test / CI — localhost bindings, isolated data dir, reduced limits
-./scripts/coop/gen-env.sh test
+./scripts/coop-env.sh test
 ```
 
 This creates `.env` at the project root with randomly generated secrets. Save the printed credentials securely.
@@ -46,7 +46,7 @@ cp env/prod.env .env
 To list credentials later:
 
 ```bash
-./scripts/first_run_setup.sh --list
+./scripts/coop-credentials.sh --list
 ```
 
 Key variables to configure:
@@ -68,13 +68,13 @@ Key variables to configure:
 
 ```bash
 # RTSP camera
-python scripts/add_camera.py --name front_door --rtsp rtsp://user:pass@192.168.1.100:554/stream1 --restart
+./scripts/coop-camera.sh --name front_door --rtsp rtsp://user:pass@192.168.1.100:554/stream1 --restart
 
 # USB camera (ensure device is passed to Frigate in docker/docker-compose.yml)
-python scripts/add_camera.py --name usb_cam --usb /dev/video0 --restart
+./scripts/coop-camera.sh --name usb_cam --usb /dev/video0 --restart
 
 # List configured cameras
-python scripts/add_camera.py --list
+./scripts/coop-camera.sh --list
 ```
 
 **Option B: Edit config manually** - see `config/coop/frigate/config.yml` and [Sensor Integration](sensor-integration.md).
@@ -85,13 +85,13 @@ Bootstrap creates `.env`, data directories, TLS certificates, and MQTT users whe
 
 ```bash
 # Production (default)
-./scripts/coop/bootstrap.sh
+./scripts/coop-bootstrap.sh
 
 # Development (applies docker-compose.dev.yml overlay)
-APP_ENV=dev ./scripts/coop/bootstrap.sh
+APP_ENV=dev ./scripts/coop-bootstrap.sh
 ```
 
-PUID/PGID are set dynamically from your user. For compose-only (e.g. logs): `./scripts/coop/compose.sh logs -f`.
+PUID/PGID are set dynamically from your user. For compose-only (e.g. logs): `./scripts/coop-compose.sh logs -f`.
 
 **Optional:** To use a custom hostname for TLS, set `OR_HOSTNAME` in `.env` before bootstrap. Bootstrap generates certs with that hostname when missing.
 

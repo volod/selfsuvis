@@ -3,6 +3,7 @@ import itertools
 import json
 import os
 import shutil
+from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -80,6 +81,13 @@ class VideoIndexer:
         self.world_model = WorldModel() if settings.WORLD_MODEL_ENABLED else None
         self.yolo_detector = YOLODetector() if settings.YOLO_ENABLED else None
         self.sam_predictor = SAMPredictor() if settings.SAM_ENABLED else None
+        self.segmentation_predictor = (
+            SAMPredictor(
+                enabled=True,
+                model_name=settings.SEGMENTATION_MODEL,
+            )
+            if settings.SEGMENTATION_ENABLED else None
+        )
         self.rf_analyzer = RFSignalAnalyzer() if settings.RF_ENABLED else None
         # RF-DETR tracker is initialised lazily inside _run_gemma_directed_tracking_pass
         self.rfdetr_tracker = None
@@ -428,6 +436,10 @@ class VideoIndexer:
         if frame_records and self.detection_model and self.detection_model.is_enabled():
             self._run_detection_pass(frame_records)
 
+        # ── Automatic segmentation summary pass ──────────────────────────────
+        if frame_records and self.segmentation_predictor and self.segmentation_predictor.is_available():
+            self._run_segmentation_pass(frame_records)
+
         # ── RF signal analysis pass (TorchSig) ───────────────────────────────
         if frame_records and self.rf_analyzer and self.rf_analyzer.is_enabled():
             self._run_rf_analysis_pass(dst_path, frame_records)
@@ -697,6 +709,112 @@ class VideoIndexer:
                     fj.update(res)
                     rec["frame_facts_json"] = fj
         self.logger.info("Detection pass complete")
+
+    @staticmethod
+    def _bbox_iou(a: List[float], b: List[float]) -> float:
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+        inter_w = max(0.0, inter_x2 - inter_x1)
+        inter_h = max(0.0, inter_y2 - inter_y1)
+        inter = inter_w * inter_h
+        if inter <= 0.0:
+            return 0.0
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+        denom = area_a + area_b - inter
+        return inter / denom if denom > 0 else 0.0
+
+    def _segment_label_for_mask(
+        self,
+        mask_bbox_norm: List[float],
+        frame_facts_json: Dict[str, Any],
+    ) -> str:
+        detections = frame_facts_json.get("detections") or []
+        best_label = "unlabeled"
+        best_iou = 0.0
+        for det in detections:
+            bbox = det.get("bbox_norm")
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+            iou = self._bbox_iou(mask_bbox_norm, [float(v) for v in bbox])
+            if iou > best_iou:
+                best_iou = iou
+                best_label = str(det.get("label") or "unlabeled")
+        return best_label if best_iou >= 0.1 else "unlabeled"
+
+    def _run_segmentation_pass(self, frame_records: List[Dict[str, Any]]) -> None:
+        """Run automatic SAM segmentation and store compact summaries.
+
+        Writes ``frame_facts_json["segments"]`` with mask counts and class-label
+        summaries only; raw masks are intentionally not persisted.
+        """
+        self.logger.info(
+            "Segmentation pass: %d frames model=%s",
+            len(frame_records),
+            settings.SEGMENTATION_MODEL,
+        )
+        max_masks = max(1, int(settings.SEGMENTATION_MAX_MASKS))
+        min_area_norm = float(settings.SEGMENTATION_MIN_AREA_NORM)
+        points_per_side = max(2, int(settings.SEGMENTATION_POINTS_PER_SIDE))
+
+        for rec in frame_records:
+            try:
+                image = Image.open(rec["frame_path"]).convert("RGB")
+            except Exception:
+                image = Image.new("RGB", (224, 224))
+
+            masks = self.segmentation_predictor.generate_auto_masks(
+                image,
+                points_per_side=points_per_side,
+            )
+            masks = [
+                m for m in masks
+                if float(m.get("area_norm", 0.0) or 0.0) >= min_area_norm
+            ]
+            masks.sort(
+                key=lambda m: (
+                    float(m.get("score", 0.0) or 0.0),
+                    float(m.get("area_norm", 0.0) or 0.0),
+                ),
+                reverse=True,
+            )
+            masks = masks[:max_masks]
+
+            fj = rec.get("frame_facts_json") or {}
+            if not isinstance(fj, dict):
+                fj = {}
+
+            label_counts: Counter[str] = Counter()
+            area_norms: List[float] = []
+            for mask_info in masks:
+                x, y, w_box, h_box = [float(v) for v in (mask_info.get("bbox") or [0, 0, 0, 0])]
+                img_w, img_h = image.size
+                bbox_norm = [
+                    x / max(1.0, img_w),
+                    y / max(1.0, img_h),
+                    (x + w_box) / max(1.0, img_w),
+                    (y + h_box) / max(1.0, img_h),
+                ]
+                label = self._segment_label_for_mask(bbox_norm, fj)
+                label_counts[label] += 1
+                area_norms.append(float(mask_info.get("area_norm", 0.0) or 0.0))
+
+            fj["segments"] = {
+                "count": len(masks),
+                "labels": sorted(label_counts.keys()),
+                "label_counts": dict(sorted(label_counts.items())),
+                "mean_area_norm": round(sum(area_norms) / len(area_norms), 6) if area_norms else 0.0,
+                "max_area_norm": round(max(area_norms), 6) if area_norms else 0.0,
+                "model": settings.SEGMENTATION_MODEL,
+                "points_per_side": points_per_side,
+            }
+            rec["frame_facts_json"] = fj
+
+        self.logger.info("Segmentation pass complete")
 
     def _run_rf_analysis_pass(
         self, video_path: str, frame_records: List[Dict[str, Any]]

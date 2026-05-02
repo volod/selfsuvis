@@ -1,7 +1,5 @@
 """Embedding and search steps for the local full-analysis pipeline."""
 
-
-import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -167,6 +165,41 @@ def _search(
     return results[:top_k]
 
 
+def _run_search_test(
+    *,
+    store: Any,
+    is_qdrant: bool,
+    models: Dict[str, Any],
+    video_id: str,
+    video_name: str,
+    video_dir: Path,
+    top_k: int,
+    report_name: str,
+    model_label: str,
+    query_frame: str,
+    query_t_sec: float,
+) -> Dict[str, Any]:
+    from .steps_report import write_search_md
+
+    out_md = video_dir / report_name
+    use_dino = models.get("dino") is not None
+    t0 = time.time()
+    query_vec = _embed_query(query_frame, models, use_dino=use_dino)
+    results = _search(
+        query_vec,
+        store,
+        is_qdrant,
+        top_k,
+        video_id,
+        vector_name="dino" if use_dino else "clip",
+        exclude_frame_path=query_frame,
+        exclude_t_sec=query_t_sec,
+    )
+    elapsed = time.time() - t0
+    write_search_md(out_md, video_name, model_label, query_frame, results, query_t_sec)
+    return {"results": results, "elapsed_sec": elapsed}
+
+
 def step_base_model_search_test(
     frame_list: List[Tuple[str, float]],
     store: Any,
@@ -178,20 +211,24 @@ def step_base_model_search_test(
     top_k: int,
 ) -> Dict[str, Any]:
     """Step 14: embed query with base model, search, write base_search.md."""
-    from .steps_report import write_search_md
-    out_md = video_dir / "base_search.md"
     qfp, qt = _pick_query_frame(frame_list)
     _log.info("Query frame: %s (t=%.2fs)", Path(qfp).name, qt)
-    use_dino = models.get("dino") is not None
-    t0        = time.time()
-    query_vec = _embed_query(qfp, models, use_dino=use_dino)
-    results   = _search(query_vec, store, is_qdrant, top_k, video_id,
-                        vector_name="dino" if use_dino else "clip",
-                        exclude_frame_path=qfp,
-                        exclude_t_sec=qt)
-    elapsed   = time.time() - t0
-    label = "Base DINOv3 (pretrained)" if use_dino else "Base CLIP (pretrained)"
-    write_search_md(out_md, video_name, label, qfp, results, qt)
+    label = "Base DINOv3 (pretrained)" if models.get("dino") is not None else "Base CLIP (pretrained)"
+    result = _run_search_test(
+        store=store,
+        is_qdrant=is_qdrant,
+        models=models,
+        video_id=video_id,
+        video_name=video_name,
+        video_dir=video_dir,
+        top_k=top_k,
+        report_name="base_search.md",
+        model_label=label,
+        query_frame=qfp,
+        query_t_sec=qt,
+    )
+    results = result["results"]
+    elapsed = float(result["elapsed_sec"])
     _log.info("  ✓ Search in %.2fs → top score %.4f", elapsed,
               results[0]["score"] if results else 0)
     return {"results": results, "query_frame": qfp, "query_t_sec": qt}
@@ -210,16 +247,19 @@ def step_finetuned_model_search_test(
     top_k: int,
 ) -> Dict[str, Any]:
     """Step 19: search with fine-tuned DINO, write finetuned_search.md."""
-    from .steps_report import write_search_md
-    out_md = video_dir / "finetuned_search.md"
-    use_dino = models.get("dino") is not None
-    t0        = time.time()
-    query_vec = _embed_query(query_frame, models, use_dino=use_dino)
-    results   = _search(query_vec, store, is_qdrant, top_k, video_id,
-                        vector_name="dino" if use_dino else "clip",
-                        exclude_frame_path=query_frame,
-                        exclude_t_sec=query_t_sec)
-    ft_infer_ms = (time.time() - t0) * 1000 / max(len(frame_list), 1)
-    write_search_md(out_md, video_name, "Fine-tuned DINOv3 (SSL adapted)",
-                    query_frame, results, query_t_sec)
+    result = _run_search_test(
+        store=store,
+        is_qdrant=is_qdrant,
+        models=models,
+        video_id=video_id,
+        video_name=video_name,
+        video_dir=video_dir,
+        top_k=top_k,
+        report_name="finetuned_search.md",
+        model_label="Fine-tuned DINOv3 (SSL adapted)",
+        query_frame=query_frame,
+        query_t_sec=query_t_sec,
+    )
+    results = result["results"]
+    ft_infer_ms = float(result["elapsed_sec"]) * 1000 / max(len(frame_list), 1)
     return {"results": results, "infer_ms": ft_infer_ms}

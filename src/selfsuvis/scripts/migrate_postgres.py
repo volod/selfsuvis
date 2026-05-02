@@ -307,6 +307,24 @@ _SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_realtime_poses_global_map_time ON realtime_poses (global_map_id, created_at DESC)",
 
     """
+    CREATE TABLE IF NOT EXISTS realtime_frames (
+        id         BIGSERIAL PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES robot_sessions(id) ON DELETE CASCADE,
+        frame_id   TEXT NOT NULL,
+        t_sec      DOUBLE PRECISION NOT NULL,
+        image_path TEXT NOT NULL,
+        pose_json  JSONB,
+        depth_path TEXT,
+        tile_key   TEXT,
+        map_type   TEXT NOT NULL DEFAULT 'occupancy',
+        stats_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (session_id, frame_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_realtime_frames_session_time ON realtime_frames (session_id, t_sec DESC)",
+
+    """
     CREATE TABLE IF NOT EXISTS map_tiles (
         id            BIGSERIAL PRIMARY KEY,
         session_id    TEXT NOT NULL REFERENCES robot_sessions(id) ON DELETE CASCADE,

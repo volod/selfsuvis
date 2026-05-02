@@ -1,16 +1,41 @@
 """Replay saved local-run artifacts as ordered realtime event envelopes."""
 
-from __future__ import annotations
-
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from selfsuvis.pipeline.media.bridge_common import flatten_packet_batches
+from selfsuvis.pipeline.media.drone_bridge import bridge_mavlink_messages
+from selfsuvis.pipeline.media.ros_bridge import ros_message_to_packets
 from selfsuvis.pipeline.fusion.sectors import build_route_segment_id, sectorize_global_positions, unique_sector_sequence
 
 from .events import NodeHealthEvent, SensorEvent, ThreatEvent
 from .freshness import apply_freshness
+from .ingest import normalize_packets
+
+
+def _event_sort_key(row: Dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        row["event_time"],
+        row["event_kind"],
+        row["sector_id"],
+        row["sensor_type"],
+    )
+
+
+def _event_ingest_delay_sec(event: Dict[str, Any], delays: Dict[str, float]) -> float:
+    delay = float(delays.get(str(event.get("event_kind", "")), 0.0) or 0.0)
+    delay += float(delays.get(str(event.get("sensor_type", "")), 0.0) or 0.0)
+    return delay
+
+
+def _trace_packets(records: List[Dict[str, Any]], *, backend: str) -> List[Dict[str, Any]]:
+    if backend == "mavlink":
+        return bridge_mavlink_messages(records)
+    if backend == "ros":
+        return flatten_packet_batches(records, ros_message_to_packets)
+    raise ValueError(f"unsupported replay backend: {backend}")
 
 
 def replay_local_run(
@@ -31,13 +56,12 @@ def replay_local_run(
     for index, video_dir in enumerate(video_dirs, start=1):
         raw_events.extend(_video_events(video_dir, node_id=f"{node_id_prefix}_{index}"))
 
-    raw_events.sort(key=lambda row: (row["event_time"], row["event_kind"], row["sector_id"], row["sensor_type"]))
+    raw_events.sort(key=_event_sort_key)
     replayed: List[Dict[str, Any]] = []
     for idx, event in enumerate(raw_events):
         event_dt = _parse_iso(event["event_time"])
         base_ingest = ingest_start + timedelta(seconds=idx * 0.25)
-        extra_delay = float(ingest_delay_sec_by_kind.get(str(event.get("event_kind", "")), 0.0) or 0.0)
-        extra_delay += float(ingest_delay_sec_by_kind.get(str(event.get("sensor_type", "")), 0.0) or 0.0)
+        extra_delay = _event_ingest_delay_sec(event, ingest_delay_sec_by_kind)
         ingest_time = max(base_ingest, event_dt) + timedelta(seconds=extra_delay)
         enriched = dict(event)
         enriched["ingest_time"] = ingest_time.isoformat()
@@ -49,6 +73,28 @@ def write_replay_jsonl(events: Sequence[Dict[str, Any]], output_path: Path) -> N
     output_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [json.dumps(dict(event), sort_keys=True) for event in events]
     output_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def load_jsonl_records(path: Path) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        record = json.loads(text)
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def replay_bridge_trace(
+    trace_path: Path,
+    *,
+    backend: str,
+) -> List[Dict[str, Any]]:
+    backend_name = str(backend or "").strip().lower()
+    records = load_jsonl_records(trace_path)
+    return normalize_packets(_trace_packets(records, backend=backend_name))
 
 
 def _video_events(video_dir: Path, *, node_id: str) -> List[Dict[str, Any]]:

@@ -48,7 +48,7 @@ from ._common import (
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_TOTAL_STEPS = 31
+_TOTAL_STEPS = 32
 _VIDEO_EXTS  = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 
 # Phase 3 SSL gate: skip distillation / ONNX / search comparison when the
@@ -1189,6 +1189,7 @@ def run_video_pipeline(
     from .steps_caption import (
         step_gemma_analysis,
         step_scene_captioning,
+        step_gemma_segment_captions,
         step_asr_transcription,
         step_ocr_extraction,
         step_depth_estimation,
@@ -1208,7 +1209,7 @@ def run_video_pipeline(
         get_runtime_telemetry,
     )
     from .steps_ssl import step_ssl_finetune
-    from .steps_distill import step_distill, step_export_model
+    from .steps_distill import step_distill, step_distill_stage2, step_export_model
     from .steps_map import step_advise_3d_map_quality, step_create_3d_map
     from .steps_semantic_graph import step_build_semantic_environment_graph
     from .steps_yolo_sam import step_yolo_sam_detection
@@ -1419,6 +1420,36 @@ def run_video_pipeline(
             "wrong segment boundaries can contaminate later frame context",
         ],
         artifacts=["scene_captions.md"] if caption_results else [],
+    )
+
+    # Step 4b: Gemma segment-boundary diff — runs only when GEMMA_API_URL is set
+    # and caption results are available; no model loading required.
+    seg_cap_result: Dict[str, Any] = {"skipped": True, "boundary_diffs": []}
+    _gemma_url_4b = getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL
+    if _gemma_url_4b and caption_results:
+        _step(4, _TOTAL_STEPS, "Gemma 4 segment-boundary diffs → gemma_segment_captions.md")
+        with _Timer(T, "L_seg_caps"):
+            seg_cap_result = step_gemma_segment_captions(
+                frame_list, caption_results, video_name, video_dir,
+                gemma_api_url=_gemma_url_4b,
+                gemma_api_model=getattr(args, "gemma_api_model", "") or settings.GEMMA_API_MODEL,
+            )
+    else:
+        T["L_seg_caps"] = 0.0
+    if not seg_cap_result.get("skipped"):
+        video_context["segment_diffs"] = seg_cap_result.get("boundary_diffs", [])
+    _append_agentic_step(
+        agentic_trace,
+        step_id="04b",
+        title="Gemma segment-boundary diffs",
+        description="Identify scene transitions from caption segments and describe what changed between the last frame of segment N and the first frame of segment N+1.",
+        status="skipped" if seg_cap_result.get("skipped") else "ok",
+        context_inputs=["caption segments", "frame images at boundaries"],
+        context_outputs=[
+            f"{seg_cap_result.get('described_count', 0)}/{seg_cap_result.get('boundary_count', 0)} boundaries described",
+        ] if not seg_cap_result.get("skipped") else ["no segment diff context"],
+        risks=["two-image prompts increase per-call latency"],
+        artifacts=["gemma_segment_captions.md"] if not seg_cap_result.get("skipped") else [],
     )
 
     # Step 05: ASR — evict any Ollama model that may still be resident from the
@@ -2338,13 +2369,66 @@ def run_video_pipeline(
             artifacts=[],
         )
 
-    # Step 18: ONNX export + gallery — restore CLIP+DINO (export uses models["dino"])
+    # Step 18b: Stage 2 distillation — ViT-S/14 → EfficientViT-B1 (RKD-D + KoLeo only)
+    # Runs only when Stage 1 produced a student backbone and --no-distill is not set.
+    e_distill_stage2: Dict[str, Any] = {"skipped": True, "onnx_exported": False}
+    if ssl_gate_passed and not args.no_distill and not e_distill.get("skipped"):
+        _step(22, _TOTAL_STEPS, "Stage 2 distillation: ViT-S/14 → EfficientViT-B1 student")
+        with _Timer(T, "E_distill_stage2"):
+            e_distill_stage2 = step_distill_stage2(
+                student_backbone, frame_list, video_name, video_dir, device,
+                distill_epochs=args.distill_epochs, batch_size=args.batch_size,
+            )
+        if not e_distill_stage2["skipped"]:
+            stats["distill_stage2_loss"] = e_distill_stage2.get("best_loss", float("nan"))
+            stats["efficientvit_ckpt_mb"] = e_distill_stage2.get("ckpt_mb", 0.0)
+            stats["efficientvit_onnx_mb"] = e_distill_stage2.get("onnx_mb", 0.0)
+        _append_agentic_step(
+            agentic_trace,
+            step_id="18b",
+            title="Stage 2 distillation (EfficientViT-B1)",
+            description="Compress the Stage 1 ViT-S/14 student into a 384-dim EfficientViT-B1 student using RKD-D + KoLeo. Requires only ~2 GB VRAM.",
+            status="skipped" if e_distill_stage2.get("skipped") else "ok",
+            context_inputs=["Stage 1 ViT-S/14 student backbone", "frame paths"],
+            context_outputs=[
+                f"EfficientViT-B1 dim=384",
+                f"best_loss={e_distill_stage2.get('best_loss', float('nan')):.4f}",
+                f"onnx_exported={e_distill_stage2.get('onnx_exported', False)}",
+            ] if not e_distill_stage2.get("skipped") else ["no Stage 2 student"],
+            risks=[
+                "Stage 2 adds a second compression hop — errors from Stage 1 compound",
+                "RKD-D-only may underfit when teacher/student topologies diverge",
+            ],
+            artifacts=["distill_stage2_stats.md", "checkpoints_stage2/student_best.pt",
+                       "edge_models/efficientvit_local.onnx"] if not e_distill_stage2.get("skipped") else [],
+        )
+    else:
+        T["E_distill_stage2"] = 0.0
+        _gate_reason_s2 = (
+            "SSL gate did not pass" if not ssl_gate_passed else
+            "--no-distill" if args.no_distill else
+            "no Stage 1 student"
+        )
+        _step(22, _TOTAL_STEPS, f"Stage 2 distillation (skipped — {_gate_reason_s2})")
+        _append_agentic_step(
+            agentic_trace,
+            step_id="18b",
+            title="Stage 2 distillation (EfficientViT-B1)",
+            description="Compress Stage 1 student into EfficientViT-B1 using RKD-D + KoLeo.",
+            status="skipped",
+            context_inputs=["Stage 1 student backbone"],
+            context_outputs=["no EfficientViT student"],
+            risks=["no ultra-lightweight deployment artifact produced"],
+            artifacts=[],
+        )
+
+    # Step 19: ONNX export + gallery — restore CLIP+DINO (export uses models["dino"])
     # Skipped when SSL gate did not pass (no valid checkpoint to package).
     if ssl_gate_passed:
         if device == "cuda" and not clip_dino_on_gpu:
             _restore_models_to_gpu(models, device)
             clip_dino_on_gpu = _models_on_device(models, device)
-        _step(22, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
+        _step(23, _TOTAL_STEPS, "ONNX export + gallery build → edge_models/")
         with _Timer(T, "F_export"):
             e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
                                   no_onnx=args.no_onnx,
@@ -2371,7 +2455,7 @@ def run_video_pipeline(
     else:
         T["F_export"] = 0.0
         stats.setdefault("onnx_mb", 0.0); stats.setdefault("onnx_exported", False)
-        _step(22, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
+        _step(23, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="19",
@@ -2387,7 +2471,7 @@ def run_video_pipeline(
     # Step 19: Fine-tuned search — only if SSL gate passed (needs fine-tuned or distilled backbone)
     ft_results: List[Dict] = []
     if ssl_gate_passed:
-        _step(23, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
+        _step(24, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
         with _Timer(T, "G_ft_search"):
             f = step_finetuned_model_search_test(frame_list, store, is_qdrant, models,
                                                  query_frame, query_t_sec, video_id, video_name,
@@ -2414,7 +2498,7 @@ def run_video_pipeline(
     else:
         T["G_ft_search"] = 0.0
         stats.setdefault("ft_top_score", 0.0)
-        _step(23, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
+        _step(24, _TOTAL_STEPS, "Fine-tuned search (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="20",
@@ -2429,7 +2513,7 @@ def run_video_pipeline(
 
     # Step 20: Comparison + description — only runs when ssl_gate_passed (needs ft_results)
     if ssl_gate_passed:
-        _step(24, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
+        _step(25, _TOTAL_STEPS, "Model comparison + video description → comparison.md, description.md")
         with _Timer(T, "H_compare"):
             g = step_compare_and_describe(frame_list, store, is_qdrant, base_results, ft_results,
                                           models, video_id, video_name, video_dir,
@@ -2459,7 +2543,7 @@ def run_video_pipeline(
         )
     else:
         T["H_compare"] = 0.0
-        _step(24, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
+        _step(25, _TOTAL_STEPS, "Model comparison (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
             step_id="21",
@@ -2474,7 +2558,7 @@ def run_video_pipeline(
 
     # Step 21: Multi-model comparison — Gemma vs Qwen vs UniDriveVLA
     if not qwen_result.get("skipped") and not unidrive_result.get("skipped"):
-        _step(25, _TOTAL_STEPS, "Multi-model comparison → multi_model_comparison.md")
+        _step(26, _TOTAL_STEPS, "Multi-model comparison → multi_model_comparison.md")
         with _Timer(T, "T_multimodel"):
             mm = step_multi_model_compare(video_name, video_dir, j, qwen_result, unidrive_result)
         video_context["multi_model_comparison"] = mm
@@ -2499,7 +2583,7 @@ def run_video_pipeline(
         )
     else:
         T["T_multimodel"] = 0.0
-        _step(25, _TOTAL_STEPS, "Multi-model comparison (skipped — requires Qwen and UniDrive)")
+        _step(26, _TOTAL_STEPS, "Multi-model comparison (skipped — requires Qwen and UniDrive)")
         _append_agentic_step(
             agentic_trace,
             step_id="22",
@@ -2513,7 +2597,7 @@ def run_video_pipeline(
         )
 
     # Step 26: Local threat aggregation — collapse persisted primitives to clip level.
-    _step(26, _TOTAL_STEPS, "Local threat inference → local_threat_assessment.json")
+    _step(27, _TOTAL_STEPS, "Local threat inference → local_threat_assessment.json")
     from .steps_local_threat import step_local_threat
     with _Timer(T, "PS_local_threat"):
         local_threat_result = step_local_threat(
@@ -2543,7 +2627,7 @@ def run_video_pipeline(
         artifacts=["local_threat_assessment.json"] if not local_threat_result.get("skipped") else [],
     )
 
-    _step(27, _TOTAL_STEPS, "Action policy → policy_decision.json")
+    _step(28, _TOTAL_STEPS, "Action policy → policy_decision.json")
     from .steps_policy import step_policy
     with _Timer(T, "PS_policy"):
         policy_result = step_policy(
@@ -2583,7 +2667,7 @@ def run_video_pipeline(
     if device == "cuda" and clip_dino_on_gpu:
         _offload_models_to_cpu(models)
         clip_dino_on_gpu = False  # noqa: F841
-    _step(28, _TOTAL_STEPS, "Video synthesis (ontology + narrative) → video_synthesis.md")
+    _step(29, _TOTAL_STEPS, "Video synthesis (ontology + narrative) → video_synthesis.md")
     _qwen_url   = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
     _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
     with _Timer(T, "Z_synthesis"):
@@ -2616,7 +2700,7 @@ def run_video_pipeline(
     )
 
     # Step 29: Agentic flow artifact — prefer Gemma reasoning, fall back to Qwen, then deterministic text.
-    _step(29, _TOTAL_STEPS, "Agentic flow audit → agentic_flow.md")
+    _step(30, _TOTAL_STEPS, "Agentic flow audit → agentic_flow.md")
     _agentic_url = (
         getattr(args, "reasoning_api_url", "")
         or getattr(settings, "REASONING_API_URL", "")
@@ -2672,7 +2756,7 @@ def run_video_pipeline(
         _drone_enabled = True  # on by default when not explicitly disabled
     if _drone_enabled:
         from .steps_drone_detection import step_drone_detection_training
-        _step(30, _TOTAL_STEPS, "Drone detection training → drone_detection/")
+        _step(31, _TOTAL_STEPS, "Drone detection training → drone_detection/")
         _append_agentic_step(
             agentic_trace,
             step_id="30",
@@ -2708,7 +2792,7 @@ def run_video_pipeline(
             "✓" if drone_result.get("model_rknn") else "skipped",
         )
     else:
-        _step(30, _TOTAL_STEPS, "Drone detection training (skipped — pass --drone-detection to enable)")
+        _step(31, _TOTAL_STEPS, "Drone detection training (skipped — pass --drone-detection to enable)")
 
     stats["pipeline_sec"] = sum(T.values())
     runtime_metrics = get_runtime_telemetry()
@@ -3020,7 +3104,7 @@ def run_local(args: Any) -> None:
     persist_threat_memory(output_dir, per_video_stats, global_threat_result)
     write_threat_calibration(output_dir, per_video_stats)
     write_threat_eval_summary(output_dir, per_video_stats)
-    _step(31, _TOTAL_STEPS, "Model/run advisor → model_run_advisor.md")
+    _step(32, _TOTAL_STEPS, "Model/run advisor → model_run_advisor.md")
     t_advisor = time.monotonic()
     env_values = {
         key: str(getattr(settings, key, "") or os.getenv(key, ""))

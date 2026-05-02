@@ -157,12 +157,12 @@ See the [Production Quick Start](quickstart-production.md) for full pipeline and
 
 ## Optional: run coop_pilot locally
 
-For learning-path Steps 36-42, run the coop Docker stack and point the local API at
+For learning-path Steps 37-43, run the coop Docker stack and point the local API at
 the localhost MQTT and Frigate ports:
 
 ```bash
 .venv/bin/pip install -e ".[coop_pilot]"
-APP_ENV=test ./scripts/coop/bootstrap.sh up -d
+APP_ENV=test ./scripts/coop-bootstrap.sh up -d
 
 APP_ENV=dev \
 COOP_MQTT_HOST=localhost \
@@ -184,7 +184,7 @@ curl -s http://localhost:8000/site/threat | python -m json.tool
 Stop coop containers:
 
 ```bash
-APP_ENV=test ./scripts/coop/compose.sh down
+APP_ENV=test ./scripts/coop-compose.sh down
 ```
 
 For the full local learning sequence, see

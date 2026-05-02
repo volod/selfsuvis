@@ -59,7 +59,7 @@ For drone missions, detecting interference in control-link bands (2.4 GHz, 5.8 G
 
 **Implementation:**
 - [`pipeline/vision/rf_analyzer.py`](../../src/selfsuvis/pipeline/vision/rf_analyzer.py)
-- [`scripts/prepare_sensor_data.sh`](../../src/selfsuvis/scripts/prepare_sensor_data.sh)
+- [`scripts/selfsuvis-prepare-sensor-data.sh`](../../src/selfsuvis/scripts/selfsuvis-prepare-sensor-data.sh)
 
 **Key concepts:**
 

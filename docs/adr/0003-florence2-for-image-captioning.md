@@ -1,44 +1,33 @@
-# ADR-0003: Florence-2 for Image-to-Text Captioning
+# ADR-0003: Florence-2 as the Default Frame Captioner
 
-Date: 2026-03-23
+Date: 2026-03-23  
 Status: Accepted
-Deciders: @vola
-
----
 
 ## Context
 
-The system requires English text descriptions of video frames to enable natural language
-search and to provide human-readable context in the dataset. Candidates evaluated:
-
-| Model | Strengths | Weaknesses |
-|---|---|---|
-| Florence-2 (Microsoft) | Fast, open-source, strong on diverse scenes, `transformers` native | Less detail on complex outdoor scenes vs. larger models |
-| LLaVA-1.6 | Strong detail, community support | Heavier, slower inference |
-| InternVL2 | State-of-art on dense captioning, strong outdoor scene understanding | Larger model, less mature Python packaging |
-| BLIP-2 | Lightweight, well-tested | Weaker captions vs. 2025 alternatives |
+The pipeline needs a local, automatable image-to-text captioner to support:
+- searchable frame descriptions
+- human-readable mission context
+- caption-confidence-based downstream heuristics
 
 ## Decision
 
-Use **Florence-2** (`microsoft/Florence-2-large`, `transformers >= 4.41`) for v1.
+Use Florence-2 as the default captioning model in the vision pipeline.
 
-Store per-frame: caption text + caption confidence score (from model output logits) in
-both the Qdrant payload and the PostgreSQL `frames` table.
+Current implementation:
+- `src/selfsuvis/pipeline/vision/florence.py`
+- captions and confidence proxies feed search, analytics, and active-learning logic
 
-An open question is noted in the design doc: if Florence-2 captions prove insufficient
-for detailed outdoor scene description during field testing, InternVL2 is the upgrade
-path. The module interface (`models/florence_model.py`) is kept thin so the model can
-be swapped without pipeline changes.
+The captioner is treated as the default fast path, while larger VLMs such as Gemma or
+Qwen add richer reasoning in later steps rather than replacing Florence everywhere.
 
 ## Consequences
 
-**Good:**
-- Fast inference (~200ms/frame on GPU) — fits within the 10-minute end-to-end target
-- `transformers`-native: consistent with existing model loading patterns
-- Caption confidence score is directly usable as an active learning signal
+Positive:
+- Fast enough for routine frame-level captioning
+- Well integrated with the existing Python / transformers stack
+- Produces a usable confidence proxy for downstream scoring
 
-**Bad / Tradeoffs:**
-- May produce generic captions on visually complex or unusual outdoor terrain
-- Caption quality on robot camera views (fisheye, low-light, motion blur) is untested —
-  field validation required before committing to this model
-- Caption confidence from logits is a proxy for uncertainty, not a calibrated score
+Trade-offs:
+- Captions can still be generic on difficult outdoor scenes
+- Confidence is heuristic, not a calibrated uncertainty measure

@@ -1,10 +1,11 @@
 """Post-run model and runtime advisor for local pipeline runs."""
 
-import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from ._common import write_json_artifact, write_markdown_artifact
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -332,7 +333,7 @@ def write_model_run_advisor(
     advisor = build_model_run_advisor(per_video, resources=resources, env_values=env_values)
     json_path = output_dir / "model_run_advisor.json"
     md_path = output_dir / "model_run_advisor.md"
-    json_path.write_text(json.dumps(advisor, indent=2), encoding="utf-8")
+    write_json_artifact(json_path, advisor)
 
     lines = [
         "# Model Run Advisor",
@@ -398,5 +399,5 @@ def write_model_run_advisor(
             lines.append(f"export {k}={v}")
         lines += ["ollama serve", "```"]
 
-    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_markdown_artifact(md_path, lines)
     return advisor

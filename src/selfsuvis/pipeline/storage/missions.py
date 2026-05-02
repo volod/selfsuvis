@@ -1,9 +1,9 @@
 """PostgreSQL helpers for mission/frame metadata persistence."""
 
-import json
 from typing import Any, Dict, Iterable, List, Optional
 
 from selfsuvis.pipeline.core import to_utc_datetime, utcnow
+from selfsuvis.pipeline.storage.common import jsonb, jsonb_optional, row_dict, row_dicts
 
 
 async def upsert_mission(
@@ -55,11 +55,24 @@ async def upsert_mission(
         map_status,
         frame_count,
         duration_sec,
-        json.dumps(gps_origin) if gps_origin is not None else None,
+        jsonb_optional(gps_origin),
         now,
         now,
         error,
     )
+
+
+async def fetch_mission(conn, mission_id: str) -> Optional[Dict[str, Any]]:
+    row = await conn.fetchrow(
+        """
+        SELECT id, video_id, video_path, job_id, robot_id, status, pose_status, map_status,
+               frame_count, duration_sec, gps_origin_json, created_at, updated_at, error
+        FROM missions
+        WHERE id = $1
+        """,
+        mission_id,
+    )
+    return row_dict(row)
 
 
 async def replace_frames(conn, mission_id: str, frames: Iterable[Dict[str, Any]]) -> None:
@@ -94,14 +107,14 @@ async def replace_frames(conn, mission_id: str, frames: Iterable[Dict[str, Any]]
                 row.get("caption_model"),
                 row.get("subtitle_text"),
                 row.get("ocr_text"),
-                json.dumps(row.get("frame_facts_json")) if row.get("frame_facts_json") is not None else None,
+                jsonb_optional(row.get("frame_facts_json")),
                 row.get("al_score"),
                 row.get("al_tag", "none"),
                 row.get("cvat_label"),
                 row.get("pose_status", "pending"),
-                json.dumps(row.get("pose_json")) if row.get("pose_json") is not None else None,
-                json.dumps(row.get("gps_json")) if row.get("gps_json") is not None else None,
-                json.dumps(row.get("global_pose_json")) if row.get("global_pose_json") is not None else None,
+                jsonb_optional(row.get("pose_json")),
+                jsonb_optional(row.get("gps_json")),
+                jsonb_optional(row.get("global_pose_json")),
                 row.get("qdrant_id"),
                 now,
                 now,
@@ -109,6 +122,22 @@ async def replace_frames(conn, mission_id: str, frames: Iterable[Dict[str, Any]]
             for row in rows
         ],
     )
+
+
+async def list_mission_frames(conn, mission_id: str) -> List[Dict[str, Any]]:
+    rows = await conn.fetch(
+        """
+        SELECT id, mission_id, frame_path, t_sec, segment_id, caption, caption_confidence,
+               caption_model, subtitle_text, ocr_text, frame_facts_json, al_score, al_tag,
+               cvat_label, pose_status, pose_json, gps_json, global_pose_json, qdrant_id,
+               created_at, updated_at
+        FROM frames
+        WHERE mission_id = $1
+        ORDER BY t_sec ASC, id ASC
+        """,
+        mission_id,
+    )
+    return row_dicts(rows)
 
 
 async def mark_mission_finished(
@@ -148,7 +177,7 @@ async def apply_gps_registration(
     if enu_origin is not None:
         await conn.execute(
             "UPDATE missions SET gps_origin_json = $1::jsonb, updated_at = $2 WHERE id = $3",
-            json.dumps(enu_origin),
+            jsonb(enu_origin),
             now,
             mission_id,
         )
@@ -161,7 +190,7 @@ async def apply_gps_registration(
             updated_at = $2
         WHERE id = $3
         """,
-        [(json.dumps(pose), now, frame_id) for frame_id, pose in global_poses.items()],
+        [(jsonb(pose), now, frame_id) for frame_id, pose in global_poses.items()],
     )
 
 
@@ -190,4 +219,4 @@ async def list_frames_after(conn, cursor: Optional[tuple], limit: int) -> List[D
             frame_id,
             limit,
         )
-    return [dict(r) for r in rows]
+    return row_dicts(rows)

@@ -1864,6 +1864,405 @@ def step_scene_captioning(
     }
 
 
+# ── Gemma segment-boundary diff ──────────────────────────────────────────────
+
+_SEGMENT_DIFF_PROMPT = (
+    "You are comparing two consecutive frames from a video mission. "
+    "The LEFT image is the last frame of scene segment N; "
+    "the RIGHT image is the first frame of scene segment N+1. "
+    "In 2-3 sentences describe: what changed between the two frames? "
+    "Focus on movement, new objects, environment changes, viewpoint shift. "
+    "Be concise and factual."
+)
+
+
+def _gemma_diff_two_frames_via_api(
+    fp_before: str,
+    fp_after: str,
+    api_url: str,
+    model: str,
+    timeout: float,
+) -> str:
+    """Send two frames to a Gemma sidecar and return a diff description.
+
+    Tries OpenAI-compatible /v1/chat/completions with two image_url entries,
+    then falls back to Ollama native /api/chat with images:[b64_a, b64_b].
+    Returns "" on any failure.
+    """
+    import base64
+    import io as _io
+
+    try:
+        import httpx
+    except ImportError:
+        return ""
+
+    def _encode(fp: str) -> str:
+        img = Image.open(fp).convert("RGB")
+        img.thumbnail((768, 768))
+        buf = _io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        return base64.b64encode(buf.getvalue()).decode()
+
+    try:
+        b64_before = _encode(fp_before)
+        b64_after = _encode(fp_after)
+    except Exception as exc:
+        _log.debug("  [Gemma diff] image load failed: %s", exc)
+        return ""
+
+    base = api_url.rstrip("/")
+    openai_endpoint = f"{base}/chat/completions"
+    ollama_base = base[:-3] if base.endswith("/v1") else base
+    ollama_endpoint = f"{ollama_base}/api/chat"
+
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/jpeg;base64,{b64_before}"}},
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/jpeg;base64,{b64_after}"}},
+                {"type": "text", "text": _SEGMENT_DIFF_PROMPT},
+            ],
+        }],
+        "max_tokens": 400,
+        "temperature": 0.1,
+    }
+    try:
+        resp = httpx.post(openai_endpoint, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        msg = resp.json()["choices"][0]["message"]
+        content = msg.get("content") or ""
+        if isinstance(content, list):
+            content = " ".join(
+                p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+            )
+        if content.strip():
+            return content.strip()
+    except Exception as exc:
+        _log.debug("  [Gemma diff] OpenAI-compat request failed: %s", exc)
+
+    # Ollama native fallback: images array with both frames
+    native_payload = {
+        "model": model,
+        "stream": False,
+        "messages": [{
+            "role": "user",
+            "content": _SEGMENT_DIFF_PROMPT,
+            "images": [b64_before, b64_after],
+        }],
+    }
+    try:
+        resp = httpx.post(ollama_endpoint, json=native_payload, timeout=timeout)
+        resp.raise_for_status()
+        content = resp.json().get("message", {}).get("content", "")
+        if content.strip():
+            return content.strip()
+    except Exception as exc:
+        _log.debug("  [Gemma diff] Ollama native request failed: %s", exc)
+
+    return ""
+
+
+def step_gemma_segment_captions(
+    frame_list: List[Tuple[str, float]],
+    caption_results: List[Dict[str, Any]],
+    video_name: str,
+    video_dir: Path,
+    gemma_api_url: str = "",
+    gemma_api_model: str = "",
+) -> Dict[str, Any]:
+    """Step 4b: Gemma 4 multi-frame segment-boundary diff analysis.
+
+    Uses _analyze_caption_sequence to find scene boundaries from Florence captions,
+    then for each boundary pair calls the Gemma sidecar with both frames and a diff
+    prompt ("What changed between these two frames?").
+
+    Writes ``gemma_segment_captions.md`` to *video_dir*.
+    Skips gracefully when no sidecar is configured or no captions are available.
+    """
+    from ._common import _analyze_caption_sequence
+    from .steps_report import write_gemma_segment_captions_md
+
+    result: Dict[str, Any] = {"skipped": True, "reason": "", "boundary_diffs": []}
+
+    effective_api_url   = gemma_api_url or settings.GEMMA_API_URL
+    effective_api_model = gemma_api_model or settings.GEMMA_API_MODEL
+    effective_timeout   = float(settings.GEMMA_API_TIMEOUT_SEC)
+
+    if not effective_api_url:
+        result["reason"] = "GEMMA_API_URL not configured"
+        _log.info("  Gemma segment captions skipped: %s", result["reason"])
+        return result
+
+    if not caption_results:
+        result["reason"] = "no caption results available"
+        _log.info("  Gemma segment captions skipped: %s", result["reason"])
+        return result
+
+    # Build frame_path lookup keyed by t_sec
+    ts_to_fp: Dict[float, str] = {t: fp for fp, t in frame_list}
+
+    enriched = _analyze_caption_sequence(caption_results)
+
+    # Find boundary pairs: (last_frame_of_seg_N, first_frame_of_seg_N+1)
+    boundary_pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    for i, row in enumerate(enriched):
+        if i > 0 and row.get("is_new_segment"):
+            boundary_pairs.append((enriched[i - 1], row))
+
+    if not boundary_pairs:
+        result["reason"] = "no segment boundaries found"
+        _log.info("  Gemma segment captions: no segment boundaries (all frames same segment)")
+        return result
+
+    _log.info(
+        "Gemma segment-boundary diff: %d boundaries  model=%s  url=%s ...",
+        len(boundary_pairs), effective_api_model, effective_api_url,
+    )
+    t0 = time.time()
+
+    boundary_diffs: List[Dict[str, Any]] = []
+    for idx, (prev_row, next_row) in enumerate(boundary_pairs):
+        fp_before = ts_to_fp.get(prev_row.get("t_sec", -1.0), "") or prev_row.get("frame_path", "")
+        fp_after  = ts_to_fp.get(next_row.get("t_sec", -1.0), "") or next_row.get("frame_path", "")
+        if not fp_before or not fp_after:
+            _log.debug("  Gemma diff: missing frame paths at boundary %d — skipping", idx)
+            continue
+
+        desc = _gemma_diff_two_frames_via_api(
+            fp_before, fp_after, effective_api_url, effective_api_model, effective_timeout
+        )
+        entry = {
+            "boundary_idx":     idx,
+            "prev_t_sec":       prev_row.get("t_sec", 0.0),
+            "next_t_sec":       next_row.get("t_sec", 0.0),
+            "prev_segment_id":  prev_row.get("segment_id", 0),
+            "next_segment_id":  next_row.get("segment_id", 0),
+            "fp_before":        fp_before,
+            "fp_after":         fp_after,
+            "diff_description": desc,
+        }
+        boundary_diffs.append(entry)
+
+    elapsed = time.time() - t0
+    described = sum(1 for b in boundary_diffs if b.get("diff_description"))
+    _log.info(
+        "  ✓ Gemma segment diffs: %d/%d boundaries described in %.1fs",
+        described, len(boundary_pairs), elapsed,
+    )
+
+    out_md = video_dir / "gemma_segment_captions.md"
+    write_gemma_segment_captions_md(out_md, video_name, effective_api_model, boundary_diffs)
+
+    result.update({
+        "skipped":        False,
+        "boundary_count": len(boundary_pairs),
+        "described_count": described,
+        "elapsed_sec":    elapsed,
+        "model":          effective_api_model,
+        "boundary_diffs": boundary_diffs,
+    })
+    return result
+
+
+# ── Gemma structured extraction (Qwen fallback) ──────────────────────────────
+
+_GEMMA_QWEN_FALLBACK_PROMPT = (
+    "Analyse this image and return ONLY a JSON object with these keys:\n"
+    '{\n'
+    '  "vehicle_groups": [\n'
+    '    {"type": "truck|car|bus|motorcycle|emergency|military|van|other",\n'
+    '     "count": <integer>,\n'
+    '     "color": "<dominant color or unknown>",\n'
+    '     "position": "<front|centre|rear|left|right|scattered>"}\n'
+    '  ],\n'
+    '  "road_surface": "asphalt|concrete|gravel|dirt|unknown",\n'
+    '  "road_condition": "clear|wet|snow|ice|debris|unknown",\n'
+    '  "scene_summary": "<one sentence describing the scene>"\n'
+    '}\n'
+    "If no vehicles are visible, return an empty vehicle_groups list. "
+    "Return only the JSON object, no other text."
+)
+
+
+def _gemma_extract_frame_structured(
+    fp: str,
+    api_url: str,
+    model: str,
+    timeout: float,
+    t_sec: float,
+) -> Dict[str, Any]:
+    """Call Gemma sidecar for per-frame structured JSON matching the Qwen schema.
+
+    Returns a dict with the same keys as QwenModel.extract_frame_facts output:
+    vehicle_groups, road_surface, road_condition, scene_summary, t_sec, frame_path.
+    Returns a partial result with parse_error=True on JSON parse failure.
+    """
+    import base64
+    import io as _io
+    import json as _json
+
+    base_result: Dict[str, Any] = {
+        "t_sec": t_sec,
+        "frame_path": fp,
+        "vehicle_groups": [],
+        "road_surface": "unknown",
+        "road_condition": "unknown",
+        "scene_summary": "",
+    }
+
+    try:
+        import httpx
+    except ImportError:
+        return {**base_result, "skipped": True, "reason": "httpx not installed"}
+
+    try:
+        img = Image.open(fp).convert("RGB")
+        img.thumbnail((512, 512))
+        buf = _io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+    except Exception as exc:
+        _log.debug("  [Gemma fallback] image load failed %s: %s", Path(fp).name, exc)
+        return {**base_result, "skipped": True, "reason": str(exc)}
+
+    endpoint = f"{api_url.rstrip('/')}/chat/completions"
+    ollama_base = api_url.rstrip("/")
+    if ollama_base.endswith("/v1"):
+        ollama_base = ollama_base[:-3]
+    ollama_endpoint = f"{ollama_base}/api/chat"
+
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                {"type": "text", "text": _GEMMA_QWEN_FALLBACK_PROMPT},
+            ],
+        }],
+        "max_tokens": 512,
+        "temperature": 0.0,
+    }
+    raw_content = ""
+    try:
+        resp = httpx.post(endpoint, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        msg = resp.json()["choices"][0]["message"]
+        raw_content = msg.get("content") or ""
+        if isinstance(raw_content, list):
+            raw_content = " ".join(
+                p.get("text", "") if isinstance(p, dict) else str(p) for p in raw_content
+            )
+    except Exception as exc:
+        _log.debug("  [Gemma fallback] API call failed %s: %s", Path(fp).name, exc)
+
+    # Ollama native fallback when content is empty (thinking model)
+    if not raw_content.strip():
+        try:
+            native_payload = {
+                "model": model,
+                "stream": False,
+                "messages": [{
+                    "role": "user",
+                    "content": _GEMMA_QWEN_FALLBACK_PROMPT,
+                    "images": [b64],
+                }],
+            }
+            resp = httpx.post(ollama_endpoint, json=native_payload, timeout=timeout)
+            resp.raise_for_status()
+            raw_content = resp.json().get("message", {}).get("content", "")
+        except Exception:
+            pass
+
+    if not raw_content.strip():
+        return {**base_result, "service_unavailable": True}
+
+    # Parse JSON — strip markdown fences if present
+    import re as _re
+    text = raw_content.strip()
+    match = _re.search(r'\{[\s\S]*\}', text)
+    if not match:
+        return {**base_result, "parse_error": True, "raw_content": text[:200]}
+    try:
+        parsed = _json.loads(match.group())
+    except _json.JSONDecodeError:
+        return {**base_result, "parse_error": True, "raw_content": text[:200]}
+
+    result = {**base_result}
+    result["vehicle_groups"] = parsed.get("vehicle_groups") or []
+    if not isinstance(result["vehicle_groups"], list):
+        result["vehicle_groups"] = []
+    result["road_surface"] = str(parsed.get("road_surface") or "unknown").lower()
+    result["road_condition"] = str(parsed.get("road_condition") or "unknown").lower()
+    result["scene_summary"] = str(parsed.get("scene_summary") or "").strip()
+    return result
+
+
+def _step_qwen_captioning_gemma_fallback(
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+    gemma_url: str,
+    gemma_model: str,
+) -> Dict[str, Any]:
+    """Gemma fallback for step_qwen_captioning when QWEN_API_URL is unset.
+
+    Produces per-frame structured JSON with the same schema as QwenModel
+    (vehicle_groups, road_surface, road_condition, scene_summary) via the
+    Gemma sidecar. Frame selection mirrors the Qwen budget logic.
+    """
+    from .steps_report import write_detailed_captions_md
+
+    out_md = video_dir / "detailed_captions.md"
+    result: Dict[str, Any] = {"skipped": True, "results": []}
+    effective_timeout = float(settings.GEMMA_API_TIMEOUT_SEC)
+
+    budget = _adaptive_sparse_budget(
+        frame_list,
+        configured_max=max(1, int(settings.QWEN_MAX_FRAMES)),
+        seconds_per_sample=0.9,
+        floor=8,
+    )
+    sampled = frame_list[::max(1, len(frame_list) // max(1, budget))][:budget]
+
+    _log.info(
+        "Gemma structured extraction (Qwen fallback): %d/%d frames  model=%s ...",
+        len(sampled), len(frame_list), gemma_model,
+    )
+    t0 = time.time()
+    caption_results: List[Dict[str, Any]] = []
+    for fp, t_sec in sampled:
+        r = _gemma_extract_frame_structured(fp, gemma_url, gemma_model, effective_timeout, t_sec)
+        caption_results.append(r)
+
+    elapsed = time.time() - t0
+    ok = sum(1 for r in caption_results
+             if not r.get("service_unavailable") and not r.get("skipped") and not r.get("parse_error"))
+    parse_errors = sum(1 for r in caption_results if r.get("parse_error"))
+    _log.info(
+        "  ✓ Gemma fallback: %d/%d frames extracted in %.1fs (parse_errors=%d)",
+        ok, len(sampled), elapsed, parse_errors,
+    )
+    write_detailed_captions_md(out_md, video_name, caption_results, elapsed, gemma_model)
+    result.update({
+        "skipped": False,
+        "results": caption_results,
+        "ok_count": ok,
+        "elapsed_sec": elapsed,
+        "sampled_count": len(sampled),
+        "total_frames": len(frame_list),
+        "parse_error_count": parse_errors,
+        "backend": "gemma_fallback",
+    })
+    return result
+
+
 def step_qwen_captioning(
     frame_list: List[Tuple[str, float]],
     video_name: str,
@@ -1895,6 +2294,14 @@ def step_qwen_captioning(
     if not qwen.is_enabled():
         _log.info("  Qwen disabled (QWEN_API_URL not set) — skipping detailed captioning")
         _log.info("  To enable: --qwen-api-url http://localhost:8010/v1  (or set QWEN_API_URL)")
+        # Gemma fallback: when GEMMA_API_URL is set, use Gemma structured extraction
+        # to produce the same JSON schema as Qwen (vehicle_groups, road_surface, etc.)
+        gemma_url = settings.GEMMA_API_URL
+        gemma_model = settings.GEMMA_API_MODEL
+        if gemma_url:
+            return _step_qwen_captioning_gemma_fallback(
+                frame_list, video_name, video_dir, gemma_url, gemma_model,
+            )
         return result
     ocr_map: Dict[float, str] = {r["t_sec"]: r["ocr_text"]
                                   for r in ocr_results

@@ -1,10 +1,11 @@
 import asyncio
-import json
+from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 import asyncpg
 
 from selfsuvis.pipeline.core import datetime_to_ts, settings, utcnow
+from selfsuvis.pipeline.storage.common import decoded_json, jsonb
 
 _CREATE_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS processed_files (
@@ -21,55 +22,52 @@ _CREATE_TABLE_SQL = """
 """
 
 
+@asynccontextmanager
+async def _borrow_conn(conn=None):
+    if conn is not None:
+        yield conn
+        return
+    if not settings.DATABASE_URL:
+        yield None
+        return
+    owned = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
+    try:
+        yield owned
+    finally:
+        await owned.close()
+
+
 async def init_db_conn(conn) -> None:
     await conn.execute(_CREATE_TABLE_SQL)
 
 
 async def aget_by_hash(file_hash: str, conn=None) -> Optional[Dict[str, Any]]:
-    if conn is None and not settings.DATABASE_URL:
-        return None
-    close_conn = False
-    if conn is None:
-        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
-        close_conn = True
-    try:
-        row = await conn.fetchrow(
+    async with _borrow_conn(conn) as db:
+        if db is None:
+            return None
+        row = await db.fetchrow(
             "SELECT * FROM processed_files WHERE file_hash = $1",
             file_hash,
         )
         return _row_to_dict(row) if row else None
-    finally:
-        if close_conn:
-            await conn.close()
 
 
 async def aget_by_url(url: str, conn=None) -> Optional[Dict[str, Any]]:
-    if conn is None and not settings.DATABASE_URL:
-        return None
-    close_conn = False
-    if conn is None:
-        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
-        close_conn = True
-    try:
-        row = await conn.fetchrow(
+    async with _borrow_conn(conn) as db:
+        if db is None:
+            return None
+        row = await db.fetchrow(
             "SELECT * FROM processed_files WHERE meta_json ->> 'url' = $1",
             url,
         )
         return _row_to_dict(row) if row else None
-    finally:
-        if close_conn:
-            await conn.close()
 
 
 async def aget_by_size(size_bytes: int, conn=None) -> Optional[Dict[str, Any]]:
-    if conn is None and not settings.DATABASE_URL:
-        return None
-    close_conn = False
-    if conn is None:
-        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
-        close_conn = True
-    try:
-        row = await conn.fetchrow(
+    async with _borrow_conn(conn) as db:
+        if db is None:
+            return None
+        row = await db.fetchrow(
             """
             SELECT *
             FROM processed_files
@@ -80,9 +78,6 @@ async def aget_by_size(size_bytes: int, conn=None) -> Optional[Dict[str, Any]]:
             size_bytes,
         )
         return _row_to_dict(row) if row else None
-    finally:
-        if close_conn:
-            await conn.close()
 
 
 async def aupsert(
@@ -95,15 +90,11 @@ async def aupsert(
     meta: Dict[str, Any],
     conn=None,
 ) -> None:
-    if conn is None and not settings.DATABASE_URL:
-        return
-    close_conn = False
-    if conn is None:
-        conn = await asyncpg.connect(settings.DATABASE_URL, timeout=5)
-        close_conn = True
-    now = utcnow()
-    try:
-        await conn.execute(
+    async with _borrow_conn(conn) as db:
+        if db is None:
+            return
+        now = utcnow()
+        await db.execute(
             """
             INSERT INTO processed_files
                 (file_hash, video_id, path, size_bytes, mtime, status, meta_json, created_at, updated_at)
@@ -123,13 +114,10 @@ async def aupsert(
             size_bytes,
             mtime,
             status,
-            json.dumps(meta),
+            jsonb(meta),
             now,
             now,
         )
-    finally:
-        if close_conn:
-            await conn.close()
 
 
 async def ainit_db() -> None:
@@ -171,9 +159,7 @@ def upsert(
 
 
 def _row_to_dict(row) -> Dict[str, Any]:
-    meta = row["meta_json"] or {}
-    if isinstance(meta, str):
-        meta = json.loads(meta)
+    meta = decoded_json(row["meta_json"], default={})
     return {
         "file_hash": row["file_hash"],
         "video_id": row["video_id"],

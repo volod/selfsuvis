@@ -27,6 +27,8 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from ._common import write_markdown_artifact
+
 _log = logging.getLogger("pipeline.local.drone_detection")
 
 # Maximum images we download from the HF dataset for the demo training run.
@@ -487,7 +489,7 @@ def _write_report(
         "4. **On-device benchmark**: run `rknn_benchmark` on the RV1106G3 to measure real NPU latency",
         "5. **Integration**: call `EdgeClassifier` from `selfsuvis.pipeline.inference.edge` with the exported ONNX",
     ]
-    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_markdown_artifact(report_path, lines)
 
 
 # ── Public step function ──────────────────────────────────────────────────────

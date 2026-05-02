@@ -28,6 +28,8 @@ import selfsuvis.pipeline.storage.processed as processed_db_mod
 from selfsuvis.pipeline.storage.processed import ainit_db as init_processed_db_async, get_by_hash
 from selfsuvis.pipeline.media import download_url
 from selfsuvis.pipeline.storage.missions import (
+    fetch_mission,
+    list_mission_frames,
     apply_gps_registration,
     list_frames_after,
     mark_mission_finished,
@@ -40,6 +42,97 @@ class JobType(str, Enum):
     INDEX = "index"
     FINETUNE = "supervised_finetune"
     REEMBED = "reembed"
+    POSTFLIGHT_MAPPING = "postflight_mapping"
+    POSTFLIGHT_SEMANTIC_GRAPH = "postflight_semantic_graph"
+
+
+def _normalize_postflight_job_names(value) -> list[str]:
+    names = []
+    for item in value or []:
+        name = str(item or "").strip()
+        if not name:
+            continue
+        if name not in names:
+            names.append(name)
+    return names
+
+
+async def _enqueue_postflight_jobs(conn, payload: dict, logger) -> list[str]:
+    requested = _normalize_postflight_job_names(payload.get("postflight_jobs"))
+    if not requested:
+        return []
+
+    created: list[str] = []
+    base_payload = {
+        "video_id": payload.get("video_id"),
+        "video_path": payload.get("video_path"),
+        "mission_id": payload.get("mission_id") or payload.get("video_id"),
+        "realtime_session_id": payload.get("realtime_session_id"),
+    }
+    remaining = list(requested)
+    while remaining:
+        job_name = remaining.pop(0)
+        next_jobs = list(remaining)
+        if job_name not in {
+            JobType.POSTFLIGHT_MAPPING.value,
+            JobType.POSTFLIGHT_SEMANTIC_GRAPH.value,
+        }:
+            logger.warning("Skipping unknown postflight job type=%s", job_name)
+            continue
+        child_job_id = uuid.uuid4().hex
+        child_payload = {**base_payload, "next_postflight_jobs": next_jobs}
+        await create_job(conn, child_job_id, child_payload, job_type=job_name)
+        created.append(child_job_id)
+        logger.info(
+            "Post-flight job enqueued parent_mission=%s job_id=%s type=%s",
+            base_payload["mission_id"],
+            child_job_id,
+            job_name,
+        )
+        break
+    return created
+
+
+async def _finalize_postflight_job_success(
+    conn,
+    *,
+    job_id: str,
+    mission_id: str,
+    payload: dict,
+    progress: dict,
+    logger,
+) -> None:
+    await update_job(
+        conn,
+        job_id,
+        status="finished",
+        progress=progress,
+        finished_at=time.time(),
+    )
+    next_payload = {
+        **payload,
+        "postflight_jobs": payload.get("next_postflight_jobs", []),
+    }
+    created = await _enqueue_postflight_jobs(conn, next_payload, logger)
+    if not created:
+        await mark_mission_finished(conn, mission_id, status="done", error=None)
+
+
+async def _finalize_postflight_job_error(
+    conn,
+    *,
+    job_id: str,
+    mission_id: str,
+    error: str,
+) -> None:
+    await update_job(
+        conn,
+        job_id,
+        status="error",
+        error=error,
+        finished_at=time.time(),
+    )
+    await mark_mission_finished(conn, mission_id, status="error", error=error)
 
 
 def _resolve_site_origin(video_path: str, logger) -> tuple:
@@ -480,7 +573,7 @@ def _load_batch_images(batch, logger) -> tuple:
             images.append(img)
             valid_rows.append(frame_row)
         except Exception as exc:
-            logger.debug("Reembed: skipping unreadable frame id=%s err=%s", frame_row["id"], exc)
+            logger.warning("Reembed: skipping unreadable frame id=%s err=%s", frame_row["id"], exc)
     return images, valid_rows
 
 
@@ -587,6 +680,147 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
         _run(_mark_error())
 
 
+def handle_postflight_mapping_job(job_id: str, payload: dict, pool, logger) -> None:
+    video_path = payload.get("video_path")
+    video_id = payload.get("video_id")
+    mission_id = payload.get("mission_id") or video_id
+    if not video_path or not video_id or not mission_id:
+        _update_job_sync(
+            pool,
+            job_id,
+            status="error",
+            error="postflight_mapping requires video_id, mission_id, and video_path",
+            finished_at=time.time(),
+        )
+        return
+
+    try:
+        if not os.path.exists(video_path):
+            raise RuntimeError("video_path not found")
+
+        async def _load_frames():
+            async with pool.acquire() as conn:
+                return await list_mission_frames(conn, mission_id)
+
+        frame_records = _run(_load_frames())
+        global_map_id, _site_enu_origin = _resolve_site_origin(video_path, logger)
+        _run_pass_a(
+            video_path,
+            video_id,
+            mission_id,
+            {"frame_records": frame_records},
+            logger,
+            global_map_id=global_map_id,
+        )
+
+        async def _finish():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await _finalize_postflight_job_success(
+                        conn,
+                        job_id=job_id,
+                        mission_id=mission_id,
+                        payload=payload,
+                        progress={"mission_id": mission_id, "video_id": video_id},
+                        logger=logger,
+                    )
+
+        _run(_finish())
+        logger.info("Post-flight mapping job finished id=%s mission=%s", job_id, mission_id)
+    except Exception as exc:
+        logger.exception("Post-flight mapping job failed id=%s error=%s", job_id, exc)
+
+        async def _mark_error():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await _finalize_postflight_job_error(
+                        conn,
+                        job_id=job_id,
+                        mission_id=mission_id,
+                        error=str(exc),
+                    )
+
+        _run(_mark_error())
+
+
+def handle_postflight_semantic_graph_job(job_id: str, payload: dict, pool, logger) -> None:
+    mission_id = payload.get("mission_id") or payload.get("video_id")
+    if not mission_id:
+        _update_job_sync(
+            pool,
+            job_id,
+            status="error",
+            error="postflight_semantic_graph requires mission_id",
+            finished_at=time.time(),
+        )
+        return
+
+    try:
+        from selfsuvis.pipeline.mapping import (
+            build_semantic_environment_graph,
+            write_semantic_graph_markdown,
+        )
+
+        async def _load_mission_state():
+            async with pool.acquire() as conn:
+                mission = await fetch_mission(conn, mission_id)
+                frames = await list_mission_frames(conn, mission_id)
+                return mission, frames
+
+        mission, frames = _run(_load_mission_state())
+        if mission is None:
+            raise LookupError(f"mission not found: {mission_id}")
+
+        graph_dir = os.path.join(settings.MAPS_DIR, mission_id)
+        graph_json = os.path.join(graph_dir, "semantic_environment_graph.json")
+        graph_md = os.path.join(graph_dir, "semantic_environment_graph.md")
+        graph = build_semantic_environment_graph(
+            frames,
+            graph_id=mission_id,
+            output_path=graph_json,
+        )
+        write_semantic_graph_markdown(
+            graph,
+            graph_md,
+            title=f"{mission_id} — Semantic Environment Graph",
+        )
+
+        async def _finish():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await _finalize_postflight_job_success(
+                        conn,
+                        job_id=job_id,
+                        mission_id=mission_id,
+                        payload=payload,
+                        progress={
+                            "mission_id": mission_id,
+                            "graph_json": graph_json,
+                            "graph_markdown": graph_md,
+                            "node_count": graph.get("summary", {}).get("node_count", 0),
+                            "edge_count": graph.get("summary", {}).get("edge_count", 0),
+                        },
+                        logger=logger,
+                    )
+
+        _run(_finish())
+        logger.info("Post-flight semantic graph job finished id=%s mission=%s", job_id, mission_id)
+    except Exception as exc:
+        logger.exception("Post-flight semantic graph job failed id=%s error=%s", job_id, exc)
+
+        async def _mark_error():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await _finalize_postflight_job_error(
+                        conn,
+                        job_id=job_id,
+                        mission_id=mission_id,
+                        error=str(exc),
+                    )
+
+        _run(_mark_error())
+
+
 # ── Main loop ────────────────────────────────────────────────────────────────
 
 def _claim_next_job(pool) -> Optional[dict]:
@@ -651,6 +885,14 @@ def main() -> None:
 
             if job_type == JobType.REEMBED:
                 handle_reembed_job(job_id, payload, conn_url, logger)
+                continue
+
+            if job_type == JobType.POSTFLIGHT_MAPPING:
+                handle_postflight_mapping_job(job_id, payload, pool, logger)
+                continue
+
+            if job_type == JobType.POSTFLIGHT_SEMANTIC_GRAPH:
+                handle_postflight_semantic_graph_job(job_id, payload, pool, logger)
                 continue
 
             if job_type not in (None, JobType.INDEX):
@@ -756,15 +998,7 @@ def main() -> None:
 
                 _run(_persist_index_result())
 
-                # Pass A: SfM → GPS registration → 3DGS mapper (GPU optional)
-                _run_pass_a(
-                    video_path,
-                    video_id,
-                    mission_id,
-                    result,
-                    logger,
-                    global_map_id=global_map_id,
-                )
+                postflight_jobs = _normalize_postflight_job_names(payload.get("postflight_jobs"))
 
                 async def _finalize_success():
                     async with pool.acquire() as conn:
@@ -779,12 +1013,21 @@ def main() -> None:
                                 {"url": url},
                                 conn=conn,
                             )
-                            await mark_mission_finished(
-                                conn,
-                                mission_id,
-                                status="done",
-                                error=None,
-                            )
+                            if postflight_jobs:
+                                await mark_mission_finished(
+                                    conn,
+                                    mission_id,
+                                    status="indexing",
+                                    error=None,
+                                )
+                                await _enqueue_postflight_jobs(conn, payload, logger)
+                            else:
+                                await mark_mission_finished(
+                                    conn,
+                                    mission_id,
+                                    status="done",
+                                    error=None,
+                                )
                             await update_job(
                                 conn,
                                 job_id,

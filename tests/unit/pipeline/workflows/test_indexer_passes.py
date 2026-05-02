@@ -7,6 +7,7 @@ Covers the pass-level logic in pipeline/indexer.py:
 - _run_qwen_pass: Qwen merge with existing frame_facts_json keys
 - _run_depth_pass: depth result merge into frame_facts_json
 - _run_detection_pass: detection result merge, batching
+- _run_segmentation_pass: SAM auto-mask summary + label assignment
 - _run_world_model_pass: middle-frame assignment, window logic
 
 All tests run without GPU, Docker, or real model weights.
@@ -63,6 +64,7 @@ def _make_indexer() -> Any:
     obj.world_model = None
     obj.yolo_detector = None
     obj.sam_predictor = None
+    obj.segmentation_predictor = None
     obj.enable_tiles = False
     obj.phash_lru = MagicMock()
     obj.recent_index = MagicMock()
@@ -554,6 +556,75 @@ class TestRunDetectionPass:
         indexer._run_detection_pass(records)  # must not raise
 
         assert received_sizes == [((224, 224),)]
+
+
+# ── Segmentation pass ────────────────────────────────────────────────────────
+
+class TestRunSegmentationPass:
+    def test_segmentation_summary_written_with_detection_labels(self, tmp_path, monkeypatch):
+        import selfsuvis.pipeline.workflows.indexer as idx_module
+
+        indexer = _make_indexer()
+        monkeypatch.setattr(idx_module.settings, "SEGMENTATION_MODEL", "facebook/sam2-hiera-small")
+        monkeypatch.setattr(idx_module.settings, "SEGMENTATION_MAX_MASKS", 16)
+        monkeypatch.setattr(idx_module.settings, "SEGMENTATION_MIN_AREA_NORM", 0.001)
+        monkeypatch.setattr(idx_module.settings, "SEGMENTATION_POINTS_PER_SIDE", 8)
+
+        indexer.segmentation_predictor = MagicMock()
+        indexer.segmentation_predictor.generate_auto_masks.return_value = [
+            {
+                "bbox": [0, 0, 32, 32],
+                "area": 1024,
+                "area_norm": 0.25,
+                "score": 0.91,
+                "mask": None,
+            },
+            {
+                "bbox": [32, 32, 16, 16],
+                "area": 256,
+                "area_norm": 0.0625,
+                "score": 0.77,
+                "mask": None,
+            },
+        ]
+
+        records = _make_records(1, tmp_path)
+        records[0]["frame_facts_json"] = {
+            "detections": [
+                {"label": "vehicle", "bbox_norm": [0.0, 0.0, 0.5, 0.5]},
+            ]
+        }
+
+        indexer._run_segmentation_pass(records)
+
+        segments = records[0]["frame_facts_json"]["segments"]
+        assert segments["count"] == 2
+        assert segments["label_counts"]["vehicle"] == 1
+        assert segments["label_counts"]["unlabeled"] == 1
+        assert segments["model"] == "facebook/sam2-hiera-small"
+
+    def test_segmentation_filters_small_masks_and_caps_count(self, tmp_path, monkeypatch):
+        import selfsuvis.pipeline.workflows.indexer as idx_module
+
+        indexer = _make_indexer()
+        monkeypatch.setattr(idx_module.settings, "SEGMENTATION_MODEL", "facebook/sam2-hiera-small")
+        monkeypatch.setattr(idx_module.settings, "SEGMENTATION_MAX_MASKS", 1)
+        monkeypatch.setattr(idx_module.settings, "SEGMENTATION_MIN_AREA_NORM", 0.01)
+        monkeypatch.setattr(idx_module.settings, "SEGMENTATION_POINTS_PER_SIDE", 8)
+
+        indexer.segmentation_predictor = MagicMock()
+        indexer.segmentation_predictor.generate_auto_masks.return_value = [
+            {"bbox": [0, 0, 16, 16], "area": 256, "area_norm": 0.0625, "score": 0.4, "mask": None},
+            {"bbox": [16, 16, 2, 2], "area": 4, "area_norm": 0.0009, "score": 0.9, "mask": None},
+            {"bbox": [8, 8, 24, 24], "area": 576, "area_norm": 0.14, "score": 0.8, "mask": None},
+        ]
+
+        records = _make_records(1, tmp_path)
+        indexer._run_segmentation_pass(records)
+
+        segments = records[0]["frame_facts_json"]["segments"]
+        assert segments["count"] == 1
+        assert segments["max_area_norm"] == pytest.approx(0.14)
 
 
 # ── World model pass ──────────────────────────────────────────────────────────

@@ -68,14 +68,16 @@ def test_verify_signature_wrong():
         assert _verify_cvat_signature(body, "badsignature") is False
 
 
+@patch("selfsuvis.app.routers.cvat._fetch_cvat_labels", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._mark_frames_annotated", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._frames_for_cvat_task", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._maybe_trigger_finetune", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat.settings")
-def test_webhook_job_completed_marks_frames(mock_settings, mock_trigger, mock_frames, mock_mark):
+def test_webhook_job_completed_marks_frames(mock_settings, mock_trigger, mock_frames, mock_mark, mock_fetch):
     mock_settings.CVAT_WEBHOOK_SECRET = ""
     mock_frames.return_value = ["f1", "f2", "f3"]
     mock_mark.return_value = 3
+    mock_fetch.return_value = {}
     db_pool = object()
 
     body = json.dumps(_webhook_payload("update:job", "completed", task_id=5)).encode()
@@ -83,18 +85,21 @@ def test_webhook_job_completed_marks_frames(mock_settings, mock_trigger, mock_fr
 
     assert data["annotated"] == 3
     mock_frames.assert_awaited_once_with(5, db_pool)
-    mock_mark.assert_awaited_once_with(["f1", "f2", "f3"], db_pool)
+    mock_fetch.assert_awaited_once_with(5)
+    mock_mark.assert_awaited_once_with(["f1", "f2", "f3"], db_pool, {})
     mock_trigger.assert_awaited_once_with(db_pool)
 
 
+@patch("selfsuvis.app.routers.cvat._fetch_cvat_labels", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._mark_frames_annotated", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._frames_for_cvat_task", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._maybe_trigger_finetune", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat.settings")
-def test_webhook_task_completed_marks_frames(mock_settings, mock_trigger, mock_frames, mock_mark):
+def test_webhook_task_completed_marks_frames(mock_settings, mock_trigger, mock_frames, mock_mark, mock_fetch):
     mock_settings.CVAT_WEBHOOK_SECRET = ""
     mock_frames.return_value = ["fa", "fb"]
     mock_mark.return_value = 2
+    mock_fetch.return_value = {}
     db_pool = object()
 
     body = json.dumps(_webhook_payload("update:task", "completed", task_id=7)).encode()
@@ -135,15 +140,17 @@ def test_webhook_invalid_signature_returns_400(mock_settings):
     assert exc.value.status_code == 400
 
 
+@patch("selfsuvis.app.routers.cvat._fetch_cvat_labels", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._mark_frames_annotated", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._frames_for_cvat_task", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._maybe_trigger_finetune", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat.settings")
-def test_webhook_valid_signature_passes(mock_settings, mock_trigger, mock_frames, mock_mark):
+def test_webhook_valid_signature_passes(mock_settings, mock_trigger, mock_frames, mock_mark, mock_fetch):
     secret = "supersecret"
     mock_settings.CVAT_WEBHOOK_SECRET = secret
     mock_frames.return_value = ["f1"]
     mock_mark.return_value = 1
+    mock_fetch.return_value = {}
     db_pool = object()
 
     body = json.dumps(_webhook_payload("update:job", "completed", task_id=2)).encode()

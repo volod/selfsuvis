@@ -1,0 +1,19 @@
+FROM python:3.10-slim AS builder
+
+WORKDIR /app
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+RUN python -m venv "$VIRTUAL_ENV"
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir .
+
+FROM python:3.10-slim
+
+WORKDIR /app
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+COPY --from=builder /opt/venv /opt/venv
+CMD ["python", "-m", "selfsuvis.realtime_pilot.bridge_runtime"]

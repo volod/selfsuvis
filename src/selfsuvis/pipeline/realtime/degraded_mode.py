@@ -1,9 +1,8 @@
 """Realtime degraded-mode and automation-confidence policies."""
 
-from __future__ import annotations
-
 from typing import Any, Dict, Iterable, List, Sequence
 
+from .event_access import event_freshness_sec, event_node_id, event_payload, event_sensor_type, payload_float, payload_text
 from .freshness import downweight_score
 
 _HIGH_VALUE_SENSORS = ("camera", "gps", "imu", "fusion")
@@ -22,8 +21,8 @@ def evaluate_degraded_mode(
     warnings: List[str] = []
 
     for event in sensor_events:
-        sensor = str(event.get("sensor_type", "")).strip().lower()
-        freshness_sec = float(event.get("freshness_sec", 0.0) or 0.0)
+        sensor = event_sensor_type(event)
+        freshness_sec = event_freshness_sec(event)
         if sensor not in freshest_by_sensor or freshness_sec < freshest_by_sensor[sensor]:
             freshest_by_sensor[sensor] = freshness_sec
 
@@ -40,13 +39,13 @@ def evaluate_degraded_mode(
 
     max_outage_sec = 0.0
     for event in node_health_events:
-        payload = dict(event.get("payload") or {})
-        outage_sec = float(payload.get("outage_sec", 0.0) or 0.0)
+        payload = event_payload(event)
+        outage_sec = payload_float(payload, "outage_sec")
         if outage_sec > max_outage_sec:
             max_outage_sec = outage_sec
         if outage_sec >= outage_warning_sec:
             warnings.append(
-                f"model outage on node {event.get('node_id', 'unknown')}: {payload.get('model_name', 'unknown')} for {outage_sec:.1f}s"
+                f"model outage on node {event_node_id(event)}: {payload_text(payload, 'model_name', 'unknown')} for {outage_sec:.1f}s"
             )
             penalty += 0.10
 

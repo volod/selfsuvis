@@ -1,47 +1,34 @@
-# ADR-0006: MediaMTX for Video Streaming Ingestion
+# ADR-0006: MediaMTX as the Streaming Edge for Live Video Ingest
 
-Date: 2026-03-23
+Date: 2026-03-23  
 Status: Accepted
-Deciders: @vola
-
----
 
 ## Context
 
-The system needs to ingest video from multiple sources. File upload and HTTPS link
-ingestion are handled by the existing FastAPI pipeline. Live video streaming (RTSP/RTMP
-from cameras, drones, or other sources) requires a dedicated streaming server.
+The product handles both file-based indexing and live stream ingestion. Live RTSP/RTMP /
+WebRTC handling should be delegated to a dedicated streaming service rather than embedded
+directly into the FastAPI app.
 
 ## Decision
 
-Use **MediaMTX** (`bluenviron/mediamtx` Docker image) as the streaming server.
+Use MediaMTX as the streaming edge and control-plane companion for live video ingest.
 
-MediaMTX is a production-grade, zero-dependency streaming server (Go binary) supporting
-RTSP, RTMP, WebRTC, HLS, and SRT. It is the reference implementation cited by the
-upstream specification.
+Current integration:
+- `docker/mediamtx.yml`
+- `docker/docker-compose.yml`
+- realtime / ingest paths in `src/selfsuvis/app/routers/realtime.py`
+- stream recording / validation helpers in `src/selfsuvis/pipeline/media/rtsp_ingest.py`
 
-Docker Compose service added: `mediamtx` (new container). Integrates with the existing
-FastAPI ingest pipeline via frame capture → HTTP POST to the job queue API.
-
-**v1 scope — file re-streaming only:**
-- MediaMTX is configured to re-stream existing local video files via RTSP
-- This validates the streaming code path without requiring a live camera
-- Use case: `ffmpeg -re -i mission.mp4 -f rtsp rtsp://localhost:8554/test`
-
-**v1.5 — live camera ingestion:**
-- RTSP/RTMP from real cameras (drone FPV, IP cameras, rovers)
-- Same pipeline; MediaMTX handles the protocol translation
+MediaMTX is the protocol-facing service; the main app and worker consume the resulting
+streams or recordings through the normal pipeline.
 
 ## Consequences
 
-**Good:**
-- Zero Python dependency — Go binary in Docker, no pip packages
-- Supports every relevant streaming protocol in one service
-- File re-streaming enables full end-to-end streaming test without hardware
-- Architecture is the same for v1 (file) and v1.5 (live) — no rework needed
+Positive:
+- Streaming concerns stay outside the API process
+- Supports the protocol mix the project needs without custom Python transport code
+- Same service works for local test restreaming and live deployments
 
-**Bad / Tradeoffs:**
-- Adds a container to Docker Compose even in v1 where it only re-streams files —
-  acceptable given the zero-overhead nature of the Go binary
-- Live camera integration (v1.5) requires network configuration and camera authentication
-  that is out of scope for v1
+Trade-offs:
+- Adds another operational service to the compose stack
+- Live ingest still depends on network and camera-side configuration quality

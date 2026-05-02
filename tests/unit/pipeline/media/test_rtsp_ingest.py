@@ -1,6 +1,6 @@
 """Unit tests for pipeline/rtsp_ingest.py."""
 import subprocess
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -74,59 +74,59 @@ def test_dns_failure_raises():
 
 # ── record_rtsp ───────────────────────────────────────────────────────────────
 
-@patch("selfsuvis.pipeline.rtsp_ingest.subprocess.run")
+@patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked")
 def test_record_rtsp_calls_ffmpeg(mock_run):
     record_rtsp("rtsp://cam/stream", "/tmp/out.mp4", duration_sec=60)
     mock_run.assert_called_once()
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_run.call_args.args[0]
     assert "ffmpeg" in cmd
     assert "rtsp://cam/stream" in cmd
     assert "/tmp/out.mp4" in cmd
 
 
-@patch("selfsuvis.pipeline.rtsp_ingest.subprocess.run")
+@patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked")
 def test_record_rtsp_includes_duration(mock_run):
     record_rtsp("rtsp://cam/stream", "/tmp/out.mp4", duration_sec=120)
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_run.call_args.args[0]
     assert "-t" in cmd
     assert "120" in cmd
 
 
-@patch("selfsuvis.pipeline.rtsp_ingest.subprocess.run")
+@patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked")
 def test_record_rtsp_no_duration_omits_t_flag(mock_run):
     record_rtsp("rtsp://cam/stream", "/tmp/out.mp4", duration_sec=None)
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_run.call_args.args[0]
     assert "-t" not in cmd
 
 
-@patch("selfsuvis.pipeline.rtsp_ingest.subprocess.run")
+@patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked")
 def test_record_rtsp_caps_duration_at_max(mock_run, monkeypatch):
     from selfsuvis.pipeline.core import config
     monkeypatch.setattr(config.settings, "RTSP_MAX_DURATION_SEC", 300)
     record_rtsp("rtsp://cam/stream", "/tmp/out.mp4", duration_sec=9999)
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_run.call_args.args[0]
     t_idx = cmd.index("-t")
     assert int(cmd[t_idx + 1]) == 300
 
 
-@patch("selfsuvis.pipeline.rtsp_ingest.subprocess.run")
+@patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked")
 def test_record_rtsp_uses_tcp_transport(mock_run):
     record_rtsp("rtsp://cam/stream", "/tmp/out.mp4")
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_run.call_args.args[0]
     assert "-rtsp_transport" in cmd
     assert "tcp" in cmd
 
 
-@patch("selfsuvis.pipeline.rtsp_ingest.subprocess.run")
+@patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked")
 def test_record_rtsp_stream_copy(mock_run):
     """Uses -c copy for no re-encoding."""
     record_rtsp("rtsp://cam/stream", "/tmp/out.mp4")
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_run.call_args.args[0]
     assert "-c" in cmd
     assert "copy" in cmd
 
 
-@patch("selfsuvis.pipeline.rtsp_ingest.subprocess.run", side_effect=subprocess.CalledProcessError(1, "ffmpeg"))
+@patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked", side_effect=subprocess.CalledProcessError(1, "ffmpeg"))
 def test_record_rtsp_raises_on_ffmpeg_error(mock_run):
     with pytest.raises(subprocess.CalledProcessError):
         record_rtsp("rtsp://cam/stream", "/tmp/out.mp4")

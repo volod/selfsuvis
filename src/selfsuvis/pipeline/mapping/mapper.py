@@ -27,7 +27,6 @@ Environment variables:
     MAPPER_API_URL       Base URL of the ICP mapper service (default: http://mapper:8000)
     MAPS_DIR             Root for splat.ply output (default: data/maps)
 """
-import json
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -49,6 +48,25 @@ _POLL_INTERVAL_SEC = 10
 
 class MapperError(RuntimeError):
     """Raised when the nerfstudio wrapper returns an error."""
+
+
+def _map_result(
+    *,
+    map_status: str,
+    message: str,
+    splat_path: Optional[str] = None,
+    splat_paths: Optional[List[str]] = None,
+    scene_count: int = 0,
+    icp_results: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    return {
+        "map_status": map_status,
+        "splat_path": splat_path,
+        "splat_paths": list(splat_paths or []),
+        "scene_count": int(scene_count),
+        "message": message,
+        "icp_results": list(icp_results or []),
+    }
 
 
 def _post(endpoint: str, payload: Dict[str, Any], timeout: int = 30) -> Dict[str, Any]:
@@ -114,26 +132,25 @@ def _train_scene(
                     "Mapper: 3DGS complete mission=%s %s splat=%s",
                     mission_id, scene_label, splat_path,
                 )
-                return {
-                    "map_status": "success",
-                    "splat_path": splat_path,
-                    "message": f"splatfacto training complete ({scene_label})",
-                }
+                return _map_result(
+                    map_status="success",
+                    splat_path=splat_path,
+                    message=f"splatfacto training complete ({scene_label})",
+                )
             logger.error(
                 "Mapper: nerfstudio reported done but splat.ply missing at %s", splat_path
             )
-            return {
-                "map_status": "failed",
-                "splat_path": None,
-                "message": f"nerfstudio done but splat.ply not found ({scene_label})",
-            }
+            return _map_result(
+                map_status="failed",
+                message=f"nerfstudio done but splat.ply not found ({scene_label})",
+            )
 
         if status == "error":
             err = status_resp.get("error", "unknown error")
             logger.error(
                 "Mapper: nerfstudio error mission=%s %s: %s", mission_id, scene_label, err
             )
-            return {"map_status": "failed", "splat_path": None, "message": err}
+            return _map_result(map_status="failed", message=err)
 
         logger.debug(
             "Mapper: waiting mission=%s %s status=%s", mission_id, scene_label, status
@@ -142,7 +159,7 @@ def _train_scene(
 
     msg = f"nerfstudio timed out after {_TRAIN_TIMEOUT_SEC}s ({scene_label})"
     logger.error("Mapper: %s mission=%s", msg, mission_id)
-    return {"map_status": "failed", "splat_path": None, "message": msg}
+    return _map_result(map_status="failed", message=msg)
 
 
 def _call_icp_fuse(
@@ -202,7 +219,7 @@ def _fuse_splat_files(
     aligned_path = os.path.join(source_dir, "_aligned_tmp.ply")
     fused_path = os.path.join(source_dir, "fused.ply")
     try:
-        n_src = apply_transform_to_splat(source_path, transform_4x4, aligned_path)
+        apply_transform_to_splat(source_path, transform_4x4, aligned_path)
         n_total = merge_splats([target_path, aligned_path], fused_path)
         logger.info(
             "Mapper: fused splat written mission=%s scene=%s gaussians=%d path=%s",
@@ -267,14 +284,7 @@ def run_mapper(
             f"(minimum {MIN_FRAMES_FOR_3DGS}); skipping 3DGS."
         )
         logger.info("Mapper: %s mission=%s", msg, mission_id)
-        return {
-            "map_status": "skipped",
-            "splat_path": None,
-            "splat_paths": [],
-            "scene_count": 0,
-            "message": msg,
-            "icp_results": [],
-        }
+        return _map_result(map_status="skipped", message=msg)
 
     # Group registered frames by scene_index
     scenes: Dict[int, List[Dict[str, Any]]] = {}
@@ -297,14 +307,7 @@ def run_mapper(
             f"no scene meets the {MIN_FRAMES_FOR_3DGS}-frame minimum for 3DGS."
         )
         logger.info("Mapper: %s mission=%s", msg, mission_id)
-        return {
-            "map_status": "skipped",
-            "splat_path": None,
-            "splat_paths": [],
-            "scene_count": 0,
-            "message": msg,
-            "icp_results": [],
-        }
+        return _map_result(map_status="skipped", message=msg)
 
     mission_maps_dir = os.path.join(settings.MAPS_DIR, mission_id)
     use_chunking = len(valid_scenes) > 1
@@ -362,14 +365,11 @@ def run_mapper(
                 failed_scenes.append(scene_label)
 
         if not splat_paths:
-            return {
-                "map_status": "failed",
-                "splat_path": None,
-                "splat_paths": [],
-                "scene_count": len(valid_scenes),
-                "message": f"All {len(failed_scenes)} scene(s) failed",
-                "icp_results": [],
-            }
+            return _map_result(
+                map_status="failed",
+                message=f"All {len(failed_scenes)} scene(s) failed",
+                scene_count=len(valid_scenes),
+            )
 
         primary = splat_paths[0]
         status = "success" if not failed_scenes else "failed"
@@ -378,14 +378,14 @@ def run_mapper(
             if use_chunking
             else "splatfacto training complete"
         )
-        return {
-            "map_status": status,
-            "splat_path": primary,
-            "splat_paths": splat_paths,
-            "scene_count": len(valid_scenes),
-            "message": msg,
-            "icp_results": icp_results,
-        }
+        return _map_result(
+            map_status=status,
+            splat_path=primary,
+            splat_paths=splat_paths,
+            scene_count=len(valid_scenes),
+            message=msg,
+            icp_results=icp_results,
+        )
 
     except requests.exceptions.ConnectionError:
         msg = (
@@ -393,22 +393,8 @@ def run_mapper(
             "Is the nerfstudio container running? (docker-compose.override.yml, GPU only)"
         )
         logger.warning("Mapper: %s — map_status=skipped", msg)
-        return {
-            "map_status": "skipped",
-            "splat_path": None,
-            "splat_paths": [],
-            "scene_count": 0,
-            "message": msg,
-            "icp_results": [],
-        }
+        return _map_result(map_status="skipped", message=msg)
 
     except Exception as exc:
         logger.error("Mapper: unexpected error mission=%s: %s", mission_id, exc)
-        return {
-            "map_status": "failed",
-            "splat_path": None,
-            "splat_paths": [],
-            "scene_count": 0,
-            "message": str(exc),
-            "icp_results": [],
-        }
+        return _map_result(map_status="failed", message=str(exc))

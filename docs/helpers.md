@@ -67,7 +67,7 @@ curl -s \
 
 ## Reset Qdrant collection
 ```bash
-./scripts/reset_qdrant.sh
+./scripts/selfsuvis-reset-qdrant.sh
 ```
 
 ---

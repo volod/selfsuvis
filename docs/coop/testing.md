@@ -169,8 +169,8 @@ jobs:
 
       - name: Start stack
         run: |
-          ./scripts/coop/gen-env.sh test
-          APP_ENV=test ./scripts/coop/bootstrap.sh
+          ./scripts/coop-env.sh test
+          APP_ENV=test ./scripts/coop-bootstrap.sh
           sleep 60  # Wait for services
 
       - name: Run tests
@@ -207,6 +207,6 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 Verify passwords match between `.env` and `config/coop/mosquitto/pwfile`:
 ```bash
 # Regenerate password file
-./scripts/coop/init_mosquitto_users.sh
+./scripts/coop-mqtt-users.sh
 docker compose restart mosquitto
 ```

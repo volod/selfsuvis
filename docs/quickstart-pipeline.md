@@ -4,8 +4,8 @@ Run the full local learning pipeline (`selfsuvis --mode local`) directly on your
 machine. It processes videos, runs every enabled perception and captioning stage,
 fine-tunes a DINOv3 model on the mission frames, and exports it to ONNX.
 
-The local runner has 30 reported runtime/post-run steps and maps to the 35-step
-conceptual learning path. The optional `coop_pilot` extension adds Steps 36-42
+The local runner has 32 reported runtime/post-run steps and maps to the 36-step
+conceptual learning path. The optional `coop_pilot` extension adds Steps 37-43
 for live IoT site monitoring after the video pipeline run.
 
 > **Setting up the API/worker/UI service stack instead?**
@@ -17,28 +17,28 @@ for live IoT site monitoring after the video pipeline run.
 
 ### Path A — One-shot bootstrap (recommended)
 
-`scripts/setup_local_full.sh` automates **every manual step below** in a single command: it installs the venv, downloads model weights, starts Ollama, downloads a test video, generates sensor sidecars, starts Docker services, and runs the DB migration. It prints the exact `selfsuvis --mode local` run command at the end.
+`scripts/selfsuvis-setup.sh` automates **every manual step below** in a single command: it installs the venv, downloads model weights, starts Ollama, downloads a test video, generates sensor sidecars, starts Docker services, and runs the DB migration. It prints the exact `selfsuvis --mode local` run command at the end.
 
 ```bash
-bash scripts/setup_local_full.sh
+bash scripts/selfsuvis-setup.sh
 ```
 
 Common variants:
 
 ```bash
 # CPU-only machine — skip Docker and Ollama:
-bash scripts/setup_local_full.sh --no-docker --no-ollama
+bash scripts/selfsuvis-setup.sh --no-docker --no-ollama
 
 # Already have models; only want fresh sensor sample data:
-bash scripts/setup_local_full.sh --sensor-data-only
+bash scripts/selfsuvis-setup.sh --sensor-data-only
 
 # With HuggingFace token for gated Gemma weights:
-HF_TOKEN=hf_xxxx bash scripts/setup_local_full.sh
+HF_TOKEN=hf_xxxx bash scripts/selfsuvis-setup.sh
 ```
 
 **Already ran `setup_local_full.sh`?** Skip directly to [Step 6 — Run the pipeline](#step-6--run-the-pipeline).
 If you already completed the video pipeline and only want the coop extension, skip
-to [Optional Step 7 — Run coop_pilot Steps 36-42](#optional-step-7--run-coop_pilot-steps-36-42).
+to [Optional Step 7 — Run coop_pilot Steps 37-43](#optional-step-7--run-coop_pilot-steps-37-43).
 
 ---
 
@@ -100,7 +100,7 @@ Run this once before the first pipeline run. All weights are cached locally; sub
 .venv/bin/python -m selfsuvis.scripts.prepare_models --flash-attn
 ```
 
-**Reasoning model** (optional — Step 24, agentic flow audit; pulled via Ollama):
+**Reasoning model** (optional — Step 30, agentic flow audit; pulled via Ollama):
 
 ```bash
 .venv/bin/python -m selfsuvis.scripts.prepare_models --reasoning
@@ -160,7 +160,7 @@ This installs the scenetok package from GitHub, downloads `va-videodc_re10k.ckpt
 | `--gemma` | Step 3 — scene analysis | `google/gemma-3-4b-it` |
 | `--unidrive` | Step 13 — UniDriveVLA | `owl10/UniDriveVLA_Nusc_Base_Stage3` |
 | `--scenetok` | Step 14 — SceneTok streaming encoder + segmentation decoder | `va-videodc_re10k.ckpt` (github.com/mohammadasim98/scenetok) |
-| `--reasoning` | Step 24 — agentic flow audit | `qwen3:14b` (Ollama); alt: `deepseek-r1:14b` |
+| `--reasoning` | Step 30 — agentic flow audit | `qwen3:14b` (Ollama); alt: `deepseek-r1:14b` |
 
 ---
 
@@ -219,7 +219,7 @@ cp /path/to/mission.mp4 data/videos/
 Then generate sensor sidecars keyed to that video's basename (the script auto-detects the file):
 
 ```bash
-bash scripts/prepare_sensor_data.sh data/sensors
+bash scripts/selfsuvis-prepare-sensor-data.sh data/sensors
 ```
 
 #### Option B — Download a public-domain test video
@@ -227,7 +227,7 @@ bash scripts/prepare_sensor_data.sh data/sensors
 `setup_local_full.sh` handles download, trim, and sensor sidecar generation automatically:
 
 ```bash
-bash scripts/setup_local_full.sh --sensor-data-only
+bash scripts/selfsuvis-setup.sh --sensor-data-only
 ```
 
 This downloads the US Highway 60 drone flyover (~27 MB, no login), trims it to 10 s, and generates all sensor sidecars in one step. If the CDN is unreachable it falls back to a second archive.org clip, then generates a synthetic video with ffmpeg.
@@ -304,7 +304,7 @@ For the highest-quality local run on this profile, keep `SELFSUVIS_USE_GRAPH=1`
 in `.env` or export it before the command. The graph path retries Qwen structured
 caption parse failures and usually produces better `detailed_captions.md`.
 
-**Standard run** — with Qdrant for base-model search (Step 15) and fine-tuned search (Step 20):
+**Standard run** — with Qdrant for base-model search (Step 15) and fine-tuned search (Step 24):
 
 ```bash
 # Start Qdrant if not already running:
@@ -363,11 +363,11 @@ For a full artifact-by-artifact walkthrough, read:
 - [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md)
 - [Local run analytics](analytics.md)
 
-## Optional Step 7 — Run coop_pilot Steps 36-42
+## Optional Step 7 — Run coop_pilot Steps 37-43
 
 `coop_pilot` is not part of a single `selfsuvis --mode local` video run. It is the
 continuous site-awareness extension after the local learning pipeline. Use this
-when you want to practice Steps 36-42 locally: MQTT/LoRaWAN ingestion, Frigate
+when you want to practice Steps 37-43 locally: MQTT/LoRaWAN ingestion, Frigate
 events, rolling site state, RTSP/acoustic evidence, site mesh, scene synthesis,
 and realtime threat sectors.
 
@@ -386,7 +386,7 @@ Use `APP_ENV=test` for a localhost-bound learning stack. Bootstrap creates
 they are missing.
 
 ```bash
-APP_ENV=test ./scripts/coop/bootstrap.sh up -d
+APP_ENV=test ./scripts/coop-bootstrap.sh up -d
 ```
 
 Check container health:
@@ -464,7 +464,7 @@ For a broader check of the site-state API and realtime threat bridge:
 ### 7.6 Stop the coop stack
 
 ```bash
-APP_ENV=test ./scripts/coop/compose.sh down
+APP_ENV=test ./scripts/coop-compose.sh down
 ```
 
 The short study sequence is in [Local Learning Path](local_path.md#coop_pilot-extension-steps).
@@ -588,7 +588,7 @@ OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_NUM_PARALLEL=1 OLLAMA_KEEP_ALIVE=0 \
 # Pull models once (in a separate terminal or before starting the daemon):
 ollama pull gemma4:e4b        # Steps 3, 23   — scene analysis, video synthesis      (~5 GB)
 ollama pull qwen2.5vl:7b      # Step 12       — detailed captioning                  (~5 GB)
-ollama pull qwen3:14b         # Step 24       — agentic flow audit / reasoning        (~8 GB)
+ollama pull qwen3:14b         # Step 30       — agentic flow audit / reasoning        (~8 GB)
 
 # Cache local-only weights once before the run:
 # .venv/bin/python -m selfsuvis.scripts.prepare_models --unidrive
@@ -960,7 +960,7 @@ Both paths produce byte-for-byte identical artifacts. The graph path additionall
 - **Parallel execution of steps 4–8** (Florence, ASR, OCR, depth, detection run concurrently; they serialise on GPU automatically via the existing VRAM guard)
 - **Resumable checkpoints** — set `SELFSUVIS_CHECKPOINT_PATH` to persist node state to SQLite; set `SELFSUVIS_RESUME_THREAD_ID` to skip already-completed nodes after a crash
 - **Optional LangSmith tracing** — set `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` to see full execution graphs in the LangSmith UI
-- **Agentic quality improvements** on the six LLM steps (steps 3, 10, 12, 13, 23, 24)
+- **Agentic quality improvements** on the six LLM steps (steps 3, 10, 12, 13, 29, 30)
 
 ### Agentic improvements (LangGraph path only)
 
@@ -970,8 +970,8 @@ Both paths produce byte-for-byte identical artifacts. The graph path additionall
 | 10 Gemma tracking | JSON parse failure now falls back to `["person","vehicle","sign"]` instead of silently tracking nothing |
 | 12 Qwen captioning | Frames with `parse_error=True` get one retry with a simplified prompt; the prior-state chain skips confirmed-bad frames |
 | 13 UniDriveVLA | Per-frame Jaccard MoE consensus score computed; frames below 0.5 flagged and logged as warnings |
-| 23 Video synthesis | Draft → critique (evidence-grounded) → conditional regeneration on `MAJOR_CONTRADICTION` verdict |
-| 24 Agentic audit | Reflection loop checks that all 24 step IDs are covered; appends a `## Reflection Gaps` section to `agentic_flow.md` when gaps are found |
+| 29 Video synthesis | Draft → critique (evidence-grounded) → conditional regeneration on `MAJOR_CONTRADICTION` verdict |
+| 30 Agentic flow audit | Reflection loop checks that all 32 step IDs are covered; appends a `## Reflection Gaps` section to `agentic_flow.md` when gaps are found |
 
 ### Checkpointing and resume
 

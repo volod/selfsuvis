@@ -206,20 +206,20 @@ The six LLM nodes have targeted quality enhancements that are only active when
 | 10 Gemma tracking | JSON-guard fallback: when Gemma JSON parse fails and returns empty `target_labels`, RF-DETR falls back to `["person","vehicle","sign"]` instead of silently tracking nothing |
 | 12 Qwen captioning | One retry pass for frames with `parse_error=True` using a simplified prompt (no extra context); prior-state chain skips confirmed-bad frames rather than anchoring on them |
 | 13 UniDriveVLA | Per-frame Jaccard MoE consensus score computed across expert outputs; frames below threshold 0.5 flagged as `low_moe_agreement=true` and logged as warnings |
-| 23 Video synthesis | Draft → CLIP-evidence-grounded critique pass → conditional regeneration when verdict is `MAJOR_CONTRADICTION` |
-| 24 Agentic audit | Reflection sub-loop after generation: checks whether all pipeline step IDs are covered; appends a `## Reflection Gaps` section to `agentic_flow.md` when gaps are found |
+| 29 Video synthesis | Draft → CLIP-evidence-grounded critique pass → conditional regeneration when verdict is `MAJOR_CONTRADICTION` |
+| 30 Agentic flow audit | Reflection sub-loop after generation: checks whether all pipeline step IDs are covered; appends a `## Reflection Gaps` section to `agentic_flow.md` when gaps are found |
 
 ### Local Step Order
 
-The local runner reports 30 runtime/post-run steps. The LangGraph path covers the
-main 24 graph nodes through per-video analytics; the monolithic runner also reports
-the physical-state, threat-policy, synthesis, audit, and model/run advisor steps.
+The local runner reports 32 runtime/post-run steps. The LangGraph path covers the
+main graph nodes through per-video analytics (steps 1–16, 20–21, 23–26, 29–30);
+steps 17–19, 22, 27–28, 31–32 run only in the monolithic runner.
 
 | Step | Phase | Description | LangGraph node |
 |------|-------|-------------|----------------|
 | 01 | Ingest | Frame extraction | `p1_extract_frames` |
 | 02 | Ingest | Vector store indexing (CLIP + DINOv3) | `p1_index_vectors` |
-| 03 | Analyze | Gemma multimodal analysis *(agentic)*  | `p2_gemma_analysis` |
+| 03 | Analyze | Gemma multimodal analysis *(agentic)* | `p2_gemma_analysis` |
 | 04 | Analyze | Florence-2 scene captioning | `p2_florence_caption` *(parallel)* |
 | 05 | Analyze | ASR transcription | `p2_asr` *(parallel)* |
 | 06 | Analyze | OCR text extraction | `p2_ocr` *(parallel)* |
@@ -233,15 +233,22 @@ the physical-state, threat-policy, synthesis, audit, and model/run advisor steps
 | 14 | Analyze | SceneTok streaming encoder + segmentation decoder | `p2_scenetok` |
 | 15 | Eval | Base model transformation test | `p2_base_search` |
 | 16 | Map | 3D map + Gaussian Splat *(background thread)* | `p2_map_3d_submit` / `p2_map_3d_join` |
-| 17 | Adapt | SSL DINOv3 fine-tuning | `p3_ssl_finetune` |
-| 18 | Adapt | Knowledge distillation | `p3_distill` *(SSL gate required)* |
-| 19 | Export | ONNX export + gallery build | `p3_onnx_export` *(SSL gate required)* |
-| 20 | Eval | Fine-tuned model transformation test | `p3_ft_search` *(SSL gate required)* |
-| 21 | Eval | Model comparison + video description | `p3_compare` *(SSL gate required)* |
-| 22 | Audit | Multi-model comparison | `p4_multi_model_compare` |
-| 23 | Synthesize | Video synthesis *(agentic)* | `p4_synthesis` |
-| 24 | Audit | Agentic flow audit *(agentic)* | `p4_audit` |
-| 30 | Optimize | Model/run advisor from `analysis_summary.json`, warnings, resources, and `.env` | run-level postprocessing |
+| 17 | State | Physical scene state summary → `physical_state_summary.json` | — |
+| 18 | State | Environmental field state → `field_state_summary.json` | — |
+| 19 | State | Threat primitives → `threat_primitives.json` | — |
+| 20 | Adapt | SSL DINOv3 fine-tuning | `p3_ssl_finetune` |
+| 21 | Adapt | Knowledge distillation Stage 1: teacher → ViT-S/14 | `p3_distill` *(SSL gate required)* |
+| 22 | Adapt | Knowledge distillation Stage 2: ViT-S/14 → EfficientViT-B1 + ONNX | — *(Stage 1 required)* |
+| 23 | Export | ONNX export + gallery build → `edge_models/` | `p3_onnx_export` *(SSL gate required)* |
+| 24 | Eval | Fine-tuned model transformation test | `p3_ft_search` *(SSL gate required)* |
+| 25 | Eval | Model comparison + video description | `p3_compare` *(SSL gate required)* |
+| 26 | Audit | Multi-model comparison | `p4_multi_model_compare` |
+| 27 | Threat | Local threat inference → `local_threat_assessment.json` | — |
+| 28 | Threat | Action policy → `policy_decision.json` | — |
+| 29 | Synthesize | Video synthesis *(agentic)* | `p4_synthesis` |
+| 30 | Audit | Agentic flow audit *(agentic)* | `p4_audit` |
+| 31 | Adapt | Drone detection edge training *(opt-in)* | — |
+| 32 | Optimize | Model/run advisor → `model_run_advisor.md` | run-level postprocessing |
 
 Not every step runs on every machine or configuration. Steps may be skipped when a
 feature flag is disabled, a sidecar URL is not configured, a resource gate blocks the
@@ -251,17 +258,17 @@ stage, or an earlier fine-tune quality gate does not pass.
 
 `coop_pilot` is a continuous site-awareness extension, not another stage inside a
 single `selfsuvis --mode local` video run. In the learning path it follows the
-35-step conceptual local curriculum as Steps 36-42:
+36-step conceptual local curriculum as Steps 37-43:
 
 | Step | Focus | Runtime surface |
 |------|-------|-----------------|
-| 36 | Coop stack bootstrap and health | `scripts/coop/bootstrap.sh`, `scripts/coop/compose.sh`, `tests/coop/test_stack_health.py` |
-| 37 | MQTT and LoRaWAN ingestion | ChirpStack MQTT uplinks, `LoRaWANDecoder`, `SensorReading` |
-| 38 | Frigate event ingestion | Frigate MQTT events, `FrigateEventDecoder`, `CameraEvent` |
-| 39 | Rolling site state | `SiteStateAggregator`, `/site/state`, `/site/sensors`, `/site/cameras` |
-| 40 | RTSP bridge and acoustic evidence | MediaMTX bridge sessions, live-stream analysis, synthetic acoustic events |
-| 41 | Site mesh and scene synthesis | GPS proximity graph, `/site/mesh`, `/site/synthesis` |
-| 42 | Realtime threat bridge and analytics | `coop_ingest`, `/site/threat`, `coop-analytics` |
+| 37 | Coop stack bootstrap and health | `scripts/coop-bootstrap.sh`, `scripts/coop-compose.sh`, `tests/coop/test_stack_health.py` |
+| 38 | MQTT and LoRaWAN ingestion | ChirpStack MQTT uplinks, `LoRaWANDecoder`, `SensorReading` |
+| 39 | Frigate event ingestion | Frigate MQTT events, `FrigateEventDecoder`, `CameraEvent` |
+| 40 | Rolling site state | `SiteStateAggregator`, `/site/state`, `/site/sensors`, `/site/cameras` |
+| 41 | RTSP bridge and acoustic evidence | MediaMTX bridge sessions, live-stream analysis, synthetic acoustic events |
+| 42 | Site mesh and scene synthesis | GPS proximity graph, `/site/mesh`, `/site/synthesis` |
+| 43 | Realtime threat bridge and analytics | `coop_ingest`, `/site/threat`, `coop-analytics` |
 
 Use [Local Learning Path](local_path.md#coop_pilot-extension-steps) for the short
 study sequence and [coop_pilot IoT edge monitoring](learning_path/16_coop_pilot_iot_edge_monitoring.md)
@@ -272,7 +279,7 @@ Current local-run optimizations also make a few steps adaptive instead of fully 
 - Step 06 (OCR) prescreens frames from Florence caption confidence before sending them to the OCR model or sidecar.
 - Step 12 (Qwen) uses bounded sampled-frame selection instead of captioning every frame.
 - Step 07 (Depth) uses a fast auto profile by default unless an explicit model or quality profile is requested.
-- Step 24 (agentic flow audit) in the monolith uses a simple first-pass prompt and accepts that answer when it satisfies the required output structure; in the LangGraph path a reflection sub-loop also runs.
+- Step 30 (agentic flow audit) in the monolith uses a simple first-pass prompt and accepts that answer when it satisfies the required output structure; in the LangGraph path a reflection sub-loop also runs.
 - The local pipeline runs a probabilistic platform-state fusion pass and writes `state_fusion.md` / `state_fusion.json` when GPS telemetry is available.
 
 ### Step 13 — UniDriveVLA expert analysis

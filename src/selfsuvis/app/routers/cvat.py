@@ -22,9 +22,12 @@ Annotation workflow:
 import hashlib
 import hmac
 import json
+import os
+import tempfile
 from typing import Any, Dict, List, Optional
 
 import asyncpg
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
@@ -59,8 +62,16 @@ async def _frames_for_cvat_task(cvat_task_id: int, pool: asyncpg.Pool) -> List[s
         return [r["frame_id"] for r in rows]
 
 
-async def _mark_frames_annotated(frame_ids: List[str], pool: asyncpg.Pool) -> int:
-    """Set al_tag='annotated' on the given frames. Returns count of rows updated."""
+async def _mark_frames_annotated(
+    frame_ids: List[str],
+    pool: asyncpg.Pool,
+    basename_to_label: Optional[Dict[str, str]] = None,
+) -> int:
+    """Set al_tag='annotated' on the given frames. Returns count of rows updated.
+
+    If basename_to_label is provided, also writes cvat_label by matching
+    basename(frame_path) against the dict keys.
+    """
     if not frame_ids:
         return 0
     async with pool.acquire() as conn:
@@ -69,7 +80,87 @@ async def _mark_frames_annotated(frame_ids: List[str], pool: asyncpg.Pool) -> in
             "WHERE id = ANY($1::text[]) AND al_tag != 'annotated'",
             frame_ids,
         )
-        return int(result.split()[-1])
+        count = int(result.split()[-1])
+
+        if basename_to_label:
+            rows = await conn.fetch(
+                "SELECT id, frame_path FROM frames WHERE id = ANY($1::text[])",
+                frame_ids,
+            )
+            updates = [
+                (basename_to_label[os.path.basename(r["frame_path"])], r["id"])
+                for r in rows
+                if os.path.basename(r["frame_path"]) in basename_to_label
+            ]
+            if updates:
+                await conn.executemany(
+                    "UPDATE frames SET cvat_label = $1 WHERE id = $2",
+                    updates,
+                )
+                logger.debug(
+                    "_mark_frames_annotated: stored cvat_label for %d frames", len(updates)
+                )
+
+        return count
+
+
+async def _fetch_cvat_labels(task_id: int) -> Dict[str, str]:
+    """Fetch per-frame labels from CVAT for a completed task.
+
+    Returns {basename: majority_vote_label}.
+    Returns {} (with WARNING) when CVAT_API_TOKEN is empty or the request fails.
+    """
+    from selfsuvis.pipeline.training.supervised import CvatAnnotationParser
+
+    token = settings.CVAT_API_TOKEN
+    if not token:
+        logger.warning(
+            "_fetch_cvat_labels: CVAT_API_TOKEN not set — skipping label fetch for task_id=%s",
+            task_id,
+        )
+        return {}
+
+    url = f"{settings.CVAT_URL}/api/tasks/{task_id}/annotations?format=CVAT+1.1"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers={"Authorization": f"Token {token}"})
+    except Exception as exc:
+        logger.warning("_fetch_cvat_labels: HTTP request failed task_id=%s err=%s", task_id, exc)
+        return {}
+
+    if resp.status_code == 401:
+        logger.warning(
+            "_fetch_cvat_labels: CVAT returned 401 Unauthorized for task_id=%s — check CVAT_API_TOKEN",
+            task_id,
+        )
+        return {}
+
+    if resp.status_code != 200:
+        logger.warning(
+            "_fetch_cvat_labels: unexpected status %d for task_id=%s",
+            resp.status_code, task_id,
+        )
+        return {}
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=".xml", mode="wb", delete=False
+        ) as tmp:
+            tmp.write(resp.content)
+            tmp_path = tmp.name
+
+        parser = CvatAnnotationParser(tmp_path)
+        return dict(parser.frame_labels)
+    except Exception as exc:
+        logger.warning(
+            "_fetch_cvat_labels: failed to parse CVAT XML for task_id=%s err=%s", task_id, exc
+        )
+        return {}
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
 
 async def _maybe_trigger_finetune(pool: asyncpg.Pool) -> None:
@@ -194,10 +285,11 @@ async def cvat_webhook(
                 pool = get_db_pool(request)
                 frame_ids = await _frames_for_cvat_task(int(task_id), pool)
                 if frame_ids:
-                    count = await _mark_frames_annotated(frame_ids, pool)
+                    basename_to_label = await _fetch_cvat_labels(int(task_id))
+                    count = await _mark_frames_annotated(frame_ids, pool, basename_to_label)
                     logger.info(
-                        "CVAT webhook: task_id=%s completed → %d frames annotated",
-                        task_id, count,
+                        "CVAT webhook: task_id=%s completed → %d frames annotated, %d labels stored",
+                        task_id, count, len(basename_to_label),
                     )
                     # Attempt to trigger supervised fine-tuning (non-fatal on error)
                     await _maybe_trigger_finetune(pool)

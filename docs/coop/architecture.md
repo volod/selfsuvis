@@ -89,13 +89,13 @@ Stack A Pilot is a containerized IoT infrastructure platform designed to run on 
 
 | Tool | Location | Description |
 |------|----------|-------------|
-| bootstrap.sh | `scripts/bootstrap.sh` | One-shot startup script; creates data directories, generates Mosquitto TLS certs if missing, initialises MQTT user credentials, then launches the stack via `compose.sh`. |
-| compose.sh | `scripts/compose.sh` | Thin wrapper around `docker compose` that injects `PUID`/`PGID` from the current user at runtime, overriding any values in `.env`. |
-| ensure_data_dirs.sh | `scripts/ensure_data_dirs.sh` | Creates all bind-mount directories under `$DATA_DIR` with correct ownership before first stack start. |
-| gen_mosquitto_selfsigned_tls.sh | `scripts/gen_mosquitto_selfsigned_tls.sh` | Generates a self-signed CA and server TLS certificate for Mosquitto. |
-| init_mosquitto_users.sh | `scripts/init_mosquitto_users.sh` | Creates and hashes MQTT user credentials in Mosquitto's password file from `.env` values. |
-| add_camera.py | `scripts/add_camera.py` | CLI tool to add RTSP or USB/V4L2 cameras to `config/coop/frigate/config.yml` and optionally restart the Frigate container. |
-| clean_data.sh | `scripts/clean_data.sh` | Removes all data directories under `$DATA_DIR`; destructive — intended for development resets only. |
+| bootstrap.sh | `scripts/coop-bootstrap.sh` | One-shot startup script; creates data directories, generates Mosquitto TLS certs if missing, initialises MQTT user credentials, then launches the stack via `compose.sh`. |
+| compose.sh | `scripts/coop-compose.sh` | Thin wrapper around `docker compose` that injects `PUID`/`PGID` from the current user at runtime, overriding any values in `.env`. |
+| ensure_data_dirs.sh | `scripts/coop-data-dirs.sh` | Creates all bind-mount directories under `$DATA_DIR` with correct ownership before first stack start. |
+| gen_mosquitto_selfsigned_tls.sh | `scripts/coop-mosquitto-tls.sh` | Generates a self-signed CA and server TLS certificate for Mosquitto. |
+| init_mosquitto_users.sh | `scripts/coop-mqtt-users.sh` | Creates and hashes MQTT user credentials in Mosquitto's password file from `.env` values. |
+| add_camera.sh | `scripts/coop-camera.sh` | Shell entrypoint that invokes the packaged camera CLI to add RTSP or USB/V4L2 cameras to `config/coop/frigate/config.yml` and optionally restart the Frigate container. |
+| clean_data.sh | `scripts/coop-clean-data.sh` | Removes all data directories under `$DATA_DIR`; destructive — intended for development resets only. |
 | coop_stack_analytics | `coop_stack_analytics/` | Python package for log collection, service-specific parsing (Mosquitto, ChirpStack, Frigate, OpenRemote), statistics aggregation, and report generation in console, JSON, HTML, or Markdown formats. Invoked via `python -m coop_stack_analytics.cli`. |
 | tests | `tests/` | Pytest integration tests (container health checks, MQTT connectivity) and a Locust load-test file for stress-testing the stack. |
 
@@ -191,7 +191,7 @@ Web Browser → HTTPS:443 → Proxy → Manager → Keycloak (auth) → PostgreS
 
 ### Data Directories (Bind Mounts)
 
-All persistent data uses bind mounts under `$DATA_DIR` (default: `./data`), so the user running `docker compose` owns the location. Run `scripts/ensure_data_dirs.sh` before first start.
+All persistent data uses bind mounts under `$DATA_DIR` (default: `./data`), so the user running `docker compose` owns the location. Run `scripts/coop-data-dirs.sh` before first start.
 
 | Path | Purpose | Data |
 |------|---------|------|

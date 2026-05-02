@@ -50,3 +50,16 @@ python scripts/prepare_models.py --all
 | Q | World model embeddings + RSSM temporal surprise | [world-model.md](world-model.md) |
 | R | Qwen2.5-VL detailed captioning | [qwen-api.md](qwen-api.md) |
 | S | UniDriveVLA expert analysis | [unidrive-api.md](unidrive-api.md) |
+
+## Realtime mapping sidecars
+
+| Runbook | Scope | When to use |
+|---|---|---|
+| [realtime-sidecar-selection.md](realtime-sidecar-selection.md) | Sidecar selection matrix | Choose pose + occupancy engines for a deployment |
+| [realtime-bridge-runtimes.md](realtime-bridge-runtimes.md) | Telemetry bridge daemons | Own MAVSDK or ROS telemetry ingestion from serial/network feeds |
+| [realtime-reference-sidecar.md](realtime-reference-sidecar.md) | Project-owned reference service | Local bring-up, API validation, no real SLAM required |
+| [realtime-sidecars/vins-fusion.md](realtime-sidecars/vins-fusion.md) | `VINS-Fusion` pose sidecar | RGB + IMU drone flights |
+| [realtime-sidecars/orbslam3.md](realtime-sidecars/orbslam3.md) | `ORB-SLAM3` pose sidecar | Camera-first SLAM with optional IMU |
+| [realtime-sidecars/lio-sam.md](realtime-sidecars/lio-sam.md) | `LIO-SAM` pose sidecar | LiDAR + IMU drone stacks |
+| [realtime-sidecars/nvblox.md](realtime-sidecars/nvblox.md) | `nvblox` occupancy sidecar | GPU dense volumetric mapping |
+| [realtime-sidecars/voxblox.md](realtime-sidecars/voxblox.md) | `voxblox` occupancy sidecar | CPU volumetric mapping |

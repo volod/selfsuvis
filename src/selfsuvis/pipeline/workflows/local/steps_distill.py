@@ -142,6 +142,95 @@ def step_distill(
     return result
 
 
+def step_distill_stage2(
+    stage1_student_backbone: Any,
+    frame_list: List[Tuple[str, float]],
+    video_name: str,
+    video_dir: Path,
+    device: str,
+    distill_epochs: int,
+    batch_size: int,
+) -> Dict[str, Any]:
+    """Step 22: Stage 1→2 distillation — ViT-S/14 teacher → EfficientViT-B1 student.
+
+    Uses RKD-D + KoLeo only (no RKD-A); both teacher and student are 384-dim so
+    angle-triplet loss gives no benefit.  Requires only ~2 GB VRAM.
+    """
+    from selfsuvis.pipeline.training.distill import run_distillation_efficientvit
+    from selfsuvis.pipeline.training.edge_inference import export_efficientvit_onnx
+    from .steps_report import write_distill_stats_md
+
+    edge_dir = video_dir / "edge_models"
+    edge_dir.mkdir(parents=True, exist_ok=True)
+    onnx_path = str(edge_dir / "efficientvit_local.onnx")
+    result: Dict[str, Any] = {
+        "student_backbone": None, "best_path": "", "best_loss": float("nan"),
+        "best_recall": float("nan"), "compression_ratio": 0.0,
+        "student_dim": 384, "teacher_dim": 384,
+        "student_model": "efficientvit_b1", "ckpt_mb": 0.0,
+        "onnx_path": "", "onnx_mb": 0.0, "onnx_exported": False,
+        "skipped": False,
+    }
+
+    if stage1_student_backbone is None:
+        _log.warning("  Stage 2 distillation skipped — no Stage 1 student backbone")
+        result["skipped"] = True
+        return result
+
+    cfg = DistillConfig(
+        student_model="efficientvit_b1",
+        epochs=distill_epochs,
+        batch_size=batch_size,
+        device=device,
+        stage=2,
+        lambda_rkd_d=25.0,
+        lambda_rkd_a=0.0,
+        lambda_kd=1.0,
+        lambda_koleo=0.1,
+    )
+    frame_paths = [fp for fp, _ in frame_list]
+    _log.info(
+        "Starting Stage 2 distillation: ViT-S/14 → EfficientViT-B1  epochs=%d  frames=%d",
+        cfg.epochs, len(frame_paths),
+    )
+    try:
+        stats = run_distillation_efficientvit(
+            stage1_student_backbone, frame_paths, video_dir / "checkpoints_stage2", cfg
+        )
+    except Exception as exc:
+        _log.warning("  Stage 2 distillation failed (%s) — skipping", exc)
+        result["skipped"] = True
+        return result
+
+    distiller = stats.pop("distiller")
+    best_path = stats.get("best_path", "")
+    if not best_path or not os.path.exists(best_path) or not math.isfinite(stats.get("best_loss", float("nan"))):
+        _log.warning("  Stage 2 distillation produced no valid checkpoint — skipping")
+        result["skipped"] = True
+        return result
+
+    result.update(stats)
+    result["student_backbone"] = distiller.student_backbone()
+    result["ckpt_mb"] = os.path.getsize(best_path) / 1e6
+    _log.info(
+        "  ✓ Stage 2 complete in %.1fs | best_loss=%.4f | best_R@1=%.3f | compression=%.1f×",
+        stats["elapsed"], stats["best_loss"],
+        stats.get("best_recall", float("nan")), stats.get("compression_ratio", 0.0),
+    )
+    write_distill_stats_md(video_dir / "distill_stage2_stats.md", video_name, stats)
+
+    try:
+        export_efficientvit_onnx(result["student_backbone"], onnx_path)
+        result["onnx_path"] = onnx_path
+        result["onnx_mb"] = os.path.getsize(onnx_path) / 1e6
+        result["onnx_exported"] = True
+        _log.info("  ✓ EfficientViT ONNX: %.1f MB → %s", result["onnx_mb"], onnx_path)
+    except Exception as exc:
+        _log.warning("  EfficientViT ONNX export failed (%s)", exc)
+
+    return result
+
+
 def step_export_model(
     checkpoint_path: str,
     frame_list: List[Tuple[str, float]],

@@ -1,0 +1,37 @@
+# selfsuvis project rules
+
+- Never create a git commit unless the user explicitly asks for one.
+- Never add `from __future__ import annotations`.
+- Keep project scripts flat under `scripts/`; do not introduce new script subdirectories.
+- Top-level `scripts/` should be shell entrypoints only. Put Python implementations under `src/selfsuvis/...` and call them from shell wrappers when needed.
+- Reuse `scripts/common.sh` for shared shell behavior instead of duplicating root/env/bootstrap logic.
+
+# repo map
+
+- Main Python source: `src/selfsuvis/`
+- Coop / IoT integration: `src/selfsuvis/coop_pilot/`
+- Docker configs: `docker/`
+- Docs: `docs/`
+- Project shell entrypoints: `scripts/`
+
+# practical commands
+
+- Prefer `make venv`, `make test-unit`, `make lint`, `make up`, `make down`, `make logs`.
+- PostgreSQL migration: `python -m selfsuvis.scripts.migrate_postgres`
+- Qdrant reset: `scripts/reset_qdrant.sh`
+- Coop stack entrypoints use flat paths: `scripts/bootstrap.sh`, `scripts/compose.sh`, `scripts/gen-env.sh`, `scripts/ensure_data_dirs.sh`.
+
+# architecture shorthand
+
+- API: `src/selfsuvis/app/`
+- Worker: `src/selfsuvis/worker/`
+- UI: `src/selfsuvis/ui/`
+- Local/LangGraph pipeline: `src/selfsuvis/pipeline/workflows/local/`
+- Mapping: `src/selfsuvis/pipeline/mapping/`
+- Fusion: `src/selfsuvis/pipeline/fusion/`
+- Training/adaptation: `src/selfsuvis/pipeline/training/`
+
+# config reminders
+
+- Runtime settings live in `src/selfsuvis/pipeline/core/config.py`.
+- Python target is 3.10+.

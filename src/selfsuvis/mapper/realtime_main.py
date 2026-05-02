@@ -1,0 +1,121 @@
+"""Realtime mapper sidecar service.
+
+Provides lightweight project-owned implementations of the realtime mapping API
+contract so deployments can start with a consistent HTTP surface before swapping
+in heavier SLAM / occupancy engines.
+"""
+
+import os
+from collections import defaultdict
+from typing import Any, Dict, List, Optional
+
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+from selfsuvis.pipeline.realtime import (
+    build_fused_pose_from_packets,
+    normalize_map_tile,
+    normalize_packets,
+    normalize_pose_payload,
+    write_stub_map_tile,
+)
+
+app = FastAPI(title="selfsuvis-realtime-reference", version="1.0.0")
+_STATS: Dict[str, Any] = {
+    "estimate_pose_calls": 0,
+    "integrate_frame_calls": 0,
+    "tiles_written": 0,
+}
+_TILE_INDEX: Dict[str, Dict[str, Any]] = {}
+_SESSION_COUNTS: Dict[str, int] = defaultdict(int)
+_ENGINE_NAME = os.getenv("REALTIME_ENGINE_NAME", "stub").strip().lower()
+
+
+class EstimatePoseRequest(BaseModel):
+    session_id: str
+    packets: List[Dict[str, Any]]
+
+
+class EstimatePoseResponse(BaseModel):
+    pose: Optional[Dict[str, Any]]
+
+
+class IntegrateFrameRequest(BaseModel):
+    session_id: str
+    frame_id: Optional[str] = None
+    t_sec: float
+    image_path: str = Field(min_length=1)
+    depth_path: Optional[str] = None
+    map_type: str = "occupancy"
+    tile_key: Optional[str] = None
+    resolution_m: float = 0.2
+    pose: Optional[Dict[str, Any]] = None
+    packets: List[Dict[str, Any]] = Field(default_factory=list)
+    stats: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IntegrateFrameResponse(BaseModel):
+    tile: Dict[str, Any]
+
+
+@app.get("/health")
+def health() -> Dict[str, str]:
+    return {"status": "ok", "service": "realtime-reference", "engine": _ENGINE_NAME}
+
+
+@app.post("/estimate_pose", response_model=EstimatePoseResponse)
+def estimate_pose(body: EstimatePoseRequest) -> EstimatePoseResponse:
+    _STATS["estimate_pose_calls"] += 1
+    packets = normalize_packets(body.packets)
+    pose = build_fused_pose_from_packets(packets, max_lag_ms=120)
+    if pose is not None:
+        pose["source"] = _ENGINE_NAME
+    return EstimatePoseResponse(pose=pose)
+
+
+@app.post("/integrate_frame", response_model=IntegrateFrameResponse)
+def integrate_frame(body: IntegrateFrameRequest) -> IntegrateFrameResponse:
+    _STATS["integrate_frame_calls"] += 1
+    pose = normalize_pose_payload(body.pose) if body.pose is not None else None
+    if pose is None and body.packets:
+        pose = build_fused_pose_from_packets(normalize_packets(body.packets), max_lag_ms=120)
+    tile = write_stub_map_tile(
+        session_id=body.session_id,
+        t_sec=body.t_sec,
+        frame_id=body.frame_id,
+        map_type=body.map_type,
+        resolution_m=body.resolution_m,
+        pose=pose,
+        stats=body.stats,
+    )
+    if body.tile_key:
+        tile["tile_key"] = body.tile_key
+    tile = normalize_map_tile(tile)
+    _TILE_INDEX[tile["tile_key"]] = tile
+    _STATS["tiles_written"] += 1
+    _SESSION_COUNTS[body.session_id] += 1
+    return IntegrateFrameResponse(tile=tile)
+
+
+@app.get("/map_tile/{tile_key}")
+def get_map_tile(tile_key: str) -> Dict[str, Any]:
+    tile = _TILE_INDEX.get(tile_key)
+    if tile is None:
+        raise HTTPException(status_code=404, detail="tile not found")
+    return {"tile": tile}
+
+
+@app.get("/stats")
+def stats() -> Dict[str, Any]:
+    return {
+        **_STATS,
+        "engine": _ENGINE_NAME,
+        "sessions": dict(_SESSION_COUNTS),
+        "tile_count": len(_TILE_INDEX),
+    }
+
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", "8101"))
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

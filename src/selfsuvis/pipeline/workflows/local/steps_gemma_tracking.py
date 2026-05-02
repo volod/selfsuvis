@@ -30,10 +30,24 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from selfsuvis.pipeline.core import settings
-from selfsuvis.pipeline.vision.rfdetr import RFDETRTracker, _label_matches_any
-from ._common import _log as _pipeline_log, _open_frame_image
+from selfsuvis.pipeline.vision.rfdetr import RFDETRTracker
+from . import _common as _local_common
 import logging as _logging_mod
 _log = _logging_mod.getLogger("pipeline.local.tracking")
+_open_frame_image = _local_common._open_frame_image
+write_json_artifact = getattr(
+    _local_common,
+    "write_json_artifact",
+    lambda path, payload, ensure_ascii=True: path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=ensure_ascii),
+        encoding="utf-8",
+    ),
+)
+write_markdown_artifact = getattr(
+    _local_common,
+    "write_markdown_artifact",
+    lambda path, lines: path.write_text("\n".join(lines) + "\n", encoding="utf-8"),
+)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -1054,7 +1068,6 @@ def step_gemma_directed_tracking(
         fp = frame_res["frame_path"]
         t_sec = frame_res["t_sec"]
         dets = frame_res.get("detections", [])
-        sam_masks_this = frame_sam_masks.get(fp, [])
 
         # Build renderable mask list (source field only, no numpy — use color blobs)
         # For annotation, rebuild minimal mask from bbox if raw mask not available
@@ -1104,9 +1117,7 @@ def step_gemma_directed_tracking(
         ],
     }
     results_path = video_dir / "gemma_tracking_results.json"
-    results_path.write_text(
-        json.dumps(results_json, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    write_json_artifact(results_path, results_json, ensure_ascii=False)
     _log.info("  ✓ Gemma tracking results → %s", results_path)
 
     # ── Write summary markdown ────────────────────────────────────────────────
@@ -1273,6 +1284,6 @@ def _write_gemma_tracking_summary_md(
     ]
 
     out_path = video_dir / "gemma_tracking_summary.md"
-    out_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(out_path, lines)
     _log.info("  ✓ Gemma tracking summary → %s", out_path)
     return str(out_path)

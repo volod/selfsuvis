@@ -18,13 +18,12 @@ Output schema (physical_state_summary.json):
     skipped                     : bool
 """
 
-import json
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from selfsuvis.pipeline.fusion.object_state import summarize_object_frame_dicts
-from ._common import _log
+from ._common import _log, write_json_artifact
 
 
 # ── Platform confidence ───────────────────────────────────────────────────────
@@ -250,6 +249,6 @@ def _empty_summary() -> Dict[str, Any]:
 def _write_json(result: Dict[str, Any], video_dir: Path) -> None:
     out = video_dir / "physical_state_summary.json"
     try:
-        out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        write_json_artifact(out, result)
     except Exception as exc:
         _log.warning("physical_state: could not write JSON: %s", exc)

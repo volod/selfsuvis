@@ -1,7 +1,13 @@
 """Realtime occupancy/tile helpers."""
 
 
+import json
+from pathlib import Path
 from typing import Any, Dict, Optional
+
+from selfsuvis.pipeline.core import ensure_dir, settings
+from selfsuvis.pipeline.realtime.sidecar import RealtimeSidecarClient
+from selfsuvis.realtime_pilot.adapters import create_occupancy_adapter
 
 def normalize_map_tile(tile: Dict[str, Any]) -> Dict[str, Any]:
     return {
@@ -13,3 +19,91 @@ def normalize_map_tile(tile: Dict[str, Any]) -> Dict[str, Any]:
         "stats": dict(tile.get("stats") or {}),
         "global_map_id": int(tile["global_map_id"]) if tile.get("global_map_id") is not None else None,
     }
+
+
+def realtime_tile_dir(session_id: str, *, map_type: str = "occupancy") -> Path:
+    path = Path(settings.MAPS_DIR) / "realtime" / session_id / map_type
+    ensure_dir(str(path))
+    return path
+
+
+def default_tile_key(*, t_sec: float, frame_id: Optional[str] = None) -> str:
+    if frame_id:
+        return f"frame-{frame_id}"
+    return f"frame-{int(round(t_sec * 1000.0))}"
+
+
+def write_stub_map_tile(
+    *,
+    session_id: str,
+    t_sec: float,
+    frame_id: Optional[str],
+    map_type: str = "occupancy",
+    resolution_m: Optional[float] = None,
+    pose: Optional[Dict[str, Any]] = None,
+    stats: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    tile_key = default_tile_key(t_sec=t_sec, frame_id=frame_id)
+    out_dir = realtime_tile_dir(session_id, map_type=map_type)
+    out_path = out_dir / f"{tile_key}.json"
+    payload = {
+        "session_id": session_id,
+        "frame_id": frame_id,
+        "t_sec": float(t_sec),
+        "map_type": map_type,
+        "resolution_m": float(resolution_m or settings.REALTIME_OCCUPANCY_RESOLUTION_M),
+        "pose": pose or {},
+        "stats": stats or {},
+    }
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return normalize_map_tile(
+        {
+            "tile_key": tile_key,
+            "map_type": map_type,
+            "storage_path": str(out_path),
+            "resolution_m": payload["resolution_m"],
+            "bounds": {},
+            "stats": payload["stats"],
+            "global_map_id": (pose or {}).get("global_map_id"),
+        }
+    )
+
+
+class RealtimeOccupancyClient(RealtimeSidecarClient):
+    """HTTP client for external realtime occupancy backends."""
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        *,
+        timeout_sec: float = 10.0,
+    ) -> None:
+        adapter = create_occupancy_adapter(settings.REALTIME_OCCUPANCY_BACKEND)
+        resolved_url = base_url or settings.REALTIME_OCCUPANCY_API_URL or adapter.api_url
+        super().__init__(
+            backend_name=adapter.name,
+            base_url=resolved_url,
+            timeout_sec=timeout_sec,
+        )
+
+    async def integrate_frame(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if not self.is_configured:
+            return None
+        data = await self._request_json("POST", "/integrate_frame", payload=payload)
+        if not isinstance(data, dict):
+            return None
+        tile = self.unwrap_dict_payload(data, field="tile")
+        if not isinstance(tile, dict):
+            return None
+        return normalize_map_tile(tile)
+
+    async def fetch_map_tile(self, tile_key: str) -> Optional[Dict[str, Any]]:
+        if not self.is_configured:
+            return None
+        data = await self._request_json("GET", f"/map_tile/{tile_key}", allow_404=True)
+        if not isinstance(data, dict):
+            return None
+        tile = self.unwrap_dict_payload(data, field="tile")
+        if not isinstance(tile, dict):
+            return None
+        return normalize_map_tile(tile)

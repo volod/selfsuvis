@@ -15,11 +15,11 @@ Schema (created by scripts/migrate_postgres.py):
         UNIQUE (global_map_id, mission_id)
     )
 """
-import json
 import math
 from typing import Any, Dict, List, Optional
 
 from selfsuvis.pipeline.core import get_logger, utcnow
+from selfsuvis.pipeline.storage.common import jsonb, row_dict, row_dicts
 
 logger = get_logger(__name__)
 
@@ -159,7 +159,7 @@ async def register_mission(
     Uses INSERT ... ON CONFLICT DO UPDATE so re-running a mission updates its
     registration without requiring a delete-first.
     """
-    transform_json = json.dumps(transform_4x4)
+    transform_json = jsonb(transform_4x4)
     now = utcnow()
     await conn.execute(
         """
@@ -249,7 +249,7 @@ async def list_global_maps(conn) -> List[Dict[str, Any]]:
         "SELECT id, origin_lat, origin_lon, origin_alt, splat_path, created_at "
         "FROM global_map ORDER BY created_at"
     )
-    return [dict(row) for row in rows]
+    return row_dicts(rows)
 
 
 async def get_global_map_by_id(conn, global_map_id: int) -> Optional[Dict[str, Any]]:
@@ -257,7 +257,7 @@ async def get_global_map_by_id(conn, global_map_id: int) -> Optional[Dict[str, A
     row = await conn.fetchrow(
         "SELECT * FROM global_map WHERE id = $1", global_map_id
     )
-    return dict(row) if row else None
+    return row_dict(row)
 
 
 async def list_mission_registrations(
@@ -272,4 +272,4 @@ async def list_mission_registrations(
         """,
         global_map_id,
     )
-    return [dict(row) for row in rows]
+    return row_dicts(rows)

@@ -1,8 +1,6 @@
 """SSL fine-tuning steps and loss analysis helpers."""
 
 
-import json
-import logging
 import math
 import os
 import time
@@ -12,8 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from selfsuvis.pipeline.core import settings
-from selfsuvis.pipeline.training import FinetuneConfig, run_finetune
-from ._common import _log
+from ._common import _log, write_json_artifact
 
 
 def _loss_sparkline(history: List[float], width: int = 40) -> str:
@@ -625,6 +622,7 @@ def step_ssl_finetune(
 ) -> Dict[str, Any]:
     """Step 16: SSL DINOv3 fine-tuning, write finetune_stats.md."""
     from .steps_report import write_finetune_stats_md
+    from selfsuvis.pipeline.training.ssl import FinetuneConfig
 
     out_md   = video_dir / "finetune_stats.md"
     ckpt_dir = video_dir / "checkpoints"
@@ -659,15 +657,9 @@ def step_ssl_finetune(
         max_gap=_MAX_GAP,
     )
     pair_mining_path = video_dir / "ssl_pair_mining.json"
-    pair_mining_path.write_text(
-        json.dumps(pair_mining_stats, indent=2),
-        encoding="utf-8",
-    )
+    write_json_artifact(pair_mining_path, pair_mining_stats)
     sfm_overlap_path = video_dir / "sfm_overlap_pairs.json"
-    sfm_overlap_path.write_text(
-        json.dumps(sfm_overlap_rows, indent=2),
-        encoding="utf-8",
-    )
+    write_json_artifact(sfm_overlap_path, sfm_overlap_rows)
 
     # Select pairing approach in priority order:
     # multimodal > track_cycle > track > temporal > augment.
@@ -727,9 +719,7 @@ def step_ssl_finetune(
         "geometry_consistency_loss": [],
     }
 
-    import selfsuvis.pipeline.training.ssl as _ssl_mod
-
-    def _run_capturing(c: FinetuneConfig) -> str:
+    def _run_capturing(c: Any) -> str:
         import torch, random
         random.seed(c.seed); torch.manual_seed(c.seed)
         os.makedirs(c.output_dir, exist_ok=True)
@@ -844,17 +834,14 @@ def step_ssl_finetune(
     elapsed   = time.time() - t0
     best_loss = min(loss_history) if loss_history else float("nan")
     metrics_path = video_dir / "ssl_training_metrics.json"
-    metrics_path.write_text(
-        json.dumps(
-            {
-                "approach": cfg.approach,
-                "loss_history": loss_history,
-                "component_history": component_history,
-                "pair_mining": pair_mining_stats,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
+    write_json_artifact(
+        metrics_path,
+        {
+            "approach": cfg.approach,
+            "loss_history": loss_history,
+            "component_history": component_history,
+            "pair_mining": pair_mining_stats,
+        },
     )
     _log.info("  ✓ Fine-tuning complete in %.1fs | best loss=%.4f | checkpoint: %s",
               elapsed, best_loss, best_path)

@@ -1,14 +1,12 @@
 """Local-run platform-state fusion helpers."""
 
-
-import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from selfsuvis.pipeline.fusion import run_platform_state_fusion, run_full_state_fusion
 from selfsuvis.pipeline.media.gps import extract_gps
 
-from ._common import _log
+from ._common import _log, write_json_artifact
 from .steps_report import write_state_fusion_md
 
 
@@ -27,7 +25,7 @@ def step_platform_state_fusion(
     )
     out_json = video_dir / "state_fusion.json"
     out_md = video_dir / "state_fusion.md"
-    out_json.write_text(json.dumps(fusion_result.to_dict(), indent=2), encoding="utf-8")
+    write_json_artifact(out_json, fusion_result.to_dict())
     write_state_fusion_md(out_md, video_name, fusion_result)
     summary = fusion_result.summary()
     if fusion_result.status == "ok":
@@ -83,7 +81,7 @@ def step_full_state_fusion(
     )
 
     out_json = video_dir / "full_state_fusion.json"
-    out_json.write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
+    write_json_artifact(out_json, result.to_dict())
 
     summary = result.summary()
     _log.info(

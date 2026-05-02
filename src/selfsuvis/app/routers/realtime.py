@@ -14,10 +14,13 @@ from selfsuvis.app.services.live_streams import (
     validate_stream_path,
 )
 from selfsuvis.app.services.realtime import (
+    collect_realtime_stats,
+    integrate_realtime_frame,
     fetch_map_tiles,
     fetch_semantic_observations,
     finalize_realtime_session,
     ingest_realtime_packets,
+    list_realtime_backends,
     publish_map_tile,
     publish_semantic_observation,
     start_realtime_session,
@@ -209,6 +212,39 @@ class SemanticObservationsResponse(BaseModel):
 class SessionFinalizeRequest(BaseModel):
     recording_path: Optional[str] = None
     enqueue_index_job: bool = False
+
+
+class FrameIntegrationRequest(BaseModel):
+    frame_id: Optional[str] = None
+    t_sec: float
+    image_path: str = Field(min_length=1)
+    packets: List[SensorPacket] = Field(default_factory=list)
+    semantic_observations: List[SemanticObservationIn] = Field(default_factory=list)
+    pose: Optional[Dict[str, Any]] = None
+    depth_path: Optional[str] = None
+    map_type: str = "occupancy"
+    tile_key: Optional[str] = None
+    stats: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FrameIntegrationResponse(BaseModel):
+    session_id: str
+    pose_updated: bool
+    tile: MapTileOut
+    semantic_count: int
+
+
+class RealtimeStatsResponse(BaseModel):
+    pose_backend: str
+    occupancy_backend: str
+    pose: Optional[Dict[str, Any]] = None
+    occupancy: Optional[Dict[str, Any]] = None
+
+
+class RealtimeBackendsResponse(BaseModel):
+    selected: Dict[str, str]
+    pose_backends: Dict[str, Dict[str, Any]]
+    occupancy_backends: Dict[str, Dict[str, Any]]
 
 
 def _pose_response(session_id: str, row: Dict[str, Any]) -> PoseResponse:
@@ -439,6 +475,28 @@ async def get_latest_pose(session_id: str, request: Request) -> PoseResponse:
     return _pose_response(session_id, latest_pose)
 
 
+@router.post("/session/{session_id}/pose/estimate", response_model=PoseResponse)
+async def estimate_pose_from_packets(
+    session_id: str,
+    body: PacketIngestRequest,
+    request: Request,
+) -> PoseResponse:
+    db_pool = get_db_pool(request)
+    async with db_pool.acquire() as conn:
+        result = await ingest_realtime_packets(
+            conn,
+            session_id=session_id,
+            packets=[packet.model_dump() for packet in body.packets],
+        )
+        if not result["pose_updated"]:
+            raise HTTPException(status_code=404, detail="pose not available")
+        state = await fetch_realtime_state(conn, session_id)
+    latest_pose = state["latest_pose"] if state else None
+    if latest_pose is None:
+        raise HTTPException(status_code=404, detail="pose not available")
+    return _pose_response(session_id, latest_pose)
+
+
 @router.post("/session/{session_id}/map/tile", response_model=MapTilesResponse)
 async def publish_tile(session_id: str, body: MapTileIn, request: Request) -> MapTilesResponse:
     db_pool = get_db_pool(request)
@@ -462,6 +520,50 @@ async def publish_tile(session_id: str, body: MapTileIn, request: Request) -> Ma
             )
             for row in rows
         ],
+    )
+
+
+@router.post("/session/{session_id}/frame/integrate", response_model=FrameIntegrationResponse)
+async def integrate_frame(
+    session_id: str,
+    body: FrameIntegrationRequest,
+    request: Request,
+) -> FrameIntegrationResponse:
+    db_pool = get_db_pool(request)
+    async with db_pool.acquire() as conn:
+        try:
+            result = await integrate_realtime_frame(
+                conn,
+                session_id=session_id,
+                frame_id=body.frame_id,
+                t_sec=body.t_sec,
+                image_path=body.image_path,
+                packets=[packet.model_dump() for packet in body.packets],
+                semantic_observations=[obs.model_dump() for obs in body.semantic_observations],
+                pose=body.pose,
+                depth_path=body.depth_path,
+                map_type=body.map_type,
+                tile_key=body.tile_key,
+                stats=body.stats,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    tile = result["tile"]
+    return FrameIntegrationResponse(
+        session_id=session_id,
+        pose_updated=result["pose_updated"],
+        tile=MapTileOut(
+            tile_key=tile["tile_key"],
+            map_type=tile["map_type"],
+            storage_path=tile["storage_path"],
+            resolution_m=float(tile["resolution_m"]),
+            bounds=dict(tile.get("bounds") or {}),
+            stats=dict(tile.get("stats") or {}),
+            global_map_id=tile.get("global_map_id"),
+        ),
+        semantic_count=int(result["semantic_count"]),
     )
 
 
@@ -600,3 +702,13 @@ async def finalize_session(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     logger.info("Realtime session finalized: %s mission=%s", session_id, result["mission_id"])
     return SessionStopResponse(**result)
+
+
+@router.get("/stats", response_model=RealtimeStatsResponse)
+async def get_realtime_stats() -> RealtimeStatsResponse:
+    return RealtimeStatsResponse(**(await collect_realtime_stats()))
+
+
+@router.get("/backends", response_model=RealtimeBackendsResponse)
+async def get_realtime_backends() -> RealtimeBackendsResponse:
+    return RealtimeBackendsResponse(**list_realtime_backends())

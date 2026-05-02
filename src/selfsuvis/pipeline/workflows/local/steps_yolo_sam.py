@@ -14,7 +14,6 @@ Priority color coding (RGB):
   Other      (priority 4) → grey  (#9E9E9E)
 """
 
-import json
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,12 +24,11 @@ from selfsuvis.pipeline.core import settings
 from selfsuvis.pipeline.vision.yolo import (
     YOLODetector,
     classify_label_priority,
-    sort_detections_by_priority,
     PRIORITY_HUMAN,
     PRIORITY_VEHICLE,
     PRIORITY_ARTIFICIAL,
 )
-from ._common import _log as _pipeline_log, _open_frame_image
+from ._common import _open_frame_image, write_json_artifact, write_markdown_artifact
 import logging as _logging_mod
 _log = _logging_mod.getLogger("pipeline.local.yolo_sam")
 
@@ -276,7 +274,7 @@ def step_yolo_sam_detection(
         "elapsed_sec": round(elapsed, 2),
     }
     results_path = video_dir / "yolo_sam_results.json"
-    results_path.write_text(json.dumps(results_json, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_json_artifact(results_path, results_json, ensure_ascii=False)
     _log.info("  ✓ YOLO+SAM results → %s", results_path)
 
     # Write comparison markdown
@@ -419,6 +417,6 @@ def _write_detection_comparison_md(
     ]
 
     out_path = video_dir / "detection_comparison.md"
-    out_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(out_path, lines)
     _log.info("  ✓ Detection comparison → %s", out_path)
     return str(out_path)

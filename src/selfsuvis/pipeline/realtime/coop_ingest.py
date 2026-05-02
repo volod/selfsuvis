@@ -17,6 +17,15 @@ from .events import SensorEvent, ThreatEvent
 _GRID_DEG = 0.001
 
 
+def _payload_from_attrs(obj: Any, fields: tuple[str, ...]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for field in fields:
+        value = getattr(obj, field, None)
+        if value is not None:
+            payload[field] = value
+    return payload
+
+
 def _sector_from_gps(lat: float | None, lon: float | None) -> str:
     """Map a GPS coordinate to a coarse grid sector ID."""
     if lat is None or lon is None:
@@ -36,11 +45,10 @@ def sensor_reading_to_event(reading: Any) -> SensorEvent:
     The ``payload`` carries all numeric measurements so downstream aggregators
     can compute environmental baselines without knowing LoRaWAN internals.
     """
-    payload: dict[str, Any] = {}
-    for field in ("temperature_c", "humidity_pct", "co2_ppm", "pressure_hpa", "battery_v"):
-        val = getattr(reading, field, None)
-        if val is not None:
-            payload[field] = val
+    payload = _payload_from_attrs(
+        reading,
+        ("temperature_c", "humidity_pct", "co2_ppm", "pressure_hpa", "battery_v"),
+    )
     if getattr(reading, "motion", None) is not None:
         payload["motion"] = reading.motion
     if getattr(reading, "rssi", None) is not None:
@@ -76,15 +84,13 @@ def camera_event_to_threat(event: Any) -> ThreatEvent | None:
 
     threat_score = min(1.0, score)
 
-    payload: dict[str, Any] = {
+    payload = {
+        **_payload_from_attrs(event, ("region",)),
         "threat_type": "camera_detection",
         "score": threat_score,
         "label": label,
         "camera": getattr(event, "camera", "unknown"),
     }
-    region = getattr(event, "region", None)
-    if region:
-        payload["region"] = region
 
     return ThreatEvent(
         event_time=getattr(event, "started_at", None) or _now_iso(),

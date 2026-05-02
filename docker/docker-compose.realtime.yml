@@ -1,0 +1,14 @@
+services:
+  realtime-reference:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.realtime_reference
+    environment:
+      DATA_DIR: /data
+      MAPS_DIR: /data/maps
+      REALTIME_POSE_BACKEND: ${REALTIME_POSE_BACKEND:-stub}
+      REALTIME_OCCUPANCY_BACKEND: ${REALTIME_OCCUPANCY_BACKEND:-stub}
+    volumes:
+      - ../data:/data
+    ports:
+      - "8101:8101"

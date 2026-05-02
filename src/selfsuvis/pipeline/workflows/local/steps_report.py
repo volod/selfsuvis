@@ -214,6 +214,38 @@ def _write_gemma_captions_md(
     _log.info("  Written %s", output_path)
 
 
+def write_gemma_segment_captions_md(
+    output_path: Path,
+    video_name: str,
+    model_id: str,
+    boundary_diffs: List[Dict[str, Any]],
+) -> None:
+    """Write Gemma segment-boundary diff descriptions to a markdown file."""
+    lines = [
+        f"# Gemma Segment Boundary Diffs — {video_name}",
+        f"",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Model: `{model_id}`  |  Boundaries: {len(boundary_diffs)}",
+        f"",
+        (
+            "Each row shows the transition between two scene segments: the last frame of "
+            "segment N and the first frame of segment N+1, with a Gemma-generated diff description."
+        ),
+        f"",
+        f"| # | Seg N→N+1 | Before (t) | After (t) | What changed |",
+        f"|---|-----------|-----------|-----------|--------------|",
+    ]
+    for b in boundary_diffs:
+        seg_label = f"{b.get('prev_segment_id', '?')}→{b.get('next_segment_id', '?')}"
+        t_before  = f"{b.get('prev_t_sec', 0.0):.1f}s"
+        t_after   = f"{b.get('next_t_sec', 0.0):.1f}s"
+        desc      = (b.get("diff_description") or "*(no description)*").replace("|", "\\|").replace("\n", " ")
+        lines.append(f"| {b.get('boundary_idx', 0) + 1} | {seg_label} | {t_before} | {t_after} | {desc} |")
+    lines += ["", "---", f"*Produced by {_RUNNER_LABEL}*"]
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    _log.info("  Written %s", output_path)
+
+
 def write_gemma_analysis_md(
     output_path: Path,
     video_name: str,

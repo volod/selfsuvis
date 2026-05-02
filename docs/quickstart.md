@@ -11,7 +11,7 @@
 - Services run individually or via Docker for backing services only
 - Hot-reload on API changes
 - Full local learning pipeline with fine-tuning and ONNX export
-- Optional coop_pilot Steps 36-42 for live IoT site monitoring
+- Optional coop_pilot Steps 37-43 for live IoT site monitoring
 - Best for: development, research, model experimentation, custom pipeline modifications
 
 ---
@@ -43,12 +43,12 @@ Choose your path based on your use case:
 The practical route is two stages:
 
 1. Run the local video pipeline (`selfsuvis --mode local`) for the core learning path.
-2. Start `coop_pilot` for Steps 36-42: MQTT, LoRaWAN, Frigate, rolling site state,
+2. Start `coop_pilot` for Steps 37-43: MQTT, LoRaWAN, Frigate, rolling site state,
    scene synthesis, and realtime threat sectors.
 
 ```bash
 # 1. Prepare local venv, models, sample data, and backing services.
-bash scripts/setup_local_full.sh
+bash scripts/selfsuvis-setup.sh
 
 # 2. Run the local video pipeline. Use the exact command printed by setup,
 # or start with the minimal command below.
@@ -58,9 +58,9 @@ bash scripts/setup_local_full.sh
   --no-sfm \
   --no-gsplat
 
-# 3. Install coop extras and start the IoT stack for learning-path Steps 36-42.
+# 3. Install coop extras and start the IoT stack for learning-path Steps 37-43.
 .venv/bin/pip install -e ".[coop_pilot]"
-APP_ENV=test ./scripts/coop/bootstrap.sh up -d
+APP_ENV=test ./scripts/coop-bootstrap.sh up -d
 
 # 4. Start the local API so /site/* endpoints can subscribe to coop MQTT.
 APP_ENV=dev COOP_MQTT_HOST=localhost COOP_MQTT_PORT=1883 COOP_MQTT_TLS=false \
@@ -81,7 +81,7 @@ curl -s http://localhost:8000/site/threat | python -m json.tool
 Stop the coop containers when done:
 
 ```bash
-APP_ENV=test ./scripts/coop/compose.sh down
+APP_ENV=test ./scripts/coop-compose.sh down
 ```
 
 For the detailed command sequence, see [Quick Start — Learning Path Pipeline](quickstart-pipeline.md#optional-step-7--run-coop_pilot-steps-36-42).

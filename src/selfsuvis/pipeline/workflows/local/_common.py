@@ -1,10 +1,12 @@
 """Shared logging helpers, constants, and VideoKnowledge for the local subpackage."""
 
 
+import json
 import logging
 import os
 import time
 import warnings
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
@@ -102,6 +104,17 @@ def _banner(msg: str) -> None:
 
 def _step(n: int, total: int, name: str) -> None:
     _log.info("─── Step %d/%d: %s", n, total, name)
+
+
+def write_json_artifact(path: Path, payload: Any, *, ensure_ascii: bool = True) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=ensure_ascii),
+        encoding="utf-8",
+    )
+
+
+def write_markdown_artifact(path: Path, lines: List[str]) -> None:
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 class _Timer:

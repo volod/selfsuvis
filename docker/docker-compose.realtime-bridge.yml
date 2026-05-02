@@ -1,0 +1,56 @@
+# Realtime telemetry bridge runtimes.
+#
+# Start only the bridge service that matches your transport:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-bridge.yml up -d realtime-mavsdk-bridge
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-bridge.yml up -d realtime-ros-bridge
+
+networks:
+  default:
+    name: selfsuvis-net
+
+services:
+  realtime-mavsdk-bridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.realtime_bridge
+    container_name: realtime-mavsdk-bridge
+    restart: unless-stopped
+    env_file:
+      - path: ../src/selfsuvis/realtime_pilot/env/prod.env
+        required: true
+      - path: ../.env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis}
+      REALTIME_BRIDGE_ENABLED: "true"
+      REALTIME_BRIDGE_BACKEND: mavsdk
+      REALTIME_MAVSDK_SYSTEM_ADDRESS: ${REALTIME_MAVSDK_SYSTEM_ADDRESS:-udp://:14540}
+      DATA_DIR: /app/data
+    volumes:
+      - ../data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  realtime-ros-bridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.realtime_bridge
+    container_name: realtime-ros-bridge
+    restart: unless-stopped
+    env_file:
+      - path: ../src/selfsuvis/realtime_pilot/env/prod.env
+        required: true
+      - path: ../.env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis}
+      REALTIME_BRIDGE_ENABLED: "true"
+      REALTIME_BRIDGE_BACKEND: ros
+      REALTIME_ROS_DOMAIN_ID: ${REALTIME_ROS_DOMAIN_ID:-}
+      DATA_DIR: /app/data
+    volumes:
+      - ../data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
