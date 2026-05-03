@@ -14,27 +14,29 @@ Priority color coding (RGB):
   Other      (priority 4) → grey  (#9E9E9E)
 """
 
+import logging as _logging_mod
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
 from selfsuvis.pipeline.core import settings
 from selfsuvis.pipeline.vision.yolo import (
-    YOLODetector,
-    classify_label_priority,
+    PRIORITY_ARTIFICIAL,
     PRIORITY_HUMAN,
     PRIORITY_VEHICLE,
-    PRIORITY_ARTIFICIAL,
+    YOLODetector,
+    classify_label_priority,
 )
+
 from ._common import _open_frame_image, write_json_artifact, write_markdown_artifact
-import logging as _logging_mod
+
 _log = _logging_mod.getLogger("pipeline.local.yolo_sam")
 
 # ── Priority → display color (RGB) ───────────────────────────────────────────
 
-_PRIORITY_COLOR: Dict[int, Tuple[int, int, int]] = {
+_PRIORITY_COLOR: dict[int, tuple[int, int, int]] = {
     PRIORITY_HUMAN:      (229,  57,  53),   # red
     PRIORITY_VEHICLE:    ( 30, 136, 229),   # blue
     PRIORITY_ARTIFICIAL: ( 67, 160,  71),   # green
@@ -57,8 +59,8 @@ _BOX_WIDTH_RATIO = 0.003
 
 def _draw_detections(
     image: Image.Image,
-    detections: List[Dict[str, Any]],
-    sam_masks: Optional[List[Optional[Any]]] = None,
+    detections: list[dict[str, Any]],
+    sam_masks: list[Any | None] | None = None,
 ) -> Image.Image:
     """Draw bounding boxes (and optional SAM masks) on *image*.
 
@@ -125,12 +127,12 @@ def _draw_detections(
 
 
 def step_yolo_sam_detection(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
     device: str,
-    det_result: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    det_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Step 09: YOLO11 detection + optional SAM2/3 segmentation.
 
     Args:
@@ -146,7 +148,7 @@ def step_yolo_sam_detection(
             n_frames (int), total_objects (int), elapsed_sec (float),
             human_count (int), vehicle_count (int), artificial_count (int).
     """
-    result: Dict[str, Any] = {"skipped": True, "detection_results": [], "total_objects": 0}
+    result: dict[str, Any] = {"skipped": True, "detection_results": [], "total_objects": 0}
 
     detector = YOLODetector()
     if not detector.is_enabled():
@@ -183,10 +185,10 @@ def step_yolo_sam_detection(
     out_dir = video_dir / "yolo_sam"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    detection_results: List[Dict[str, Any]] = []
+    detection_results: list[dict[str, Any]] = []
     human_count = vehicle_count = artificial_count = other_count = 0
     total_objects = 0
-    annotated_paths: List[str] = []
+    annotated_paths: list[str] = []
 
     for idx, (fp, t_sec) in enumerate(sampled):
         try:
@@ -196,7 +198,7 @@ def step_yolo_sam_detection(
             total_objects += len(detections)
 
             # SAM segmentation: produce masks for all detected bboxes
-            sam_masks: Optional[List] = None
+            sam_masks: list | None = None
             if sam_available and sam_predictor is not None and detections:
                 bboxes_norm = [tuple(d["bbox_norm"]) for d in detections]
                 raw_masks = sam_predictor.predict_boxes(img, bboxes_norm)
@@ -315,12 +317,12 @@ def step_yolo_sam_detection(
 def _write_detection_comparison_md(
     video_dir: Path,
     video_name: str,
-    yolo_results: Dict[str, Any],
-    hf_det_result: Optional[Dict[str, Any]],
+    yolo_results: dict[str, Any],
+    hf_det_result: dict[str, Any] | None,
     n_frames: int,
     elapsed_sec: float,
     sam_available: bool,
-    annotated_paths: List[str],
+    annotated_paths: list[str],
 ) -> str:
     """Write detection_comparison.md comparing YOLO vs HF detector results.
 
@@ -333,7 +335,7 @@ def _write_detection_comparison_md(
     # Gather HF detector stats when available
     hf_total = 0
     hf_model = "n/a"
-    hf_label_counts: Dict[str, int] = {}
+    hf_label_counts: dict[str, int] = {}
     if hf_det_result and not hf_det_result.get("skipped"):
         hf_model = "HF detector"
         for frame_r in hf_det_result.get("detection_results", []):
@@ -342,7 +344,7 @@ def _write_detection_comparison_md(
                 hf_label_counts[lbl] = hf_label_counts.get(lbl, 0) + 1
                 hf_total += 1
         # Map HF labels to priority buckets
-        hf_by_priority: Dict[str, int] = {
+        hf_by_priority: dict[str, int] = {
             "human": 0, "vehicle": 0, "artificial": 0, "other": 0,
         }
         for lbl, cnt in hf_label_counts.items():
@@ -410,7 +412,7 @@ def _write_detection_comparison_md(
         "",
         "## Artifacts",
         "",
-        f"- `yolo_sam_results.json` — full per-frame detection JSON",
+        "- `yolo_sam_results.json` — full per-frame detection JSON",
         f"- `yolo_sam/frame_*.jpg` — annotated frames ({len(annotated_paths)} written)",
         "",
         f"*Elapsed: {elapsed_sec:.1f}s for {n_frames} frames ({fps_yolo:.1f} fps)*",

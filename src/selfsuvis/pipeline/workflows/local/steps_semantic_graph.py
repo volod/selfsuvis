@@ -2,9 +2,12 @@
 
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
-from selfsuvis.pipeline.mapping import build_semantic_environment_graph, write_semantic_graph_markdown
+from selfsuvis.pipeline.mapping import (
+    build_semantic_environment_graph,
+    write_semantic_graph_markdown,
+)
 
 from ._common import _log
 
@@ -14,9 +17,9 @@ def step_build_semantic_environment_graph(
     video_id: str,
     video_name: str,
     video_dir: Path,
-    yolo_sam_result: Dict[str, Any],
-    map_result: Dict[str, Any],
-) -> Dict[str, Any]:
+    yolo_sam_result: dict[str, Any],
+    map_result: dict[str, Any],
+) -> dict[str, Any]:
     """Build a YOLO-driven semantic environment graph for local-run artifacts."""
     if yolo_sam_result.get("skipped"):
         return {"skipped": True, "reason": "yolo_step_skipped"}

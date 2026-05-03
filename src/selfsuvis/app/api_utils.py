@@ -1,11 +1,10 @@
-from typing import Optional
 
 from fastapi.responses import JSONResponse
 
 from selfsuvis.app.schemas import ErrorResponse
 
 
-def error_response(message: str, status_code: int = 400, detail: Optional[str] = None) -> JSONResponse:
+def error_response(message: str, status_code: int = 400, detail: str | None = None) -> JSONResponse:
     """Return a consistent error response."""
     body = {"error": message}
     if detail:

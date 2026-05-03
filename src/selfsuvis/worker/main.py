@@ -4,12 +4,38 @@ import time
 import uuid
 from datetime import timedelta
 from enum import Enum
-from typing import Optional
+
+import asyncpg
+
+import selfsuvis.pipeline.storage.processed as processed_db_mod
+from selfsuvis.pipeline.core import (
+    datetime_to_ts,
+    file_sha256,
+    get_dino_model_name,
+    get_logger,
+    settings,
+    utcnow,
+    validate_settings,
+)
+from selfsuvis.pipeline.media import download_url
+from selfsuvis.pipeline.storage import create_job, fetch_and_claim_next_pending, update_job
+from selfsuvis.pipeline.storage.missions import (
+    apply_gps_registration,
+    fetch_mission,
+    list_frames_after,
+    list_mission_frames,
+    mark_mission_finished,
+    replace_frames,
+    upsert_mission,
+)
+from selfsuvis.pipeline.storage.processed import ainit_db as init_processed_db_async
+from selfsuvis.pipeline.storage.processed import get_by_hash
+from selfsuvis.pipeline.workflows import VideoIndexer
 
 # Persistent event loop for the worker process.  _run() creates and
 # closes a new loop on every call; asyncpg pools are tied to the loop they were
 # created in, so mixing multiple _run() calls with a shared pool breaks.
-_loop: Optional[asyncio.AbstractEventLoop] = None
+_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _run(coro):
@@ -18,24 +44,6 @@ def _run(coro):
     if _loop is None or _loop.is_closed():
         _loop = asyncio.new_event_loop()
     return _loop.run_until_complete(coro)
-
-import asyncpg
-
-from selfsuvis.pipeline.core import datetime_to_ts, file_sha256, get_dino_model_name, get_logger, settings, utcnow, validate_settings
-from selfsuvis.pipeline.storage import create_job, fetch_and_claim_next_pending, update_job
-from selfsuvis.pipeline.workflows import VideoIndexer
-import selfsuvis.pipeline.storage.processed as processed_db_mod
-from selfsuvis.pipeline.storage.processed import ainit_db as init_processed_db_async, get_by_hash
-from selfsuvis.pipeline.media import download_url
-from selfsuvis.pipeline.storage.missions import (
-    fetch_mission,
-    list_mission_frames,
-    apply_gps_registration,
-    list_frames_after,
-    mark_mission_finished,
-    replace_frames,
-    upsert_mission,
-)
 
 
 class JobType(str, Enum):
@@ -236,14 +244,14 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
 
     # 3DGS mapper (requires nerfstudio container — soft skip on ConnectionError)
     try:
-        from selfsuvis.pipeline.mapper import run_mapper
         from selfsuvis.pipeline.global_map_db import (
-            get_or_create_global_map,
             get_global_map_splats,
+            get_or_create_global_map,
             register_mission,
-            update_mission_splat_path,
             update_global_map_splat,
+            update_mission_splat_path,
         )
+        from selfsuvis.pipeline.mapper import run_mapper
     except ImportError as exc:
         logger.debug("Pass A: mapper deps unavailable (%s) — skipping 3DGS", exc)
         return
@@ -535,10 +543,11 @@ def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logg
 
     except Exception as exc:
         logger.exception("Finetune job failed id=%s error=%s", job_id, exc)
+        error_message = str(exc)
 
         async def _mark_error():
             async with db_pool.acquire() as conn:
-                await update_job(conn, job_id, status="error", error=str(exc),
+                await update_job(conn, job_id, status="error", error=error_message,
                                  finished_at=time.time())
 
         _pg_run(_mark_error())
@@ -668,11 +677,12 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
 
     except Exception as exc:
         logger.exception("Reembed job failed id=%s error=%s", job_id, exc)
+        error_message = str(exc)
 
         async def _mark_error():
             conn = await asyncpg.connect(conn_url)
             try:
-                await update_job(conn, job_id, status="error", error=str(exc),
+                await update_job(conn, job_id, status="error", error=error_message,
                                  finished_at=time.time())
             finally:
                 await conn.close()
@@ -729,6 +739,7 @@ def handle_postflight_mapping_job(job_id: str, payload: dict, pool, logger) -> N
         logger.info("Post-flight mapping job finished id=%s mission=%s", job_id, mission_id)
     except Exception as exc:
         logger.exception("Post-flight mapping job failed id=%s error=%s", job_id, exc)
+        error_message = str(exc)
 
         async def _mark_error():
             async with pool.acquire() as conn:
@@ -737,7 +748,7 @@ def handle_postflight_mapping_job(job_id: str, payload: dict, pool, logger) -> N
                         conn,
                         job_id=job_id,
                         mission_id=mission_id,
-                        error=str(exc),
+                        error=error_message,
                     )
 
         _run(_mark_error())
@@ -807,6 +818,7 @@ def handle_postflight_semantic_graph_job(job_id: str, payload: dict, pool, logge
         logger.info("Post-flight semantic graph job finished id=%s mission=%s", job_id, mission_id)
     except Exception as exc:
         logger.exception("Post-flight semantic graph job failed id=%s error=%s", job_id, exc)
+        error_message = str(exc)
 
         async def _mark_error():
             async with pool.acquire() as conn:
@@ -815,7 +827,7 @@ def handle_postflight_semantic_graph_job(job_id: str, payload: dict, pool, logge
                         conn,
                         job_id=job_id,
                         mission_id=mission_id,
-                        error=str(exc),
+                        error=error_message,
                     )
 
         _run(_mark_error())
@@ -823,7 +835,7 @@ def handle_postflight_semantic_graph_job(job_id: str, payload: dict, pool, logge
 
 # ── Main loop ────────────────────────────────────────────────────────────────
 
-def _claim_next_job(pool) -> Optional[dict]:
+def _claim_next_job(pool) -> dict | None:
     """Atomically claim the next pending job using SELECT FOR UPDATE SKIP LOCKED."""
     async def _claim():
         async with pool.acquire() as conn:
@@ -909,7 +921,7 @@ def main() -> None:
             def progress_cb(progress):
                 _update_job_sync(pool, job_id, progress=progress)
 
-            video_path: Optional[str] = None
+            video_path: str | None = None
             try:
                 video_id = payload["video_id"]
                 video_path = payload.get("video_path")
@@ -1045,6 +1057,7 @@ def main() -> None:
                         size_bytes = os.path.getsize(video_path)
                         mtime = os.path.getmtime(video_path)
                         file_hash = file_sha256(video_path)
+                        error_message = str(exc)
 
                         async def _finalize_error():
                             async with pool.acquire() as conn:
@@ -1056,7 +1069,7 @@ def main() -> None:
                                         size_bytes,
                                         mtime,
                                         "error",
-                                        {"error": str(exc)},
+                                        {"error": error_message},
                                         conn=conn,
                                     )
                                     if payload.get("video_id"):
@@ -1064,7 +1077,7 @@ def main() -> None:
                                             conn,
                                             payload.get("mission_id") or payload["video_id"],
                                             status="error",
-                                            error=str(exc),
+                                            error=error_message,
                                         )
 
                         _run(_finalize_error())

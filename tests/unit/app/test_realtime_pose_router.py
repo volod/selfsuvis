@@ -1,10 +1,10 @@
 """Focused pose-router tests."""
 
+from unittest.mock import patch
+
 import httpx
 import pytest
-
 from tests.unit.app.test_realtime_router import FakeConn, FakePool, _app
-from unittest.mock import patch
 
 
 @pytest.mark.anyio

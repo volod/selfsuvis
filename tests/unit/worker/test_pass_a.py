@@ -14,7 +14,6 @@ import types
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Inject stub modules for optional deps that may not be installed
 # ---------------------------------------------------------------------------
@@ -221,7 +220,6 @@ class TestPassAHappyPath(unittest.TestCase):
         if extra_patches:
             patches.extend(extra_patches)
 
-        mocks = {}
         cms = []
         for p in patches:
             cm = p.__enter__()

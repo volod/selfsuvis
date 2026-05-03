@@ -1,6 +1,6 @@
 import ipaddress
 import socket
-from typing import Iterable, Optional
+from collections.abc import Iterable
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -8,7 +8,7 @@ import requests
 from selfsuvis.pipeline.core import settings
 
 
-def _peer_ip(resp: requests.Response) -> Optional[ipaddress._BaseAddress]:
+def _peer_ip(resp: requests.Response) -> ipaddress._BaseAddress | None:
     """Extract the actual peer IP from a response's underlying socket.
 
     Used for post-connect validation to close the DNS-rebinding window between
@@ -75,7 +75,7 @@ def safe_request(
     url: str,
     *,
     timeout: int,
-    max_redirects: Optional[int] = None,
+    max_redirects: int | None = None,
     stream: bool = False,
     **kwargs,
 ) -> requests.Response:

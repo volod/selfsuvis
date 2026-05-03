@@ -1,38 +1,37 @@
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
 from PIL import Image
 
 from selfsuvis.pipeline.core import ensure_dir, get_logger, now_iso, settings
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from selfsuvis.pipeline.vision.factory import OpenCLIPTagger, SAMSegmenter
+    pass
 
 
 @dataclass
 class Segment:
     segment_id: str
     label: str
-    bbox: Tuple[int, int, int, int]
-    mean_color: Tuple[int, int, int]
+    bbox: tuple[int, int, int, int]
+    mean_color: tuple[int, int, int]
     area: int
 
 
 @dataclass
 class FrameResult:
     description: str
-    segments: List[Segment]
-    entities: List[Dict[str, Any]]
-    tracks: List[Dict[str, Any]]
-    warnings: List[str]
+    segments: list[Segment]
+    entities: list[dict[str, Any]]
+    tracks: list[dict[str, Any]]
+    warnings: list[str]
 
 
-def _dominant_color_name(rgb: Tuple[int, int, int]) -> str:
+def _dominant_color_name(rgb: tuple[int, int, int]) -> str:
     r, g, b = rgb
     if r >= g and r >= b:
         return "red"
@@ -51,7 +50,7 @@ def _scene_description(frame_bgr: np.ndarray) -> str:
     return f"A {brightness}, {texture} frame."
 
 
-def _segment_kmeans(frame_bgr: np.ndarray, k: int = 4) -> List[Segment]:
+def _segment_kmeans(frame_bgr: np.ndarray, k: int = 4) -> list[Segment]:
     h, w = frame_bgr.shape[:2]
     data = frame_bgr.reshape((-1, 3)).astype(np.float32)
     if data.shape[0] < k:
@@ -61,7 +60,7 @@ def _segment_kmeans(frame_bgr: np.ndarray, k: int = 4) -> List[Segment]:
     labels = labels.flatten()
     centers = centers.astype(np.uint8)
 
-    segments: List[Segment] = []
+    segments: list[Segment] = []
     for i in range(k):
         mask = labels == i
         if not np.any(mask):
@@ -96,10 +95,10 @@ def _bbox_iou(a: Segment, b: Segment) -> float:
 
 def image_to_text_agent(
     frame_bgr: np.ndarray,
-    tagger: Optional[Any] = None,
-    segmenter: Optional[Any] = None,
-) -> Tuple[str, List[Segment]]:
-    segments: List[Segment] = []
+    tagger: Any | None = None,
+    segmenter: Any | None = None,
+) -> tuple[str, list[Segment]]:
+    segments: list[Segment] = []
     if segmenter and tagger:
         try:
             from selfsuvis.pipeline.vision.factory import mask_to_segments
@@ -135,7 +134,7 @@ def image_to_text_agent(
     return description, segments
 
 
-def recognition_correctness_agent(description: str, segments: List[Segment]) -> List[str]:
+def recognition_correctness_agent(description: str, segments: list[Segment]) -> list[str]:
     warnings = []
     if not segments:
         warnings.append("no_segments_detected")
@@ -145,11 +144,11 @@ def recognition_correctness_agent(description: str, segments: List[Segment]) -> 
 
 
 def ontology_agent(
-    ontology: Dict[str, Any],
-    segments: List[Segment],
+    ontology: dict[str, Any],
+    segments: list[Segment],
     frame_index: int,
     t_sec: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     entities = ontology.setdefault("entities", {})
     for seg in segments:
         ent = entities.setdefault(seg.label, {"count": 0, "first_seen": frame_index, "last_seen": frame_index})
@@ -163,14 +162,14 @@ def ontology_agent(
 
 
 def matching_agent(
-    segments: List[Segment],
-    prev_segments: Optional[List[Segment]],
-    prev_tracks: Dict[str, int],
+    segments: list[Segment],
+    prev_segments: list[Segment] | None,
+    prev_tracks: dict[str, int],
     next_track_id: int,
     iou_threshold: float = 0.2,
-) -> Tuple[List[Dict[str, Any]], Dict[str, int], int]:
-    tracks: List[Dict[str, Any]] = []
-    updated_tracks: Dict[str, int] = {}
+) -> tuple[list[dict[str, Any]], dict[str, int], int]:
+    tracks: list[dict[str, Any]] = []
+    updated_tracks: dict[str, int] = {}
 
     for seg in segments:
         track_id = None
@@ -199,7 +198,7 @@ def matching_agent(
     return tracks, updated_tracks, next_track_id
 
 
-def _build_ontology_entities(ontology: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _build_ontology_entities(ontology: dict[str, Any]) -> list[dict[str, Any]]:
     """Flatten ontology entities dict into a list for the frame record."""
     result = []
     for name, ent in ontology.get("entities", {}).items():
@@ -218,14 +217,14 @@ def _build_ontology_entities(ontology: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _process_frame_to_record(
     rec: Any,
     video_name: str,
-    tagger: Optional[Any],
-    segmenter: Optional[Any],
-    ontology: Dict[str, Any],
-    prev_segments: Optional[List[Segment]],
-    prev_tracks: Dict[str, int],
+    tagger: Any | None,
+    segmenter: Any | None,
+    ontology: dict[str, Any],
+    prev_segments: list[Segment] | None,
+    prev_tracks: dict[str, int],
     next_track_id: int,
-    base_metadata: Dict[str, Any],
-) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], Optional[List[Segment]], Dict[str, int], int]:
+    base_metadata: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any], list[Segment] | None, dict[str, int], int]:
     """Process one frame through agents. Returns (record_dict, ontology, prev_segments, prev_tracks, next_track_id).
     record_dict is None if the frame could not be read."""
     frame = cv2.imread(rec.path)
@@ -272,14 +271,14 @@ def formatter_agent(
     width: int,
     height: int,
     description: str,
-    segments: List[Segment],
-    entities: List[Dict[str, Any]],
-    tracks: List[Dict[str, Any]],
-    warnings: List[str],
+    segments: list[Segment],
+    entities: list[dict[str, Any]],
+    tracks: list[dict[str, Any]],
+    warnings: list[str],
     frame_path: str,
-    ontology_entities: List[Dict[str, Any]],
-    metadata: Dict[str, Any],
-) -> Dict[str, Any]:
+    ontology_entities: list[dict[str, Any]],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
     return {
         "video_name": video_name,
         "frame_index": frame_index,
@@ -308,34 +307,34 @@ def formatter_agent(
 
 def process_frames(
     video_name: str,
-    frame_records: List[Any],
+    frame_records: list[Any],
     output_dir: str,
-    run_metadata: Optional[Dict[str, Any]] = None,
+    run_metadata: dict[str, Any] | None = None,
     model_type: str = "openclip_sam",
-    sam_checkpoint: Optional[str] = None,
-    sam_model_type: Optional[str] = None,
-    labels_file: Optional[str] = None,
+    sam_checkpoint: str | None = None,
+    sam_model_type: str | None = None,
+    labels_file: str | None = None,
     verbose: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     logger = get_logger(__name__)
     ensure_dir(output_dir)
     jsonl_path = os.path.join(output_dir, f"{video_name}.jsonl")
     ontology_path = os.path.join(output_dir, f"{video_name}.ontology.json")
 
-    ontology: Dict[str, Any] = {"video_name": video_name, "entities": {}, "timeline": []}
-    base_metadata: Dict[str, Any] = {
+    ontology: dict[str, Any] = {"video_name": video_name, "entities": {}, "timeline": []}
+    base_metadata: dict[str, Any] = {
         "created_at": now_iso(),
         "output_dir": output_dir,
         "model_type": model_type,
     }
     if run_metadata:
         base_metadata.update(run_metadata)
-    prev_segments: Optional[List[Segment]] = None
-    prev_tracks: Dict[str, int] = {}
+    prev_segments: list[Segment] | None = None
+    prev_tracks: dict[str, int] = {}
     next_track_id = 1
 
-    tagger: Optional[Any] = None
-    segmenter: Optional[Any] = None
+    tagger: Any | None = None
+    segmenter: Any | None = None
     if model_type == "openclip_sam" and not (sam_checkpoint or settings.SAM_CHECKPOINT):
         logger.warning("SAM checkpoint missing; falling back to openclip_only")
         model_type = "openclip_only"

@@ -9,16 +9,17 @@ _guard_min_free_vram inside each step function — no additional locking needed.
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from ..graph_state import PipelineState
 
 _log = logging.getLogger(__name__)
 
 
-def node_p2_florence_caption(state: PipelineState) -> Dict[str, Any]:
-    from ..steps_caption import step_scene_captioning
+def node_p2_florence_caption(state: PipelineState) -> dict[str, Any]:
     from selfsuvis.pipeline.core.config import settings
+
+    from ..steps_caption import step_scene_captioning
 
     args = state["args"]
     caption_results = []
@@ -45,11 +46,11 @@ def node_p2_florence_caption(state: PipelineState) -> Dict[str, Any]:
     return {"caption_results": caption_results, "stats": stats}
 
 
-def node_p2_asr(state: PipelineState) -> Dict[str, Any]:
-    from ..steps_caption import step_asr_transcription, _prep_vram_for_step
+def node_p2_asr(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _prep_vram_for_step, step_asr_transcription
 
     args = state["args"]
-    asr_result: Dict[str, Any] = {"skipped": True, "subtitle_map": {}, "segments": []}
+    asr_result: dict[str, Any] = {"skipped": True, "subtitle_map": {}, "segments": []}
     t0 = time.monotonic()
 
     if args.asr:
@@ -66,11 +67,11 @@ def node_p2_asr(state: PipelineState) -> Dict[str, Any]:
     return {"asr_result": asr_result, "stats": stats}
 
 
-def node_p2_ocr(state: PipelineState) -> Dict[str, Any]:
-    from ..steps_caption import step_ocr_extraction, _prep_vram_for_step
+def node_p2_ocr(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _prep_vram_for_step, step_ocr_extraction
 
     args = state["args"]
-    ocr_result: Dict[str, Any] = {"skipped": True, "ocr_results": []}
+    ocr_result: dict[str, Any] = {"skipped": True, "ocr_results": []}
     t0 = time.monotonic()
 
     if args.ocr:
@@ -87,11 +88,11 @@ def node_p2_ocr(state: PipelineState) -> Dict[str, Any]:
     return {"ocr_result": ocr_result, "stats": stats}
 
 
-def node_p2_depth(state: PipelineState) -> Dict[str, Any]:
-    from ..steps_caption import step_depth_estimation, _prep_vram_for_step
+def node_p2_depth(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _prep_vram_for_step, step_depth_estimation
 
     args = state["args"]
-    depth_result: Dict[str, Any] = {"skipped": True, "depth_results": []}
+    depth_result: dict[str, Any] = {"skipped": True, "depth_results": []}
     t0 = time.monotonic()
 
     if args.depth:
@@ -107,11 +108,11 @@ def node_p2_depth(state: PipelineState) -> Dict[str, Any]:
     return {"depth_result": depth_result, "stats": stats}
 
 
-def node_p2_detection(state: PipelineState) -> Dict[str, Any]:
-    from ..steps_caption import step_object_detection, _prep_vram_for_step
+def node_p2_detection(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _prep_vram_for_step, step_object_detection
 
     args = state["args"]
-    det_result: Dict[str, Any] = {"skipped": True, "detection_results": []}
+    det_result: dict[str, Any] = {"skipped": True, "detection_results": []}
     t0 = time.monotonic()
 
     if args.detection:

@@ -6,7 +6,7 @@ No live Qdrant or PostgreSQL required.
 
 import sys
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

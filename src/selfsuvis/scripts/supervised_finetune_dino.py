@@ -24,7 +24,6 @@ Warm-starting from an SSL checkpoint (recommended):
 """
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 

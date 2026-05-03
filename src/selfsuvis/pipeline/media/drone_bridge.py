@@ -1,12 +1,13 @@
 """Drone telemetry bridge helpers."""
 
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 from .bridge_common import PacketBridge, build_packet, flatten_packet_batches
 from .mavlink import mavlink_message_to_packets
 
 
-def bridge_mavlink_messages(messages: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def bridge_mavlink_messages(messages: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return flatten_packet_batches(messages, mavlink_message_to_packets)
 
 
@@ -18,7 +19,7 @@ def frame_capture_to_packet(
     width: int,
     height: int,
     camera_id: str = "front",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return build_packet(
         sensor_type="camera",
         t_device=t_device,

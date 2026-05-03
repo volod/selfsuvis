@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 from selfsuvis.pipeline.fusion import (
     GlobalThreatResult,
@@ -24,7 +25,7 @@ from selfsuvis.pipeline.fusion.sectors import (
 _log = logging.getLogger("pipeline.local")
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -41,8 +42,8 @@ def _risk_level(score: float) -> str:
     return "none"
 
 
-def _video_dirs_from_stats(output_dir: Path, per_video_stats: Sequence[Dict[str, Any]]) -> List[Path]:
-    out: List[Path] = []
+def _video_dirs_from_stats(output_dir: Path, per_video_stats: Sequence[dict[str, Any]]) -> list[Path]:
+    out: list[Path] = []
     for stats in per_video_stats:
         vdir = stats.get("video_dir")
         if vdir:
@@ -54,7 +55,7 @@ def _video_dirs_from_stats(output_dir: Path, per_video_stats: Sequence[Dict[str,
     return [p for p in out if p.exists()]
 
 
-def _extract_sector_sequence(full_fusion_payload: Dict[str, Any], video_name: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+def _extract_sector_sequence(full_fusion_payload: dict[str, Any], video_name: str) -> tuple[list[str], list[dict[str, Any]]]:
     platform = full_fusion_payload.get("platform") or {}
     origin = platform.get("origin_lla") or {}
     map_state = full_fusion_payload.get("map_state") or {}
@@ -66,7 +67,7 @@ def _extract_sector_sequence(full_fusion_payload: Dict[str, Any], video_name: st
     return unique_sector_sequence(sector_samples), sector_samples
 
 
-def _collect_video_record(video_dir: Path) -> Optional[Dict[str, Any]]:
+def _collect_video_record(video_dir: Path) -> dict[str, Any] | None:
     local_threat = _load_json(video_dir / "local_threat_assessment.json")
     policy = _load_json(video_dir / "policy_decision.json")
     primitives = _load_json(video_dir / "threat_primitives.json")
@@ -92,7 +93,7 @@ def _collect_video_record(video_dir: Path) -> Optional[Dict[str, Any]]:
     }
 
 
-def _time_range_from_fusion(full_fusion_payload: Dict[str, Any]) -> List[float]:
+def _time_range_from_fusion(full_fusion_payload: dict[str, Any]) -> list[float]:
     smoothed = ((full_fusion_payload.get("map_state") or {}).get("smoothed_samples") or [])
     if not smoothed:
         return [0.0, 0.0]
@@ -101,20 +102,20 @@ def _time_range_from_fusion(full_fusion_payload: Dict[str, Any]) -> List[float]:
     return [first, last]
 
 
-def _aggregate_sector_states(records: Sequence[Dict[str, Any]]) -> List[SectorThreatState]:
-    grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+def _aggregate_sector_states(records: Sequence[dict[str, Any]]) -> list[SectorThreatState]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in records:
         for sector_id in record.get("sector_sequence") or []:
             grouped[str(sector_id)].append(record)
 
-    out: List[SectorThreatState] = []
+    out: list[SectorThreatState] = []
     for sector_id, sector_records in sorted(grouped.items()):
         scores = [float((r.get("local_threat") or {}).get("local_threat_score", 0.0) or 0.0) for r in sector_records]
-        uncertainties: List[float] = []
-        primitive_types: List[str] = []
-        evidence_sources: List[str] = []
-        route_ids: List[str] = []
-        supporting_videos: List[str] = []
+        uncertainties: list[float] = []
+        primitive_types: list[str] = []
+        evidence_sources: list[str] = []
+        route_ids: list[str] = []
+        supporting_videos: list[str] = []
         for record in sector_records:
             if record["video_name"] not in supporting_videos:
                 supporting_videos.append(record["video_name"])
@@ -152,17 +153,17 @@ def _aggregate_sector_states(records: Sequence[Dict[str, Any]]) -> List[SectorTh
     return out
 
 
-def _aggregate_route_advisories(records: Sequence[Dict[str, Any]]) -> List[RouteAdvisory]:
-    grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+def _aggregate_route_advisories(records: Sequence[dict[str, Any]]) -> list[RouteAdvisory]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in records:
         grouped[str(record["route_id"])].append(record)
-    out: List[RouteAdvisory] = []
+    out: list[RouteAdvisory] = []
     for route_id, route_records in sorted(grouped.items()):
         scores = [float((r.get("local_threat") or {}).get("local_threat_score", 0.0) or 0.0) for r in route_records]
-        sector_ids: List[str] = []
-        evidence_sources: List[str] = []
-        actions: List[str] = []
-        videos: List[str] = []
+        sector_ids: list[str] = []
+        evidence_sources: list[str] = []
+        actions: list[str] = []
+        videos: list[str] = []
         for record in route_records:
             videos.append(record["video_name"])
             actions.append(record["recommended_action"])
@@ -198,8 +199,8 @@ def _aggregate_route_advisories(records: Sequence[Dict[str, Any]]) -> List[Route
     return out
 
 
-def _aggregate_persistent_anomalies(records: Sequence[Dict[str, Any]]) -> List[PersistentAnomaly]:
-    grouped: Dict[Tuple[str, str], List[Tuple[Dict[str, Any], Dict[str, Any]]]] = defaultdict(list)
+def _aggregate_persistent_anomalies(records: Sequence[dict[str, Any]]) -> list[PersistentAnomaly]:
+    grouped: dict[tuple[str, str], list[tuple[dict[str, Any], dict[str, Any]]]] = defaultdict(list)
     for record in records:
         sectors = record.get("sector_sequence") or []
         if not sectors:
@@ -211,11 +212,11 @@ def _aggregate_persistent_anomalies(records: Sequence[Dict[str, Any]]) -> List[P
             for sector_id in sectors:
                 grouped[(ptype, str(sector_id))].append((record, primitive))
 
-    out: List[PersistentAnomaly] = []
+    out: list[PersistentAnomaly] = []
     for (ptype, sector_id), rows in sorted(grouped.items()):
         videos = []
-        evidence_sources: List[str] = []
-        scores: List[float] = []
+        evidence_sources: list[str] = []
+        scores: list[float] = []
         for record, primitive in rows:
             if record["video_name"] not in videos:
                 videos.append(record["video_name"])
@@ -240,8 +241,8 @@ def _aggregate_persistent_anomalies(records: Sequence[Dict[str, Any]]) -> List[P
     return out
 
 
-def _aggregate_corridor_graph(records: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    edge_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
+def _aggregate_corridor_graph(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    edge_map: dict[tuple[str, str], dict[str, Any]] = {}
     for record in records:
         score = float((record.get("local_threat") or {}).get("local_threat_score", 0.0) or 0.0)
         for edge in build_sector_adjacency(record.get("sector_sequence") or []):
@@ -265,8 +266,8 @@ def _aggregate_corridor_graph(records: Sequence[Dict[str, Any]]) -> List[Dict[st
 
 def step_global_threat(
     output_dir: Path,
-    per_video_stats: Sequence[Dict[str, Any]],
-) -> Dict[str, Any]:
+    per_video_stats: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
     """Aggregate per-video local threat artifacts into one mission-level summary."""
     video_dirs = _video_dirs_from_stats(output_dir, per_video_stats)
     records = [record for record in (_collect_video_record(vdir) for vdir in video_dirs) if record]
@@ -325,5 +326,5 @@ def step_global_threat(
     return payload
 
 
-def _write_json(path: Path, payload: Dict[str, Any]) -> None:
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

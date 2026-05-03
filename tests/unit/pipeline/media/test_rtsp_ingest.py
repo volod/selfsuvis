@@ -4,8 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from selfsuvis.pipeline.media.rtsp_ingest import validate_rtsp_url, record_rtsp
-
+from selfsuvis.pipeline.media.rtsp_ingest import record_rtsp, validate_rtsp_url
 
 # ── validate_rtsp_url ─────────────────────────────────────────────────────────
 

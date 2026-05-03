@@ -8,7 +8,7 @@ that the `import asyncpg` inside _resolve_dino_checkpoint succeeds.
 """
 import sys
 import types
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

@@ -1,7 +1,8 @@
 """Realtime session and pose endpoints for autonomous-drone integration."""
 
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -15,11 +16,11 @@ from selfsuvis.app.services.live_streams import (
 )
 from selfsuvis.app.services.realtime import (
     collect_realtime_stats,
-    integrate_realtime_frame,
     fetch_map_tiles,
     fetch_semantic_observations,
     finalize_realtime_session,
     ingest_realtime_packets,
+    integrate_realtime_frame,
     list_realtime_backends,
     publish_map_tile,
     publish_semantic_observation,
@@ -40,33 +41,33 @@ router = APIRouter(
 
 class SessionStartRequest(BaseModel):
     robot_id: str = Field(min_length=1, default="robot_0")
-    mission_id: Optional[str] = None
-    sensors: List[str] = Field(default_factory=lambda: ["camera", "imu", "gps"])
+    mission_id: str | None = None
+    sensors: list[str] = Field(default_factory=lambda: ["camera", "imu", "gps"])
 
 
 class SessionStartResponse(BaseModel):
     session_id: str
     robot_id: str
-    mission_id: Optional[str]
-    sensor_profile: Dict[str, Any]
+    mission_id: str | None
+    sensor_profile: dict[str, Any]
     status: str
 
 
 class SensorPacket(BaseModel):
     sensor_type: str
     t_device: float
-    seq: Optional[int] = None
-    payload: Dict[str, Any] = Field(default_factory=dict)
+    seq: int | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class PacketIngestRequest(BaseModel):
-    packets: List[SensorPacket]
+    packets: list[SensorPacket]
 
 
 class PacketIngestResponse(BaseModel):
     session_id: str
     accepted_packets: int
-    packet_summary: Dict[str, int]
+    packet_summary: dict[str, int]
     pose_updated: bool
 
 
@@ -74,39 +75,39 @@ class PoseResponse(BaseModel):
     session_id: str
     source: str
     t_sec: float
-    position_enu: Dict[str, float]
-    orientation_quat: Optional[Dict[str, float]]
-    velocity_enu: Optional[Dict[str, float]]
+    position_enu: dict[str, float]
+    orientation_quat: dict[str, float] | None
+    velocity_enu: dict[str, float] | None
     tracking_status: str
-    global_map_id: Optional[int]
-    freshness_ms: Optional[int]
+    global_map_id: int | None
+    freshness_ms: int | None
 
 
 class RealtimeStateResponse(BaseModel):
     session_id: str
     robot_id: str
-    mission_id: Optional[str]
+    mission_id: str | None
     status: str
-    packet_counts: Dict[str, int]
-    latest_pose: Optional[PoseResponse]
+    packet_counts: dict[str, int]
+    latest_pose: PoseResponse | None
 
 
 class SessionStopResponse(BaseModel):
     session_id: str
     status: str
-    mission_id: Optional[str] = None
-    job_id: Optional[str] = None
+    mission_id: str | None = None
+    job_id: str | None = None
     enqueued_index_job: bool = False
 
 
 class LiveStreamStartRequest(BaseModel):
     robot_id: str = Field(min_length=1, default="robot_0")
-    mission_id: Optional[str] = None
-    sensors: List[str] = Field(default_factory=lambda: ["camera"])
+    mission_id: str | None = None
+    sensors: list[str] = Field(default_factory=lambda: ["camera"])
     path_name: str = Field(min_length=1)
-    source_url: Optional[str] = None
+    source_url: str | None = None
     source_on_demand: bool = False
-    caption_fps: Optional[float] = Field(default=None, gt=0.0, le=4.0)
+    caption_fps: float | None = Field(default=None, gt=0.0, le=4.0)
 
 
 class LiveStreamStatus(BaseModel):
@@ -118,16 +119,16 @@ class LiveStreamStatus(BaseModel):
     caption_fps: float
     started_at: str
     status: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class LivePathInfo(BaseModel):
-    name: Optional[str] = None
-    ready: Optional[bool] = None
-    source: Optional[Dict[str, Any]] = None
-    tracks: Optional[List[Dict[str, Any]]] = None
-    bytes_received: Optional[int] = None
-    bytes_sent: Optional[int] = None
+    name: str | None = None
+    ready: bool | None = None
+    source: dict[str, Any] | None = None
+    tracks: list[dict[str, Any]] | None = None
+    bytes_received: int | None = None
+    bytes_sent: int | None = None
 
 
 class LiveStreamStartResponse(BaseModel):
@@ -142,8 +143,8 @@ class LiveStreamStartResponse(BaseModel):
 
 
 class LiveStreamsResponse(BaseModel):
-    streams: List[LiveStreamStatus]
-    mediamtx_paths: List[LivePathInfo]
+    streams: list[LiveStreamStatus]
+    mediamtx_paths: list[LivePathInfo]
 
 
 class LiveStreamStopRequest(BaseModel):
@@ -162,9 +163,9 @@ class MapTileIn(BaseModel):
     map_type: str = "occupancy"
     storage_path: str
     resolution_m: float = 0.2
-    bounds: Dict[str, Any] = Field(default_factory=dict)
-    stats: Dict[str, Any] = Field(default_factory=dict)
-    global_map_id: Optional[int] = None
+    bounds: dict[str, Any] = Field(default_factory=dict)
+    stats: dict[str, Any] = Field(default_factory=dict)
+    global_map_id: int | None = None
 
 
 class MapTileOut(BaseModel):
@@ -172,59 +173,59 @@ class MapTileOut(BaseModel):
     map_type: str
     storage_path: str
     resolution_m: float
-    bounds: Dict[str, Any]
-    stats: Dict[str, Any]
-    global_map_id: Optional[int]
+    bounds: dict[str, Any]
+    stats: dict[str, Any]
+    global_map_id: int | None
 
 
 class MapTilesResponse(BaseModel):
     session_id: str
-    tiles: List[MapTileOut]
+    tiles: list[MapTileOut]
 
 
 class SemanticObservationIn(BaseModel):
-    frame_id: Optional[str] = None
+    frame_id: str | None = None
     class_name: str
     confidence: float = Field(ge=0.0, le=1.0)
-    position_enu: Optional[Dict[str, Any]] = None
-    bbox: Optional[Dict[str, Any]] = None
-    mask_ref: Optional[str] = None
-    track_id: Optional[str] = None
-    facts: Dict[str, Any] = Field(default_factory=dict)
+    position_enu: dict[str, Any] | None = None
+    bbox: dict[str, Any] | None = None
+    mask_ref: str | None = None
+    track_id: str | None = None
+    facts: dict[str, Any] = Field(default_factory=dict)
 
 
 class SemanticObservationOut(BaseModel):
-    frame_id: Optional[str]
+    frame_id: str | None
     class_name: str
     confidence: float
-    position_enu: Optional[Dict[str, Any]]
-    bbox: Optional[Dict[str, Any]]
-    mask_ref: Optional[str]
-    track_id: Optional[str]
-    facts: Dict[str, Any]
+    position_enu: dict[str, Any] | None
+    bbox: dict[str, Any] | None
+    mask_ref: str | None
+    track_id: str | None
+    facts: dict[str, Any]
 
 
 class SemanticObservationsResponse(BaseModel):
     session_id: str
-    observations: List[SemanticObservationOut]
+    observations: list[SemanticObservationOut]
 
 
 class SessionFinalizeRequest(BaseModel):
-    recording_path: Optional[str] = None
+    recording_path: str | None = None
     enqueue_index_job: bool = False
 
 
 class FrameIntegrationRequest(BaseModel):
-    frame_id: Optional[str] = None
+    frame_id: str | None = None
     t_sec: float
     image_path: str = Field(min_length=1)
-    packets: List[SensorPacket] = Field(default_factory=list)
-    semantic_observations: List[SemanticObservationIn] = Field(default_factory=list)
-    pose: Optional[Dict[str, Any]] = None
-    depth_path: Optional[str] = None
+    packets: list[SensorPacket] = Field(default_factory=list)
+    semantic_observations: list[SemanticObservationIn] = Field(default_factory=list)
+    pose: dict[str, Any] | None = None
+    depth_path: str | None = None
     map_type: str = "occupancy"
-    tile_key: Optional[str] = None
-    stats: Dict[str, Any] = Field(default_factory=dict)
+    tile_key: str | None = None
+    stats: dict[str, Any] = Field(default_factory=dict)
 
 
 class FrameIntegrationResponse(BaseModel):
@@ -237,17 +238,17 @@ class FrameIntegrationResponse(BaseModel):
 class RealtimeStatsResponse(BaseModel):
     pose_backend: str
     occupancy_backend: str
-    pose: Optional[Dict[str, Any]] = None
-    occupancy: Optional[Dict[str, Any]] = None
+    pose: dict[str, Any] | None = None
+    occupancy: dict[str, Any] | None = None
 
 
 class RealtimeBackendsResponse(BaseModel):
-    selected: Dict[str, str]
-    pose_backends: Dict[str, Dict[str, Any]]
-    occupancy_backends: Dict[str, Dict[str, Any]]
+    selected: dict[str, str]
+    pose_backends: dict[str, dict[str, Any]]
+    occupancy_backends: dict[str, dict[str, Any]]
 
 
-def _pose_response(session_id: str, row: Dict[str, Any]) -> PoseResponse:
+def _pose_response(session_id: str, row: dict[str, Any]) -> PoseResponse:
     return PoseResponse(
         session_id=session_id,
         source=row["source"],
@@ -275,11 +276,11 @@ def _get_stream_manager(request: Request) -> RealtimeStreamManager:
     return manager
 
 
-def _live_stream_status(data: Dict[str, Any]) -> LiveStreamStatus:
+def _live_stream_status(data: dict[str, Any]) -> LiveStreamStatus:
     return LiveStreamStatus(**data)
 
 
-def _live_path_info(item: Dict[str, Any]) -> LivePathInfo:
+def _live_path_info(item: dict[str, Any]) -> LivePathInfo:
     return LivePathInfo(
         name=item.get("name"),
         ready=item.get("ready"),
@@ -571,7 +572,7 @@ async def integrate_frame(
 async def get_latest_map(
     session_id: str,
     request: Request,
-    map_type: Optional[str] = None,
+    map_type: str | None = None,
     limit: int = 20,
 ) -> MapTilesResponse:
     db_pool = get_db_pool(request)
@@ -639,7 +640,7 @@ async def publish_semantic(
 async def get_semantic_nearby(
     session_id: str,
     request: Request,
-    class_name: Optional[str] = None,
+    class_name: str | None = None,
     limit: int = 20,
 ) -> SemanticObservationsResponse:
     db_pool = get_db_pool(request)

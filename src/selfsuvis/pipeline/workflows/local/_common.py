@@ -1,13 +1,14 @@
 """Shared logging helpers, constants, and VideoKnowledge for the local subpackage."""
 
 
+import hashlib
 import json
 import logging
 import os
 import time
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from PIL import Image
 
@@ -113,13 +114,40 @@ def write_json_artifact(path: Path, payload: Any, *, ensure_ascii: bool = True) 
     )
 
 
-def write_markdown_artifact(path: Path, lines: List[str]) -> None:
+def write_markdown_artifact(path: Path, lines: list[str]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def gemma_cache_file(video_dir: Path) -> Path:
+    return video_dir / "runtime_cache" / "gemma_responses.json"
+
+
+def load_gemma_cache(video_dir: Path, *, enabled: bool) -> dict[str, Any]:
+    path = gemma_cache_file(video_dir)
+    if not enabled or not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_gemma_cache(video_dir: Path, cache: dict[str, Any], *, enabled: bool) -> None:
+    if not enabled:
+        return
+    path = gemma_cache_file(video_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_artifact(path, cache, ensure_ascii=False)
+
+
+def gemma_frame_cache_key(frame_path: str, *, model: str, prompt_tag: str) -> str:
+    digest = hashlib.sha256(Path(frame_path).read_bytes()).hexdigest()
+    return f"{prompt_tag}:{model}:{digest}"
 
 
 class _Timer:
     """Context manager that records elapsed seconds into a dict under *key*."""
-    def __init__(self, store: Dict[str, float], key: str) -> None:
+    def __init__(self, store: dict[str, float], key: str) -> None:
         self._store = store
         self._key   = key
         self._t0    = 0.0
@@ -139,19 +167,19 @@ def _open_frame_image(frame_path: str) -> Image.Image:
         return Image.new("RGB", (224, 224))
 
 
-def _open_frame_batch(batch: List[Tuple[str, float]]) -> List[Image.Image]:
+def _open_frame_batch(batch: list[tuple[str, float]]) -> list[Image.Image]:
     return [_open_frame_image(fp) for fp, _t in batch]
 
 
 def _run_batched_frame_inference(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     *,
     batch_size: int,
     batch_fn,
     warning_label: str,
-    error_result: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    results: List[Dict[str, Any]] = []
+    error_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
     for batch_start in range(0, len(frame_list), batch_size):
         batch = frame_list[batch_start : batch_start + batch_size]
         imgs = _open_frame_batch(batch)
@@ -179,7 +207,7 @@ def _run_batched_frame_inference(
 
 # ── Text prompts for CLIP video-to-text description ───────────────────────────
 
-_TEXT_PROMPTS: List[str] = [
+_TEXT_PROMPTS: list[str] = [
     "aerial footage of a road or highway",
     "outdoor terrain with green vegetation",
     "urban environment with buildings and streets",
@@ -232,7 +260,7 @@ _GEMMA_ANALYSIS_SAMPLE_N = 30    # max frames sampled per video for Gemma analys
 _SCENE_CHANGE_THRESH     = 0.25  # cosine distance threshold for scene change detection
 
 # Text probes for cross-modal search and zero-shot classification
-_GEMMA_TEXT_PROBES: List[str] = [
+_GEMMA_TEXT_PROBES: list[str] = [
     "aerial view of open terrain",
     "military vehicle or equipment",
     "road or highway from above",
@@ -253,9 +281,9 @@ _RUNNER_LABEL = "local full-analysis pipeline (`main.py --mode local`)"
 
 
 def _analyze_caption_sequence(
-    caption_results: List[Dict[str, Any]],
+    caption_results: list[dict[str, Any]],
     new_segment_threshold: float = 0.45,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Annotate caption results with temporal segment info.
 
     Adds to each result:
@@ -264,7 +292,7 @@ def _analyze_caption_sequence(
         similarity       — Jaccard similarity to previous frame's caption (None for first)
         segment_start_t  — t_sec of the first frame in this segment
     """
-    enriched: List[Dict[str, Any]] = []
+    enriched: list[dict[str, Any]] = []
     seg_id = 0
     prev_caption = ""
     seg_start_t = 0.0
@@ -336,34 +364,34 @@ class VideoKnowledge:
         self.gemma_mnn_dino: float = 0.0
 
         # Per-frame outputs keyed by t_sec (steps 04, 05, 06, 07, 08)
-        self._captions:   Dict[float, str]        = {}  # Florence caption text
-        self._asr:        Dict[float, str]         = {}  # ASR subtitle text
-        self._ocr:        Dict[float, str]         = {}  # OCR visible text
-        self._depth:      Dict[float, Dict]        = {}  # depth summary dict
-        self._detections: Dict[float, List[str]]  = {}  # detected labels at t
-        self._state_fusion: Dict[float, Dict[str, Any]] = {}  # fused platform state at t
+        self._captions:   dict[float, str]        = {}  # Florence caption text
+        self._asr:        dict[float, str]         = {}  # ASR subtitle text
+        self._ocr:        dict[float, str]         = {}  # OCR visible text
+        self._depth:      dict[float, dict]        = {}  # depth summary dict
+        self._detections: dict[float, list[str]]  = {}  # detected labels at t
+        self._state_fusion: dict[float, dict[str, Any]] = {}  # fused platform state at t
 
         # Sorted timestamp index for nearest-frame lookups
-        self._ts_captions:   List[float] = []
-        self._ts_depth:      List[float] = []
-        self._ts_detections: List[float] = []
-        self._ts_state_fusion: List[float] = []
+        self._ts_captions:   list[float] = []
+        self._ts_depth:      list[float] = []
+        self._ts_detections: list[float] = []
+        self._ts_state_fusion: list[float] = []
 
         # Scene segments from caption analysis (step 04 enrichment)
-        self._segments: List[Dict[str, Any]] = []
+        self._segments: list[dict[str, Any]] = []
 
         # Entity inventory: all distinct labels seen across all frames
-        self.known_entities: List[str] = []
+        self.known_entities: list[str] = []
 
         # Last Qwen result: feeds into next Qwen call as "previous state"
-        self._last_qwen: Dict[str, Any] = {}
+        self._last_qwen: dict[str, Any] = {}
 
         # Physical state summary (step_physical_state)
-        self._physical_state: Optional[Dict[str, Any]] = None
+        self._physical_state: dict[str, Any] | None = None
 
     # ── Deposit methods ───────────────────────────────────────────────────────
 
-    def add_gemma(self, task_results: Dict[str, Any], mnn_dino: float = 0.0) -> None:
+    def add_gemma(self, task_results: dict[str, Any], mnn_dino: float = 0.0) -> None:
         """Deposit Gemma analysis results (step 03)."""
         clf = task_results.get("scene_classification", {})
         if clf.get("category_distribution"):
@@ -374,13 +402,13 @@ class VideoKnowledge:
         self.n_clusters   = cl.get("n_clusters", 0)
         self.gemma_mnn_dino = mnn_dino
 
-    def add_captions(self, caption_results: List[Dict[str, Any]]) -> None:
+    def add_captions(self, caption_results: list[dict[str, Any]]) -> None:
         """Deposit Florence per-frame captions (step 04) and derive segments."""
         self._captions   = {r["t_sec"]: r.get("caption") or "" for r in caption_results if "t_sec" in r}
         self._ts_captions = sorted(self._captions)
         # Re-use existing segment analysis
         enriched = _analyze_caption_sequence(caption_results)
-        seg_map: Dict[int, Dict[str, Any]] = {}
+        seg_map: dict[int, dict[str, Any]] = {}
         for r in enriched:
             sid = r["segment_id"]
             if sid not in seg_map:
@@ -390,21 +418,21 @@ class VideoKnowledge:
                 seg_map[sid]["end_t"] = r["t_sec"]
         self._segments = [seg_map[k] for k in sorted(seg_map)]
 
-    def add_asr(self, subtitle_map: Dict[float, str]) -> None:
+    def add_asr(self, subtitle_map: dict[float, str]) -> None:
         """Deposit ASR subtitle map (step 05)."""
         self._asr = {float(k): v for k, v in subtitle_map.items() if v}
 
-    def add_ocr(self, ocr_results: List[Dict[str, Any]]) -> None:
+    def add_ocr(self, ocr_results: list[dict[str, Any]]) -> None:
         """Deposit OCR per-frame results (step 06)."""
         self._ocr = {r["t_sec"]: r["ocr_text"] for r in ocr_results
                      if r.get("ocr_text") and "t_sec" in r}
 
-    def add_depth(self, depth_results: List[Dict[str, Any]]) -> None:
+    def add_depth(self, depth_results: list[dict[str, Any]]) -> None:
         """Deposit depth estimation per-frame results (step 07)."""
         self._depth = {r["t_sec"]: r for r in depth_results if "t_sec" in r}
         self._ts_depth = sorted(self._depth)
 
-    def add_detections(self, detection_results: List[Dict[str, Any]]) -> None:
+    def add_detections(self, detection_results: list[dict[str, Any]]) -> None:
         """Deposit object detection per-frame results (step 08)."""
         entity_set: set = set()
         for r in detection_results:
@@ -416,18 +444,18 @@ class VideoKnowledge:
             entity_set.update(labels)
         self._ts_detections = sorted(self._detections)
         # Keep top entities by frequency
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         for labels in self._detections.values():
             for lbl in labels:
                 counts[lbl] = counts.get(lbl, 0) + 1
         self.known_entities = [k for k, _ in sorted(counts.items(), key=lambda x: -x[1])[:15]]
 
-    def add_physical_state(self, summary: Dict[str, Any]) -> None:
+    def add_physical_state(self, summary: dict[str, Any]) -> None:
         """Deposit physical state summary (step_physical_state)."""
         if not summary.get("skipped"):
             self._physical_state = summary
 
-    def add_state_fusion(self, posterior_samples: List[Any]) -> None:
+    def add_state_fusion(self, posterior_samples: list[Any]) -> None:
         """Deposit fused platform-state posterior samples."""
         self._state_fusion = {
             float(sample.t_sec): sample.to_dict() if hasattr(sample, "to_dict") else dict(sample)
@@ -436,7 +464,7 @@ class VideoKnowledge:
         }
         self._ts_state_fusion = sorted(self._state_fusion)
 
-    def update_qwen_state(self, result: Dict[str, Any]) -> None:
+    def update_qwen_state(self, result: dict[str, Any]) -> None:
         """Record the most recent Qwen output for use as prior state context."""
         if not result.get("service_unavailable") and not result.get("parse_error"):
             self._last_qwen = result
@@ -457,7 +485,7 @@ class VideoKnowledge:
 
     def domain_hint(self) -> str:
         """Short domain summary for use as a model prompt prefix."""
-        parts: List[str] = []
+        parts: list[str] = []
         if self.scene_type:
             parts.append(f"Dominant scene: {self.scene_type}")
         if self.known_entities:
@@ -475,7 +503,7 @@ class VideoKnowledge:
         Returned string is injected into Qwen's user prompt so it can
         reason with full situational awareness, not just the raw image.
         """
-        lines: List[str] = []
+        lines: list[str] = []
 
         # Florence caption for this frame
         cap = self._nearest(self._ts_captions, self._captions, t_sec, max_gap=2.0)
@@ -545,7 +573,7 @@ class VideoKnowledge:
     # ── Private helpers ───────────────────────────────────────────────────────
 
     @staticmethod
-    def _nearest(ts_index: List[float], data: Dict, t: float, max_gap: float = 5.0):
+    def _nearest(ts_index: list[float], data: dict, t: float, max_gap: float = 5.0):
         """Return the value in *data* whose key is closest to *t*, within *max_gap*."""
         if not ts_index:
             return None
@@ -554,7 +582,7 @@ class VideoKnowledge:
             return data.get(ts_index[idx])
         return None
 
-    def _segment_at(self, t: float) -> Optional[Dict[str, Any]]:
+    def _segment_at(self, t: float) -> dict[str, Any] | None:
         """Return the scene segment that contains timestamp *t*."""
         for seg in self._segments:
             if seg["start_t"] <= t <= seg["end_t"] + 0.5:

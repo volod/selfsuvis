@@ -1,6 +1,5 @@
 """Unit tests for app.routers.robot — POST /query/pose."""
 import sys
-from typing import Any, List
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,9 +15,11 @@ _state_stub.clip_model = _mock_clip
 _state_stub.qdrant_store = _mock_qdrant
 sys.modules.setdefault("selfsuvis.app.state", _state_stub)
 
-from fastapi import FastAPI                            # noqa: E402
-from fastapi.testclient import TestClient              # noqa: E402
-from selfsuvis.app.routers.robot import router as robot_router, _gps_distance_m, _enu_distance_m  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from selfsuvis.app.routers.robot import _enu_distance_m, _gps_distance_m  # noqa: E402
+from selfsuvis.app.routers.robot import router as robot_router  # noqa: E402
 
 _app = FastAPI()
 _app.include_router(robot_router)

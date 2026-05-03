@@ -18,7 +18,6 @@ Usage (in worker):
 """
 import ipaddress
 import socket
-from typing import Optional
 from urllib.parse import urlparse
 
 from selfsuvis.pipeline.core import get_logger, settings
@@ -72,8 +71,8 @@ def validate_rtsp_url(url: str) -> None:
 def record_rtsp(
     url: str,
     output_path: str,
-    duration_sec: Optional[int] = None,
-    timeout_sec: Optional[int] = None,
+    duration_sec: int | None = None,
+    timeout_sec: int | None = None,
 ) -> None:
     """Record a live RTSP/RTMP stream to an MP4 file using ffmpeg.
 

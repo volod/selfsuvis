@@ -80,8 +80,8 @@ Environment
 """
 
 import argparse
-import importlib.util
 import contextlib
+import importlib.util
 import io
 import logging
 import os
@@ -414,7 +414,7 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
             try:
                 import getpass
                 token_input = getpass.getpass(
-                    f"  HF token (leave blank to skip token entry, 's' to skip model): "
+                    "  HF token (leave blank to skip token entry, 's' to skip model): "
                 ).strip()
             except (EOFError, KeyboardInterrupt):
                 print(flush=True)
@@ -532,7 +532,7 @@ def _download_florence(model_id: str = "microsoft/Florence-2-large") -> None:
         return
     t0 = time.monotonic()
     try:
-        from transformers import AutoProcessor, AutoModelForCausalLM
+        from transformers import AutoModelForCausalLM, AutoProcessor
         # trust_remote_code is still required (model repo doesn't include processor_config.json
         # for native loading). transformers>=4.47 correctly handles Florence-2's conditional
         # flash_attn imports without requiring flash_attn to be installed.
@@ -567,7 +567,7 @@ def _download_ocr(model_id: str) -> None:
             TrOCRProcessor.from_pretrained(model_id)
             VisionEncoderDecoderModel.from_pretrained(model_id)
         elif model_id.startswith("ucaslcl/GOT-"):
-            from transformers import AutoTokenizer, AutoModel
+            from transformers import AutoModel, AutoTokenizer
             AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
             AutoModel.from_pretrained(
                 model_id, trust_remote_code=True, use_safetensors=True,
@@ -577,7 +577,7 @@ def _download_ocr(model_id: str) -> None:
             # VLM family (Phi-3.5-vision, Qwen2.5-VL, DeepSeek-OCR-2, llava-hf/*, Florence-2).
             # transformers>=4.47 handles Florence-2's conditional flash_attn imports correctly
             # without requiring flash_attn to be installed.
-            from transformers import AutoProcessor, AutoModelForCausalLM
+            from transformers import AutoModelForCausalLM, AutoProcessor
             AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
             AutoModelForCausalLM.from_pretrained(
                 model_id, trust_remote_code=True, torch_dtype="auto",
@@ -976,7 +976,7 @@ def _download_world_model(model_id: str) -> None:
         from transformers import AutoFeatureExtractor, AutoModel
         try:
             AutoFeatureExtractor.from_pretrained(model_id)
-        except (OSError, EnvironmentError) as feat_exc:
+        except OSError as feat_exc:
             if "does not appear to have a file named" in str(feat_exc):
                 log.info("  No preprocessor_config.json — downloading repo via snapshot_download")
                 local_dir = snapshot_download(
@@ -1012,7 +1012,7 @@ def _download_unidrive(model_id: str) -> None:
             ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
         )
         try:
-            from transformers import AutoProcessor, AutoModelForCausalLM
+            from transformers import AutoModelForCausalLM, AutoProcessor
             AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
             AutoModelForCausalLM.from_pretrained(
                 model_id, trust_remote_code=True, torch_dtype="auto", low_cpu_mem_usage=True,
@@ -1032,9 +1032,13 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
     """Download (or verify) DINO weights."""
     import torch
     import torch.hub as _hub
+
     from selfsuvis.models.dino_model import (
-        DINO_HUB_REPO, _DINO_MODEL_ALIAS, _DINO_HF_REPO,
-        _resolve_dino_hub, hub_load_dino,
+        _DINO_HF_REPO,
+        _DINO_MODEL_ALIAS,
+        DINO_HUB_REPO,
+        _resolve_dino_hub,
+        hub_load_dino,
     )
 
     actual_name = _DINO_MODEL_ALIAS.get(model_name, model_name)
@@ -1076,8 +1080,9 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
     def _prog(url: str, dst: str, *a, **kw):
         log.info("  ↓ %s", url)
         try:
-            from tqdm import tqdm as _tqdm
             import urllib.request as _req
+
+            from tqdm import tqdm as _tqdm
             with _req.urlopen(url) as r:
                 total = int(r.headers.get("Content-Length", 0))
             bar = _tqdm(total=total, unit="B", unit_scale=True,
@@ -1165,8 +1170,8 @@ def _download_gemma(model_id: str) -> None:
     log.info("Gemma — downloading %s  (token: %s) …", model_id, mask_secret(token or ""))
 
     def _do_download() -> None:
-        from transformers import AutoProcessor, AutoModelForCausalLM, AutoTokenizer
         import torch as _torch
+        from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
         # Try multimodal processor first; fall back to text-only tokenizer.
         log.info("  Downloading processor/tokenizer …")
         try:
@@ -1414,8 +1419,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scenetok", action="store_true",
                    help=(
                        "Install scenetok package, download HF dependencies, and cache checkpoint "
-                       f"(step 14 — streaming scene encoder + segmentation decoder; "
-                       f"requires ~24 GB VRAM to run)"
+                       "(step 14 — streaming scene encoder + segmentation decoder; "
+                       "requires ~24 GB VRAM to run)"
                    ))
     p.add_argument("--scenetok-checkpoint", default=_default_scenetok, metavar="CHECKPOINT",
                    help=(

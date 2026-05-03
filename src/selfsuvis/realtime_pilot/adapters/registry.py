@@ -1,6 +1,5 @@
 """Adapter registry for realtime engines."""
 
-from typing import Dict, Type
 
 from .base import (
     RealtimeEngineAdapter,
@@ -11,14 +10,14 @@ from .base import (
 from .occupancy import NvbloxAdapter, StubOccupancyAdapter, VoxbloxAdapter
 from .pose import LioSamAdapter, OrbSlam3Adapter, StubPoseAdapter, VinsFusionAdapter
 
-_POSE: Dict[str, Type[RealtimeEngineAdapter]] = {
+_POSE: dict[str, type[RealtimeEngineAdapter]] = {
     "stub": StubPoseAdapter,
     "vins_fusion": VinsFusionAdapter,
     "orbslam3": OrbSlam3Adapter,
     "liosam": LioSamAdapter,
 }
 
-_OCCUPANCY: Dict[str, Type[RealtimeEngineAdapter]] = {
+_OCCUPANCY: dict[str, type[RealtimeEngineAdapter]] = {
     "stub": StubOccupancyAdapter,
     "nvblox": NvbloxAdapter,
     "voxblox": VoxbloxAdapter,
@@ -33,17 +32,17 @@ def create_occupancy_adapter(name: str) -> RealtimeEngineAdapter:
     return instantiate_adapter(_OCCUPANCY, name)
 
 
-def available_pose_backends() -> Dict[str, str]:
+def available_pose_backends() -> dict[str, str]:
     return available_backend_urls(_POSE)
 
 
-def available_occupancy_backends() -> Dict[str, str]:
+def available_occupancy_backends() -> dict[str, str]:
     return available_backend_urls(_OCCUPANCY)
 
 
-def describe_pose_backends() -> Dict[str, Dict[str, object]]:
+def describe_pose_backends() -> dict[str, dict[str, object]]:
     return describe_backends(_POSE)
 
 
-def describe_occupancy_backends() -> Dict[str, Dict[str, object]]:
+def describe_occupancy_backends() -> dict[str, dict[str, object]]:
     return describe_backends(_OCCUPANCY)

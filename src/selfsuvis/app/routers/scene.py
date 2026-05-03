@@ -13,7 +13,8 @@ Supports:
 Auth: X-API-Key header required.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 
@@ -64,29 +65,29 @@ class TimeRange(BaseModel):
 
 class SceneQuery(BaseModel):
     """POST /query/scene request body."""
-    text: Optional[str] = Field(
+    text: str | None = Field(
         default=None,
         max_length=1000,
         description="Optional text query — results re-ranked by CLIP similarity when provided",
     )
-    vehicle_count_min: Optional[int] = Field(
+    vehicle_count_min: int | None = Field(
         default=None, ge=0,
         description="Minimum total vehicle count across all vehicle_groups",
     )
-    vehicle_count_max: Optional[int] = Field(
+    vehicle_count_max: int | None = Field(
         default=None, ge=0,
         description="Maximum total vehicle count across all vehicle_groups",
     )
-    road_condition: Optional[str] = Field(
+    road_condition: str | None = Field(
         default=None,
         max_length=50,
         description="Exact road_condition keyword (e.g. clear, wet, snow, ice, debris, unknown)",
     )
-    gps_bbox: Optional[GpsBbox] = Field(
+    gps_bbox: GpsBbox | None = Field(
         default=None,
         description="GPS bounding box filter",
     )
-    time_range: Optional[TimeRange] = Field(
+    time_range: TimeRange | None = Field(
         default=None,
         description="Frame timestamp range within missions",
     )
@@ -102,25 +103,25 @@ class SceneMatch(BaseModel):
     mission_id: str
     score: float
     t_sec: float
-    lat: Optional[float]
-    lon: Optional[float]
-    caption: Optional[str]
-    vehicle_count: Optional[int]
-    road_condition: Optional[str]
-    road_surface: Optional[str]
-    scene_summary: Optional[str]
+    lat: float | None
+    lon: float | None
+    caption: str | None
+    vehicle_count: int | None
+    road_condition: str | None
+    road_surface: str | None
+    scene_summary: str | None
     frame_path: str
 
 
 class SceneQueryResponse(BaseModel):
-    results: List[SceneMatch]
+    results: list[SceneMatch]
     total_matched: int
-    filters_applied: List[str]
+    filters_applied: list[str]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _count_vehicles(frame_facts: Optional[Dict[str, Any]]) -> Optional[int]:
+def _count_vehicles(frame_facts: dict[str, Any] | None) -> int | None:
     """Sum the 'count' field across all vehicle_groups entries."""
     if not frame_facts or not isinstance(frame_facts, dict):
         return None

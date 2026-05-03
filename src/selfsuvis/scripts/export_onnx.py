@@ -25,7 +25,6 @@ import argparse
 import glob
 import logging
 import os
-import sys
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +39,7 @@ def _load_backbone(model_name: str, checkpoint: str | None, device: str):
     """Load DINOv3/DINOv2 backbone and optionally restore fine-tuned weights."""
     import torch
 
-    from selfsuvis.models.dino_model import hub_load_dino, DINO_HUB_REPO, _resolve_dino_hub
+    from selfsuvis.models.dino_model import _resolve_dino_hub, hub_load_dino
     _, repo_or_dir, actual_name = _resolve_dino_hub(model_name)
     logger.info("Loading backbone: %s (resolved: %s)", model_name, actual_name)
     backbone = hub_load_dino(model_name, pretrained=True)
@@ -135,7 +134,6 @@ def _quantize_static(onnx_path: str, output_path: str, calibration_paths: list, 
         )
         return
 
-    import numpy as np
     from PIL import Image
 
     from selfsuvis.pipeline.training.edge_inference import _preprocess_image

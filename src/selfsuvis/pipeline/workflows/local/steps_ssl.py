@@ -1,19 +1,22 @@
 """SSL fine-tuning steps and loss analysis helpers."""
 
-
 import math
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from selfsuvis.pipeline.core import settings
+
 from ._common import _log, write_json_artifact
 
+if TYPE_CHECKING:
+    from selfsuvis.pipeline.training.ssl import FinetuneConfig
 
-def _loss_sparkline(history: List[float], width: int = 40) -> str:
+
+def _loss_sparkline(history: list[float], width: int = 40) -> str:
     """Return a fixed-width ASCII sparkline for a loss curve.
 
     Uses Unicode block elements ▁▂▃▄▅▆▇█ to represent relative height.
@@ -34,7 +37,7 @@ def _loss_sparkline(history: List[float], width: int = 40) -> str:
     return "".join(chars)
 
 
-def _analyze_loss_curve(history: List[float]) -> Dict[str, Any]:
+def _analyze_loss_curve(history: list[float]) -> dict[str, Any]:
     """Compute summary statistics for a training loss curve."""
     if not history:
         return {}
@@ -82,14 +85,14 @@ def _analyze_loss_curve(history: List[float]) -> Dict[str, Any]:
 
 def _interpret_finetune_results(
     cfg: "FinetuneConfig",
-    stats: Dict[str, Any],
+    stats: dict[str, Any],
     elapsed_sec: float,
-) -> List[str]:
+) -> list[str]:
     """Return a list of Markdown bullet-point strings interpreting the training run."""
     if not stats:
         return ["*No training data — stats unavailable.*"]
 
-    bullets: List[str] = []
+    bullets: list[str] = []
     drop   = stats["drop_pct"]
     best   = stats["best_loss"]
     best_e = stats["best_epoch"]
@@ -234,14 +237,14 @@ def _interpret_finetune_results(
 
 
 def _extract_track_map(
-    tracking_results: List[Dict[str, Any]],
-) -> Dict[int, List[Tuple[str, List[float], float]]]:
+    tracking_results: list[dict[str, Any]],
+) -> dict[int, list[tuple[str, list[float], float]]]:
     """Build {track_id: [(frame_path, bbox_norm, t_sec), ...]} from tracking results.
 
     Skips unassigned detections (track_id ≤ 0) and degenerate bboxes.
     Returns only tracks with ≥ 2 appearances, each list sorted by t_sec.
     """
-    raw: Dict[int, List[Tuple[str, List[float], float]]] = {}
+    raw: dict[int, list[tuple[str, list[float], float]]] = {}
     for frame_res in tracking_results:
         fp = frame_res.get("frame_path", "")
         t_sec = float(frame_res.get("t_sec", 0.0))
@@ -261,7 +264,7 @@ def _extract_track_map(
 
 
 def _count_potential_pairs(
-    track_map: Dict[int, List], min_gap: int = 2, max_gap: int = 5
+    track_map: dict[int, list], min_gap: int = 2, max_gap: int = 5
 ) -> int:
     """Count how many (i, j) pairs can be formed across all tracks."""
     count = 0
@@ -276,7 +279,7 @@ def _count_potential_pairs(
 
 
 def _count_potential_triplets(
-    track_map: Dict[int, List], min_gap: int = 2, max_gap: int = 5
+    track_map: dict[int, list], min_gap: int = 2, max_gap: int = 5
 ) -> int:
     """Count how many (i, i+k, i+2k) triplets can be formed across all tracks."""
     count = 0
@@ -289,9 +292,9 @@ def _count_potential_triplets(
     return count
 
 
-def _frame_lookup(frame_list: List[Tuple[str, float]]) -> Tuple[Dict[str, float], Dict[str, int]]:
-    by_path: Dict[str, float] = {}
-    idx_by_path: Dict[str, int] = {}
+def _frame_lookup(frame_list: list[tuple[str, float]]) -> tuple[dict[str, float], dict[str, int]]:
+    by_path: dict[str, float] = {}
+    idx_by_path: dict[str, int] = {}
     for idx, (frame_path, t_sec) in enumerate(frame_list):
         key = str(frame_path)
         by_path[key] = float(t_sec)
@@ -299,7 +302,7 @@ def _frame_lookup(frame_list: List[Tuple[str, float]]) -> Tuple[Dict[str, float]
     return by_path, idx_by_path
 
 
-def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
+def _safe_float(value: Any, default: float | None = None) -> float | None:
     try:
         if value is None:
             return default
@@ -308,7 +311,7 @@ def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
-def _vector_norm_3d(payload: Dict[str, Any], key: str) -> Optional[float]:
+def _vector_norm_3d(payload: dict[str, Any], key: str) -> float | None:
     vec = payload.get(key) or {}
     if not isinstance(vec, dict):
         return None
@@ -319,15 +322,15 @@ def _vector_norm_3d(payload: Dict[str, Any], key: str) -> Optional[float]:
 
 
 def _extract_track_pairs_as_records(
-    track_map: Dict[int, List[Tuple[str, List[float], float]]],
+    track_map: dict[int, list[tuple[str, list[float], float]]],
     *,
     min_gap: int,
     max_gap: int,
-    occupancy_summary: Optional[Dict[str, Any]] = None,
-) -> List["Any"]:
+    occupancy_summary: dict[str, Any] | None = None,
+) -> list[Any]:
     from selfsuvis.pipeline.training.ssl import TemporalVisualPair
 
-    pairs: List[Any] = []
+    pairs: list[Any] = []
     occ = dict(occupancy_summary or {})
     for track_id, appearances in sorted(track_map.items()):
         n = len(appearances)
@@ -357,13 +360,13 @@ def _extract_track_pairs_as_records(
 
 
 def _extract_depth_alignment_pairs(
-    frame_list: List[Tuple[str, float]],
-    depth_result: Dict[str, Any],
-    physical_state_result: Optional[Dict[str, Any]],
+    frame_list: list[tuple[str, float]],
+    depth_result: dict[str, Any],
+    physical_state_result: dict[str, Any] | None,
     *,
     max_gap: int = 3,
     min_target: float = 0.6,
-) -> List["Any"]:
+) -> list[Any]:
     from selfsuvis.pipeline.training.ssl import CrossModalPair
 
     depth_rows = depth_result.get("depth_results") or []
@@ -382,7 +385,7 @@ def _extract_depth_alignment_pairs(
             (physical_state_result or {}).get("free_space_estimate", 0.0) or 0.0
         ),
     }
-    pairs: List[Any] = []
+    pairs: list[Any] = []
     ordered = [(str(fp), float(t_sec)) for fp, t_sec in frame_list if str(fp) in by_path]
     for i, (anchor_fp, anchor_t) in enumerate(ordered[:-1]):
         anchor_row = by_path[anchor_fp]
@@ -425,13 +428,13 @@ def _extract_depth_alignment_pairs(
 
 
 def _extract_motion_alignment_pairs(
-    frame_list: List[Tuple[str, float]],
-    platform_state_fusion: Dict[str, Any],
-    physical_state_result: Optional[Dict[str, Any]],
+    frame_list: list[tuple[str, float]],
+    platform_state_fusion: dict[str, Any],
+    physical_state_result: dict[str, Any] | None,
     *,
     max_gap: int = 4,
     min_target: float = 0.55,
-) -> List["Any"]:
+) -> list[Any]:
     from selfsuvis.pipeline.training.ssl import CrossModalPair
 
     samples = sorted(
@@ -442,7 +445,7 @@ def _extract_motion_alignment_pairs(
         return []
 
     frame_paths, _idx = _frame_lookup(frame_list)
-    ordered: List[Tuple[str, float, Dict[str, Any]]] = []
+    ordered: list[tuple[str, float, dict[str, Any]]] = []
     sample_i = 0
     for frame_path, t_sec in frame_list:
         while sample_i + 1 < len(samples) and abs(float(samples[sample_i + 1].get("t_sec", 0.0)) - t_sec) <= abs(float(samples[sample_i].get("t_sec", 0.0)) - t_sec):
@@ -450,7 +453,7 @@ def _extract_motion_alignment_pairs(
         ordered.append((str(frame_path), float(t_sec), samples[sample_i]))
 
     mean_occ = float((physical_state_result or {}).get("near_field_occupancy_density", 0.0) or 0.0)
-    pairs: List[Any] = []
+    pairs: list[Any] = []
     for i in range(len(ordered) - 1):
         fp_a, t_a, sample_a = ordered[i]
         speed_a = _vector_norm_3d(sample_a, "velocity_enu_mps")
@@ -491,22 +494,22 @@ def _extract_motion_alignment_pairs(
 
 
 def _extract_pose_overlap_pairs(
-    frame_list: List[Tuple[str, float]],
-    full_fusion_result: Dict[str, Any],
-    physical_state_result: Optional[Dict[str, Any]],
+    frame_list: list[tuple[str, float]],
+    full_fusion_result: dict[str, Any],
+    physical_state_result: dict[str, Any] | None,
     *,
     min_gap: int = 2,
     max_gap: int = 8,
     max_distance_m: float = 3.0,
     min_overlap: float = 0.55,
-) -> List["Any"]:
+) -> list[Any]:
     from selfsuvis.pipeline.training.ssl import GeometryPair
 
     smoothed = full_fusion_result.get("smoothed_trajectory") or []
     if len(smoothed) < len(frame_list):
         return []
 
-    pairs: List[Any] = []
+    pairs: list[Any] = []
     pose_conf = float((physical_state_result or {}).get("platform_pose_confidence", 0.0) or 0.0)
     for i in range(max(0, len(frame_list) - 1)):
         fp_a, t_a = frame_list[i]
@@ -550,16 +553,16 @@ def _extract_pose_overlap_pairs(
 
 
 def _build_multimodal_pair_mining(
-    frame_list: List[Tuple[str, float]],
-    track_map: Dict[int, List[Tuple[str, List[float], float]]],
-    depth_result: Optional[Dict[str, Any]],
-    platform_state_fusion: Optional[Dict[str, Any]],
-    full_fusion_result: Optional[Dict[str, Any]],
-    physical_state_result: Optional[Dict[str, Any]],
+    frame_list: list[tuple[str, float]],
+    track_map: dict[int, list[tuple[str, list[float], float]]],
+    depth_result: dict[str, Any] | None,
+    platform_state_fusion: dict[str, Any] | None,
+    full_fusion_result: dict[str, Any] | None,
+    physical_state_result: dict[str, Any] | None,
     *,
     min_gap: int,
     max_gap: int,
-) -> Tuple[List["Any"], Dict[str, Any], List[Dict[str, Any]]]:
+) -> tuple[list[Any], dict[str, Any], list[dict[str, Any]]]:
     track_pairs = _extract_track_pairs_as_records(
         track_map,
         min_gap=min_gap,
@@ -610,19 +613,20 @@ def step_ssl_finetune(
     video_id: str,
     video_name: str,
     video_dir: Path,
-    frame_list: List,
+    frame_list: list,
     device: str,
     epochs: int,
     batch_size: int,
-    tracking_results: Optional[List[Dict[str, Any]]] = None,
-    depth_result: Optional[Dict[str, Any]] = None,
-    platform_state_fusion: Optional[Dict[str, Any]] = None,
-    full_fusion_result: Optional[Dict[str, Any]] = None,
-    physical_state_result: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    tracking_results: list[dict[str, Any]] | None = None,
+    depth_result: dict[str, Any] | None = None,
+    platform_state_fusion: dict[str, Any] | None = None,
+    full_fusion_result: dict[str, Any] | None = None,
+    physical_state_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Step 16: SSL DINOv3 fine-tuning, write finetune_stats.md."""
-    from .steps_report import write_finetune_stats_md
     from selfsuvis.pipeline.training.ssl import FinetuneConfig
+
+    from .steps_report import write_finetune_stats_md
 
     out_md   = video_dir / "finetune_stats.md"
     ckpt_dir = video_dir / "checkpoints"
@@ -630,12 +634,12 @@ def step_ssl_finetune(
     n_frames = len(frame_list)
 
     # Build track map from RF-DETR results when available.
-    track_map: Dict[int, List[Tuple[str, List[float], float]]] = {}
+    track_map: dict[int, list[tuple[str, list[float], float]]] = {}
     if tracking_results:
         track_map = _extract_track_map(tracking_results)
 
-    multimodal_pairs: List[Any] = []
-    pair_mining_stats: Dict[str, Any] = {
+    multimodal_pairs: list[Any] = []
+    pair_mining_stats: dict[str, Any] = {
         "track_pairs": 0,
         "depth_pairs": 0,
         "motion_pairs": 0,
@@ -643,7 +647,7 @@ def step_ssl_finetune(
         "total_pairs": 0,
         "has_auxiliary_pairs": False,
     }
-    sfm_overlap_rows: List[Dict[str, Any]] = []
+    sfm_overlap_rows: list[dict[str, Any]] = []
 
     _MIN_GAP, _MAX_GAP = 2, 5
     multimodal_pairs, pair_mining_stats, sfm_overlap_rows = _build_multimodal_pair_mining(
@@ -711,8 +715,8 @@ def step_ssl_finetune(
     _log.info("Starting SSL fine-tuning: %d epochs, approach=%s, device=%s",
               epochs, approach, device)
     t0 = time.time()
-    loss_history: List[float] = []
-    component_history: Dict[str, List[float]] = {
+    loss_history: list[float] = []
+    component_history: dict[str, list[float]] = {
         "contrastive_loss": [],
         "depth_consistency_loss": [],
         "motion_consistency_loss": [],
@@ -720,17 +724,27 @@ def step_ssl_finetune(
     }
 
     def _run_capturing(c: Any) -> str:
-        import torch, random
-        random.seed(c.seed); torch.manual_seed(c.seed)
+        import random
+
+        import torch
+        random.seed(c.seed)
+        torch.manual_seed(c.seed)
         os.makedirs(c.output_dir, exist_ok=True)
-        from selfsuvis.pipeline.training.ssl import (
-            build_augment_transform,
-            TemporalPairDataset, AugmentPairDataset,
-            TrackPairDataset, TrackTripletDataset,
-            MultimodalPairDataset, multimodal_batch_collate,
-            DINOFineTuner, NTXentLoss, CycleConsistencyLoss, MultimodalConsistencyLoss,
-        )
         from torch.utils.data import DataLoader
+
+        from selfsuvis.pipeline.training.ssl import (
+            AugmentPairDataset,
+            CycleConsistencyLoss,
+            DINOFineTuner,
+            MultimodalConsistencyLoss,
+            MultimodalPairDataset,
+            NTXentLoss,
+            TemporalPairDataset,
+            TrackPairDataset,
+            TrackTripletDataset,
+            build_augment_transform,
+            multimodal_batch_collate,
+        )
         transform = build_augment_transform()
         ntxent = NTXentLoss(temperature=c.temperature)
         component_keys = list(component_history.keys())
@@ -775,8 +789,9 @@ def step_ssl_finetune(
         patience = 3
         no_improve = 0
         for epoch in range(1, c.epochs + 1):
-            tuner.train(); epoch_losses = []
-            epoch_component_values: Dict[str, List[float]] = {k: [] for k in component_keys}
+            tuner.train()
+            epoch_losses = []
+            epoch_component_values: dict[str, list[float]] = {k: [] for k in component_keys}
             for batch in loader:
                 if is_triplet:
                     v1 = batch[0].to(c.device)
@@ -796,7 +811,9 @@ def step_ssl_finetune(
                     v1 = batch[0].to(c.device)
                     v2 = batch[1].to(c.device)
                     loss = loss_fn(tuner.forward(v1), tuner.forward(v2))
-                optimizer.zero_grad(); loss.backward(); optimizer.step()
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
                 epoch_losses.append(loss.item())
             scheduler.step()
             avg = float(np.mean(epoch_losses)) if epoch_losses else float("inf")
@@ -807,8 +824,7 @@ def step_ssl_finetune(
                     mean_component = float(np.mean(epoch_component_values[key])) if epoch_component_values[key] else 0.0
                     component_history[key].append(mean_component)
                 component_msg = (
-                    " | contrast=%.4f depth=%.4f motion=%.4f geometry=%.4f"
-                    % (
+                    " | contrast={:.4f} depth={:.4f} motion={:.4f} geometry={:.4f}".format(
                         component_history["contrastive_loss"][-1],
                         component_history["depth_consistency_loss"][-1],
                         component_history["motion_consistency_loss"][-1],

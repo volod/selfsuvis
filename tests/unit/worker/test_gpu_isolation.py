@@ -31,8 +31,7 @@ if "worker.main" not in sys.modules:
         sys.modules[_name] = _m
 
 # ── Import worker.main AFTER stubs are in place ───────────────────────────────
-import selfsuvis.worker.main as wm
-
+import selfsuvis.worker.main as wm  # noqa: E402
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

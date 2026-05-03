@@ -1,7 +1,7 @@
 """Base adapter types for realtime SLAM / occupancy engines."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple, Type
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -15,10 +15,10 @@ class EngineDescriptor:
     env_image_var: str = ""
     default_image: str = ""
     hardware_profile: str = ""
-    required_modalities: Tuple[str, ...] = ()
-    recommended_modalities: Tuple[str, ...] = ()
-    pros: Tuple[str, ...] = ()
-    cons: Tuple[str, ...] = ()
+    required_modalities: tuple[str, ...] = ()
+    recommended_modalities: tuple[str, ...] = ()
+    pros: tuple[str, ...] = ()
+    cons: tuple[str, ...] = ()
     integration_doc: str = ""
     notes: str = ""
 
@@ -38,7 +38,7 @@ class RealtimeEngineAdapter:
     def configured(self) -> bool:
         return bool(self.api_url)
 
-    def describe(self) -> Dict[str, Any]:
+    def describe(self) -> dict[str, Any]:
         return {
             "name": self.descriptor.name,
             "role": self.descriptor.role,
@@ -69,10 +69,10 @@ def build_descriptor(
     env_image_var: str = "",
     default_image: str = "",
     hardware_profile: str = "",
-    required_modalities: Tuple[str, ...] = (),
-    recommended_modalities: Tuple[str, ...] = (),
-    pros: Tuple[str, ...] = (),
-    cons: Tuple[str, ...] = (),
+    required_modalities: tuple[str, ...] = (),
+    recommended_modalities: tuple[str, ...] = (),
+    pros: tuple[str, ...] = (),
+    cons: tuple[str, ...] = (),
     integration_doc: str = "",
     notes: str = "",
 ) -> EngineDescriptor:
@@ -96,7 +96,7 @@ def build_descriptor(
 
 
 def instantiate_adapter(
-    registry: Dict[str, Type[RealtimeEngineAdapter]],
+    registry: dict[str, type[RealtimeEngineAdapter]],
     name: str,
     *,
     default_name: str = "stub",
@@ -106,9 +106,9 @@ def instantiate_adapter(
     return adapter_cls()
 
 
-def available_backend_urls(registry: Dict[str, Type[RealtimeEngineAdapter]]) -> Dict[str, str]:
+def available_backend_urls(registry: dict[str, type[RealtimeEngineAdapter]]) -> dict[str, str]:
     return {name: adapter_cls().api_url for name, adapter_cls in registry.items()}
 
 
-def describe_backends(registry: Dict[str, Type[RealtimeEngineAdapter]]) -> Dict[str, Dict[str, object]]:
+def describe_backends(registry: dict[str, type[RealtimeEngineAdapter]]) -> dict[str, dict[str, object]]:
     return {name: adapter_cls().describe() for name, adapter_cls in registry.items()}

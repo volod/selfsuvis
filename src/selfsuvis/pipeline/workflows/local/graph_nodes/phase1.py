@@ -3,16 +3,16 @@
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from .._common import VideoKnowledge
-from ..runner import _append_agentic_step
 from ..graph_state import PipelineState
+from ..runner import _append_agentic_step
 
 _log = logging.getLogger(__name__)
 
 
-def node_init_state(state: PipelineState) -> Dict[str, Any]:
+def node_init_state(state: PipelineState) -> dict[str, Any]:
     """Materialise per-video paths, reset stats/trace/context."""
     video_path = Path(state["video_path"])
     video_name = video_path.stem
@@ -32,7 +32,7 @@ def node_init_state(state: PipelineState) -> Dict[str, Any]:
     }
 
 
-def node_p1_extract_frames(state: PipelineState) -> Dict[str, Any]:
+def node_p1_extract_frames(state: PipelineState) -> dict[str, Any]:
     from ..steps_embed import step_extract_frames
 
     video_path = Path(state["video_path"])
@@ -91,9 +91,9 @@ def node_p1_extract_frames(state: PipelineState) -> Dict[str, Any]:
     }
 
 
-def node_p1_index_vectors(state: PipelineState) -> Dict[str, Any]:
+def node_p1_index_vectors(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _models_on_device, _restore_models_to_gpu
     from ..steps_embed import step_index_to_store
-    from ..steps_caption import _restore_models_to_gpu, _models_on_device
 
     models = state["models"]
     device = state["device"]

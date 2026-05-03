@@ -4,8 +4,6 @@ Uses a synchronous in-memory MockConn so these tests run without a live database
 or the asyncpg package installed.  asyncio.run() drives the coroutines.
 """
 import asyncio
-import json
-import time
 
 import pytest
 
@@ -17,7 +15,6 @@ from selfsuvis.pipeline.storage.jobs import (
     fetch_queue_depth,
     update_job,
 )
-
 
 # ── Minimal asyncpg Connection mock ──────────────────────────────────────────
 

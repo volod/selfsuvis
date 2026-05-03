@@ -24,7 +24,7 @@ import hmac
 import json
 import os
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import asyncpg
 import httpx
@@ -52,7 +52,7 @@ def _verify_cvat_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-async def _frames_for_cvat_task(cvat_task_id: int, pool: asyncpg.Pool) -> List[str]:
+async def _frames_for_cvat_task(cvat_task_id: int, pool: asyncpg.Pool) -> list[str]:
     """Return selfsuvis frame_ids registered for the given CVAT task."""
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -63,9 +63,9 @@ async def _frames_for_cvat_task(cvat_task_id: int, pool: asyncpg.Pool) -> List[s
 
 
 async def _mark_frames_annotated(
-    frame_ids: List[str],
+    frame_ids: list[str],
     pool: asyncpg.Pool,
-    basename_to_label: Optional[Dict[str, str]] = None,
+    basename_to_label: dict[str, str] | None = None,
 ) -> int:
     """Set al_tag='annotated' on the given frames. Returns count of rows updated.
 
@@ -104,7 +104,7 @@ async def _mark_frames_annotated(
         return count
 
 
-async def _fetch_cvat_labels(task_id: int) -> Dict[str, str]:
+async def _fetch_cvat_labels(task_id: int) -> dict[str, str]:
     """Fetch per-frame labels from CVAT for a completed task.
 
     Returns {basename: majority_vote_label}.
@@ -249,7 +249,7 @@ webhook_router = APIRouter(prefix="/webhook", tags=["webhook"])
 async def cvat_webhook(
     request: Request,
     x_hook_secret: str = Header(default=""),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Handle CVAT webhook events and update frame annotation status.
 
     Triggered by CVAT when a job or task reaches state=completed.
@@ -317,18 +317,18 @@ class CvatFrameItem(BaseModel):
     frame_id: str
     mission_id: str
     frame_path: str
-    al_score: Optional[float]
+    al_score: float | None
     al_tag: str
 
 
 class CvatFrameListResponse(BaseModel):
     total: int
-    frames: List[CvatFrameItem]
+    frames: list[CvatFrameItem]
 
 
 class CvatTaskRegistration(BaseModel):
     cvat_task_id: int
-    frame_ids: List[str]
+    frame_ids: list[str]
 
 
 @cvat_admin_router.get(
@@ -398,7 +398,7 @@ async def cvat_annotation_frames(
 )
 async def register_cvat_task(
     body: CvatTaskRegistration, request: Request
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Store the mapping from a CVAT task ID to selfsuvis frame IDs.
 
     Call this after creating a CVAT task with frames from GET /admin/cvat/frames.

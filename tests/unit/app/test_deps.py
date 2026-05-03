@@ -1,6 +1,5 @@
 """Unit tests for app.deps — API key auth and rate limiting."""
 
-import hmac
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,12 +9,10 @@ import selfsuvis.app.deps as deps_mod
 from selfsuvis.app.deps import (
     _MAX_LIMITERS,
     _evict_oldest_limiter,
-    _limiters,
     rate_limit,
     require_api_key,
 )
 from selfsuvis.pipeline.core import config
-
 
 # ---------------------------------------------------------------------------
 # require_api_key

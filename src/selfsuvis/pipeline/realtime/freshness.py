@@ -1,7 +1,7 @@
 """Freshness scoring and staleness decay helpers for realtime events."""
 
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any
 
 
 def _parse_time(value: Any) -> datetime:
@@ -37,14 +37,14 @@ def staleness_weight(
 
 
 def expire_event(
-    event: Dict[str, Any],
+    event: dict[str, Any],
     *,
     hard_expiry_sec: float = 60.0,
 ) -> bool:
     return float(event.get("freshness_sec", 0.0) or 0.0) >= hard_expiry_sec
 
 
-def apply_freshness(event: Dict[str, Any]) -> Dict[str, Any]:
+def apply_freshness(event: dict[str, Any]) -> dict[str, Any]:
     enriched = dict(event)
     enriched["freshness_sec"] = round(
         freshness_seconds(enriched.get("event_time"), enriched.get("ingest_time")),

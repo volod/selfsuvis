@@ -6,10 +6,8 @@ or open3d required.
 import asyncio
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # ── MockConn for asyncpg tests ────────────────────────────────────────────────
 
@@ -71,7 +69,7 @@ class MockConn:
             return [_Row(**r) for r in self._gmm if r["global_map_id"] == gm_id]
         raise NotImplementedError(f"fetch not handled: {query[:60]}")
 
-    async def fetchrow(self, query: str, *args) -> Optional[_Row]:
+    async def fetchrow(self, query: str, *args) -> _Row | None:
         q = query.strip().upper()
         if "FROM GLOBAL_MAP WHERE ID" in q:
             gm_id = args[0]
@@ -238,6 +236,7 @@ class TestCallIcpFuse:
 
     def test_returns_none_on_connection_error(self):
         import requests as req_lib
+
         from selfsuvis.pipeline.mapping.mapper import _call_icp_fuse
         with patch("selfsuvis.pipeline.mapping.mapper.requests.post",
                    side_effect=req_lib.exceptions.ConnectionError("refused")):
@@ -268,7 +267,7 @@ class TestCallIcpFuse:
 
 # ── run_mapper ICP integration tests ──────────────────────────────────────────
 
-def _make_sfm_results(n: int = 35) -> List[Dict[str, Any]]:
+def _make_sfm_results(n: int = 35) -> list[dict[str, Any]]:
     """Return a minimal list of SfM results with pose_status=success."""
     return [
         {"frame_path": f"/frames/f{i}.jpg", "pose_json": "{}", "pose_status": "success", "scene_index": 0}

@@ -2,9 +2,10 @@
 
 import json
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any
 
 from .degraded_mode import apply_degraded_mode_to_threat, evaluate_degraded_mode
 from .event_access import (
@@ -24,11 +25,11 @@ class RealtimeThreatAggregator:
     """Consume replayed or live event envelopes and emit operator snapshots."""
 
     def __init__(self) -> None:
-        self._sensor_events: List[Dict[str, Any]] = []
-        self._threat_events: List[Dict[str, Any]] = []
-        self._node_health_events: List[Dict[str, Any]] = []
+        self._sensor_events: list[dict[str, Any]] = []
+        self._threat_events: list[dict[str, Any]] = []
+        self._node_health_events: list[dict[str, Any]] = []
 
-    def consume(self, event: Dict[str, Any]) -> None:
+    def consume(self, event: dict[str, Any]) -> None:
         kind = event_kind(event)
         if kind == "sensor":
             self._sensor_events.append(dict(event))
@@ -39,11 +40,11 @@ class RealtimeThreatAggregator:
         else:
             raise ValueError(f"unsupported event_kind: {kind or '<empty>'}")
 
-    def consume_all(self, events: Iterable[Dict[str, Any]]) -> None:
+    def consume_all(self, events: Iterable[dict[str, Any]]) -> None:
         for event in events:
             self.consume(event)
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         sector_rows = self._sector_rows()
         health = evaluate_degraded_mode(
             self._sensor_events,
@@ -70,25 +71,25 @@ class RealtimeThreatAggregator:
             "last_update": datetime.now(timezone.utc).isoformat(),
         }
 
-    def write_snapshot(self, output_path: Path) -> Dict[str, Any]:
+    def write_snapshot(self, output_path: Path) -> dict[str, Any]:
         snapshot = self.snapshot()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
         return snapshot
 
-    def _sector_rows(self) -> List[Dict[str, Any]]:
-        grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    def _sector_rows(self) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for event in self._threat_events:
             if expire_event(event, hard_expiry_sec=120.0):
                 continue
             grouped[event_sector_id(event)].append(event)
 
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         for sector_id, events in sorted(grouped.items()):
-            score_terms: List[float] = []
-            nodes: List[str] = []
-            route_ids: List[str] = []
-            primitive_types: List[str] = []
+            score_terms: list[float] = []
+            nodes: list[str] = []
+            route_ids: list[str] = []
+            primitive_types: list[str] = []
             for event in events:
                 payload = event_payload(event)
                 sensor_type = event_sensor_type(event)
@@ -126,12 +127,12 @@ class RealtimeThreatAggregator:
             )
         return rows
 
-    def _route_rows(self, sector_rows: Sequence[Dict[str, Any]], *, automation_confidence: float) -> List[Dict[str, Any]]:
-        grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    def _route_rows(self, sector_rows: Sequence[dict[str, Any]], *, automation_confidence: float) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for row in sector_rows:
             for route_id in row.get("route_ids") or []:
                 grouped[str(route_id)].append(row)
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for route_id, rows in sorted(grouped.items()):
             max_score = max(float(row.get("threat_score", 0.0) or 0.0) for row in rows)
             health = apply_degraded_mode_to_threat(
@@ -159,8 +160,8 @@ class RealtimeThreatAggregator:
             )
         return out
 
-    def _persistent_anomalies(self) -> List[Dict[str, Any]]:
-        grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+    def _persistent_anomalies(self) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
         for event in self._threat_events:
             sensor_type = event_sensor_type(event)
             if sensor_type == "local_threat":
@@ -168,7 +169,7 @@ class RealtimeThreatAggregator:
             payload = event_payload(event)
             threat_type = payload_text(payload, "threat_type", default=sensor_type)
             grouped[(threat_type, event_sector_id(event))].append(event)
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         for (threat_type, sector_id), events in sorted(grouped.items()):
             if len(events) < 2:
                 continue
@@ -183,9 +184,9 @@ class RealtimeThreatAggregator:
             )
         return rows
 
-    def _corridor_graph(self) -> List[Dict[str, Any]]:
-        edge_weights: Dict[Tuple[str, str], float] = defaultdict(float)
-        route_sequences: Dict[str, List[str]] = defaultdict(list)
+    def _corridor_graph(self) -> list[dict[str, Any]]:
+        edge_weights: dict[tuple[str, str], float] = defaultdict(float)
+        route_sequences: dict[str, list[str]] = defaultdict(list)
         for row in self._sector_rows():
             for route_id in row.get("route_ids") or []:
                 route_sequences[route_id].append(event_sector_id(row))

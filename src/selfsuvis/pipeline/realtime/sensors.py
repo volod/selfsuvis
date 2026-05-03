@@ -1,8 +1,10 @@
 """Shared sensor registry helpers for realtime ingest."""
 
 
-from typing import Any, Dict, Iterable, List, Set
-_SUPPORTED_SENSOR_TYPES: Set[str] = {
+from collections.abc import Iterable
+from typing import Any
+
+_SUPPORTED_SENSOR_TYPES: set[str] = {
     "barometer",
     "camera",
     "gps",
@@ -11,7 +13,7 @@ _SUPPORTED_SENSOR_TYPES: Set[str] = {
     "magnetometer",
 }
 
-_SENSOR_CAPABILITIES: Dict[str, List[str]] = {
+_SENSOR_CAPABILITIES: dict[str, list[str]] = {
     "barometer": ["altitude"],
     "camera": ["imagery"],
     "gps": ["position", "velocity", "global_reference"],
@@ -32,12 +34,12 @@ def require_supported_sensor_type(sensor_type: Any) -> str:
     return normalized
 
 
-def supported_sensor_types() -> Set[str]:
+def supported_sensor_types() -> set[str]:
     return set(_SUPPORTED_SENSOR_TYPES)
 
 
-def packet_sensor_summary(sensor_types: Iterable[Any]) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
+def packet_sensor_summary(sensor_types: Iterable[Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
     for sensor_type in sensor_types:
         key = normalize_sensor_type(sensor_type)
         if not key:
@@ -46,7 +48,7 @@ def packet_sensor_summary(sensor_types: Iterable[Any]) -> Dict[str, int]:
     return counts
 
 
-def build_sensor_profile(sensors: Iterable[Any]) -> Dict[str, Any]:
+def build_sensor_profile(sensors: Iterable[Any]) -> dict[str, Any]:
     counts = packet_sensor_summary(sensor for sensor in sensors if normalize_sensor_type(sensor))
     deduped = sorted(counts)
     return {

@@ -1,31 +1,35 @@
 """Captioning steps: Gemma, Florence, Qwen, ASR, OCR, depth, detection, world model."""
 
 
-import logging
-import hashlib
 import json
+import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from PIL import Image
 
 from selfsuvis.pipeline.core import settings
+
 from ._common import (
-    _log as _pipeline_log,
-    _open_frame_image,
-    _open_frame_batch,
-    _run_batched_frame_inference,
     _GEMMA_ANALYSIS_SAMPLE_N,
-    _SCENE_CHANGE_THRESH,
     _GEMMA_TEXT_PROBES,
+    _SCENE_CHANGE_THRESH,
     VideoKnowledge,
+    _open_frame_batch,
+    _open_frame_image,
+    _run_batched_frame_inference,
+    gemma_frame_cache_key,
+    load_gemma_cache,
+    save_gemma_cache,
+    write_json_artifact,
+    write_markdown_artifact,
 )
 
 # Step-specific logger — appears as "pipeline.local.caption" in log output.
 _log = logging.getLogger("pipeline.local.caption")
 
-_RUNTIME_TELEMETRY: Dict[str, float] = {
+_RUNTIME_TELEMETRY: dict[str, float] = {
     "vram_wait_time_sec": 0.0,
     "restore_failures": 0.0,
 }
@@ -60,7 +64,11 @@ def _log_vram_snapshot(label: str) -> None:
     """Best-effort VRAM snapshot. Uses torch.cuda.mem_get_info for per-process accuracy."""
     try:
         import torch
-        from selfsuvis.pipeline.vision.registry import detect_vram_gb, detect_ram_gb  # noqa: PLC0415
+
+        from selfsuvis.pipeline.vision.registry import (  # noqa: PLC0415
+            detect_ram_gb,
+            detect_vram_gb,
+        )
 
         total = detect_vram_gb()
         ram = detect_ram_gb()
@@ -113,7 +121,7 @@ def _flush_cuda_allocator() -> None:
         pass
 
 
-def _backbone_device(backbone: Any) -> Optional[str]:
+def _backbone_device(backbone: Any) -> str | None:
     try:
         return str(next(backbone.parameters()).device)
     except Exception:
@@ -142,7 +150,7 @@ def _wait_for_sidecar_vram_release(
     label: str,
     timeout_sec: float = 20.0,
     min_expected_gain_gb: float = 1.0,
-    sufficient_free_gb: Optional[float] = None,
+    sufficient_free_gb: float | None = None,
 ) -> None:
     """Wait briefly for an unload request to turn into free VRAM."""
     if unload_count <= 0:
@@ -199,7 +207,7 @@ def _wait_for_sidecar_vram_release(
         )
 
 
-def _guard_min_free_vram(stage: str, min_free_gb: Optional[float] = None) -> float:
+def _guard_min_free_vram(stage: str, min_free_gb: float | None = None) -> float:
     """Fail fast when a CUDA stage starts without enough free VRAM."""
     try:
         from selfsuvis.pipeline.vision.registry import detect_resources  # noqa: PLC0415
@@ -226,7 +234,7 @@ def _guard_min_free_vram(stage: str, min_free_gb: Optional[float] = None) -> flo
     return free_gb
 
 
-def _offload_models_to_cpu(models: Dict[str, Any]) -> None:
+def _offload_models_to_cpu(models: dict[str, Any]) -> None:
     """Move CLIP and DINO backbones to CPU and flush the CUDA allocator cache.
 
     Called before loading a large model (Florence-2, ASR) when VRAM is tight.
@@ -269,13 +277,13 @@ def _offload_models_to_cpu(models: Dict[str, Any]) -> None:
 
 
 def _prep_vram_for_step(
-    models: Dict[str, Any],
+    models: dict[str, Any],
     device: str,
     ollama_url: str = "",
     ollama_model: str = "",
-    extra_sidecars: Optional[List[Tuple[str, str]]] = None,
+    extra_sidecars: list[tuple[str, str]] | None = None,
     label: str = "next step",
-    required_free_gb: Optional[float] = None,
+    required_free_gb: float | None = None,
 ) -> None:
     """Offload CLIP+DINOv3, evict any Ollama resident, and flush the CUDA allocator.
 
@@ -315,7 +323,7 @@ def _prep_vram_for_step(
             (settings.GEMMA_API_URL, settings.GEMMA_API_MODEL),
             (getattr(settings, "QWEN_API_URL", ""), getattr(settings, "QWEN_MODEL", "")),
             (getattr(settings, "REASONING_API_URL", ""), getattr(settings, "REASONING_MODEL", "")),
-            *((extra_sidecars or [])),
+            *(extra_sidecars or []),
         ]
     )
     _wait_for_sidecar_vram_release(
@@ -335,10 +343,11 @@ def _prep_vram_for_step(
     _log_vram_snapshot("after prep VRAM for next step")
 
 
-def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> bool:
+def _restore_models_to_gpu(models: dict[str, Any], device: str) -> bool:
     """Move CLIP and DINO backbones back to *device* after a large model releases."""
     _log_vram_snapshot(f"before restore models to {device}")
     import os as _os
+
     import torch as _torch
     if str(device).startswith("cuda"):
         free_gb = _detect_free_vram_gb()
@@ -419,7 +428,7 @@ def _restore_models_to_gpu(models: Dict[str, Any], device: str) -> bool:
     return restored_all
 
 
-def _models_on_device(models: Dict[str, Any], device: str) -> bool:
+def _models_on_device(models: dict[str, Any], device: str) -> bool:
     import torch as _torch
     expected = _torch.device(device)
     for key in ("clip", "dino"):
@@ -443,46 +452,18 @@ def reset_runtime_telemetry() -> None:
     _RUNTIME_TELEMETRY["restore_failures"] = 0.0
 
 
-def get_runtime_telemetry() -> Dict[str, float]:
+def get_runtime_telemetry() -> dict[str, float]:
     return {
         "vram_wait_time_sec": float(_RUNTIME_TELEMETRY.get("vram_wait_time_sec", 0.0) or 0.0),
         "restore_failures": float(_RUNTIME_TELEMETRY.get("restore_failures", 0.0) or 0.0),
     }
 
 
-def _cache_file(video_dir: Path) -> Path:
-    return video_dir / "runtime_cache" / "gemma_responses.json"
-
-
-def _load_gemma_cache(video_dir: Path) -> Dict[str, Any]:
-    path = _cache_file(video_dir)
-    if not settings.GEMMA_CACHE_RESPONSES or not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _save_gemma_cache(video_dir: Path, cache: Dict[str, Any]) -> None:
-    if not settings.GEMMA_CACHE_RESPONSES:
-        return
-    path = _cache_file(video_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
-def _frame_cache_key(frame_path: str, *, model: str, prompt_tag: str) -> str:
-    data = Path(frame_path).read_bytes()
-    digest = hashlib.sha256(data).hexdigest()
-    return f"{prompt_tag}:{model}:{digest}"
-
-
 def _reduce_llm_sample_frames(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     *,
     max_frames: int,
-) -> List[Tuple[str, float]]:
+) -> list[tuple[str, float]]:
     """Reduce near-duplicate sampled frames for LLM-heavy Gemma steps."""
     import numpy as np
 
@@ -490,7 +471,7 @@ def _reduce_llm_sample_frames(
         return frame_list
     step = max(1, len(frame_list) // max_frames)
     sampled = frame_list[::step][:max_frames]
-    kept: List[Tuple[str, float]] = []
+    kept: list[tuple[str, float]] = []
     prev_small = None
     for fp, t_sec in sampled:
         try:
@@ -521,7 +502,7 @@ def _reduce_llm_sample_frames(
 
 
 def _adaptive_sparse_budget(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     *,
     configured_max: int,
     seconds_per_sample: float,
@@ -536,12 +517,12 @@ def _adaptive_sparse_budget(
 
 
 def _select_qwen_frames(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     *,
     max_frames: int,
     knowledge: Optional["VideoKnowledge"] = None,
-    ocr_map: Optional[Dict[float, str]] = None,
-) -> List[Tuple[str, float]]:
+    ocr_map: dict[float, str] | None = None,
+) -> list[tuple[str, float]]:
     """Select a representative subset of frames for Qwen.
 
     Priority order:
@@ -554,7 +535,7 @@ def _select_qwen_frames(
         return list(frame_list)
 
     must_keep: set[int] = set()
-    scored: Dict[int, int] = {}
+    scored: dict[int, int] = {}
 
     def _add(idx: int, weight: int) -> None:
         if 0 <= idx < len(frame_list):
@@ -596,7 +577,7 @@ def _select_qwen_frames(
 
 # ── Ollama helpers ────────────────────────────────────────────────────────────
 
-def _list_ollama_models(api_url: str) -> List[str]:
+def _list_ollama_models(api_url: str) -> list[str]:
     """Return model names available in the Ollama instance at *api_url*."""
     try:
         import httpx
@@ -648,7 +629,7 @@ def _estimate_model_size_gb_from_name(model_name: str) -> float:
 def _compute_sidecar_timeout(
     model_name: str,
     api_url: str,
-    resources: Optional[Dict[str, float]] = None,
+    resources: dict[str, float] | None = None,
 ) -> float:
     """Return an adaptive timeout (seconds) for a sidecar inference request.
 
@@ -726,7 +707,7 @@ _REASONING_PREFERENCE_ORDER = [
 ]
 
 
-def _recommend_gemma_sidecar_models(resources: Dict[str, float]) -> Tuple[str, str]:
+def _recommend_gemma_sidecar_models(resources: dict[str, float]) -> tuple[str, str]:
     """Return recommended (analysis_model, reasoning_model) for current hardware.
 
     Analysis runs over sampled video frames and should stay relatively light.
@@ -759,8 +740,8 @@ def _resolve_ollama_model_with_preferences(
     api_url: str,
     configured_model: str,
     *,
-    preference_order: List[str],
-    family_prefixes: Tuple[str, ...],
+    preference_order: list[str],
+    family_prefixes: tuple[str, ...],
     label: str,
 ) -> str:
     """Resolve a requested Ollama model against the instance model list."""
@@ -856,9 +837,9 @@ def _unload_ollama_model(api_url: str, model: str) -> bool:
     return False
 
 
-def _unload_known_sidecars(pairs: List[Tuple[str, str]]) -> int:
+def _unload_known_sidecars(pairs: list[tuple[str, str]]) -> int:
     """Unload all known Ollama sidecars from prior steps/runs when possible."""
-    seen: set[Tuple[str, str]] = set()
+    seen: set[tuple[str, str]] = set()
     unload_count = 0
     for url, model in pairs:
         if not url or not model:
@@ -880,7 +861,7 @@ def _gemma_analyse_frame_via_api(
     model: str,
     timeout: float,
     *,
-    video_dir: Optional[Path] = None,
+    video_dir: Path | None = None,
 ) -> str:
     """Send a single frame to a Gemma Ollama/vLLM sidecar and return its description."""
     import base64
@@ -891,12 +872,12 @@ def _gemma_analyse_frame_via_api(
     except ImportError:
         return ""
 
-    cache: Dict[str, Any] = {}
+    cache: dict[str, Any] = {}
     cache_key = ""
     if video_dir is not None and settings.GEMMA_CACHE_RESPONSES:
         try:
-            cache = _load_gemma_cache(video_dir)
-            cache_key = _frame_cache_key(fp, model=model, prompt_tag="gemma_analysis_v1")
+            cache = load_gemma_cache(video_dir, enabled=settings.GEMMA_CACHE_RESPONSES)
+            cache_key = gemma_frame_cache_key(fp, model=model, prompt_tag="gemma_analysis_v1")
             if cache_key in cache:
                 return str(cache[cache_key].get("content", "") or "")
         except Exception:
@@ -957,7 +938,7 @@ def _gemma_analyse_frame_via_api(
         content = (content or "").strip()
         if cache_key:
             cache[cache_key] = {"content": content, "elapsed_sec": round(elapsed, 3)}
-            _save_gemma_cache(video_dir, cache)  # type: ignore[arg-type]
+            save_gemma_cache(video_dir, cache, enabled=settings.GEMMA_CACHE_RESPONSES)  # type: ignore[arg-type]
         return content
     except Exception as exc:
         _log.debug("  [Gemma API] frame analysis failed for %s: %s", Path(fp).name, exc)
@@ -965,13 +946,13 @@ def _gemma_analyse_frame_via_api(
 
 
 def _summarise_gemma_captions_to_structured_scene(
-    gemma_captions: List[Dict[str, Any]],
+    gemma_captions: list[dict[str, Any]],
     api_url: str,
     model: str,
     timeout: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Use one text-only call to derive a structured scene summary from step 03 descriptions."""
-    def _empty_structured_scene() -> Dict[str, Any]:
+    def _empty_structured_scene() -> dict[str, Any]:
         return {
             "scene_type": "other",
             "dominant_objects": [],
@@ -980,12 +961,12 @@ def _summarise_gemma_captions_to_structured_scene(
             "tracking_priority": [],
         }
 
-    def _clean_structured_scene(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    def _clean_structured_scene(parsed: dict[str, Any]) -> dict[str, Any]:
         scene_type = str(parsed.get("scene_type") or "").strip().lower()
         if scene_type not in _STRUCTURED_SCENE_TYPES or "|" in scene_type or "<" in scene_type:
             return _empty_structured_scene()
 
-        clean_objects: List[Dict[str, Any]] = []
+        clean_objects: list[dict[str, Any]] = []
         for obj in parsed.get("dominant_objects", []):
             if not isinstance(obj, dict):
                 continue
@@ -1129,11 +1110,11 @@ def step_gemma_analysis(
     video_id: str,
     video_name: str,
     video_dir: Path,
-    frame_list: List[Tuple[str, float]],
-    models: Dict[str, Any],
+    frame_list: list[tuple[str, float]],
+    models: dict[str, Any],
     gemma_api_url: str = "",
     gemma_api_model: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 03: Gemma open-weight multimodal video analysis.
 
     Uses the local GemmaEmbedder for embedding-based analysis and, when a
@@ -1154,9 +1135,10 @@ def step_gemma_analysis(
     Writes ``gemma_analysis.md`` to *video_dir*.
     """
     import numpy as np
-    from .steps_report import write_gemma_analysis_md, _write_gemma_captions_md
 
-    result: Dict[str, Any] = {"skipped": True, "reason": ""}
+    from .steps_report import _write_gemma_captions_md, write_gemma_analysis_md
+
+    result: dict[str, Any] = {"skipped": True, "reason": ""}
 
     effective_api_url   = gemma_api_url or settings.GEMMA_API_URL
     effective_api_model = gemma_api_model or settings.GEMMA_API_MODEL
@@ -1193,10 +1175,10 @@ def step_gemma_analysis(
     n = len(sample_images)
     _log.info("  Gemma analysis: %d sampled frames (from %d total)", n, n_avail)
 
-    task_results: Dict[str, Any] = {}
+    task_results: dict[str, Any] = {}
 
     # 1. Generative per-frame analysis via Ollama/vLLM sidecar
-    gemma_captions: List[Dict[str, Any]] = []
+    gemma_captions: list[dict[str, Any]] = []
     if has_sidecar:
         _log.info(
             "Generative scene analysis via sidecar (url=%s  model=%s  frames=%d) ...",
@@ -1239,9 +1221,9 @@ def step_gemma_analysis(
     # For the remaining embedding-based analyses we need a local embedder.
     if not has_local:
         _log.info("Skipping embedding analyses (no embedder loaded)")
-        text_query_results: List[Dict[str, Any]] = []
-        dino_comparison: Dict[str, Any] = {"available": False, "reason": "no embedder loaded"}
-        clip_comparison: Dict[str, Any] = {"available": False, "reason": "GemmaEmbedder not loaded"}
+        text_query_results: list[dict[str, Any]] = []
+        dino_comparison: dict[str, Any] = {"available": False, "reason": "no embedder loaded"}
+        clip_comparison: dict[str, Any] = {"available": False, "reason": "GemmaEmbedder not loaded"}
         elapsed = time.time() - t0
         write_gemma_analysis_md(
             video_dir / "gemma_analysis.md",
@@ -1264,7 +1246,7 @@ def step_gemma_analysis(
     _log.info("Embedding analyses using %s", _embedder_name)
 
     # 2. Scene change detection via consecutive-frame cosine distance
-    gemma_embeds: Optional[np.ndarray] = None
+    gemma_embeds: np.ndarray | None = None
     try:
         _log.info("Scene change detection ...")
         gemma_embeds = gemma.encode_images(sample_images)
@@ -1318,12 +1300,12 @@ def step_gemma_analysis(
         clf_text   = gemma.encode_texts(_GEMMA_TEXT_PROBES)
         clf_scores = np.dot(clf_frame, clf_text.T)  # (n_frames, n_categories)
         from collections import Counter
-        top_cats: List[str] = [
+        top_cats: list[str] = [
             _GEMMA_TEXT_PROBES[int(np.argmax(clf_scores[i]))] for i in range(n)
         ]
         cat_dist = dict(Counter(top_cats).most_common(5))
         task_results["scene_classification"] = {
-            "description": "Zero-shot classification against %d scene categories" % len(_GEMMA_TEXT_PROBES),
+            "description": f"Zero-shot classification against {len(_GEMMA_TEXT_PROBES)} scene categories",
             "n_frames": n,
             "category_distribution": cat_dist,
         }
@@ -1369,7 +1351,7 @@ def step_gemma_analysis(
             _t = _torch.from_numpy(_feats).mean(dim=0, keepdim=True)
             vid_embed = _torch.nn.functional.normalize(_t, dim=-1)
         task_results["temporal_embedding"] = {
-            "description": "Mean-pool of %d frame embeddings -> single video-level vector" % n,
+            "description": f"Mean-pool of {n} frame embeddings -> single video-level vector",
             "dim": int(vid_embed.shape[1]),
             "n_frames": n,
         }
@@ -1379,7 +1361,7 @@ def step_gemma_analysis(
         _log.warning("Temporal embedding failed: %s", exc)
 
     # 7. Gemma vs CLIP comparison — skip when the main embedder IS CLIP (trivial)
-    clip_comparison: Dict[str, Any] = {"available": False}
+    clip_comparison: dict[str, Any] = {"available": False}
     from selfsuvis.models.openclip_model import OpenCLIPEmbedder as _CLIPModel
     _main_is_clip = isinstance(gemma, _CLIPModel)
     if _main_is_clip:
@@ -1399,8 +1381,10 @@ def step_gemma_analysis(
             k_c = min(5, n - 1)
             mnn_c = 0
             for i in range(n):
-                gr = g_sim_c[i].copy(); gr[i] = -2.0
-                cr = c_sim[i].copy();   cr[i] = -2.0
+                gr = g_sim_c[i].copy()
+                gr[i] = -2.0
+                cr = c_sim[i].copy()
+                cr[i] = -2.0
                 mnn_c += len(set(np.argsort(-gr)[:k_c].tolist()) & set(np.argsort(-cr)[:k_c].tolist()))
             mnn_rate_c = mnn_c / (n * k_c)
             clip_comparison = {
@@ -1428,7 +1412,7 @@ def step_gemma_analysis(
             _log.warning("  [Gemma vs CLIP] comparison failed: %s", exc)
 
     # 8. Gemma vs DINOv3 comparison
-    dino_comparison: Dict[str, Any] = {"available": False}
+    dino_comparison: dict[str, Any] = {"available": False}
     if _HAS_DINO and n > 1:
         try:
             _log.info("  [Gemma vs DINOv3] Loading temporary DINOv3 ViT-B/14 ...")
@@ -1443,8 +1427,10 @@ def step_gemma_analysis(
             k_d = min(5, n - 1)
             mnn_d = 0
             for i in range(n):
-                gr = g_sim_d[i].copy(); gr[i] = -2.0
-                dr = d_sim[i].copy();   dr[i] = -2.0
+                gr = g_sim_d[i].copy()
+                gr[i] = -2.0
+                dr = d_sim[i].copy()
+                dr[i] = -2.0
                 mnn_d += len(set(np.argsort(-gr)[:k_d].tolist()) & set(np.argsort(-dr)[:k_d].tolist()))
             mnn_rate_d = mnn_d / (n * k_d)
             dino_comparison = {
@@ -1499,13 +1485,13 @@ def step_gemma_analysis(
 # ── Florence / Qwen captioning ────────────────────────────────────────────────
 
 def _caption_via_florence_api(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
     api_url: str,
     model: str,
     domain_hint: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Caption frames via a vLLM endpoint serving Florence-2-large.
 
     vLLM serves Florence-2 with ``--task generate --trust-remote-code``.
@@ -1517,6 +1503,7 @@ def _caption_via_florence_api(
     """
     import base64
     import io
+
     from .steps_report import write_scene_captions_md
 
     try:
@@ -1530,7 +1517,7 @@ def _caption_via_florence_api(
         api_url, model, len(frame_list),
     )
     endpoint = f"{api_url.rstrip('/')}/chat/completions"
-    caption_results: List[Dict[str, Any]] = []
+    caption_results: list[dict[str, Any]] = []
     t0 = time.time()
 
     for idx, (fp, t_sec) in enumerate(frame_list):
@@ -1587,13 +1574,13 @@ def _caption_via_florence_api(
 
 
 def _caption_via_qwen_api(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
     api_url: str,
     model: str,
     domain_hint: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Caption frames via an OpenAI-compatible VLM endpoint (Ollama / vLLM).
 
     Used as a fallback when Florence-2 cannot load due to OOM.  Sends one
@@ -1603,6 +1590,7 @@ def _caption_via_qwen_api(
     """
     import base64
     import io
+
     from .steps_report import write_scene_captions_md
 
     try:
@@ -1617,7 +1605,7 @@ def _caption_via_qwen_api(
         api_url, model, len(frame_list),
     )
     endpoint = f"{api_url.rstrip('/')}/chat/completions"
-    caption_results: List[Dict[str, Any]] = []
+    caption_results: list[dict[str, Any]] = []
     t0 = time.time()
     _MAX_CONSECUTIVE_FAILURES = 3
 
@@ -1705,17 +1693,17 @@ def _caption_via_qwen_api(
 
 
 def step_scene_captioning(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
     device: str,
-    models: Optional[Dict[str, Any]] = None,
+    models: dict[str, Any] | None = None,
     qwen_api_url: str = "",
     qwen_model: str = "",
     florence_api_url: str = "",
     florence_model: str = "",
     domain_hint: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 04: Florence-2 scene captioning with memory management and API support.
 
     Memory strategy (CUDA only):
@@ -1797,7 +1785,7 @@ def step_scene_captioning(
 
     _log.info("  ✓ Florence-2-large loaded in %.1fs", time.time() - t0)
     _log.info("  Captioning %d frames …", len(frame_list))
-    caption_results: List[Dict[str, Any]] = []
+    caption_results: list[dict[str, Any]] = []
     florence_runtime_mode = florence.runtime_mode
     florence_model_tag = florence.model_tag
     batch_size = settings.FLORENCE_BATCH_SIZE
@@ -1805,7 +1793,7 @@ def step_scene_captioning(
     for batch_start in range(0, len(frame_list), batch_size):
         batch = frame_list[batch_start : batch_start + batch_size]
         if _florence_oom:
-            captions_and_confs: List[Tuple[str, float]] = [("", 0.5)] * len(batch)
+            captions_and_confs: list[tuple[str, float]] = [("", 0.5)] * len(batch)
         else:
             pil_images = []
             for fp, _t in batch:
@@ -1968,13 +1956,13 @@ def _gemma_diff_two_frames_via_api(
 
 
 def step_gemma_segment_captions(
-    frame_list: List[Tuple[str, float]],
-    caption_results: List[Dict[str, Any]],
+    frame_list: list[tuple[str, float]],
+    caption_results: list[dict[str, Any]],
     video_name: str,
     video_dir: Path,
     gemma_api_url: str = "",
     gemma_api_model: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 4b: Gemma 4 multi-frame segment-boundary diff analysis.
 
     Uses _analyze_caption_sequence to find scene boundaries from Florence captions,
@@ -1987,7 +1975,7 @@ def step_gemma_segment_captions(
     from ._common import _analyze_caption_sequence
     from .steps_report import write_gemma_segment_captions_md
 
-    result: Dict[str, Any] = {"skipped": True, "reason": "", "boundary_diffs": []}
+    result: dict[str, Any] = {"skipped": True, "reason": "", "boundary_diffs": []}
 
     effective_api_url   = gemma_api_url or settings.GEMMA_API_URL
     effective_api_model = gemma_api_model or settings.GEMMA_API_MODEL
@@ -2004,12 +1992,12 @@ def step_gemma_segment_captions(
         return result
 
     # Build frame_path lookup keyed by t_sec
-    ts_to_fp: Dict[float, str] = {t: fp for fp, t in frame_list}
+    ts_to_fp: dict[float, str] = {t: fp for fp, t in frame_list}
 
     enriched = _analyze_caption_sequence(caption_results)
 
     # Find boundary pairs: (last_frame_of_seg_N, first_frame_of_seg_N+1)
-    boundary_pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    boundary_pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for i, row in enumerate(enriched):
         if i > 0 and row.get("is_new_segment"):
             boundary_pairs.append((enriched[i - 1], row))
@@ -2025,7 +2013,7 @@ def step_gemma_segment_captions(
     )
     t0 = time.time()
 
-    boundary_diffs: List[Dict[str, Any]] = []
+    boundary_diffs: list[dict[str, Any]] = []
     for idx, (prev_row, next_row) in enumerate(boundary_pairs):
         fp_before = ts_to_fp.get(prev_row.get("t_sec", -1.0), "") or prev_row.get("frame_path", "")
         fp_after  = ts_to_fp.get(next_row.get("t_sec", -1.0), "") or next_row.get("frame_path", "")
@@ -2095,7 +2083,7 @@ def _gemma_extract_frame_structured(
     model: str,
     timeout: float,
     t_sec: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Call Gemma sidecar for per-frame structured JSON matching the Qwen schema.
 
     Returns a dict with the same keys as QwenModel.extract_frame_facts output:
@@ -2106,7 +2094,7 @@ def _gemma_extract_frame_structured(
     import io as _io
     import json as _json
 
-    base_result: Dict[str, Any] = {
+    base_result: dict[str, Any] = {
         "t_sec": t_sec,
         "frame_path": fp,
         "vehicle_groups": [],
@@ -2205,12 +2193,12 @@ def _gemma_extract_frame_structured(
 
 
 def _step_qwen_captioning_gemma_fallback(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
     gemma_url: str,
     gemma_model: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Gemma fallback for step_qwen_captioning when QWEN_API_URL is unset.
 
     Produces per-frame structured JSON with the same schema as QwenModel
@@ -2220,7 +2208,7 @@ def _step_qwen_captioning_gemma_fallback(
     from .steps_report import write_detailed_captions_md
 
     out_md = video_dir / "detailed_captions.md"
-    result: Dict[str, Any] = {"skipped": True, "results": []}
+    result: dict[str, Any] = {"skipped": True, "results": []}
     effective_timeout = float(settings.GEMMA_API_TIMEOUT_SEC)
 
     budget = _adaptive_sparse_budget(
@@ -2236,7 +2224,7 @@ def _step_qwen_captioning_gemma_fallback(
         len(sampled), len(frame_list), gemma_model,
     )
     t0 = time.time()
-    caption_results: List[Dict[str, Any]] = []
+    caption_results: list[dict[str, Any]] = []
     for fp, t_sec in sampled:
         r = _gemma_extract_frame_structured(fp, gemma_url, gemma_model, effective_timeout, t_sec)
         caption_results.append(r)
@@ -2264,14 +2252,14 @@ def _step_qwen_captioning_gemma_fallback(
 
 
 def step_qwen_captioning(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
-    subtitle_map: Dict[float, str],
-    ocr_results: List[Dict[str, Any]],
+    subtitle_map: dict[float, str],
+    ocr_results: list[dict[str, Any]],
     clip_prescreen_fn=None,
     knowledge: Optional["VideoKnowledge"] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 12: Qwen VLM detailed scene captioning with full agentic context.
 
     When *knowledge* is provided, each frame's prompt is enriched with all
@@ -2283,7 +2271,7 @@ def step_qwen_captioning(
     from .steps_report import write_detailed_captions_md
 
     out_md = video_dir / "detailed_captions.md"
-    result: Dict[str, Any] = {"skipped": True, "results": []}
+    result: dict[str, Any] = {"skipped": True, "results": []}
     try:
         from selfsuvis.pipeline.vision.qwen import QwenModel
     except ImportError as exc:
@@ -2303,7 +2291,7 @@ def step_qwen_captioning(
                 frame_list, video_name, video_dir, gemma_url, gemma_model,
             )
         return result
-    ocr_map: Dict[float, str] = {r["t_sec"]: r["ocr_text"]
+    ocr_map: dict[float, str] = {r["t_sec"]: r["ocr_text"]
                                   for r in ocr_results
                                   if r.get("t_sec") is not None and r.get("ocr_text")}
 
@@ -2359,9 +2347,9 @@ def step_qwen_captioning(
     _log.info("Running Qwen detailed captioning on %d sampled frames (from %d total, model=%s  agentic=%s) …",
               len(sampled_frame_list), len(frame_list), settings.QWEN_MODEL, "yes" if _use_agentic else "no")
 
-    caption_results: List[Dict[str, Any]] = []
+    caption_results: list[dict[str, Any]] = []
 
-    def _batch_fn(batch: List[Tuple[str, float]], imgs: List) -> List[Dict[str, Any]]:
+    def _batch_fn(batch: list[tuple[str, float]], imgs: list) -> list[dict[str, Any]]:
         extra_contexts = None
         if _use_agentic and knowledge:
             extra_contexts = [knowledge.context_for_frame(t_sec) for _fp, t_sec in batch]
@@ -2405,18 +2393,18 @@ def step_qwen_captioning(
 
 
 def step_unidrive_analysis(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
-    subtitle_map: Dict[float, str],
-    ocr_results: List[Dict[str, Any]],
+    subtitle_map: dict[float, str],
+    ocr_results: list[dict[str, Any]],
     knowledge: Optional["VideoKnowledge"] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 13: UniDriveVLA expert analysis on a sparse frame sample."""
     from .steps_report import write_unidrive_analysis_md
 
     out_md = video_dir / "unidrive_analysis.md"
-    result: Dict[str, Any] = {"skipped": True, "results": []}
+    result: dict[str, Any] = {"skipped": True, "results": []}
     try:
         from selfsuvis.pipeline.vision.unidrive import UniDriveVLAModel
     except ImportError as exc:
@@ -2439,7 +2427,7 @@ def step_unidrive_analysis(
     )
     sample_step = max(1, len(frame_list) // max_frames)
     sampled_frames = frame_list[::sample_step][:max_frames]
-    ocr_map: Dict[float, str] = {
+    ocr_map: dict[float, str] = {
         r["t_sec"]: r["ocr_text"]
         for r in ocr_results
         if r.get("t_sec") is not None and r.get("ocr_text")
@@ -2452,7 +2440,7 @@ def step_unidrive_analysis(
     )
     t0 = time.time()
 
-    def _batch_fn(batch: List[Tuple[str, float]], imgs: List[Image.Image]) -> List[Dict[str, Any]]:
+    def _batch_fn(batch: list[tuple[str, float]], imgs: list[Image.Image]) -> list[dict[str, Any]]:
         extra_contexts = None
         if knowledge:
             extra_contexts = [knowledge.context_for_frame(t_sec) for _fp, t_sec in batch]
@@ -2489,16 +2477,17 @@ def step_unidrive_analysis(
 
 def step_asr_transcription(
     video_path: Path,
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 05: extract audio, run Whisper ASR."""
     from datetime import datetime
+
     from ._common import _RUNNER_LABEL
 
     out_md = video_dir / "asr_subtitles.md"
-    result: Dict[str, Any] = {"skipped": True, "subtitle_map": {}, "segments": []}
+    result: dict[str, Any] = {"skipped": True, "subtitle_map": {}, "segments": []}
     try:
         from selfsuvis.pipeline.media.audio import extract_audio, map_subtitles_to_frames
         from selfsuvis.pipeline.vision.asr import ASRModel
@@ -2510,7 +2499,8 @@ def step_asr_transcription(
     if not asr.is_enabled():
         _log.info("  ASR disabled (ASR_ENABLED=false) — skipping")
         return result
-    audio_dir = video_dir / "audio"; audio_dir.mkdir(parents=True, exist_ok=True)
+    audio_dir = video_dir / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
     _log.info("Extracting audio from %s …", video_path.name)
     wav_path = extract_audio(str(video_path), str(audio_dir))
     if not wav_path:
@@ -2531,14 +2521,14 @@ def step_asr_transcription(
               len(segments), covered, len(frame_list), elapsed, asr.model_id)
     _log_vram_snapshot("after ASR model use")
     lines = [
-        f"# ASR Subtitles — {video_name}", f"",
+        f"# ASR Subtitles — {video_name}", "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Model: `{asr.model_id}`",
         f"Segments: {len(segments)}  |  Frames with subtitles: {covered}/{len(frame_list)}",
-        f"Elapsed: {elapsed:.1f}s", f"",
-        f"## Subtitle Segments", f"",
-        f"| Start (s) | End (s) | Text |",
-        f"|-----------|---------|------|",
+        f"Elapsed: {elapsed:.1f}s", "",
+        "## Subtitle Segments", "",
+        "| Start (s) | End (s) | Text |",
+        "|-----------|---------|------|",
     ]
     for seg in segments:
         ts = seg.get("timestamp", (0.0, 0.0)) or (0.0, 0.0)
@@ -2547,20 +2537,20 @@ def step_asr_transcription(
         text = seg.get("text", "").strip().replace("|", "\\|")
         lines.append(f"| {start:.2f} | {end:.2f} | {text} |")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · ASR step 05*"]
-    out_md.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(out_md, lines)
     result.update({"skipped": False, "subtitle_map": subtitle_map,
                    "segments": segments, "elapsed_sec": elapsed, "covered_frames": covered})
     return result
 
 
 def step_ocr_extraction(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
-    caption_results: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    caption_results: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Step 06: visible text extraction per frame."""
-    result: Dict[str, Any] = {"skipped": True, "ocr_results": []}
+    result: dict[str, Any] = {"skipped": True, "ocr_results": []}
     try:
         from selfsuvis.pipeline.vision.ocr import OCRModel
     except ImportError as exc:
@@ -2569,11 +2559,12 @@ def step_ocr_extraction(
     ocr = OCRModel()
     _log_vram_snapshot("before OCR model use")
     if not ocr.is_enabled():
-        _log.info("  OCR disabled (OCR_ENABLED=false) — skipping"); return result
+        _log.info("  OCR disabled (OCR_ENABLED=false) — skipping")
+        return result
     _log.info("Running OCR on %d frames (model=%s) …", len(frame_list), ocr.model_id)
     t0 = time.time()
     threshold = settings.OCR_MIN_CAPTION_CONFIDENCE
-    caption_conf_by_frame: Dict[str, float] = {}
+    caption_conf_by_frame: dict[str, float] = {}
     if caption_results:
         caption_conf_by_frame = {
             str(r.get("frame_path")): float(r.get("caption_confidence", 0.0) or 0.0)
@@ -2581,8 +2572,8 @@ def step_ocr_extraction(
             if r.get("frame_path")
         }
 
-    selected_frame_list: List[Tuple[str, float]] = []
-    skipped_by_caption: Dict[str, Dict[str, Any]] = {}
+    selected_frame_list: list[tuple[str, float]] = []
+    skipped_by_caption: dict[str, dict[str, Any]] = {}
     if threshold > 0.0 and caption_conf_by_frame:
         for fp, t_sec in frame_list:
             conf = caption_conf_by_frame.get(fp)
@@ -2649,7 +2640,7 @@ def step_ocr_extraction(
         error_result={"ocr_text": "", "ocr_error": True},
     )
     processed_by_frame = {str(r["frame_path"]): r for r in processed_results}
-    ocr_results: List[Dict[str, Any]] = []
+    ocr_results: list[dict[str, Any]] = []
     for fp, t_sec in frame_list:
         if fp in processed_by_frame:
             ocr_results.append(processed_by_frame[fp])
@@ -2671,9 +2662,9 @@ def step_ocr_extraction(
 
 
 def _fallback_ocr_frame_sample(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     max_samples: int = 8,
-) -> List[Tuple[str, float]]:
+) -> list[tuple[str, float]]:
     """Select a small evenly spaced OCR subset when caption prescreen selects none."""
     if len(frame_list) <= max_samples:
         return list(frame_list)
@@ -2686,12 +2677,12 @@ def _fallback_ocr_frame_sample(
 
 
 def step_depth_estimation(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 07: depth estimation per frame."""
-    result: Dict[str, Any] = {"skipped": True, "depth_results": []}
+    result: dict[str, Any] = {"skipped": True, "depth_results": []}
     try:
         from selfsuvis.pipeline.vision.depth import DepthModel
     except ImportError as exc:
@@ -2700,7 +2691,8 @@ def step_depth_estimation(
     depth_model = DepthModel()
     _log_vram_snapshot("before depth model use")
     if not depth_model.is_enabled():
-        _log.info("  Depth disabled (DEPTH_ENABLED=false) — skipping"); return result
+        _log.info("  Depth disabled (DEPTH_ENABLED=false) — skipping")
+        return result
     _log.info("Running depth estimation on %d frames (model=%s) …",
               len(frame_list), depth_model.model_id)
     t0 = time.time()
@@ -2720,20 +2712,21 @@ def step_depth_estimation(
         and not r.get("depth_disabled")
     )
     _log.info("  ✓ Depth: %d/%d frames estimated in %.1fs", ok, len(frame_list), elapsed)
-    result.update({"skipped": False, "depth_results": depth_results,
-                   "ok_count": ok, "elapsed_sec": elapsed})
+    result.update(
+        {"skipped": False, "depth_results": depth_results, "ok_count": ok, "elapsed_sec": elapsed}
+    )
     depth_model.release()
     _log_vram_snapshot("after depth model use")
     return result
 
 
 def step_object_detection(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 08: object detection per frame."""
-    result: Dict[str, Any] = {"skipped": True, "detection_results": []}
+    result: dict[str, Any] = {"skipped": True, "detection_results": []}
     try:
         from selfsuvis.pipeline.vision.detection import DetectionModel
     except ImportError as exc:
@@ -2742,7 +2735,8 @@ def step_object_detection(
     det_model = DetectionModel()
     _log_vram_snapshot("before detection model use")
     if not det_model.is_enabled():
-        _log.info("  Detection disabled (DETECTION_ENABLED=false) — skipping"); return result
+        _log.info("  Detection disabled (DETECTION_ENABLED=false) — skipping")
+        return result
     _log.info("Running object detection on %d frames (model=%s) …",
               len(frame_list), det_model.model_id)
     t0 = time.time()
@@ -2772,11 +2766,11 @@ def step_object_detection(
 
 
 def step_world_model_pass(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
-    models: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    models: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Step 11: world model video embeddings + RSSM temporal surprise scoring.
 
     Two sub-steps run sequentially:
@@ -2790,7 +2784,7 @@ def step_world_model_pass(
          scores to ``rssm_temporal.json`` in *video_dir*.  These scores are
          later consumed by the active-learning tagging step.
     """
-    result: Dict[str, Any] = {"skipped": True, "world_results": []}
+    result: dict[str, Any] = {"skipped": True, "world_results": []}
 
     # ── Q-A: VideoMAE world model clip embeddings ─────────────────────────────
     try:
@@ -2807,7 +2801,7 @@ def step_world_model_pass(
             _log.info("Running world model on %d frames in clips of %d (model=%s) …",
                       len(frame_list), clip_frames, wm.model_id)
             t0 = time.time()
-            world_results: List[Dict[str, Any]] = []
+            world_results: list[dict[str, Any]] = []
             for clip_start in range(0, len(frame_list), clip_frames):
                 clip = frame_list[clip_start : clip_start + clip_frames]
                 imgs = _open_frame_batch(clip)
@@ -2839,14 +2833,15 @@ def step_world_model_pass(
         if clip_model is not None:
             try:
                 import numpy as np
-                from selfsuvis.models.rssm_model import RSSMEmbedder  # type: ignore[import]
                 from PIL import Image as _PILImage
+
+                from selfsuvis.models.rssm_model import RSSMEmbedder  # type: ignore[import]
 
                 _log.info("  RSSM: embedding %d frames for temporal surprise …", len(frame_list))
                 t_rssm = time.time()
 
                 # Embed all frames with CLIP (cheap; model already loaded)
-                clip_embeds: List = []
+                clip_embeds: list = []
                 for fp, _t in frame_list:
                     try:
                         img = _PILImage.open(fp).convert("RGB")
@@ -2870,14 +2865,14 @@ def step_world_model_pass(
                     n_frames = len(frame_list)
                     n_valid = len(clip_embeds)
                     # Build a dense list with 0.5 for skipped frames
-                    dense: List[float] = [0.5] * n_frames
+                    dense: list[float] = [0.5] * n_frames
                     valid_idx = 0
                     for i, (fp, _t) in enumerate(frame_list):
                         if valid_idx < n_valid:
                             dense[i] = float(surprise_scores[min(valid_idx, len(surprise_scores) - 1)])
                             valid_idx += 1
 
-                    rssm_json: Dict[str, Any] = {
+                    rssm_json: dict[str, Any] = {
                         "method": method,
                         "hidden_dim": rssm_out.get("hidden_dim", 256),
                         "latent_dim": rssm_out.get("latent_dim", 32),
@@ -2889,9 +2884,8 @@ def step_world_model_pass(
                             for i, (fp, t) in enumerate(frame_list)
                         ],
                     }
-                    import json as _json
                     rssm_path = video_dir / "rssm_temporal.json"
-                    rssm_path.write_text(_json.dumps(rssm_json, indent=2), encoding="utf-8")
+                    write_json_artifact(rssm_path, rssm_json)
                     elapsed_rssm = time.time() - t_rssm
                     _log.info(
                         "  ✓ RSSM: method=%s  mean_surprise=%.3f  elapsed=%.1fs → %s",

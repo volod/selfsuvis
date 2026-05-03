@@ -22,7 +22,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ._threat_contradictions import contradiction_signals_for_threat, summarize_contradictions
 
@@ -45,7 +45,7 @@ _POSE_SFM_FAIL_THRESH  = 0.30   # fraction of frames without an SfM pose
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _max_run_length(flags: List[bool]) -> int:
+def _max_run_length(flags: list[bool]) -> int:
     """Return the longest consecutive run of True in *flags*."""
     best = cur = 0
     for f in flags:
@@ -55,13 +55,13 @@ def _max_run_length(flags: List[bool]) -> int:
 
 
 def _per_frame_near_field_occ(
-    per_frame_object_states: List[List[Dict[str, Any]]],
-    tracking_results: List[Dict[str, Any]],
-) -> List[Tuple[str, float]]:
+    per_frame_object_states: list[list[dict[str, Any]]],
+    tracking_results: list[dict[str, Any]],
+) -> list[tuple[str, float]]:
     """Return (frame_path, near_field_area) per tracked frame."""
     _LO, _HI = 0.3, 0.7
     _ACTIVE = {"confirmed", "smoothed"}
-    out: List[Tuple[str, float]] = []
+    out: list[tuple[str, float]] = []
     for frame_states, tr in zip(per_frame_object_states, tracking_results):
         fp = tr.get("frame_path", "")
         area = 0.0
@@ -80,15 +80,15 @@ def _per_frame_near_field_occ(
 
 
 def _track_break_stats(
-    tracking_results: List[Dict[str, Any]],
-) -> Tuple[float, float, List[int]]:
+    tracking_results: list[dict[str, Any]],
+) -> tuple[float, float, list[int]]:
     """Return (break_rate, mean_track_length, gap_frame_indices).
 
     break_rate     = n_breaks / max(1, total_consecutive_pairs)
     mean_track_len = mean number of frames each track_id appears in
     gap_frame_indices = frame indices that fall inside a continuity gap
     """
-    appearances: Dict[int, List[int]] = {}
+    appearances: dict[int, list[int]] = {}
     for fi, fr in enumerate(tracking_results):
         for det in fr.get("detections", []):
             tid = int(det.get("track_id", 0) or 0)
@@ -114,7 +114,7 @@ def _track_break_stats(
     return break_rate, mean_len, sorted(gap_indices)
 
 
-def _bbox_iou(a: List[float], b: List[float]) -> float:
+def _bbox_iou(a: list[float], b: list[float]) -> float:
     if len(a) != 4 or len(b) != 4:
         return 0.0
     ix1 = max(a[0], b[0])
@@ -133,10 +133,10 @@ def _bbox_iou(a: List[float], b: List[float]) -> float:
 
 
 def _track_iou_drop_stats(
-    tracking_results: List[Dict[str, Any]],
-) -> Tuple[float, List[int]]:
+    tracking_results: list[dict[str, Any]],
+) -> tuple[float, list[int]]:
     """Return same-track IoU-drop rate and frame indices where drops occur."""
-    appearances: Dict[int, List[Tuple[int, List[float]]]] = {}
+    appearances: dict[int, list[tuple[int, list[float]]]] = {}
     for fi, frame_result in enumerate(tracking_results):
         for det in frame_result.get("detections", []):
             tid = int(det.get("track_id", 0) or 0)
@@ -158,7 +158,7 @@ def _track_iou_drop_stats(
     return (drops / total if total else 0.0), sorted(drop_indices)
 
 
-def _depth_failure_rate(depth_results: List[Dict[str, Any]]) -> float:
+def _depth_failure_rate(depth_results: list[dict[str, Any]]) -> float:
     """Fraction of depth frames that are errored / unavailable / disabled."""
     if not depth_results:
         return 0.0
@@ -170,11 +170,11 @@ def _depth_failure_rate(depth_results: List[Dict[str, Any]]) -> float:
 
 
 def _caption_confidence_stats(
-    caption_results: List[Dict[str, Any]],
-) -> Tuple[float, float, List[str]]:
+    caption_results: list[dict[str, Any]],
+) -> tuple[float, float, list[str]]:
     """Return (mean_conf, std_conf, low_conf_frame_paths)."""
-    confs: List[float] = []
-    low_frames: List[str] = []
+    confs: list[float] = []
+    low_frames: list[str] = []
     for r in caption_results:
         conf = float(r.get("caption_confidence", 0.75) or 0.75)
         fp = str(r.get("frame_path", ""))
@@ -189,7 +189,7 @@ def _caption_confidence_stats(
     return mean_c, std_c, low_frames
 
 
-def _ssim_quality_stats(frame_list: List[Tuple[str, float]]) -> Tuple[float, List[str], int]:
+def _ssim_quality_stats(frame_list: list[tuple[str, float]]) -> tuple[float, list[str], int]:
     """Estimate keyframe quality from consecutive SSIM-diff values.
 
     Low mean SSIM-diff means frames are visually too similar, often due to blur,
@@ -202,13 +202,14 @@ def _ssim_quality_stats(frame_list: List[Tuple[str, float]]) -> Tuple[float, Lis
     try:
         import numpy as np
         from PIL import Image
+
         from selfsuvis.pipeline.media.heuristics import downsample_gray, ssim_diff
     except Exception:
         return 1.0, [], 0
 
-    diffs: List[float] = []
-    low_paths: List[str] = []
-    low_flags: List[bool] = []
+    diffs: list[float] = []
+    low_paths: list[str] = []
+    low_flags: list[bool] = []
     prev_small = None
     for frame_path, _t_sec in frame_list:
         try:
@@ -235,16 +236,16 @@ def _ssim_quality_stats(frame_list: List[Tuple[str, float]]) -> Tuple[float, Lis
 # ── Primitive builders ────────────────────────────────────────────────────────
 
 def _build_collision_risk(
-    physical_state: Dict[str, Any],
-    per_frame_occ: List[Tuple[str, float]],
-    frame_list: List[Tuple[str, float]],
-) -> Optional[Dict[str, Any]]:
+    physical_state: dict[str, Any],
+    per_frame_occ: list[tuple[str, float]],
+    frame_list: list[tuple[str, float]],
+) -> dict[str, Any] | None:
     occ     = float(physical_state.get("near_field_occupancy_density", 0.0))
     vel_m   = float(physical_state.get("tracked_object_velocities", {}).get("mean", 0.0))
     free    = float(physical_state.get("free_space_estimate", 1.0))
     bbox_u  = float(physical_state.get("mean_bbox_uncertainty", 0.0))
 
-    sources: List[str] = []
+    sources: list[str] = []
     if occ > _COLL_OCC_THRESH:
         sources.append("near_field_occupancy")
     if vel_m > _COLL_VEL_THRESH:
@@ -283,11 +284,11 @@ def _build_collision_risk(
 
 
 def _build_visibility_degradation(
-    depth_results: List[Dict[str, Any]],
-    caption_results: List[Dict[str, Any]],
-    frame_list: List[Tuple[str, float]],
-    field_state: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
+    depth_results: list[dict[str, Any]],
+    caption_results: list[dict[str, Any]],
+    frame_list: list[tuple[str, float]],
+    field_state: dict[str, Any],
+) -> dict[str, Any] | None:
     fail_rate              = _depth_failure_rate(depth_results)
     mean_conf, std_conf, low_cap_frames = _caption_confidence_stats(caption_results)
     mean_ssim_quality, low_ssim_frames, ssim_persist = _ssim_quality_stats(frame_list)
@@ -296,7 +297,7 @@ def _build_visibility_degradation(
     field_trend = str(visibility_field.get("trend", "stable") or "stable")
     field_support = list(visibility_field.get("support_frames") or [])
 
-    sources: List[str] = []
+    sources: list[str] = []
     if fail_rate > _VIS_DEPTH_FAIL_THRESH:
         sources.append("depth_failure_rate")
     if mean_ssim_quality < _VIS_SSIM_QUALITY_THRESH:
@@ -321,7 +322,7 @@ def _build_visibility_degradation(
     uncertainty = min(0.40, std_conf + max(0.0, 0.15 - fail_rate))
 
     # Spatial support: frames where depth failed
-    depth_fail_frames: List[str] = [
+    depth_fail_frames: list[str] = [
         str(r.get("frame_path", ""))
         for r in depth_results
         if r.get("depth_error") or r.get("depth_unavailable") or r.get("depth_disabled")
@@ -349,9 +350,9 @@ def _build_visibility_degradation(
 
 
 def _build_rf_anomaly(
-    field_state: Dict[str, Any],
-    frame_list: List[Tuple[str, float]],
-) -> Optional[Dict[str, Any]]:
+    field_state: dict[str, Any],
+    frame_list: list[tuple[str, float]],
+) -> dict[str, Any] | None:
     rf_field = ((field_state.get("clip_level_fields") or {}).get("rf_interference") or {})
     if not rf_field:
         return None
@@ -377,16 +378,16 @@ def _build_rf_anomaly(
 
 
 def _build_track_anomaly(
-    tracking_results: List[Dict[str, Any]],
-    physical_state: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
+    tracking_results: list[dict[str, Any]],
+    physical_state: dict[str, Any],
+) -> dict[str, Any] | None:
     if not tracking_results:
         return None
 
     break_rate, mean_len, gap_indices = _track_break_stats(tracking_results)
     iou_drop_rate, iou_drop_indices = _track_iou_drop_stats(tracking_results)
 
-    sources: List[str] = []
+    sources: list[str] = []
     if break_rate > _TRACK_BREAK_THRESH:
         sources.append("track_breaks")
     if iou_drop_rate > _TRACK_BREAK_THRESH:
@@ -427,16 +428,16 @@ def _build_track_anomaly(
 
 
 def _build_pose_uncertain(
-    physical_state: Dict[str, Any],
+    physical_state: dict[str, Any],
     sfm_poses: int,
     map_degraded: bool,
-    frame_list: List[Tuple[str, float]],
-) -> Optional[Dict[str, Any]]:
+    frame_list: list[tuple[str, float]],
+) -> dict[str, Any] | None:
     pose_conf = float(physical_state.get("platform_pose_confidence", 0.0))
     n_frames  = len(frame_list)
     sfm_fail_rate = 1.0 - (sfm_poses / max(1, n_frames))
 
-    sources: List[str] = []
+    sources: list[str] = []
     if pose_conf < _POSE_KALMAN_THRESH:
         sources.append("kalman_pose_confidence")
     if map_degraded:
@@ -466,7 +467,7 @@ def _build_pose_uncertain(
 
 # ── Overall threat level ──────────────────────────────────────────────────────
 
-def _threat_level(primitives: List[Dict[str, Any]]) -> str:
+def _threat_level(primitives: list[dict[str, Any]]) -> str:
     if not primitives:
         return "none"
     max_score = max(p["score"] for p in primitives)
@@ -482,19 +483,19 @@ def _threat_level(primitives: List[Dict[str, Any]]) -> str:
 # ── Main step ─────────────────────────────────────────────────────────────────
 
 def step_threat_primitives(
-    physical_state_result: Dict[str, Any],
-    field_state_result: Dict[str, Any],
-    depth_result: Dict[str, Any],
-    caption_results: List[Dict[str, Any]],
-    unidrive_result: Dict[str, Any],
-    gemma_tracking_result: Dict[str, Any],
-    full_fusion_result: Dict[str, Any],
-    frame_list: List[Tuple[str, float]],
+    physical_state_result: dict[str, Any],
+    field_state_result: dict[str, Any],
+    depth_result: dict[str, Any],
+    caption_results: list[dict[str, Any]],
+    unidrive_result: dict[str, Any],
+    gemma_tracking_result: dict[str, Any],
+    full_fusion_result: dict[str, Any],
+    frame_list: list[tuple[str, float]],
     sfm_poses: int,
     map_degraded: bool,
     video_dir: Path,
     video_name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute structured threat primitives from physical state and upstream fusion outputs.
 
     Each primitive is only emitted when at least two independent evidence sources
@@ -526,7 +527,7 @@ def step_threat_primitives(
 
     if phys_skipped and depth_skipped and tracking_skipped and fusion_skipped:
         _log.info("  [threat primitives] all upstream inputs skipped — no primitives")
-        result: Dict[str, Any] = _empty_result()
+        result: dict[str, Any] = _empty_result()
         result["skipped"] = True
         _write_json(result, video_dir)
         return result
@@ -539,7 +540,7 @@ def step_threat_primitives(
     ]
 
     # Per-frame object occupancy (requires both tracking and fusion)
-    tracking_results: List[Dict[str, Any]] = (
+    tracking_results: list[dict[str, Any]] = (
         gemma_tracking_result.get("tracking_results") or []
         if not tracking_skipped else []
     )
@@ -553,12 +554,12 @@ def step_threat_primitives(
         per_frame_obj[:_min_len], tracking_results[:_min_len]
     )
 
-    depth_results_list: List[Dict[str, Any]] = (
+    depth_results_list: list[dict[str, Any]] = (
         depth_result.get("depth_results") or []
         if not depth_skipped else []
     )
 
-    primitives: List[Dict[str, Any]] = []
+    primitives: list[dict[str, Any]] = []
 
     # ── Collision risk ────────────────────────────────────────────────────────
     p = _build_collision_risk(physical_state, per_frame_occ, frame_list)
@@ -585,7 +586,7 @@ def step_threat_primitives(
     if p:
         primitives.append(p)
 
-    contradiction_signals: List[Dict[str, Any]] = []
+    contradiction_signals: list[dict[str, Any]] = []
     for primitive in primitives:
         contradiction_signals.extend(
             contradiction_signals_for_threat(
@@ -662,7 +663,7 @@ def step_threat_primitives(
     return result
 
 
-def _empty_result() -> Dict[str, Any]:
+def _empty_result() -> dict[str, Any]:
     return {
         "primitives": [],
         "contradiction_signals": [],
@@ -679,7 +680,7 @@ def _empty_result() -> Dict[str, Any]:
     }
 
 
-def _write_json(result: Dict[str, Any], video_dir: Path) -> None:
+def _write_json(result: dict[str, Any], video_dir: Path) -> None:
     out = video_dir / "threat_primitives.json"
     try:
         out.write_text(json.dumps(result, indent=2), encoding="utf-8")

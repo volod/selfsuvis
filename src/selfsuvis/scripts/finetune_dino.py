@@ -27,7 +27,6 @@ DINO_CHECKPOINT is set and the file exists.
 """
 import argparse
 import logging
-import sys
 
 logging.basicConfig(
     level=logging.INFO,
@@ -117,7 +116,7 @@ def main() -> None:
     if cfg.device == "auto":
         cfg.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    print(f"\nSelf-supervised DINOv3 fine-tuning")
+    print("\nSelf-supervised DINOv3 fine-tuning")
     print(f"  frames_dir    : {cfg.frames_dir}")
     print(f"  output_dir    : {cfg.output_dir}")
     print(f"  approach      : {cfg.approach}")

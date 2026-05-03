@@ -6,13 +6,17 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
 
-from ..runner import _append_agentic_step, step_multi_model_compare, step_video_synthesis
-from ..runner import step_agentic_flow_artifact
 from ..graph_state import PipelineState
+from ..runner import (
+    _append_agentic_step,
+    step_agentic_flow_artifact,
+    step_multi_model_compare,
+    step_video_synthesis,
+)
 from .agentic_helpers import build_evidence_summary, critique_pass, llm_call_with_retry
 
 _log = logging.getLogger(__name__)
@@ -20,7 +24,7 @@ _log = logging.getLogger(__name__)
 
 # ── Step 22: Multi-model comparison ──────────────────────────────────────────
 
-def node_p4_multi_model_compare(state: PipelineState) -> Dict[str, Any]:
+def node_p4_multi_model_compare(state: PipelineState) -> dict[str, Any]:
     qwen_result = state.get("qwen_result", {"skipped": True})
     unidrive_result = state.get("unidrive_result", {"skipped": True})
     gemma_result = state.get("gemma_result", {"skipped": True})
@@ -28,7 +32,7 @@ def node_p4_multi_model_compare(state: PipelineState) -> Dict[str, Any]:
     agentic_trace = list(state.get("agentic_trace", []))
     video_context = dict(state.get("video_context", {}))
 
-    mm: Dict[str, Any] = {}
+    mm: dict[str, Any] = {}
     t0 = time.monotonic()
     if not qwen_result.get("skipped") and not unidrive_result.get("skipped"):
         mm = step_multi_model_compare(
@@ -63,7 +67,7 @@ def node_p4_multi_model_compare(state: PipelineState) -> Dict[str, Any]:
 
 # ── Step 23: Video synthesis (agentic: draft → critique → conditional regen) ─
 
-def node_p4_synthesis(state: PipelineState) -> Dict[str, Any]:
+def node_p4_synthesis(state: PipelineState) -> dict[str, Any]:
     """Video synthesis with a critique pass.
 
     Flow:
@@ -91,7 +95,7 @@ def node_p4_synthesis(state: PipelineState) -> Dict[str, Any]:
         api_url=_qwen_url, model=_qwen_model,
     )
 
-    synthesis_result: Dict[str, Any] = {
+    synthesis_result: dict[str, Any] = {
         "skipped": not _qwen_url,
         "api_url": _qwen_url,
     }
@@ -133,12 +137,12 @@ def node_p4_synthesis(state: PipelineState) -> Dict[str, Any]:
 
 
 def _synthesis_critique(
-    synthesis_result: Dict[str, Any],
+    synthesis_result: dict[str, Any],
     state: PipelineState,
     api_url: str,
     model: str,
-    video_context: Dict[str, Any],
-) -> Dict[str, Any]:
+    video_context: dict[str, Any],
+) -> dict[str, Any]:
     """Run critique pass; regenerate synthesis if MAJOR_CONTRADICTION detected."""
     video_dir = Path(state["video_dir"])
     synthesis_md = video_dir / "video_synthesis.md"
@@ -178,7 +182,7 @@ def _synthesis_critique(
 
 # ── Agentic flow audit (with reflection loop) — runner step 30 ───────────────
 
-def node_p4_audit(state: PipelineState) -> Dict[str, Any]:
+def node_p4_audit(state: PipelineState) -> dict[str, Any]:
     """Agentic flow audit with a reflection sub-loop.
 
     Flow:
@@ -213,7 +217,7 @@ def node_p4_audit(state: PipelineState) -> Dict[str, Any]:
         state["video_name"], Path(state["video_dir"]), video_context,
         api_url=_agentic_url, model=_agentic_model,
     )
-    audit_result: Dict[str, Any] = {
+    audit_result: dict[str, Any] = {
         "api_url": _agentic_url,
         "llm_used": bool(_agentic_url),
     }
@@ -262,12 +266,12 @@ def node_p4_audit(state: PipelineState) -> Dict[str, Any]:
 
 
 def _audit_reflection(
-    audit_result: Dict[str, Any],
+    audit_result: dict[str, Any],
     state: PipelineState,
     agentic_trace: list,
     api_url: str,
     model: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Check whether the audit covered all pipeline step IDs; append gaps if not."""
     video_dir = Path(state["video_dir"])
     audit_md = video_dir / "agentic_flow.md"
@@ -316,7 +320,7 @@ def _audit_reflection(
 
 # ── Emit analytics ────────────────────────────────────────────────────────────
 
-def node_p4_emit_analytics(state: PipelineState) -> Dict[str, Any]:
+def node_p4_emit_analytics(state: PipelineState) -> dict[str, Any]:
     from ..runner import _emit_local_run_analytics
     from ..steps_caption import get_runtime_telemetry
 

@@ -1,6 +1,7 @@
 """PostgreSQL helpers for realtime drone sessions, poses, tiles, and semantics."""
 
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from selfsuvis.pipeline.core import utcnow
 from selfsuvis.pipeline.storage.common import jsonb, jsonb_optional, row_dict, row_dicts
@@ -11,8 +12,8 @@ async def create_robot_session(
     *,
     session_id: str,
     robot_id: str,
-    mission_id: Optional[str] = None,
-    sensor_profile: Optional[Dict[str, Any]] = None,
+    mission_id: str | None = None,
+    sensor_profile: dict[str, Any] | None = None,
     status: str = "active",
 ) -> None:
     now = utcnow()
@@ -53,7 +54,7 @@ async def stop_robot_session(conn, session_id: str, status: str = "stopped") -> 
     )
 
 
-async def fetch_robot_session(conn, session_id: str) -> Optional[Dict[str, Any]]:
+async def fetch_robot_session(conn, session_id: str) -> dict[str, Any] | None:
     row = await conn.fetchrow(
         """
         SELECT id, robot_id, mission_id, sensor_profile_json, status,
@@ -69,7 +70,7 @@ async def fetch_robot_session(conn, session_id: str) -> Optional[Dict[str, Any]]
 async def insert_sensor_packets(
     conn,
     session_id: str,
-    packets: Iterable[Dict[str, Any]],
+    packets: Iterable[dict[str, Any]],
 ) -> int:
     rows = list(packets)
     if not rows:
@@ -103,12 +104,12 @@ async def insert_realtime_pose(
     session_id: str,
     source: str,
     t_sec: float,
-    position_enu: Dict[str, float],
-    orientation_quat: Optional[Dict[str, float]] = None,
-    velocity_enu: Optional[Dict[str, float]] = None,
-    covariance: Optional[Dict[str, Any]] = None,
+    position_enu: dict[str, float],
+    orientation_quat: dict[str, float] | None = None,
+    velocity_enu: dict[str, float] | None = None,
+    covariance: dict[str, Any] | None = None,
     tracking_status: str = "ok",
-    global_map_id: Optional[int] = None,
+    global_map_id: int | None = None,
 ) -> None:
     await conn.execute(
         """
@@ -131,7 +132,7 @@ async def insert_realtime_pose(
     )
 
 
-async def fetch_latest_realtime_pose(conn, session_id: str) -> Optional[Dict[str, Any]]:
+async def fetch_latest_realtime_pose(conn, session_id: str) -> dict[str, Any] | None:
     row = await conn.fetchrow(
         """
         SELECT id, session_id, source, t_sec, position_enu_json, orientation_quat_json,
@@ -146,7 +147,7 @@ async def fetch_latest_realtime_pose(conn, session_id: str) -> Optional[Dict[str
     return row_dict(row)
 
 
-async def fetch_realtime_state(conn, session_id: str) -> Optional[Dict[str, Any]]:
+async def fetch_realtime_state(conn, session_id: str) -> dict[str, Any] | None:
     session = await fetch_robot_session(conn, session_id)
     if session is None:
         return None
@@ -168,7 +169,7 @@ async def fetch_realtime_state(conn, session_id: str) -> Optional[Dict[str, Any]
     }
 
 
-async def summarize_realtime_session(conn, session_id: str) -> Optional[Dict[str, Any]]:
+async def summarize_realtime_session(conn, session_id: str) -> dict[str, Any] | None:
     state = await fetch_realtime_state(conn, session_id)
     if state is None:
         return None
@@ -199,9 +200,9 @@ async def upsert_map_tile(
     map_type: str,
     storage_path: str,
     resolution_m: float,
-    bounds: Optional[Dict[str, Any]] = None,
-    stats: Optional[Dict[str, Any]] = None,
-    global_map_id: Optional[int] = None,
+    bounds: dict[str, Any] | None = None,
+    stats: dict[str, Any] | None = None,
+    global_map_id: int | None = None,
 ) -> None:
     now = utcnow()
     await conn.execute(
@@ -235,9 +236,9 @@ async def upsert_map_tile(
 async def list_map_tiles(
     conn,
     session_id: str,
-    map_type: Optional[str] = None,
+    map_type: str | None = None,
     limit: int = 50,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     if map_type:
         rows = await conn.fetch(
             """
@@ -274,12 +275,12 @@ async def insert_semantic_observation(
     session_id: str,
     class_name: str,
     confidence: float,
-    position_enu: Optional[Dict[str, Any]] = None,
-    bbox: Optional[Dict[str, Any]] = None,
-    frame_id: Optional[str] = None,
-    mask_ref: Optional[str] = None,
-    track_id: Optional[str] = None,
-    facts: Optional[Dict[str, Any]] = None,
+    position_enu: dict[str, Any] | None = None,
+    bbox: dict[str, Any] | None = None,
+    frame_id: str | None = None,
+    mask_ref: str | None = None,
+    track_id: str | None = None,
+    facts: dict[str, Any] | None = None,
 ) -> None:
     await conn.execute(
         """
@@ -309,11 +310,11 @@ async def upsert_realtime_frame(
     frame_id: str,
     t_sec: float,
     image_path: str,
-    pose: Optional[Dict[str, Any]] = None,
-    depth_path: Optional[str] = None,
-    tile_key: Optional[str] = None,
+    pose: dict[str, Any] | None = None,
+    depth_path: str | None = None,
+    tile_key: str | None = None,
     map_type: str = "occupancy",
-    stats: Optional[Dict[str, Any]] = None,
+    stats: dict[str, Any] | None = None,
 ) -> None:
     now = utcnow()
     await conn.execute(
@@ -345,7 +346,7 @@ async def upsert_realtime_frame(
     )
 
 
-async def list_realtime_frames(conn, session_id: str, limit: int = 10000) -> List[Dict[str, Any]]:
+async def list_realtime_frames(conn, session_id: str, limit: int = 10000) -> list[dict[str, Any]]:
     rows = await conn.fetch(
         """
         SELECT id, session_id, frame_id, t_sec, image_path, pose_json, depth_path,
@@ -364,9 +365,9 @@ async def list_realtime_frames(conn, session_id: str, limit: int = 10000) -> Lis
 async def list_semantic_observations(
     conn,
     session_id: str,
-    class_name: Optional[str] = None,
+    class_name: str | None = None,
     limit: int = 50,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     if class_name:
         rows = await conn.fetch(
             """

@@ -2,9 +2,10 @@
 
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from selfsuvis.pipeline.mapping import advise_map_quality, build_sparse_map
+
 from ._common import _log
 
 
@@ -12,15 +13,15 @@ def step_create_3d_map(
     video_path: Path,
     video_id: str,
     video_dir: Path,
-    frame_list: List[Tuple[str, float]],
-    models: Dict[str, Any],
+    frame_list: list[tuple[str, float]],
+    models: dict[str, Any],
     run_sfm_flag: bool,
     run_gsplat_flag: bool = True,
     device: str = "cuda",
-    depth_results: List[Dict[str, Any]] | None = None,
-    yolo_detection_results: List[Dict[str, Any]] | None = None,
-    tracking_results: Dict[str, Any] | None = None,
-    ) -> Dict[str, Any]:
+    depth_results: list[dict[str, Any]] | None = None,
+    yolo_detection_results: list[dict[str, Any]] | None = None,
+    tracking_results: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
     """Step 15: build sparse 3D map + 3D Gaussian Splat."""
     return build_sparse_map(
         video_path=str(video_path),
@@ -40,11 +41,11 @@ def step_create_3d_map(
 def step_advise_3d_map_quality(
     video_path: Path,
     video_dir: Path,
-    frame_list: List[Tuple[str, float]],
-    map_result: Dict[str, Any],
-    caption_results: List[Dict[str, Any]] | None = None,
-    tracking_results: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+    frame_list: list[tuple[str, float]],
+    map_result: dict[str, Any],
+    caption_results: list[dict[str, Any]] | None = None,
+    tracking_results: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Generate measured map-quality diagnostics and capture guidance."""
     advisor = advise_map_quality(
         video_path=str(video_path),

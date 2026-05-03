@@ -7,7 +7,7 @@ Writes reports/{mission_id}/summary.html containing:
 """
 import html as _html
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from selfsuvis.pipeline.core import ensure_dir, get_logger, settings
 
@@ -39,8 +39,8 @@ def _badge_html(al_tag: str) -> str:
 
 def generate_summary_html(
     mission_id: str,
-    frames: List[Dict[str, Any]],
-    metadata: Optional[Dict[str, Any]] = None,
+    frames: list[dict[str, Any]],
+    metadata: dict[str, Any] | None = None,
 ) -> str:
     """Build and return an HTML summary string for a mission.
 
@@ -56,7 +56,7 @@ def generate_summary_html(
     frame_count = len(frames)
     duration = max((f.get("t_sec", 0.0) for f in frames), default=0.0)
 
-    tag_counts: Dict[str, int] = {"needs_annotation": 0, "novel": 0, "none": 0}
+    tag_counts: dict[str, int] = {"needs_annotation": 0, "novel": 0, "none": 0}
     for f in frames:
         tag = f.get("al_tag", "none")
         tag_counts[tag] = tag_counts.get(tag, 0) + 1
@@ -117,8 +117,8 @@ h1, h2 {{ color: #1a1a1a; }}
 
 def write_mission_report(
     mission_id: str,
-    frames: List[Dict[str, Any]],
-    metadata: Optional[Dict[str, Any]] = None,
+    frames: list[dict[str, Any]],
+    metadata: dict[str, Any] | None = None,
 ) -> str:
     """Write HTML summary to reports/{mission_id}/summary.html under DATA_DIR.
 

@@ -3,13 +3,14 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from selfsuvis.pipeline.core import ensure_dir, settings
 from selfsuvis.pipeline.realtime.sidecar import RealtimeSidecarClient
 from selfsuvis.realtime_pilot.adapters import create_occupancy_adapter
 
-def normalize_map_tile(tile: Dict[str, Any]) -> Dict[str, Any]:
+
+def normalize_map_tile(tile: dict[str, Any]) -> dict[str, Any]:
     return {
         "tile_key": str(tile["tile_key"]),
         "map_type": str(tile.get("map_type", "occupancy")).strip().lower(),
@@ -27,7 +28,7 @@ def realtime_tile_dir(session_id: str, *, map_type: str = "occupancy") -> Path:
     return path
 
 
-def default_tile_key(*, t_sec: float, frame_id: Optional[str] = None) -> str:
+def default_tile_key(*, t_sec: float, frame_id: str | None = None) -> str:
     if frame_id:
         return f"frame-{frame_id}"
     return f"frame-{int(round(t_sec * 1000.0))}"
@@ -37,12 +38,12 @@ def write_stub_map_tile(
     *,
     session_id: str,
     t_sec: float,
-    frame_id: Optional[str],
+    frame_id: str | None,
     map_type: str = "occupancy",
-    resolution_m: Optional[float] = None,
-    pose: Optional[Dict[str, Any]] = None,
-    stats: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    resolution_m: float | None = None,
+    pose: dict[str, Any] | None = None,
+    stats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     tile_key = default_tile_key(t_sec=t_sec, frame_id=frame_id)
     out_dir = realtime_tile_dir(session_id, map_type=map_type)
     out_path = out_dir / f"{tile_key}.json"
@@ -74,7 +75,7 @@ class RealtimeOccupancyClient(RealtimeSidecarClient):
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
+        base_url: str | None = None,
         *,
         timeout_sec: float = 10.0,
     ) -> None:
@@ -86,7 +87,7 @@ class RealtimeOccupancyClient(RealtimeSidecarClient):
             timeout_sec=timeout_sec,
         )
 
-    async def integrate_frame(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def integrate_frame(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         if not self.is_configured:
             return None
         data = await self._request_json("POST", "/integrate_frame", payload=payload)
@@ -97,7 +98,7 @@ class RealtimeOccupancyClient(RealtimeSidecarClient):
             return None
         return normalize_map_tile(tile)
 
-    async def fetch_map_tile(self, tile_key: str) -> Optional[Dict[str, Any]]:
+    async def fetch_map_tile(self, tile_key: str) -> dict[str, Any] | None:
         if not self.is_configured:
             return None
         data = await self._request_json("GET", f"/map_tile/{tile_key}", allow_404=True)

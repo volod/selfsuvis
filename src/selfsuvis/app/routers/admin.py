@@ -15,16 +15,14 @@ al_tag distribution comes from the PostgreSQL frames table.
 """
 import glob
 import os
-import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+import asyncpg
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
-
-import asyncpg
 
 from selfsuvis.app.db import get_db_pool
 from selfsuvis.app.deps import rate_limit, require_api_key
@@ -37,7 +35,7 @@ router = APIRouter(
 )
 
 
-async def _job_counts(request: Request) -> Dict[str, int]:
+async def _job_counts(request: Request) -> dict[str, int]:
     """Return counts of jobs by status from PostgreSQL."""
     try:
         pool = get_db_pool(request)
@@ -56,7 +54,7 @@ async def _job_counts(request: Request) -> Dict[str, int]:
     }
 
 
-async def _al_tag_counts(request: Request) -> Dict[str, int]:
+async def _al_tag_counts(request: Request) -> dict[str, int]:
     """Return al_tag distribution from the PostgreSQL frames table.
 
     Returns zeros until the PostgreSQL migration has been applied and frames are indexed.
@@ -77,7 +75,7 @@ async def _al_tag_counts(request: Request) -> Dict[str, int]:
     }
 
 
-def _discover_splat_paths(mission_id: str) -> List[str]:
+def _discover_splat_paths(mission_id: str) -> list[str]:
     """Return all splat.ply paths for a mission, sorted by scene index.
 
     Checks for:
@@ -96,7 +94,7 @@ def _discover_splat_paths(mission_id: str) -> List[str]:
     return []
 
 
-async def _list_missions(request: Request) -> List[Dict[str, Any]]:
+async def _list_missions(request: Request) -> list[dict[str, Any]]:
     """Return missions from PostgreSQL with splat path discovery."""
     missions = []
     try:
@@ -120,13 +118,13 @@ async def _list_missions(request: Request) -> List[Dict[str, Any]]:
 
 
 @router.get("/missions", summary="List missions with map status and splat paths")
-async def admin_missions(request: Request) -> List[Dict[str, Any]]:
+async def admin_missions(request: Request) -> list[dict[str, Any]]:
     """Return up to 100 most recent missions with map status and discovered splat.ply paths."""
     return await _list_missions(request)
 
 
 @router.get("/robots", summary="List distinct robot_ids contributing to the map")
-async def admin_robots(request: Request) -> List[str]:
+async def admin_robots(request: Request) -> list[str]:
     """Return all distinct robot_ids from the missions table.
 
     Returns an empty list if the robot_id column has not been added yet
@@ -145,7 +143,7 @@ async def admin_robots(request: Request) -> List[str]:
 
 
 @router.get("/global-maps", summary="List all global map sites")
-async def admin_global_maps(request: Request) -> List[Dict[str, Any]]:
+async def admin_global_maps(request: Request) -> list[dict[str, Any]]:
     """Return all global_map rows — one entry per geographic site.
 
     Each entry has: id, origin_lat, origin_lon, origin_alt, splat_path, created_at.
@@ -167,14 +165,14 @@ async def admin_global_maps(request: Request) -> List[Dict[str, Any]]:
     response_class=Response,
 )
 def export_map_cache(
-    mission_ids: Optional[str] = Query(
+    mission_ids: str | None = Query(
         default=None,
         description="Comma-separated mission IDs to include (all if omitted)",
     ),
-    lat_min: Optional[float] = Query(default=None, description="GPS bounding box — min latitude"),
-    lat_max: Optional[float] = Query(default=None, description="GPS bounding box — max latitude"),
-    lon_min: Optional[float] = Query(default=None, description="GPS bounding box — min longitude"),
-    lon_max: Optional[float] = Query(default=None, description="GPS bounding box — max longitude"),
+    lat_min: float | None = Query(default=None, description="GPS bounding box — min latitude"),
+    lat_max: float | None = Query(default=None, description="GPS bounding box — max latitude"),
+    lon_min: float | None = Query(default=None, description="GPS bounding box — min longitude"),
+    lon_max: float | None = Query(default=None, description="GPS bounding box — max longitude"),
 ) -> Response:
     """Export all indexed frames as a compressed NPZ cache file.
 
@@ -212,7 +210,7 @@ def export_map_cache(
 
 
 @router.get("/stats", summary="Queue depth, worker status, and al_tag distribution")
-async def admin_stats(request: Request) -> Dict[str, Any]:
+async def admin_stats(request: Request) -> dict[str, Any]:
     """Return operational statistics for the admin dashboard.
 
     Fields:
@@ -249,7 +247,7 @@ _HIGH_FREQUENCY_THRESHOLD = 2.0  # annotations/week above which automation is cl
 _MIN_OBSERVATION_DAYS = 7        # minimum days before frequency verdict is meaningful
 
 
-async def _compute_caption_null_rate(conn) -> Optional[float]:
+async def _compute_caption_null_rate(conn) -> float | None:
     """Fraction of captionable frames with no caption.
 
     Excludes frames where caption_skip_reason IS NOT NULL (intentionally skipped).
@@ -270,7 +268,7 @@ async def _compute_caption_null_rate(conn) -> Optional[float]:
     return row["null_count"] / row["captionable_total"]
 
 
-async def _fetch_roi_raw_data(conn) -> Dict[str, Any]:
+async def _fetch_roi_raw_data(conn) -> dict[str, Any]:
     """Collect all raw ROI metrics from the DB in a single connection."""
     import json as _json
 
@@ -311,7 +309,7 @@ async def _fetch_roi_raw_data(conn) -> Dict[str, Any]:
     }
 
 
-def _compute_roi_verdict(freq_per_week: Optional[float]) -> tuple:
+def _compute_roi_verdict(freq_per_week: float | None) -> tuple:
     """Return (verdict, verdict_detail) given the annotation frequency."""
     if freq_per_week is None:
         return (
@@ -340,7 +338,7 @@ def _compute_roi_verdict(freq_per_week: Optional[float]) -> tuple:
 
 
 @router.get("/automation-roi", summary="Annotation frequency, finetune trigger rate, ops time saved")
-async def automation_roi() -> Dict[str, Any]:
+async def automation_roi() -> dict[str, Any]:
     """Measure whether the auto-trigger pipeline is paying its maintenance cost.
 
     All metrics are derived from the jobs and frames tables — no extra
@@ -376,15 +374,15 @@ async def automation_roi() -> Dict[str, Any]:
         return {"error": f"DB query failed: {exc}"}
 
     first_at, last_at = d["first_at"], d["last_at"]
-    days_observed: Optional[float] = None
-    freq_per_week: Optional[float] = None
+    days_observed: float | None = None
+    freq_per_week: float | None = None
     if first_at is not None and last_at is not None:
         days_observed = max((last_at - first_at) / 86400.0, 1.0)
         if days_observed >= _MIN_OBSERVATION_DAYS:
             freq_per_week = d["total_annotated"] / (days_observed / 7.0)
 
     ft_triggered, ft_accepted = d["ft_triggered"], d["ft_accepted"]
-    acceptance_rate: Optional[float] = (ft_accepted / ft_triggered) if ft_triggered else None
+    acceptance_rate: float | None = (ft_accepted / ft_triggered) if ft_triggered else None
     verdict, verdict_detail = _compute_roi_verdict(freq_per_week)
 
     return {
@@ -409,7 +407,7 @@ async def automation_roi() -> Dict[str, Any]:
 # ── Caption eval endpoint ────────────────────────────────────────────────────
 
 @router.get("/caption-eval", summary="Captioner health: null rate, confidence stats, model breakdown")
-async def caption_eval(request: Request) -> Dict[str, Any]:
+async def caption_eval(request: Request) -> dict[str, Any]:
     """Captioner health metrics derived from the frames table.
 
     Returns:
@@ -486,11 +484,11 @@ async def caption_eval(request: Request) -> Dict[str, Any]:
 # ── Hot-reload model endpoint ────────────────────────────────────────────────
 
 class ReloadModelRequest(BaseModel):
-    checkpoint: Optional[str] = None  # path to checkpoint; falls back to active_checkpoint.txt
+    checkpoint: str | None = None  # path to checkpoint; falls back to active_checkpoint.txt
 
 
 @router.post("/reload-model", summary="Hot-swap DINOv3 backbone weights")
-async def reload_model(body: ReloadModelRequest = ReloadModelRequest()) -> Dict[str, Any]:
+async def reload_model(body: ReloadModelRequest = ReloadModelRequest()) -> dict[str, Any]:
     """Load a DINOv3 backbone checkpoint and swap the live model reference.
 
     The swap is GIL-atomic: in-flight inference calls hold their captured
@@ -502,8 +500,9 @@ async def reload_model(body: ReloadModelRequest = ReloadModelRequest()) -> Dict[
     - 409: another reload is already in progress (lock is held).
     - 500: checkpoint loaded but weights failed to parse (original model unchanged).
     """
-    import selfsuvis.app.state as state
     from fastapi import HTTPException
+
+    import selfsuvis.app.state as state
 
     if state.dino_model is None:
         raise HTTPException(status_code=400, detail="DINO model is not loaded (MODEL_NAME not dinov2/dinov3)")
@@ -541,7 +540,7 @@ async def reload_model(body: ReloadModelRequest = ReloadModelRequest()) -> Dict[
 # ── Re-embed all endpoint ────────────────────────────────────────────────────
 
 @router.post("/reembed-all", summary="Enqueue full re-embedding sweep (dino vectors)")
-async def reembed_all(request: Request) -> Dict[str, Any]:
+async def reembed_all(request: Request) -> dict[str, Any]:
     """Enqueue a background job to re-embed all indexed frames with the current DINOv3 model.
 
     Returns the job_id immediately. Monitor progress via GET /jobs/{job_id}.
@@ -572,7 +571,7 @@ async def reembed_all(request: Request) -> Dict[str, Any]:
 # ── Reembed status endpoint ───────────────────────────────────────────────────
 
 @router.get("/reembed-status", summary="Check whether a reembed sweep is active")
-async def reembed_status(request: Request) -> Dict[str, Any]:
+async def reembed_status(request: Request) -> dict[str, Any]:
     """Return whether a re-embedding sweep is currently running.
 
     Search uses this to suppress dino vector reranking during the sweep window,

@@ -31,9 +31,8 @@ Usage::
 """
 
 import asyncio
-import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from selfsuvis.pipeline.core import get_logger, settings
 
@@ -56,7 +55,7 @@ class RtspCaptioner:
         rtsp_url: str,
         mission_id: str,
         db_pool,
-        caption_fps: Optional[float] = None,
+        caption_fps: float | None = None,
         florence_fallback: bool = True,
     ) -> None:
         self._rtsp_url = rtsp_url
@@ -91,7 +90,7 @@ class RtspCaptioner:
 
     # ── Caption dispatch ──────────────────────────────────────────────────────
 
-    def _caption_frame(self, pil_image) -> Dict[str, Any]:
+    def _caption_frame(self, pil_image) -> dict[str, Any]:
         """Caption a single PIL image. Returns a dict with caption + facts."""
         gemma = self._get_gemma_model()
         if gemma.is_enabled() and gemma.is_healthy():
@@ -117,11 +116,11 @@ class RtspCaptioner:
     async def _write_to_timeline(
         self,
         frame_id: str,
-        caption: Optional[str],
-        facts_json: Optional[Dict[str, Any]],
-        gps_lat: Optional[float],
-        gps_lon: Optional[float],
-        gps_alt: Optional[float],
+        caption: str | None,
+        facts_json: dict[str, Any] | None,
+        gps_lat: float | None,
+        gps_lon: float | None,
+        gps_alt: float | None,
         t_sec: float,
     ) -> None:
         """Insert a row into scene_timeline (non-fatal on error)."""
@@ -148,7 +147,7 @@ class RtspCaptioner:
 
     # ── Frame reader ──────────────────────────────────────────────────────────
 
-    async def run(self, stop_event: Optional[asyncio.Event] = None) -> None:
+    async def run(self, stop_event: asyncio.Event | None = None) -> None:
         """Consume the RTSP stream and caption frames at the configured rate.
 
         Blocks until the stream ends, an error occurs, or ``stop_event`` is set.

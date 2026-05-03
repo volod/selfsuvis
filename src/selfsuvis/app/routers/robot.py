@@ -22,7 +22,7 @@ Auth: X-API-Key header required.
 Latency target: p99 < 200ms (advisory use only — does not block robot motion).
 """
 import math
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
@@ -50,10 +50,10 @@ class PoseQuery(BaseModel):
 
     Requires either GPS (lat + lon) or metric ENU (tx + ty + tz).
     """
-    lat: Optional[float] = Field(default=None, description="Latitude (decimal degrees, WGS-84)")
-    lon: Optional[float] = Field(default=None, description="Longitude (decimal degrees, WGS-84)")
+    lat: float | None = Field(default=None, description="Latitude (decimal degrees, WGS-84)")
+    lon: float | None = Field(default=None, description="Longitude (decimal degrees, WGS-84)")
     alt: float = Field(default=0.0, description="Altitude in metres (optional)")
-    heading_deg: Optional[float] = Field(
+    heading_deg: float | None = Field(
         default=None, description="Robot heading in degrees (0=North, 90=East)"
     )
     radius_m: float = Field(
@@ -64,14 +64,14 @@ class PoseQuery(BaseModel):
         default=5, ge=1, le=50,
         description="Maximum number of results to return",
     )
-    tx: Optional[float] = Field(default=None, description="ENU East (m)")
-    ty: Optional[float] = Field(default=None, description="ENU North (m)")
-    tz: Optional[float] = Field(default=None, description="ENU Up (m)")
-    robot_ids: Optional[List[str]] = Field(
+    tx: float | None = Field(default=None, description="ENU East (m)")
+    ty: float | None = Field(default=None, description="ENU North (m)")
+    tz: float | None = Field(default=None, description="ENU Up (m)")
+    robot_ids: list[str] | None = Field(
         default=None,
         description="Filter results to frames contributed by these robot IDs (all robots if omitted)",
     )
-    global_map_id: Optional[int] = Field(
+    global_map_id: int | None = Field(
         default=None,
         description="Restrict search to frames from a specific site (global_map id). "
                     "Required for ENU queries to be meaningful across multiple sites.",
@@ -90,42 +90,42 @@ class PoseQuery(BaseModel):
 
 class PoseMatch(BaseModel):
     """Single frame match in a pose query response."""
-    frame_id: Optional[str]
-    mission_id: Optional[str]
+    frame_id: str | None
+    mission_id: str | None
     score: float
     t_sec: float
-    lat: Optional[float]
-    lon: Optional[float]
-    alt: Optional[float]
-    distance_m: Optional[float]   # approximate GPS distance from query point
-    frame_path: Optional[str]
-    global_pose_json: Optional[Dict[str, Any]]
+    lat: float | None
+    lon: float | None
+    alt: float | None
+    distance_m: float | None   # approximate GPS distance from query point
+    frame_path: str | None
+    global_pose_json: dict[str, Any] | None
 
 
 class TimelineVisit(BaseModel):
     """One historical visit entry from the scene_timeline table."""
     mission_id: str
     frame_id: str
-    t_sec: Optional[float]
-    lat: Optional[float]
-    lon: Optional[float]
-    caption: Optional[str]
-    road_condition: Optional[str]
-    vehicle_count: Optional[int]
-    created_at: Optional[str]   # ISO-8601 string
+    t_sec: float | None
+    lat: float | None
+    lon: float | None
+    caption: str | None
+    road_condition: str | None
+    vehicle_count: int | None
+    created_at: str | None   # ISO-8601 string
 
 
 class PoseQueryResponse(BaseModel):
-    results: List[PoseMatch]
-    query_lat: Optional[float]
-    query_lon: Optional[float]
-    query_tx: Optional[float]
-    query_ty: Optional[float]
-    query_tz: Optional[float]
+    results: list[PoseMatch]
+    query_lat: float | None
+    query_lon: float | None
+    query_tx: float | None
+    query_ty: float | None
+    query_tz: float | None
     radius_m: float
     filter_strategy: str   # "2d", "1d+python", or "enu+python"
-    global_map_id: Optional[int]
-    last_visits: Optional[List[TimelineVisit]] = None  # Phase 5: last 3 visits near query point
+    global_map_id: int | None
+    last_visits: list[TimelineVisit] | None = None  # Phase 5: last 3 visits near query point
 
 
 def _gps_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -146,7 +146,7 @@ async def _get_last_visits(
     lon: float,
     radius_m: float,
     limit: int = 3,
-) -> List[TimelineVisit]:
+) -> list[TimelineVisit]:
     """Query scene_timeline for the last N visits near a GPS point.
 
     Returns visits sorted by created_at DESC (most recent first).
@@ -172,11 +172,11 @@ async def _get_last_visits(
         logger.debug("scene_timeline query failed (table may not exist yet): %s", exc)
         return []
 
-    visits: List[TimelineVisit] = []
+    visits: list[TimelineVisit] = []
     for row in rows:
         facts = row["facts_json"] or {}
         # Count vehicles
-        vehicle_count: Optional[int] = None
+        vehicle_count: int | None = None
         groups = facts.get("vehicle_groups") if isinstance(facts, dict) else None
         if isinstance(groups, list):
             vehicle_count = sum(int(g.get("count", 0)) for g in groups if isinstance(g, dict))
@@ -301,7 +301,7 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
             return _enu_distance_m(tx, ty, tz, ftx, fty, ftz) <= radius_m
         raw_results = [r for r in raw_results if _within_enu(r)]
 
-    matches: List[PoseMatch] = []
+    matches: list[PoseMatch] = []
     for r in raw_results[: body.top_k]:
         payload = r.payload or {}
         gps = payload.get("gps") or {}
@@ -345,7 +345,7 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
         )
 
     # Phase 5: fetch last-3-visits summary from scene_timeline (GPS queries only)
-    last_visits: Optional[List[TimelineVisit]] = None
+    last_visits: list[TimelineVisit] | None = None
     if has_gps:
         db_pool = get_db_pool_optional(request)
         if db_pool is not None:

@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional, Union
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -11,9 +11,9 @@ class JobResponse(BaseModel):
 class JobStatus(BaseModel):
     status: str
     progress: dict
-    started_at: Optional[float]
-    finished_at: Optional[float]
-    error: Optional[str]
+    started_at: float | None
+    finished_at: float | None
+    error: str | None
 
 
 class TextQuery(BaseModel):
@@ -23,20 +23,20 @@ class TextQuery(BaseModel):
 class Match(BaseModel):
     """Single search result (frame or tile)."""
 
-    id: Union[int, str]
+    id: int | str
     score: float
     type: Literal["tile", "frame"]
     video_id: str
     segment_id: int
     t_sec: float
     thumbnail_path: str
-    frame_path: Optional[str]
-    tile_path: Optional[str]
-    bbox: Optional[dict]
+    frame_path: str | None
+    tile_path: str | None
+    bbox: dict | None
 
 
 class QueryResponse(BaseModel):
-    results: List[Match]
+    results: list[Match]
 
 
 # Query parameter constraints
@@ -66,4 +66,4 @@ class ErrorResponse(BaseModel):
     """Standard error response shape."""
 
     error: str
-    detail: Optional[str] = None
+    detail: str | None = None

@@ -4,12 +4,12 @@ import base64
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-import numpy as np
 from PIL import Image
 
 from selfsuvis.pipeline.core import settings
+
 from ._common import _open_frame_image
 
 _log = logging.getLogger("pipeline.local.scenetok")
@@ -18,12 +18,12 @@ _DEFAULT_MAX_FRAMES = 32
 
 
 def step_scenetok(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_dir: Path,
     *,
     checkpoint: str = "",
     mode: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 14: encode frames into SceneTok scene tokens, decode to masks or views.
 
     Writes to video_dir:
@@ -31,7 +31,7 @@ def step_scenetok(
       scenetok_masks/       — per-frame PNG segmentation masks  (mode=masks)
       scenetok_views/       — per-frame JPEG novel-view renders (mode=rgb)
     """
-    result: Dict[str, Any] = {"skipped": True, "n_tokens": 0, "n_frames": 0}
+    result: dict[str, Any] = {"skipped": True, "n_tokens": 0, "n_frames": 0}
 
     try:
         from selfsuvis.pipeline.vision.scenetok import SceneTokModel
@@ -60,8 +60,8 @@ def step_scenetok(
     )
     t0 = time.time()
 
-    images: List[Image.Image] = []
-    valid_frames: List[Tuple[str, float]] = []
+    images: list[Image.Image] = []
+    valid_frames: list[tuple[str, float]] = []
     for fp, t_sec in sampled:
         img = _open_frame_image(fp)
         if img is not None:
@@ -88,7 +88,7 @@ def step_scenetok(
         _log.info("  Saved scene tokens → %s", tokens_path.name)
 
     # ── save per-frame outputs ────────────────────────────────────────────────
-    frame_results: List[Dict[str, Any]] = out.get("results", [])
+    frame_results: list[dict[str, Any]] = out.get("results", [])
     if effective_mode == "masks":
         out_dir = video_dir / "scenetok_masks"
     else:

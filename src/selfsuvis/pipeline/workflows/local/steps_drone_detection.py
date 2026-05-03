@@ -25,7 +25,7 @@ import textwrap
 import time
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ._common import write_markdown_artifact
 
@@ -48,7 +48,7 @@ def _download_batch_zip(
     repo_id: str,
     zip_path: str,
     cache_dir: Path,
-) -> Optional[Path]:
+) -> Path | None:
     """Download one zip from a HuggingFace dataset repo. Returns local path."""
     local = cache_dir / zip_path.replace("/", "_")
     if local.exists():
@@ -67,9 +67,9 @@ def _download_batch_zip(
         return None
 
 
-def _extract_zip(zip_path: Path, dest: Path, max_files: int) -> List[Path]:
+def _extract_zip(zip_path: Path, dest: Path, max_files: int) -> list[Path]:
     """Extract up to max_files entries from a zip, return extracted paths."""
-    extracted: List[Path] = []
+    extracted: list[Path] = []
     dest.mkdir(parents=True, exist_ok=True)
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
@@ -88,9 +88,9 @@ def _extract_zip(zip_path: Path, dest: Path, max_files: int) -> List[Path]:
 def _build_yolo_dataset(
     images_dir: Path,
     labels_dir: Path,
-    neg_frames: List[Path],
+    neg_frames: list[Path],
     dataset_dir: Path,
-) -> Optional[Path]:
+) -> Path | None:
     """Assemble a YOLO-format dataset directory; return path to data.yaml."""
     for split in ("train/images", "train/labels", "val/images", "val/labels"):
         (dataset_dir / split).mkdir(parents=True, exist_ok=True)
@@ -146,7 +146,7 @@ def _build_yolo_dataset(
 
 # ── Training ──────────────────────────────────────────────────────────────────
 
-def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> Dict[str, Any]:
+def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> dict[str, Any]:
     """Train YOLOv8n on the prepared dataset. Returns training metrics."""
     try:
         from ultralytics import YOLO
@@ -177,7 +177,7 @@ def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> Dict[str, Any
         plots=False,
     )
     best_pt = run_dir / "train" / "weights" / "best.pt"
-    metrics: Dict[str, Any] = {"best_pt": str(best_pt) if best_pt.exists() else ""}
+    metrics: dict[str, Any] = {"best_pt": str(best_pt) if best_pt.exists() else ""}
     try:
         # ultralytics Results object exposes box metrics
         if hasattr(results, "results_dict"):
@@ -192,7 +192,7 @@ def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> Dict[str, Any
 
 # ── Export helpers ────────────────────────────────────────────────────────────
 
-def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Optional[Path]:
+def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Path | None:
     """Export best.pt → ONNX fp32. Returns ONNX path."""
     out = export_dir / "drone_yolo8n_a76.onnx"
     if out.exists():
@@ -210,13 +210,13 @@ def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Optional[Path]:
         return None
 
 
-def _quantize_onnx_int8(onnx_fp32: Path, export_dir: Path) -> Optional[Path]:
+def _quantize_onnx_int8(onnx_fp32: Path, export_dir: Path) -> Path | None:
     """Quantize fp32 ONNX to int8 dynamic quantisation. Returns int8 path."""
     out = export_dir / "drone_yolo8n_rv1106_int8.onnx"
     if out.exists():
         return out
     try:
-        from onnxruntime.quantization import quantize_dynamic, QuantType
+        from onnxruntime.quantization import QuantType, quantize_dynamic
         quantize_dynamic(
             model_input=str(onnx_fp32),
             model_output=str(out),
@@ -228,7 +228,7 @@ def _quantize_onnx_int8(onnx_fp32: Path, export_dir: Path) -> Optional[Path]:
         return None
 
 
-def _try_rknn_export(onnx_path: Path, export_dir: Path) -> Optional[Path]:
+def _try_rknn_export(onnx_path: Path, export_dir: Path) -> Path | None:
     """Try to convert ONNX → RKNN for RV1106G3. Skips gracefully if toolkit absent."""
     out = export_dir / "drone_yolo8n_rv1106.rknn"
     if out.exists():
@@ -379,12 +379,12 @@ def _write_test_rv1106(dest: Path, rknn_available: bool, onnx_int8_path: Path) -
 
 def _write_report(
     report_path: Path,
-    metrics: Dict[str, Any],
+    metrics: dict[str, Any],
     n_train: int,
     n_neg: int,
-    onnx_fp32: Optional[Path],
-    onnx_int8: Optional[Path],
-    rknn_path: Optional[Path],
+    onnx_fp32: Path | None,
+    onnx_int8: Path | None,
+    rknn_path: Path | None,
     elapsed: float,
 ) -> None:
     lines = [
@@ -495,15 +495,15 @@ def _write_report(
 # ── Public step function ──────────────────────────────────────────────────────
 
 def step_drone_detection_training(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
     output_dir: Path,
     device: str,
     args: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Train YOLOv8n drone detector; export ONNX fp32 + int8; optional RKNN."""
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "skipped": False,
         "model_fp32": "",
         "model_int8": "",
@@ -576,9 +576,9 @@ def step_drone_detection_training(
     result["box_loss"] = metrics.get("box_loss", float("nan"))
 
     best_pt = Path(metrics.get("best_pt", ""))
-    onnx_fp32: Optional[Path] = None
-    onnx_int8: Optional[Path] = None
-    rknn_path: Optional[Path] = None
+    onnx_fp32: Path | None = None
+    onnx_int8: Path | None = None
+    rknn_path: Path | None = None
 
     if best_pt.exists():
         _log.info("Exporting ONNX fp32 for Cortex-A76 …")

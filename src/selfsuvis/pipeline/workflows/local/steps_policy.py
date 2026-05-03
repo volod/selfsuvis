@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ._common import _log
 
@@ -14,14 +14,14 @@ _DEFAULT_RISK_TOLERANCE = "balanced"
 
 
 def step_policy(
-    local_threat_result: Dict[str, Any],
+    local_threat_result: dict[str, Any],
     video_dir: Path,
     video_name: str,
     *,
     mission_objective: str = _DEFAULT_MISSION_OBJECTIVE,
     risk_tolerance: str = _DEFAULT_RISK_TOLERANCE,
-    sensor_health: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    sensor_health: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Map threat estimates into a fixed action vocabulary without changing the score."""
     t0 = time.time()
     sensor_health = sensor_health or {}
@@ -98,7 +98,7 @@ def step_policy(
     return result
 
 
-def _write_json(result: Dict[str, Any], video_dir: Path) -> None:
+def _write_json(result: dict[str, Any], video_dir: Path) -> None:
     out = video_dir / "policy_decision.json"
     try:
         out.write_text(json.dumps(result, indent=2), encoding="utf-8")

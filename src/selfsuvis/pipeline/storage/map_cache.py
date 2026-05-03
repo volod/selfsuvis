@@ -23,7 +23,7 @@ Usage (on robot):
 import json
 import math
 from io import BytesIO
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -36,12 +36,12 @@ _PAGE_SIZE = 1000
 
 
 def _append_bbox_filters(
-    must: List[Any],
+    must: list[Any],
     qmodels: Any,
-    lat_min: Optional[float],
-    lat_max: Optional[float],
-    lon_min: Optional[float],
-    lon_max: Optional[float],
+    lat_min: float | None,
+    lat_max: float | None,
+    lon_min: float | None,
+    lon_max: float | None,
 ) -> None:
     if lat_min is not None and lat_max is not None:
         must.append(
@@ -53,7 +53,7 @@ def _append_bbox_filters(
         )
 
 
-def _point_clip_vector(point: Any) -> Optional[List[float]]:
+def _point_clip_vector(point: Any) -> list[float] | None:
     vector = point.vector
     if isinstance(vector, dict):
         clip = vector.get("clip")
@@ -61,12 +61,12 @@ def _point_clip_vector(point: Any) -> Optional[List[float]]:
     return vector if isinstance(vector, list) else None
 
 
-def _payload_xyz(payload: Dict[str, Any], key: str, fields: List[str]) -> List[float]:
+def _payload_xyz(payload: dict[str, Any], key: str, fields: list[str]) -> list[float]:
     values = payload.get(key) or {}
     return [values.get(field, math.nan) for field in fields]
 
 
-def _point_meta(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _point_meta(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "mission_id": payload.get("mission_id"),
         "frame_path": payload.get("frame_path"),
@@ -76,11 +76,11 @@ def _point_meta(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def build_map_cache(
     qdrant_store,
-    mission_ids: Optional[List[str]] = None,
-    lat_min: Optional[float] = None,
-    lat_max: Optional[float] = None,
-    lon_min: Optional[float] = None,
-    lon_max: Optional[float] = None,
+    mission_ids: list[str] | None = None,
+    lat_min: float | None = None,
+    lat_max: float | None = None,
+    lon_min: float | None = None,
+    lon_max: float | None = None,
 ) -> bytes:
     """Build a compressed NPZ cache of all indexed frames.
 
@@ -113,16 +113,16 @@ def build_map_cache(
 
     scroll_filter = qmodels.Filter(must=must)
 
-    clip_vecs: List[List[float]] = []
-    gps_rows: List[List[float]] = []
-    enu_rows: List[List[float]] = []
-    t_secs: List[float] = []
-    metas: List[Dict[str, Any]] = []
+    clip_vecs: list[list[float]] = []
+    gps_rows: list[list[float]] = []
+    enu_rows: list[list[float]] = []
+    t_secs: list[float] = []
+    metas: list[dict[str, Any]] = []
 
     offset = None
     page = 0
     while True:
-        kwargs: Dict[str, Any] = dict(
+        kwargs: dict[str, Any] = dict(
             collection_name=qdrant_store.collection_name,
             scroll_filter=scroll_filter,
             limit=_PAGE_SIZE,

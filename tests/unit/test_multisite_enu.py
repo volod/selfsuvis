@@ -11,7 +11,6 @@ Covers:
 External deps that are not installed in the unit-test venv are injected as stubs
 into sys.modules BEFORE any project module is imported.
 """
-import math
 import sys
 import types
 import unittest
@@ -281,6 +280,7 @@ class TestGetOrCreateGlobalMapProximity(unittest.IsolatedAsyncioTestCase):
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+
 from selfsuvis.app.routers.robot import router as robot_router  # noqa: E402
 
 _app = FastAPI()

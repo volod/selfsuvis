@@ -1,7 +1,6 @@
 import hmac
 import time
 from dataclasses import dataclass
-from typing import Dict
 
 from fastapi import Header, HTTPException, Request
 
@@ -54,7 +53,7 @@ class _RateLimiter:
     MAX_CLIENTS = 50_000
 
     def __init__(self) -> None:
-        self._limiters: Dict[str, _TokenBucket] = {}
+        self._limiters: dict[str, _TokenBucket] = {}
 
     def _evict_oldest(self) -> None:
         if len(self._limiters) >= self.MAX_CLIENTS:

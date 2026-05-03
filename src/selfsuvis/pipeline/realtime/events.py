@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, ClassVar, Dict
+from typing import Any, ClassVar
 
 
 def _to_iso8601(value: Any) -> str:
@@ -23,7 +23,7 @@ def _to_iso8601(value: Any) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
 
-def _normalize_payload(payload: Any) -> Dict[str, Any]:
+def _normalize_payload(payload: Any) -> dict[str, Any]:
     if payload is None:
         return {}
     if not isinstance(payload, dict):
@@ -45,7 +45,7 @@ class _BaseEvent:
     node_id: str
     sensor_type: str
     sector_id: str
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
     freshness_sec: float = 0.0
 
     event_kind: ClassVar[str] = "base"
@@ -59,7 +59,7 @@ class _BaseEvent:
         self.payload = _normalize_payload(self.payload)
         self.freshness_sec = max(0.0, float(self.freshness_sec or 0.0))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_kind": self.event_kind,
             "event_time": self.event_time,

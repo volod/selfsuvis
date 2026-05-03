@@ -5,7 +5,6 @@ Pre-imports torchvision at session start to avoid a known circular-import bug
 the package is fully initialised when first imported inside a sys.modules
 patch.dict context).
 """
-import sys
 
 
 def pytest_configure(config):

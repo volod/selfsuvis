@@ -5,7 +5,7 @@ import asyncio
 import contextlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -40,9 +40,9 @@ class MediaMtxClient:
     def __init__(
         self,
         *,
-        api_url: Optional[str] = None,
-        api_user: Optional[str] = None,
-        api_pass: Optional[str] = None,
+        api_url: str | None = None,
+        api_user: str | None = None,
+        api_pass: str | None = None,
         timeout_sec: float = 10.0,
     ) -> None:
         self._api_url = (api_url or settings.MEDIAMTX_API_URL).rstrip("/")
@@ -57,11 +57,11 @@ class MediaMtxClient:
         self,
         path_name: str,
         *,
-        source_url: Optional[str] = None,
+        source_url: str | None = None,
         source_on_demand: bool = False,
     ) -> bool:
         path = validate_stream_path(path_name)
-        payload: Dict[str, Any] = {"source": source_url or "publisher"}
+        payload: dict[str, Any] = {"source": source_url or "publisher"}
         if source_url:
             validate_rtsp_url(source_url)
             if source_on_demand:
@@ -91,7 +91,7 @@ class MediaMtxClient:
             f"MediaMTX path delete failed for '{path}': HTTP {response.status_code} {response.text.strip()}"
         )
 
-    async def list_paths(self) -> List[Dict[str, Any]]:
+    async def list_paths(self) -> list[dict[str, Any]]:
         endpoint = f"{self._api_url}/v3/paths/list"
         async with httpx.AsyncClient(timeout=self._timeout_sec, auth=self._auth) as client:
             response = await client.get(endpoint)
@@ -120,9 +120,9 @@ class _LiveRuntime:
     task: asyncio.Task
     started_at: datetime
     status: str = "starting"
-    error: Optional[str] = None
+    error: str | None = None
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
             "mission_id": self.mission_id,
@@ -142,7 +142,7 @@ class RealtimeStreamManager:
     def __init__(self, db_pool) -> None:
         self._db_pool = db_pool
         self._lock = asyncio.Lock()
-        self._sessions: Dict[str, _LiveRuntime] = {}
+        self._sessions: dict[str, _LiveRuntime] = {}
 
     async def start(
         self,
@@ -151,8 +151,8 @@ class RealtimeStreamManager:
         mission_id: str,
         robot_id: str,
         path_name: str,
-        caption_fps: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        caption_fps: float | None = None,
+    ) -> dict[str, Any]:
         if self._db_pool is None:
             raise RuntimeError("database pool is not available for realtime stream analysis")
         rtsp_url = build_rtsp_stream_url(path_name)
@@ -197,7 +197,7 @@ class RealtimeStreamManager:
         else:
             runtime.status = "stopped" if runtime.stop_event.is_set() else "completed"
 
-    async def stop(self, session_id: str) -> Dict[str, Any]:
+    async def stop(self, session_id: str) -> dict[str, Any]:
         async with self._lock:
             runtime = self._sessions.get(session_id)
         if runtime is None:
@@ -219,13 +219,13 @@ class RealtimeStreamManager:
             with contextlib.suppress(Exception):
                 await self.stop(session_id)
 
-    async def get(self, session_id: str) -> Dict[str, Any]:
+    async def get(self, session_id: str) -> dict[str, Any]:
         async with self._lock:
             runtime = self._sessions.get(session_id)
             if runtime is None:
                 raise LookupError("live stream not found")
             return runtime.snapshot()
 
-    async def list(self) -> List[Dict[str, Any]]:
+    async def list(self) -> list[dict[str, Any]]:
         async with self._lock:
             return [runtime.snapshot() for runtime in self._sessions.values()]

@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -33,7 +33,7 @@ def _sign(body: bytes, secret: str) -> str:
     return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
-def _webhook_payload(event: str, state: str, task_id: int = 1, job_id: int = 10) -> Dict[str, Any]:
+def _webhook_payload(event: str, state: str, task_id: int = 1, job_id: int = 10) -> dict[str, Any]:
     if event == "update:job":
         return {"event": event, "job": {"id": job_id, "task_id": task_id, "state": state}}
     if event == "update:task":

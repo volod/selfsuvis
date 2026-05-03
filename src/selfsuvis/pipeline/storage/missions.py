@@ -1,6 +1,7 @@
 """PostgreSQL helpers for mission/frame metadata persistence."""
 
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from selfsuvis.pipeline.core import to_utc_datetime, utcnow
 from selfsuvis.pipeline.storage.common import jsonb, jsonb_optional, row_dict, row_dicts
@@ -16,11 +17,11 @@ async def upsert_mission(
     robot_id: str,
     status: str,
     frame_count: int,
-    duration_sec: Optional[float],
-    gps_origin: Optional[Dict[str, Any]],
+    duration_sec: float | None,
+    gps_origin: dict[str, Any] | None,
     pose_status: str = "pending",
     map_status: str = "pending",
-    error: Optional[str] = None,
+    error: str | None = None,
 ) -> None:
     now = utcnow()
     await conn.execute(
@@ -62,7 +63,7 @@ async def upsert_mission(
     )
 
 
-async def fetch_mission(conn, mission_id: str) -> Optional[Dict[str, Any]]:
+async def fetch_mission(conn, mission_id: str) -> dict[str, Any] | None:
     row = await conn.fetchrow(
         """
         SELECT id, video_id, video_path, job_id, robot_id, status, pose_status, map_status,
@@ -75,7 +76,7 @@ async def fetch_mission(conn, mission_id: str) -> Optional[Dict[str, Any]]:
     return row_dict(row)
 
 
-async def replace_frames(conn, mission_id: str, frames: Iterable[Dict[str, Any]]) -> None:
+async def replace_frames(conn, mission_id: str, frames: Iterable[dict[str, Any]]) -> None:
     rows = list(frames)
     await conn.execute("DELETE FROM frames WHERE mission_id = $1", mission_id)
     if not rows:
@@ -124,7 +125,7 @@ async def replace_frames(conn, mission_id: str, frames: Iterable[Dict[str, Any]]
     )
 
 
-async def list_mission_frames(conn, mission_id: str) -> List[Dict[str, Any]]:
+async def list_mission_frames(conn, mission_id: str) -> list[dict[str, Any]]:
     rows = await conn.fetch(
         """
         SELECT id, mission_id, frame_path, t_sec, segment_id, caption, caption_confidence,
@@ -145,12 +146,12 @@ async def mark_mission_finished(
     mission_id: str,
     *,
     status: str,
-    pose_status: Optional[str] = None,
-    map_status: Optional[str] = None,
-    error: Optional[str] = None,
+    pose_status: str | None = None,
+    map_status: str | None = None,
+    error: str | None = None,
 ) -> None:
     assignments = ["status = $1", "updated_at = $2", "error = $3"]
-    values: List[Any] = [status, utcnow(), error]
+    values: list[Any] = [status, utcnow(), error]
     idx = 4
     if pose_status is not None:
         assignments.append(f"pose_status = ${idx}")
@@ -170,8 +171,8 @@ async def mark_mission_finished(
 async def apply_gps_registration(
     conn,
     mission_id: str,
-    enu_origin: Optional[Dict[str, Any]],
-    global_poses: Dict[str, Any],
+    enu_origin: dict[str, Any] | None,
+    global_poses: dict[str, Any],
 ) -> None:
     now = utcnow()
     if enu_origin is not None:
@@ -194,7 +195,7 @@ async def apply_gps_registration(
     )
 
 
-async def list_frames_after(conn, cursor: Optional[tuple], limit: int) -> List[Dict[str, Any]]:
+async def list_frames_after(conn, cursor: tuple | None, limit: int) -> list[dict[str, Any]]:
     if cursor is None:
         rows = await conn.fetch(
             """

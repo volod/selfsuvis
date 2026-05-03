@@ -5,8 +5,9 @@ import asyncio
 import math
 import os
 import time
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
+from typing import Any
 
 import asyncpg
 
@@ -59,7 +60,7 @@ def _ecef_like_local_xy(origin_lat: float, origin_lon: float, lat: float, lon: f
     return east, north
 
 
-def ros_imu_message_to_dict(topic: str, msg: Any) -> Dict[str, Any]:
+def ros_imu_message_to_dict(topic: str, msg: Any) -> dict[str, Any]:
     return {
         "topic": topic,
         "t_device": _stamp_to_sec(_attr(msg, "header", "stamp")),
@@ -84,11 +85,11 @@ def ros_imu_message_to_dict(topic: str, msg: Any) -> Dict[str, Any]:
     }
 
 
-def ros_navsatfix_message_to_dict(topic: str, msg: Any, origin: Optional[Dict[str, float]]) -> Dict[str, Any]:
+def ros_navsatfix_message_to_dict(topic: str, msg: Any, origin: dict[str, float] | None) -> dict[str, Any]:
     lat = float(getattr(msg, "latitude"))
     lon = float(getattr(msg, "longitude"))
     altitude = float(getattr(msg, "altitude", 0.0) or 0.0)
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "lat": lat,
         "lon": lon,
         "altitude": altitude,
@@ -105,7 +106,7 @@ def ros_navsatfix_message_to_dict(topic: str, msg: Any, origin: Optional[Dict[st
     }
 
 
-def ros_fluid_pressure_message_to_dict(topic: str, msg: Any) -> Dict[str, Any]:
+def ros_fluid_pressure_message_to_dict(topic: str, msg: Any) -> dict[str, Any]:
     pressure_pa = float(getattr(msg, "fluid_pressure", 0.0) or 0.0)
     sea_level_pa = 101_325.0
     altitude_m = 0.0
@@ -121,7 +122,7 @@ def ros_fluid_pressure_message_to_dict(topic: str, msg: Any) -> Dict[str, Any]:
     }
 
 
-def ros_magnetic_field_message_to_dict(topic: str, msg: Any) -> Dict[str, Any]:
+def ros_magnetic_field_message_to_dict(topic: str, msg: Any) -> dict[str, Any]:
     x = float(_attr(msg, "magnetic_field", "x") or 0.0)
     y = float(_attr(msg, "magnetic_field", "y") or 0.0)
     heading = math.atan2(y, x) if x or y else 0.0
@@ -135,7 +136,7 @@ def ros_magnetic_field_message_to_dict(topic: str, msg: Any) -> Dict[str, Any]:
     }
 
 
-def ros_image_message_to_dict(topic: str, msg: Any) -> Dict[str, Any]:
+def ros_image_message_to_dict(topic: str, msg: Any) -> dict[str, Any]:
     header = _attr(msg, "header")
     return {
         "topic": topic,
@@ -149,7 +150,7 @@ def ros_image_message_to_dict(topic: str, msg: Any) -> Dict[str, Any]:
     }
 
 
-def mavsdk_position_velocity_to_message(sample: Any) -> Dict[str, Any]:
+def mavsdk_position_velocity_to_message(sample: Any) -> dict[str, Any]:
     position = getattr(sample, "position", sample)
     velocity = getattr(sample, "velocity", sample)
     down_m = float(_attr(position, "down_m") or 0.0)
@@ -166,7 +167,7 @@ def mavsdk_position_velocity_to_message(sample: Any) -> Dict[str, Any]:
     }
 
 
-def mavsdk_attitude_euler_to_message(sample: Any) -> Dict[str, Any]:
+def mavsdk_attitude_euler_to_message(sample: Any) -> dict[str, Any]:
     return {
         "message_type": "ATTITUDE",
         "timestamp": float(getattr(sample, "timestamp_us", 0) or 0) or time.time(),
@@ -176,7 +177,7 @@ def mavsdk_attitude_euler_to_message(sample: Any) -> Dict[str, Any]:
     }
 
 
-def mavsdk_heading_to_message(sample: Any) -> Dict[str, Any]:
+def mavsdk_heading_to_message(sample: Any) -> dict[str, Any]:
     heading_deg = float(getattr(sample, "heading_deg", sample) or 0.0)
     return {
         "message_type": "VFR_HUD",
@@ -190,7 +191,7 @@ class BridgeRuntimeConfig:
     backend: str
     session_id: str
     robot_id: str
-    mission_id: Optional[str]
+    mission_id: str | None
     sensors: list[str]
     auto_create_session: bool
     batch_size: int
@@ -206,7 +207,7 @@ class RealtimePacketPublisher:
         *,
         session_id: str,
         robot_id: str,
-        mission_id: Optional[str],
+        mission_id: str | None,
         sensors: Iterable[str],
         auto_create_session: bool,
         batch_size: int,
@@ -222,8 +223,8 @@ class RealtimePacketPublisher:
         self._batch_size = max(1, int(batch_size))
         self._flush_interval_sec = max(0.05, float(flush_interval_sec))
         self._log_every_n_packets = max(0, int(log_every_n_packets))
-        self._queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
-        self._task: Optional[asyncio.Task] = None
+        self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        self._task: asyncio.Task | None = None
         self._published_packets = 0
         self._flush_count = 0
 
@@ -231,7 +232,7 @@ class RealtimePacketPublisher:
         await self._ensure_session()
         self._task = asyncio.create_task(self._flush_loop(), name=f"realtime_bridge_flush:{self._session_id}")
 
-    async def publish(self, packet: Dict[str, Any]) -> None:
+    async def publish(self, packet: dict[str, Any]) -> None:
         await self._queue.put(packet)
 
     async def shutdown(self) -> None:
@@ -240,7 +241,7 @@ class RealtimePacketPublisher:
             await self._task
             self._task = None
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         return {
             "session_id": self._session_id,
             "published_packets": self._published_packets,
@@ -270,7 +271,7 @@ class RealtimePacketPublisher:
             )
 
     async def _flush_loop(self) -> None:
-        batch: list[Dict[str, Any]] = []
+        batch: list[dict[str, Any]] = []
         while True:
             try:
                 packet = await asyncio.wait_for(self._queue.get(), timeout=self._flush_interval_sec)
@@ -286,7 +287,7 @@ class RealtimePacketPublisher:
             if batch and (packet is ... or len(batch) >= self._batch_size):
                 await self._flush(batch)
 
-    async def _flush(self, batch: list[Dict[str, Any]]) -> None:
+    async def _flush(self, batch: list[dict[str, Any]]) -> None:
         packets = list(batch)
         batch.clear()
         if not packets:
@@ -311,7 +312,7 @@ class MavsdkTelemetrySource:
         server_address: str,
         server_port: int,
         connect_timeout_sec: float,
-        system_factory: Optional[Callable[[], Any]] = None,
+        system_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._system_address = system_address
         self._server_address = server_address
@@ -319,7 +320,7 @@ class MavsdkTelemetrySource:
         self._connect_timeout_sec = float(connect_timeout_sec)
         self._system_factory = system_factory
 
-    async def run(self, on_message: Callable[[Dict[str, Any]], Awaitable[None]]) -> None:
+    async def run(self, on_message: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
         system = self._create_system()
         await self._connect(system)
         telemetry = getattr(system, "telemetry", None)
@@ -349,7 +350,7 @@ class MavsdkTelemetrySource:
             from mavsdk import System
         except ImportError as exc:
             raise RuntimeError("mavsdk is not installed; install it in the realtime bridge image") from exc
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         if self._server_address:
             kwargs["mavsdk_server_address"] = self._server_address
             kwargs["port"] = self._server_port
@@ -370,7 +371,7 @@ class MavsdkTelemetrySource:
     async def _pump_position(
         self,
         telemetry: Any,
-        on_message: Callable[[Dict[str, Any]], Awaitable[None]],
+        on_message: Callable[[dict[str, Any]], Awaitable[None]],
     ) -> None:
         async for sample in telemetry.position_velocity_ned():
             await on_message(mavsdk_position_velocity_to_message(sample))
@@ -378,7 +379,7 @@ class MavsdkTelemetrySource:
     async def _pump_attitude(
         self,
         telemetry: Any,
-        on_message: Callable[[Dict[str, Any]], Awaitable[None]],
+        on_message: Callable[[dict[str, Any]], Awaitable[None]],
     ) -> None:
         async for sample in telemetry.attitude_euler():
             await on_message(mavsdk_attitude_euler_to_message(sample))
@@ -386,7 +387,7 @@ class MavsdkTelemetrySource:
     async def _pump_heading(
         self,
         telemetry: Any,
-        on_message: Callable[[Dict[str, Any]], Awaitable[None]],
+        on_message: Callable[[dict[str, Any]], Awaitable[None]],
     ) -> None:
         async for sample in telemetry.heading():
             await on_message(mavsdk_heading_to_message(sample))
@@ -409,9 +410,9 @@ class RosTelemetrySource:
         self._mag_topic = mag_topic
         self._camera_topic = camera_topic
         self._domain_id = domain_id
-        self._gps_origin: Optional[Dict[str, float]] = None
+        self._gps_origin: dict[str, float] | None = None
 
-    async def run(self, on_message: Callable[[Dict[str, Any]], Awaitable[None]]) -> None:
+    async def run(self, on_message: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
         try:
             import rclpy
             from rclpy.executors import SingleThreadedExecutor
@@ -423,7 +424,7 @@ class RosTelemetrySource:
         if self._domain_id:
             os.environ["ROS_DOMAIN_ID"] = self._domain_id
         rclpy.init(args=None)
-        queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
+        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
         class BridgeNode(Node):
             def __init__(self, outer: "RosTelemetrySource") -> None:
@@ -461,7 +462,7 @@ class RosTelemetrySource:
             executor.spin_once(timeout_sec=0.2)
             await asyncio.sleep(0)
 
-    def _gps_msg(self, topic: str, msg: Any) -> Dict[str, Any]:
+    def _gps_msg(self, topic: str, msg: Any) -> dict[str, Any]:
         if self._gps_origin is None:
             self._gps_origin = {
                 "lat": float(getattr(msg, "latitude")),
@@ -502,7 +503,7 @@ class RealtimeBridgeRuntime:
             await self._publisher.shutdown()
 
 
-def bridge_runtime_config_from_settings(*, backend: Optional[str] = None) -> BridgeRuntimeConfig:
+def bridge_runtime_config_from_settings(*, backend: str | None = None) -> BridgeRuntimeConfig:
     backend_name = (backend or settings.REALTIME_BRIDGE_BACKEND or "mavsdk").strip().lower()
     return BridgeRuntimeConfig(
         backend=backend_name,
@@ -540,7 +541,7 @@ def bridge_source_from_settings(*, backend: str, source: Any = None) -> Any:
 
 def build_runtime_from_settings(
     *,
-    backend: Optional[str] = None,
+    backend: str | None = None,
     db_pool: Any,
     source: Any = None,
 ) -> RealtimeBridgeRuntime:
@@ -560,7 +561,7 @@ def build_runtime_from_settings(
     return RealtimeBridgeRuntime(config=config, publisher=publisher, source=source)
 
 
-async def _amain(backend: Optional[str] = None) -> None:
+async def _amain(backend: str | None = None) -> None:
     if not settings.DATABASE_URL:
         raise RuntimeError("DATABASE_URL must be configured for realtime bridge runtimes")
     db_pool = await asyncpg.create_pool(dsn=settings.DATABASE_URL, min_size=1, max_size=2, timeout=10)
@@ -571,7 +572,7 @@ async def _amain(backend: Optional[str] = None) -> None:
         await db_pool.close()
 
 
-def main(argv: Optional[Iterable[str]] = None) -> int:
+def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run a realtime telemetry bridge runtime")
     parser.add_argument(
         "--backend",

@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Any, List, Optional
+from typing import Any
 
 import asyncpg
 from PIL import Image
@@ -30,12 +30,12 @@ class SearchResult(BaseModel):
     segment_id: int
     t_sec: float
     thumbnail_path: str
-    frame_path: Optional[str] = None
-    tile_path: Optional[str] = None
-    bbox: Optional[dict] = None
+    frame_path: str | None = None
+    tile_path: str | None = None
+    bbox: dict | None = None
 
 
-def payload_filter(search_type: str) -> Optional[qmodels.Filter]:
+def payload_filter(search_type: str) -> qmodels.Filter | None:
     if search_type == "both":
         return None
     return qmodels.Filter(
@@ -48,7 +48,7 @@ def payload_filter(search_type: str) -> Optional[qmodels.Filter]:
     )
 
 
-async def _reembed_is_active(db_pool: Optional[Any] = None) -> bool:
+async def _reembed_is_active(db_pool: Any | None = None) -> bool:
     """Return True if a reembed job is currently running.
 
     Uses a short TTL cache to avoid querying DB for every image query.
@@ -94,9 +94,9 @@ async def search_vectors(
     search_type: str,
     top_k: int,
     enable_rerank: bool,
-    image_query: Optional[Image.Image],
-    db_pool: Optional[Any] = None,
-) -> List[dict]:
+    image_query: Image.Image | None,
+    db_pool: Any | None = None,
+) -> list[dict]:
     k_retrieve = max(top_k, settings.K_RETRIEVE)
     filter_obj = payload_filter(search_type)
 
@@ -123,11 +123,11 @@ async def search_vectors(
     return results[:top_k]
 
 
-def _tile_bbox(payload: dict) -> Optional[dict]:
+def _tile_bbox(payload: dict) -> dict | None:
     return {"x": payload.get("x"), "y": payload.get("y"), "w": payload.get("w"), "h": payload.get("h")}
 
 
-def format_results(scored: List[qmodels.ScoredPoint]) -> List[dict]:
+def format_results(scored: list[qmodels.ScoredPoint]) -> list[dict]:
     results = []
     for p in scored:
         payload = p.payload or {}

@@ -6,8 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from selfsuvis.pipeline.core import config
-from selfsuvis.pipeline.media.network import _is_ip_allowed, _peer_ip, safe_request, validate_url
-
+from selfsuvis.pipeline.media.network import _is_ip_allowed, safe_request, validate_url
 
 # ---------------------------------------------------------------------------
 # validate_url

@@ -6,19 +6,14 @@ base_search, full_fusion.
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
 
-from ..runner import _append_agentic_step
 from ..graph_state import PipelineState
+from ..runner import _append_agentic_step
 from .agentic_helpers import (
-    DEFAULT_TRACKING_TARGETS,
     GEMMA_CLAIM_MIN_SIM,
-    MOE_CONSENSUS_THRESHOLD,
-    build_evidence_summary,
-    critique_pass,
-    llm_call_with_retry,
     low_agreement_frames,
     moe_consensus_score,
 )
@@ -28,8 +23,8 @@ _log = logging.getLogger(__name__)
 
 # ── Step 03: Gemma multimodal analysis (with claim verification) ──────────────
 
-def node_p2_gemma_analysis(state: PipelineState) -> Dict[str, Any]:
-    from ..steps_caption import step_gemma_analysis, _unload_ollama_model
+def node_p2_gemma_analysis(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _unload_ollama_model, step_gemma_analysis
 
     args = state["args"]
     gemma_api_url = getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL
@@ -105,7 +100,7 @@ def node_p2_gemma_analysis(state: PipelineState) -> Dict[str, Any]:
     }
 
 
-def _verify_gemma_claims(j: Dict[str, Any], state: PipelineState) -> Dict[str, Any]:
+def _verify_gemma_claims(j: dict[str, Any], state: PipelineState) -> dict[str, Any]:
     """Post-hoc claim verification using CLIP cosine similarity against frame embeddings.
 
     For each claim in task_results["fact_verification"]["claims"], compute cosine
@@ -114,7 +109,6 @@ def _verify_gemma_claims(j: Dict[str, Any], state: PipelineState) -> Dict[str, A
     in-memory store — no new model load.
     """
     try:
-        import numpy as np
 
         clip_model = state["models"].get("clip")
         store = state.get("store")
@@ -159,7 +153,7 @@ def _verify_gemma_claims(j: Dict[str, Any], state: PipelineState) -> Dict[str, A
 
 # ── Fan-in merge: commit all parallel results to knowledge & video_context ────
 
-def node_p2_merge_parallel(state: PipelineState) -> Dict[str, Any]:
+def node_p2_merge_parallel(state: PipelineState) -> dict[str, Any]:
     knowledge = state.get("knowledge")
     caption_results = state.get("caption_results", [])
     asr_result = state.get("asr_result", {"skipped": True, "subtitle_map": {}, "segments": []})
@@ -184,7 +178,7 @@ def node_p2_merge_parallel(state: PipelineState) -> Dict[str, Any]:
     video_context["asr_segments"] = asr_result.get("segments", [])
     video_context["ocr"] = ocr_result.get("ocr_results", [])
     if not det_result.get("skipped"):
-        obj_counts: Dict[str, int] = {}
+        obj_counts: dict[str, int] = {}
         for r in det_result.get("detection_results", []):
             for d in r.get("detections", []):
                 lbl = d.get("label", "unknown")
@@ -245,7 +239,7 @@ def node_p2_merge_parallel(state: PipelineState) -> Dict[str, Any]:
 
 # ── Platform state fusion ─────────────────────────────────────────────────────
 
-def node_p2_platform_fusion(state: PipelineState) -> Dict[str, Any]:
+def node_p2_platform_fusion(state: PipelineState) -> dict[str, Any]:
     from ..steps_fusion import step_platform_state_fusion
 
     result = step_platform_state_fusion(
@@ -270,11 +264,11 @@ def node_p2_platform_fusion(state: PipelineState) -> Dict[str, Any]:
 
 # ── Step 11: World model ──────────────────────────────────────────────────────
 
-def node_p2_world_model(state: PipelineState) -> Dict[str, Any]:
-    from ..steps_caption import step_world_model_pass, _prep_vram_for_step
+def node_p2_world_model(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _prep_vram_for_step, step_world_model_pass
 
     args = state["args"]
-    world_result: Dict[str, Any] = {"skipped": True, "world_results": []}
+    world_result: dict[str, Any] = {"skipped": True, "world_results": []}
     t0 = time.monotonic()
 
     if args.world_model:
@@ -316,14 +310,14 @@ def node_p2_world_model(state: PipelineState) -> Dict[str, Any]:
 
 # ── Step 12: Qwen captioning (agentic: retry on parse_error) ─────────────────
 
-def node_p2_qwen_caption(state: PipelineState) -> Dict[str, Any]:
+def node_p2_qwen_caption(state: PipelineState) -> dict[str, Any]:
     from ..steps_caption import step_qwen_captioning
 
     args = state["args"]
     asr_result = state.get("asr_result", {})
     ocr_result = state.get("ocr_result", {})
     knowledge = state.get("knowledge")
-    qwen_result: Dict[str, Any] = {"skipped": True, "results": []}
+    qwen_result: dict[str, Any] = {"skipped": True, "results": []}
     t0 = time.monotonic()
 
     if args.qwen:
@@ -375,10 +369,10 @@ def node_p2_qwen_caption(state: PipelineState) -> Dict[str, Any]:
 
 
 def _qwen_retry_parse_errors(
-    qwen_result: Dict[str, Any],
+    qwen_result: dict[str, Any],
     state: PipelineState,
     knowledge: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Retry individual Qwen results that had parse_error=True with a simplified prompt."""
     from ..steps_caption import step_qwen_captioning
 
@@ -392,7 +386,6 @@ def _qwen_retry_parse_errors(
     if not retry_frame_list:
         return qwen_result
 
-    args = state["args"]
     try:
         retry_out = step_qwen_captioning(
             retry_frame_list,
@@ -422,14 +415,14 @@ def _qwen_retry_parse_errors(
 
 # ── Step 13: UniDriveVLA (agentic: MoE consensus scoring) ────────────────────
 
-def node_p2_unidrive(state: PipelineState) -> Dict[str, Any]:
+def node_p2_unidrive(state: PipelineState) -> dict[str, Any]:
     from ..steps_caption import step_unidrive_analysis
 
     args = state["args"]
     asr_result = state.get("asr_result", {})
     ocr_result = state.get("ocr_result", {})
     knowledge = state.get("knowledge")
-    unidrive_result: Dict[str, Any] = {"skipped": True, "results": []}
+    unidrive_result: dict[str, Any] = {"skipped": True, "results": []}
     t0 = time.monotonic()
 
     if getattr(args, "unidrive", False):
@@ -479,7 +472,7 @@ def node_p2_unidrive(state: PipelineState) -> Dict[str, Any]:
     }
 
 
-def _score_unidrive_consensus(unidrive_result: Dict[str, Any], state: PipelineState) -> Dict[str, Any]:
+def _score_unidrive_consensus(unidrive_result: dict[str, Any], state: PipelineState) -> dict[str, Any]:
     results = unidrive_result.get("results", [])
     if not results:
         return unidrive_result
@@ -505,11 +498,11 @@ def _score_unidrive_consensus(unidrive_result: Dict[str, Any], state: PipelineSt
 
 # ── Step 14: SceneTok ─────────────────────────────────────────────────────────
 
-def node_p2_scenetok(state: PipelineState) -> Dict[str, Any]:
+def node_p2_scenetok(state: PipelineState) -> dict[str, Any]:
     from ..steps_scenetok import step_scenetok
 
     args = state["args"]
-    scenetok_result: Dict[str, Any] = {"skipped": True}
+    scenetok_result: dict[str, Any] = {"skipped": True}
     t0 = time.monotonic()
 
     if getattr(args, "scenetok", False):
@@ -552,11 +545,13 @@ def node_p2_scenetok(state: PipelineState) -> Dict[str, Any]:
 
 # ── Step 15: Base model search ────────────────────────────────────────────────
 
-def node_p2_base_search(state: PipelineState) -> Dict[str, Any]:
-    from ..steps_embed import step_base_model_search_test
+def node_p2_base_search(state: PipelineState) -> dict[str, Any]:
     from ..steps_caption import (
-        _prep_vram_for_step, _restore_models_to_gpu, _models_on_device,
+        _models_on_device,
+        _prep_vram_for_step,
+        _restore_models_to_gpu,
     )
+    from ..steps_embed import step_base_model_search_test
 
     args = state["args"]
     models = state["models"]
@@ -619,7 +614,7 @@ def node_p2_base_search(state: PipelineState) -> Dict[str, Any]:
 
 # ── Step 16 close + full state fusion ────────────────────────────────────────
 
-def node_p2_full_fusion(state: PipelineState) -> Dict[str, Any]:
+def node_p2_full_fusion(state: PipelineState) -> dict[str, Any]:
     from ..steps_fusion import step_full_state_fusion
 
     h = state.get("map_result", {})

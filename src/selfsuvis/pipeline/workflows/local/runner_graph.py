@@ -29,7 +29,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -41,11 +41,19 @@ def build_graph(use_checkpoints: bool = True):
 
     Returns a ``CompiledStateGraph`` ready for ``.invoke()``.
     """
-    from langgraph.graph import StateGraph, START, END
     from langgraph.checkpoint.memory import MemorySaver
+    from langgraph.graph import END, START, StateGraph
 
+    from .graph_nodes import (
+        phase1,
+        phase2_map,
+        phase2_parallel,
+        phase2_serial,
+        phase2_tracking,
+        phase3_ssl,
+        phase4,
+    )
     from .graph_state import PipelineState
-    from .graph_nodes import phase1, phase2_serial, phase2_parallel, phase2_tracking, phase2_map, phase3_ssl, phase4
 
     sg = StateGraph(PipelineState)
 
@@ -165,11 +173,11 @@ def run_graph_pipeline(
     args: Any,
     video_path: Path,
     output_dir: Path,
-    models: Dict[str, Any],
+    models: dict[str, Any],
     store: Any,
     is_qdrant: bool,
     device: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Drop-in replacement for ``run_video_pipeline()``.
 
     Called from runner.py when SELFSUVIS_USE_GRAPH=1 is set.
@@ -209,7 +217,7 @@ def run_graph_pipeline(
         "clip_dino_on_gpu": False,
     }
 
-    config: Dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+    config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
     if os.getenv("LANGCHAIN_TRACING_V2", "").lower() in ("1", "true"):
         config["run_name"] = f"selfsuvis/{video_name}"
         _log.info("LangSmith tracing enabled for run: selfsuvis/%s", video_name)

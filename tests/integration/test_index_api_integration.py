@@ -15,7 +15,6 @@ Covers:
 
 import io
 import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,8 +34,9 @@ sys.modules.setdefault("selfsuvis.app.state", _state_stub)
 def client(tmp_path, monkeypatch):
     """TestClient for the index router with auth bypassed and DB mocked."""
     from fastapi import FastAPI
+
+    from selfsuvis.app.deps import rate_limit, require_api_key
     from selfsuvis.app.routers.index import router
-    from selfsuvis.app.deps import require_api_key, rate_limit
 
     app = FastAPI()
 

@@ -1,21 +1,26 @@
 """Replay saved local-run artifacts as ordered realtime event envelopes."""
 
 import json
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
+from selfsuvis.pipeline.fusion.sectors import (
+    build_route_segment_id,
+    sectorize_global_positions,
+    unique_sector_sequence,
+)
 from selfsuvis.pipeline.media.bridge_common import flatten_packet_batches
 from selfsuvis.pipeline.media.drone_bridge import bridge_mavlink_messages
 from selfsuvis.pipeline.media.ros_bridge import ros_message_to_packets
-from selfsuvis.pipeline.fusion.sectors import build_route_segment_id, sectorize_global_positions, unique_sector_sequence
 
 from .events import NodeHealthEvent, SensorEvent, ThreatEvent
 from .freshness import apply_freshness
 from .ingest import normalize_packets
 
 
-def _event_sort_key(row: Dict[str, Any]) -> tuple[str, str, str, str]:
+def _event_sort_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
     return (
         row["event_time"],
         row["event_kind"],
@@ -24,13 +29,13 @@ def _event_sort_key(row: Dict[str, Any]) -> tuple[str, str, str, str]:
     )
 
 
-def _event_ingest_delay_sec(event: Dict[str, Any], delays: Dict[str, float]) -> float:
+def _event_ingest_delay_sec(event: dict[str, Any], delays: dict[str, float]) -> float:
     delay = float(delays.get(str(event.get("event_kind", "")), 0.0) or 0.0)
     delay += float(delays.get(str(event.get("sensor_type", "")), 0.0) or 0.0)
     return delay
 
 
-def _trace_packets(records: List[Dict[str, Any]], *, backend: str) -> List[Dict[str, Any]]:
+def _trace_packets(records: list[dict[str, Any]], *, backend: str) -> list[dict[str, Any]]:
     if backend == "mavlink":
         return bridge_mavlink_messages(records)
     if backend == "ros":
@@ -42,9 +47,9 @@ def replay_local_run(
     output_dir: Path,
     *,
     node_id_prefix: str = "node",
-    ingest_start: Optional[datetime] = None,
-    ingest_delay_sec_by_kind: Optional[Dict[str, float]] = None,
-) -> List[Dict[str, Any]]:
+    ingest_start: datetime | None = None,
+    ingest_delay_sec_by_kind: dict[str, float] | None = None,
+) -> list[dict[str, Any]]:
     ingest_start = ingest_start or datetime.now(timezone.utc)
     ingest_delay_sec_by_kind = dict(ingest_delay_sec_by_kind or {})
 
@@ -52,12 +57,12 @@ def replay_local_run(
         path for path in output_dir.iterdir()
         if path.is_dir() and (path / "local_threat_assessment.json").exists()
     )
-    raw_events: List[Dict[str, Any]] = []
+    raw_events: list[dict[str, Any]] = []
     for index, video_dir in enumerate(video_dirs, start=1):
         raw_events.extend(_video_events(video_dir, node_id=f"{node_id_prefix}_{index}"))
 
     raw_events.sort(key=_event_sort_key)
-    replayed: List[Dict[str, Any]] = []
+    replayed: list[dict[str, Any]] = []
     for idx, event in enumerate(raw_events):
         event_dt = _parse_iso(event["event_time"])
         base_ingest = ingest_start + timedelta(seconds=idx * 0.25)
@@ -69,14 +74,14 @@ def replay_local_run(
     return replayed
 
 
-def write_replay_jsonl(events: Sequence[Dict[str, Any]], output_path: Path) -> None:
+def write_replay_jsonl(events: Sequence[dict[str, Any]], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [json.dumps(dict(event), sort_keys=True) for event in events]
     output_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
-def load_jsonl_records(path: Path) -> List[Dict[str, Any]]:
-    records: List[Dict[str, Any]] = []
+def load_jsonl_records(path: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         text = line.strip()
         if not text:
@@ -91,13 +96,13 @@ def replay_bridge_trace(
     trace_path: Path,
     *,
     backend: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     backend_name = str(backend or "").strip().lower()
     records = load_jsonl_records(trace_path)
     return normalize_packets(_trace_packets(records, backend=backend_name))
 
 
-def _video_events(video_dir: Path, *, node_id: str) -> List[Dict[str, Any]]:
+def _video_events(video_dir: Path, *, node_id: str) -> list[dict[str, Any]]:
     local_threat = _load_json(video_dir / "local_threat_assessment.json")
     primitives = _load_json(video_dir / "threat_primitives.json")
     physical_state = _load_json(video_dir / "physical_state_summary.json")
@@ -109,7 +114,7 @@ def _video_events(video_dir: Path, *, node_id: str) -> List[Dict[str, Any]]:
     end_dt = _base_event_time(video_dir.name, time_range_sec[1])
     primary_sector = sector_ids[0] if sector_ids else "unknown"
 
-    events: List[Dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
     events.append(SensorEvent(
         event_time=start_dt.isoformat(),
         ingest_time=start_dt.isoformat(),
@@ -177,7 +182,7 @@ def _video_events(video_dir: Path, *, node_id: str) -> List[Dict[str, Any]]:
     return events
 
 
-def _sector_index(full_fusion: Dict[str, Any], video_name: str) -> Tuple[List[str], List[float]]:
+def _sector_index(full_fusion: dict[str, Any], video_name: str) -> tuple[list[str], list[float]]:
     platform = full_fusion.get("platform") or {}
     origin = platform.get("origin_lla") or {}
     smoothed = ((full_fusion.get("map_state") or {}).get("smoothed_samples") or [])
@@ -202,7 +207,7 @@ def _base_event_time(video_name: str, t_sec: float) -> datetime:
     return base + timedelta(seconds=float(t_sec or 0.0))
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:

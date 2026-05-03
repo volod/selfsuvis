@@ -29,7 +29,7 @@ Environment variables:
 """
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import requests
 
@@ -54,11 +54,11 @@ def _map_result(
     *,
     map_status: str,
     message: str,
-    splat_path: Optional[str] = None,
-    splat_paths: Optional[List[str]] = None,
+    splat_path: str | None = None,
+    splat_paths: list[str] | None = None,
     scene_count: int = 0,
-    icp_results: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    icp_results: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     return {
         "map_status": map_status,
         "splat_path": splat_path,
@@ -69,14 +69,14 @@ def _map_result(
     }
 
 
-def _post(endpoint: str, payload: Dict[str, Any], timeout: int = 30) -> Dict[str, Any]:
+def _post(endpoint: str, payload: dict[str, Any], timeout: int = 30) -> dict[str, Any]:
     url = f"{settings.NERFSTUDIO_API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
     resp = requests.post(url, json=payload, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
 
-def _get(endpoint: str, timeout: int = 30) -> Dict[str, Any]:
+def _get(endpoint: str, timeout: int = 30) -> dict[str, Any]:
     url = f"{settings.NERFSTUDIO_API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
@@ -86,9 +86,9 @@ def _get(endpoint: str, timeout: int = 30) -> Dict[str, Any]:
 def _train_scene(
     mission_id: str,
     scene_label: str,
-    frame_list: List[Dict[str, Any]],
+    frame_list: list[dict[str, Any]],
     output_dir: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Submit and poll one splatfacto training job.
 
     Args:
@@ -165,9 +165,9 @@ def _train_scene(
 def _call_icp_fuse(
     source_path: str,
     target_path: str,
-    source_meta: Optional[Dict[str, Any]] = None,
-    target_meta: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
+    source_meta: dict[str, Any] | None = None,
+    target_meta: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Call POST /fuse on the ICP mapper service.
 
     Returns the parsed FuseResponse dict on success, or None if the mapper
@@ -176,7 +176,7 @@ def _call_icp_fuse(
     Raises MapperError on unexpected HTTP errors.
     """
     url = f"{settings.MAPPER_API_URL.rstrip('/')}/fuse"
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "source_path": source_path,
         "target_path": target_path,
     }
@@ -203,10 +203,10 @@ def _call_icp_fuse(
 def _fuse_splat_files(
     source_path: str,
     target_path: str,
-    transform_4x4: List[List[float]],
+    transform_4x4: list[list[float]],
     mission_id: str,
     scene_label: str,
-) -> Optional[str]:
+) -> str | None:
     """Transform source splat into target frame and merge with target.
 
     Writes the fused PLY alongside the source splat:
@@ -241,10 +241,10 @@ def _fuse_splat_files(
 
 def run_mapper(
     mission_id: str,
-    sfm_results: List[Dict[str, Any]],
+    sfm_results: list[dict[str, Any]],
     scene_count: int = 1,
-    target_splat_paths: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    target_splat_paths: list[str] | None = None,
+) -> dict[str, Any]:
     """Train splatfacto 3DGS model(s) for a mission.
 
     Handles scene chunking: if scene_count > 1, trains one model per connected
@@ -287,7 +287,7 @@ def run_mapper(
         return _map_result(map_status="skipped", message=msg)
 
     # Group registered frames by scene_index
-    scenes: Dict[int, List[Dict[str, Any]]] = {}
+    scenes: dict[int, list[dict[str, Any]]] = {}
     for r in registered:
         idx = r.get("scene_index") or 0
         scenes.setdefault(idx, []).append(
@@ -313,9 +313,9 @@ def run_mapper(
     use_chunking = len(valid_scenes) > 1
 
     try:
-        splat_paths: List[str] = []
-        failed_scenes: List[str] = []
-        icp_results: List[Dict[str, Any]] = []
+        splat_paths: list[str] = []
+        failed_scenes: list[str] = []
+        icp_results: list[dict[str, Any]] = []
 
         for scene_idx in sorted(valid_scenes.keys()):
             frame_list = valid_scenes[scene_idx]
@@ -342,7 +342,7 @@ def run_mapper(
                         if fuse_resp is None:
                             continue
 
-                        fused_path: Optional[str] = None
+                        fused_path: str | None = None
                         if fuse_resp.get("converged") and fuse_resp.get("transform_4x4"):
                             fused_path = _fuse_splat_files(
                                 new_splat, target_path,

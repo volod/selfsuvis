@@ -2,21 +2,21 @@
 
 
 import json
-import logging
 import math
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
 from ._common import (
-    _log,
     _RUNNER_LABEL,
     _SCENE_CHANGE_THRESH,
     _analyze_caption_sequence,
     _jaccard,
+    _log,
+    write_markdown_artifact,
 )
 from ._threat_contradictions import (
     contradiction_signals_for_threat,
@@ -24,7 +24,6 @@ from ._threat_contradictions import (
     summarize_contradictions,
     support_frame_names,
 )
-
 
 # ── Markdown helpers ──────────────────────────────────────────────────────────
 
@@ -37,27 +36,27 @@ def write_search_md(
     video_name: str,
     model_label: str,
     query_frame: str,
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
     query_t_sec: float,
 ) -> None:
     lines = [
         f"# {model_label} Transformation Test — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  ",
         f"Model: {model_label}",
-        f"",
-        f"## Query Frame",
-        f"",
+        "",
+        "## Query Frame",
+        "",
         f"**Timestamp:** {query_t_sec:.2f}s",
-        f"",
+        "",
         _md_image(os.path.relpath(query_frame, output_path.parent), "Query frame"),
-        f"",
+        "",
         f"## Top {len(results)} Similar Frames",
-        f"",
-        f"Query frame self-match and near-temporal neighbours (±1.0s) are excluded from the ranking.",
-        f"",
-        f"| Rank | Score | Timestamp | Frame |",
-        f"|------|-------|-----------|-------|",
+        "",
+        "Query frame self-match and near-temporal neighbours (±1.0s) are excluded from the ranking.",
+        "",
+        "| Rank | Score | Timestamp | Frame |",
+        "|------|-------|-----------|-------|",
     ]
     for i, r in enumerate(results, 1):
         payload = r.get("payload", r)
@@ -67,13 +66,13 @@ def write_search_md(
         rel = os.path.relpath(fp, output_path.parent) if fp else ""
         lines.append(f"| {i} | {score:.4f} | {t:.2f}s | {_md_image(rel, f'match {i}')} |")
     lines += ["", "---", f"*Artifact produced by {_RUNNER_LABEL}.*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
-def _diff_structured_caption(prev: Dict[str, Any], curr: Dict[str, Any]) -> str:
+def _diff_structured_caption(prev: dict[str, Any], curr: dict[str, Any]) -> str:
     """Return a short string describing what changed between two Qwen structured dicts."""
-    changes: List[str] = []
+    changes: list[str] = []
 
     prev_surface = prev.get("road_surface", "unknown")
     curr_surface = curr.get("road_surface", "unknown")
@@ -85,8 +84,8 @@ def _diff_structured_caption(prev: Dict[str, Any], curr: Dict[str, Any]) -> str:
     if prev_cond != curr_cond:
         changes.append(f"condition: {prev_cond}→{curr_cond}")
 
-    def _vehicle_signature(groups: list) -> Dict[str, int]:
-        sig: Dict[str, int] = {}
+    def _vehicle_signature(groups: list) -> dict[str, int]:
+        sig: dict[str, int] = {}
         for g in (groups or []):
             vtype = g.get("type", "other")
             sig[vtype] = sig.get(vtype, 0) + int(g.get("count") or 1)
@@ -113,7 +112,7 @@ def _diff_structured_caption(prev: Dict[str, Any], curr: Dict[str, Any]) -> str:
 def write_scene_captions_md(
     output_path: Path,
     video_name: str,
-    caption_results: List[Dict[str, Any]],
+    caption_results: list[dict[str, Any]],
     elapsed_sec: float,
     *,
     model_tag: str = "florence-2-large",
@@ -122,7 +121,7 @@ def write_scene_captions_md(
     enriched = _analyze_caption_sequence(caption_results)
 
     # Build segment-level summary
-    segments: List[Dict[str, Any]] = []
+    segments: list[dict[str, Any]] = []
     for r in enriched:
         if r["is_new_segment"]:
             segments.append({
@@ -141,18 +140,18 @@ def write_scene_captions_md(
 
     lines = [
         f"# Scene Captions — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Model: {model_tag}",
         f"Runtime mode: {runtime_mode}",
         f"Frames captioned: {len(caption_results)}  |  Unique scenes: {n_segments}"
         f"  |  Repeated frames: {n_unchanged}",
         f"Elapsed: {elapsed_sec:.1f}s",
-        f"",
-        f"## Scene Timeline",
-        f"",
-        f"| # | Start (s) | End (s) | Frames | Caption |",
-        f"|---|-----------|---------|--------|---------|",
+        "",
+        "## Scene Timeline",
+        "",
+        "| # | Start (s) | End (s) | Frames | Caption |",
+        "|---|-----------|---------|--------|---------|",
     ]
     for seg in segments:
         cap = seg["caption"].replace("|", "\\|")[:200]
@@ -162,13 +161,13 @@ def write_scene_captions_md(
         )
 
     lines += [
-        f"",
-        f"## Per-Frame Captions",
-        f"",
-        f"Frames with similarity ≥ 0.45 to the previous caption are marked *same scene*.",
-        f"",
-        f"| Frame | t (s) | Seg | Sim | Confidence | Caption |",
-        f"|-------|-------|-----|-----|------------|---------|",
+        "",
+        "## Per-Frame Captions",
+        "",
+        "Frames with similarity ≥ 0.45 to the previous caption are marked *same scene*.",
+        "",
+        "| Frame | t (s) | Seg | Sim | Confidence | Caption |",
+        "|-------|-------|-----|-----|------------|---------|",
     ]
     for r in enriched:
         fp   = r.get("frame_path", "")
@@ -184,7 +183,7 @@ def write_scene_captions_md(
         lines.append(f"| `{name}` | {t:.1f} | {seg} | {sim_str} | {conf:.3f} | {cap} |")
 
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · Florence-2-large · phase1 captioning*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
@@ -192,25 +191,25 @@ def _write_gemma_captions_md(
     output_path: Path,
     video_name: str,
     model_id: str,
-    captions: List[Dict[str, Any]],
+    captions: list[dict[str, Any]],
 ) -> None:
     """Write per-frame Gemma generative descriptions to a markdown file."""
     lines = [
         f"# Gemma Frame Descriptions -- {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Model: `{model_id}`  |  Frames: {len(captions)}",
-        f"",
-        f"| # | t (s) | Frame | Description |",
-        f"|---|-------|-------|-------------|",
+        "",
+        "| # | t (s) | Frame | Description |",
+        "|---|-------|-------|-------------|",
     ]
     for i, c in enumerate(captions, 1):
         fp   = Path(c.get("frame_path", "")).name
         t    = c.get("t_sec", 0.0)
         desc = c.get("description", "").replace("|", "\\|").replace("\n", " ")
         lines.append(f"| {i} | {t:.1f} | `{fp}` | {desc} |")
-    lines += ["", f"---", f"*Produced by {_RUNNER_LABEL}*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    lines += ["", "---", f"*Produced by {_RUNNER_LABEL}*"]
+    write_markdown_artifact(output_path, lines)
     _log.info("  Written %s", output_path)
 
 
@@ -218,22 +217,22 @@ def write_gemma_segment_captions_md(
     output_path: Path,
     video_name: str,
     model_id: str,
-    boundary_diffs: List[Dict[str, Any]],
+    boundary_diffs: list[dict[str, Any]],
 ) -> None:
     """Write Gemma segment-boundary diff descriptions to a markdown file."""
     lines = [
         f"# Gemma Segment Boundary Diffs — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Model: `{model_id}`  |  Boundaries: {len(boundary_diffs)}",
-        f"",
+        "",
         (
             "Each row shows the transition between two scene segments: the last frame of "
             "segment N and the first frame of segment N+1, with a Gemma-generated diff description."
         ),
-        f"",
-        f"| # | Seg N→N+1 | Before (t) | After (t) | What changed |",
-        f"|---|-----------|-----------|-----------|--------------|",
+        "",
+        "| # | Seg N→N+1 | Before (t) | After (t) | What changed |",
+        "|---|-----------|-----------|-----------|--------------|",
     ]
     for b in boundary_diffs:
         seg_label = f"{b.get('prev_segment_id', '?')}→{b.get('next_segment_id', '?')}"
@@ -242,7 +241,7 @@ def write_gemma_segment_captions_md(
         desc      = (b.get("diff_description") or "*(no description)*").replace("|", "\\|").replace("\n", " ")
         lines.append(f"| {b.get('boundary_idx', 0) + 1} | {seg_label} | {t_before} | {t_after} | {desc} |")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL}*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  Written %s", output_path)
 
 
@@ -251,23 +250,23 @@ def write_gemma_analysis_md(
     video_name: str,
     model_id: str,
     sample_n: int,
-    analysis: Dict[str, Any],
-    dino_comparison: Dict[str, Any],
-    text_query_results: List[Dict[str, Any]],
+    analysis: dict[str, Any],
+    dino_comparison: dict[str, Any],
+    text_query_results: list[dict[str, Any]],
     elapsed_sec: float,
-    clip_comparison: Optional[Dict[str, Any]] = None,
+    clip_comparison: dict[str, Any] | None = None,
 ) -> None:
     """Write Gemma multimodal analysis report to *output_path*."""
     lines = [
         f"# Gemma Open-Weight Analysis — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Model: `{model_id}`  |  Frames sampled: {sample_n}  |  Elapsed: {elapsed_sec:.1f}s",
-        f"",
-        f"## Analyses Performed",
-        f"",
-        f"| Analysis | Status |",
-        f"|----------|--------|",
+        "",
+        "## Analyses Performed",
+        "",
+        "| Analysis | Status |",
+        "|----------|--------|",
     ]
     for key, res in analysis.items():
         label = key.replace("_", " ").title()
@@ -285,28 +284,28 @@ def write_gemma_analysis_md(
         cg  = dino_comparison.get("mean_cossim_gemma", 0.0)
         cd  = dino_comparison.get("mean_cossim_dino", 0.0)
         lines += [
-            f"## Gemma vs DINOv3 Embedding Comparison",
-            f"",
+            "## Gemma vs DINOv3 Embedding Comparison",
+            "",
             f"Both models embedded the same {dino_comparison.get('n_frames', sample_n)} frames.",
             f"Gemma model: `{model_id}`.  DINOv3 model: `dinov3_vitb14`.",
-            f"",
-            f"| Metric | Gemma | DINOv3 |",
-            f"|--------|-------|--------|",
+            "",
+            "| Metric | Gemma | DINOv3 |",
+            "|--------|-------|--------|",
             f"| Mean pairwise cosine similarity | {cg:.4f} | {cd:.4f} |",
             f"| Mutual nearest-neighbor overlap (k={k}) | {mnn:.3f} | — |",
-            f"",
-            f"**Mean pairwise cosine similarity**: lower = more discriminative embedding space.",
-            f"",
+            "",
+            "**Mean pairwise cosine similarity**: lower = more discriminative embedding space.",
+            "",
             f"**MNN@{k}** ({mnn:.1%}): fraction of frames whose top-{k} visual neighbours agree",
-            f"between Gemma and DINOv3.",
-            f"",
+            "between Gemma and DINOv3.",
+            "",
         ]
     else:
         lines += [
-            f"## Gemma vs DINOv3 Embedding Comparison",
-            f"",
+            "## Gemma vs DINOv3 Embedding Comparison",
+            "",
             f"Skipped: {dino_comparison.get('reason', 'DINOv3 not available')}",
-            f"",
+            "",
         ]
 
     # CLIP comparison
@@ -317,26 +316,26 @@ def write_gemma_analysis_md(
         cg_c  = cc.get("mean_cossim_gemma", 0.0)
         cl_c  = cc.get("mean_cossim_clip", 0.0)
         lines += [
-            f"## Gemma vs CLIP Embedding Comparison",
-            f"",
+            "## Gemma vs CLIP Embedding Comparison",
+            "",
             f"Both models embedded the same {cc.get('n_frames', sample_n)} frames.",
             f"Gemma model: `{model_id}`.  CLIP model: `ViT-B-16/openai`.",
-            f"",
-            f"| Metric | Gemma | CLIP |",
-            f"|--------|-------|------|",
+            "",
+            "| Metric | Gemma | CLIP |",
+            "|--------|-------|------|",
             f"| Mean pairwise cosine similarity | {cg_c:.4f} | {cl_c:.4f} |",
             f"| Mutual nearest-neighbor overlap (k={k_c}) | {mnn_c:.3f} | — |",
-            f"",
+            "",
             f"**MNN@{k_c}** ({mnn_c:.1%}): fraction of frames whose top-{k_c} visual neighbours agree",
-            f"between Gemma and CLIP.",
-            f"",
+            "between Gemma and CLIP.",
+            "",
         ]
     elif cc:
         lines += [
-            f"## Gemma vs CLIP Embedding Comparison",
-            f"",
+            "## Gemma vs CLIP Embedding Comparison",
+            "",
             f"Skipped: {cc.get('reason', 'CLIP not available')}",
-            f"",
+            "",
         ]
 
     # Scene change detection
@@ -344,14 +343,14 @@ def write_gemma_analysis_md(
     if not sc.get("error") and sc.get("changes") is not None:
         changes = sc.get("changes", [])
         lines += [
-            f"## Scene Change Detection",
-            f"",
+            "## Scene Change Detection",
+            "",
             f"Cosine distance > {_SCENE_CHANGE_THRESH} between consecutive sampled frames.",
             f"Detected {sc.get('n_changes', 0)} transition(s).",
-            f"",
+            "",
         ]
         if changes:
-            lines += [f"| # | t (s) | Cosine Distance |", f"|---|-------|-----------------|"]
+            lines += ["| # | t (s) | Cosine Distance |", "|---|-------|-----------------|"]
             for i, ch in enumerate(changes[:15], 1):
                 lines.append(f"| {i} | {ch['t_sec']:.1f} | {ch['distance']:.4f} |")
             lines += [""]
@@ -360,12 +359,12 @@ def write_gemma_analysis_md(
     clf = analysis.get("scene_classification", {})
     if not clf.get("error") and clf.get("category_distribution"):
         lines += [
-            f"## Zero-Shot Scene Classification",
-            f"",
+            "## Zero-Shot Scene Classification",
+            "",
             f"Top predicted scene categories across {sample_n} frames:",
-            f"",
-            f"| Category | Frame Count |",
-            f"|----------|-------------|",
+            "",
+            "| Category | Frame Count |",
+            "|----------|-------------|",
         ]
         for cat, cnt in clf["category_distribution"].items():
             lines.append(f"| {cat} | {cnt} |")
@@ -374,12 +373,12 @@ def write_gemma_analysis_md(
     # Cross-modal text queries
     if text_query_results:
         lines += [
-            f"## Cross-Modal Text → Frame Retrieval",
-            f"",
-            f"Text probes (mean-pooled text embeddings) vs frame embeddings (cosine similarity):",
-            f"",
-            f"| Query | Best Frame (t) | Score |",
-            f"|-------|---------------|-------|",
+            "## Cross-Modal Text → Frame Retrieval",
+            "",
+            "Text probes (mean-pooled text embeddings) vs frame embeddings (cosine similarity):",
+            "",
+            "| Query | Best Frame (t) | Score |",
+            "|-------|---------------|-------|",
         ]
         for qr in text_query_results:
             q   = qr.get("query", "—")
@@ -397,22 +396,22 @@ def write_gemma_analysis_md(
     te = analysis.get("temporal_embedding", {})
     if not te.get("error"):
         lines += [
-            f"## Temporal Video Embedding",
-            f"",
+            "## Temporal Video Embedding",
+            "",
             f"Mean-pool of all {sample_n} frame embeddings → single video-level vector",
             f"(dim={te.get('dim', 0)}).  Can be used for video-level retrieval or comparison.",
-            f"",
+            "",
         ]
 
     # Clustering
     cl = analysis.get("scene_clustering", {})
     if not cl.get("error") and cl.get("n_clusters"):
         lines += [
-            f"## Scene Clustering",
-            f"",
+            "## Scene Clustering",
+            "",
             f"{cl['n_clusters']} semantic clusters from {sample_n} frames",
             f"(mean cluster size: {cl.get('mean_cluster_size', 0):.1f} frames).",
-            f"",
+            "",
         ]
 
     # ── Analysis interpretation ───────────────────────────────────────────────
@@ -548,7 +547,7 @@ def write_gemma_analysis_md(
         lines.append("")
 
     lines += ["---", f"*Produced by {_RUNNER_LABEL} — Gemma open-weight multimodal analysis.*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
@@ -559,9 +558,9 @@ def write_finetune_stats_md(
     best_loss: float,
     checkpoint_path: str,
     elapsed_sec: float,
-    loss_history: List[float],
+    loss_history: list[float],
 ) -> None:
-    from .steps_ssl import _analyze_loss_curve, _loss_sparkline, _interpret_finetune_results
+    from .steps_ssl import _analyze_loss_curve, _interpret_finetune_results, _loss_sparkline
 
     ckpt_mb    = os.path.getsize(checkpoint_path) / 1e6 if os.path.exists(checkpoint_path) else 0
     best_epoch = int(np.argmin(loss_history)) + 1 if loss_history else 0
@@ -572,86 +571,86 @@ def write_finetune_stats_md(
 
     lines = [
         f"# SSL Fine-Tuning Statistics — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"",
-        f"## What We Do",
-        f"",
-        f"**Self-Supervised Learning (SSL)** adapts a pre-trained vision backbone to the "
-        f"specific visual domain of this mission without any labelled annotations.",
-        f"",
-        f"### Method: NT-Xent Contrastive Loss",
-        f"",
-        f"We use **NT-Xent** (Normalised Temperature-scaled Cross Entropy, a.k.a. InfoNCE) "
-        f"contrastive learning:",
-        f"",
-        f"1. Each training step produces a batch of *positive pairs* (two views of the same scene).",
+        "",
+        "## What We Do",
+        "",
+        "**Self-Supervised Learning (SSL)** adapts a pre-trained vision backbone to the "
+        "specific visual domain of this mission without any labelled annotations.",
+        "",
+        "### Method: NT-Xent Contrastive Loss",
+        "",
+        "We use **NT-Xent** (Normalised Temperature-scaled Cross Entropy, a.k.a. InfoNCE) "
+        "contrastive learning:",
+        "",
+        "1. Each training step produces a batch of *positive pairs* (two views of the same scene).",
         f"2. The model encodes both views through the DINOv3 backbone + a small projection head "
         f"   (embed_dim={cfg.embed_dim} → proj_dim={cfg.proj_out_dim}).",
-        f"3. The loss pushes the two views of the same scene together in embedding space "
-        f"   and pushes all other pairs in the batch apart.",
+        "3. The loss pushes the two views of the same scene together in embedding space "
+        "   and pushes all other pairs in the batch apart.",
         f"4. Temperature τ={cfg.temperature} controls the sharpness of the distribution "
         f"   (lower = harder negatives, more informative but less stable).",
-        f"",
+        "",
         f"The backbone is **partially frozen**: the first {cfg.freeze_blocks} transformer blocks "
         f"are kept fixed (preserving generic low-level features), and only the top "
         f"{12 - cfg.freeze_blocks} blocks + projection head are trained. "
         f"This prevents catastrophic forgetting on a small video dataset.",
-        f"",
+        "",
         f"### Pair Construction Strategy: `{cfg.approach}`",
-        f"",
+        "",
     ]
 
     if cfg.approach == "track_cycle":
         lines += [
-            f"**Track cycle-consistency triplets** — RF-DETR track IDs provide triplets "
-            f"(A, B, C) of the same tracked object at times t, t+k, t+2k.",
-            f"Loss: NTXent(A,B) + NTXent(B,C) + 0.3·NTXent(A,C). "
-            f"The cycle term enforces that object identity is stable across the widest "
-            f"temporal gap in the triplet, preventing embedding drift along long tracks.",
+            "**Track cycle-consistency triplets** — RF-DETR track IDs provide triplets "
+            "(A, B, C) of the same tracked object at times t, t+k, t+2k.",
+            "Loss: NTXent(A,B) + NTXent(B,C) + 0.3·NTXent(A,C). "
+            "The cycle term enforces that object identity is stable across the widest "
+            "temporal gap in the triplet, preventing embedding drift along long tracks.",
         ]
     elif cfg.approach == "track":
         lines += [
-            f"**Track pairs** — RF-DETR track IDs provide pairs (A, B) of the same "
-            f"tracked object at two different times (gap 2–5 appearances). "
-            f"Crops are taken around the tracked bbox with 15 % padding.",
-            f"Rationale: same-object pairs encode identity consistency that full-frame "
-            f"temporal pairs cannot — the model must match the object across viewpoint "
-            f"and appearance changes, not just spatial proximity.",
+            "**Track pairs** — RF-DETR track IDs provide pairs (A, B) of the same "
+            "tracked object at two different times (gap 2–5 appearances). "
+            "Crops are taken around the tracked bbox with 15 % padding.",
+            "Rationale: same-object pairs encode identity consistency that full-frame "
+            "temporal pairs cannot — the model must match the object across viewpoint "
+            "and appearance changes, not just spatial proximity.",
         ]
     elif cfg.approach == "temporal":
         lines += [
             f"**Temporal pairs** — consecutive frames within ±{cfg.max_gap} positions "
             f"in the frame sequence form positive pairs.",
-            f"Rationale: adjacent frames in a 30 fps outdoor video show nearly the same scene, "
-            f"so pulling their embeddings together teaches the model scene-level consistency "
-            f"while naturally using real mission content (no synthetic augmentation needed).",
+            "Rationale: adjacent frames in a 30 fps outdoor video show nearly the same scene, "
+            "so pulling their embeddings together teaches the model scene-level consistency "
+            "while naturally using real mission content (no synthetic augmentation needed).",
         ]
     else:
         lines += [
-            f"**Augmentation pairs** — each frame is augmented twice with random crops, "
-            f"horizontal flips, colour jitter, and Gaussian blur.",
+            "**Augmentation pairs** — each frame is augmented twice with random crops, "
+            "horizontal flips, colour jitter, and Gaussian blur.",
             f"Rationale: fewer than {cfg.batch_size * 2} frames are available, so temporal "
             f"pairing would produce too few unique positive pairs. "
             f"Augmentation-based SSL is used as a fallback.",
         ]
 
     lines += [
-        f"",
-        f"### Optimiser",
-        f"",
-        f"| Component | Setting |",
-        f"|-----------|---------|",
-        f"| Optimiser | AdamW |",
+        "",
+        "### Optimiser",
+        "",
+        "| Component | Setting |",
+        "|-----------|---------|",
+        "| Optimiser | AdamW |",
         f"| Learning rate | {cfg.lr} |",
         f"| Weight decay | {cfg.weight_decay} |",
         f"| LR schedule | Cosine annealing over {cfg.epochs} epochs |",
         f"| Batch size | {cfg.batch_size} pairs |",
-        f"",
-        f"## Configuration",
-        f"",
-        f"| Parameter | Value |",
-        f"|-----------|-------|",
+        "",
+        "## Configuration",
+        "",
+        "| Parameter | Value |",
+        "|-----------|-------|",
         f"| Model | `{cfg.model_name}` |",
         f"| Approach | `{cfg.approach}` |",
         f"| Epochs | {cfg.epochs} |",
@@ -661,11 +660,11 @@ def write_finetune_stats_md(
         f"| Frozen blocks | {cfg.freeze_blocks} / 12 |",
         f"| Embed dim | {cfg.embed_dim} → proj {cfg.proj_out_dim} |",
         f"| Device | `{cfg.device}` |",
-        f"",
-        f"## Results",
-        f"",
-        f"| Metric | Value |",
-        f"|--------|-------|",
+        "",
+        "## Results",
+        "",
+        "| Metric | Value |",
+        "|--------|-------|",
         f"| Best loss | {best_loss:.4f} |",
         f"| Best epoch | {best_epoch}/{cfg.epochs} |",
         f"| First loss | {stats.get('first_loss', float('nan')):.4f} |",
@@ -675,28 +674,28 @@ def write_finetune_stats_md(
         f"| Training time | {elapsed_sec:.1f}s |",
         f"| Checkpoint size | {ckpt_mb:.1f} MB |",
         f"| Checkpoint path | `{checkpoint_path}` |",
-        f"",
-        f"## Result Analysis",
-        f"",
+        "",
+        "## Result Analysis",
+        "",
     ]
     for b in bullets:
         lines.append(f"- {b}")
-        lines.append(f"")
+        lines.append("")
 
     lines += [
-        f"## Loss Curve",
-        f"",
-        f"```",
+        "## Loss Curve",
+        "",
+        "```",
         f"high │{sparkline}│",
         f" low │{'─' * len(sparkline)}│",
         f"      epoch 1{'':>{max(0, len(sparkline) - 9)}}epoch {len(loss_history)}",
-        f"```",
-        f"",
+        "```",
+        "",
         f"*Each character represents {'one epoch' if len(loss_history) <= 40 else 'a range of epochs'}. "
         f"Higher bar = higher loss.*",
-        f"",
-        f"| Epoch | Loss | Δ vs prev | Trend |",
-        f"|-------|------|-----------|-------|",
+        "",
+        "| Epoch | Loss | Δ vs prev | Trend |",
+        "|-------|------|-----------|-------|",
     ]
     for ep, loss in enumerate(loss_history, 1):
         if ep == 1:
@@ -715,25 +714,25 @@ def write_finetune_stats_md(
         lines.append(f"| {ep} | {loss:.4f} | {delta_str} | {trend}{marker} |")
 
     lines += [
-        f"",
-        f"## How to Use This Checkpoint",
-        f"",
-        f"```bash",
+        "",
+        "## How to Use This Checkpoint",
+        "",
+        "```bash",
         f"export DINO_CHECKPOINT={checkpoint_path}",
-        f"python main.py --mode local --videos-dir data/videos",
-        f"```",
-        f"",
-        f"---",
+        "python main.py --mode local --videos-dir data/videos",
+        "```",
+        "",
+        "---",
         f"*Artifact produced by {_RUNNER_LABEL}. See `edge_models/` for ONNX export.*",
     ]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
 def write_distill_stats_md(
     output_path: Path,
     video_name: str,
-    stats: Dict[str, Any],
+    stats: dict[str, Any],
 ) -> None:
     loss_history    = stats.get("loss_history", [])
     recall_history  = stats.get("recall_history", [])
@@ -745,34 +744,34 @@ def write_distill_stats_md(
 
     lines = [
         f"# Knowledge Distillation — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"",
-        f"## Configuration",
-        f"",
-        f"| Parameter | Value |",
-        f"|-----------|-------|",
+        "",
+        "## Configuration",
+        "",
+        "| Parameter | Value |",
+        "|-----------|-------|",
         f"| Teacher | DINOv3 ViT-B/14 (fine-tuned SSL) — dim={stats.get('teacher_dim', 768)}, {t_params // 1_000_000}M params |",
         f"| Student | {stats.get('student_model', 'dinov2_vits14')} — dim={stats.get('student_dim', 384)}, {s_params // 1_000_000}M params |",
-        f"| Method | RKD-DA (distance + angle) + KoLeo spread regulariser + cosine anchor |",
-        f"| Loss weights | λ_D=25  λ_A=50  λ_kd=1.0  λ_koleo=0.1 |",
+        "| Method | RKD-DA (distance + angle) + KoLeo spread regulariser + cosine anchor |",
+        "| Loss weights | λ_D=25  λ_A=50  λ_kd=1.0  λ_koleo=0.1 |",
         f"| Epochs | {len(loss_history)} |",
         f"| Elapsed | {stats.get('elapsed', 0):.1f}s |",
-        f"",
-        f"## Results",
-        f"",
-        f"| Metric | Value |",
-        f"|--------|-------|",
+        "",
+        "## Results",
+        "",
+        "| Metric | Value |",
+        "|--------|-------|",
         f"| Best total loss | {stats.get('best_loss', float('nan')):.4f} |",
         f"| Best Recall@1 (student vs teacher) | {best_recall:.3f} |",
         f"| Compression ratio | {compression:.1f}× ({t_params // 1_000_000}M → {s_params // 1_000_000}M params) |",
         f"| Student dim | {stats.get('student_dim', 384)} (vs teacher {stats.get('teacher_dim', 768)}) |",
         f"| Best checkpoint | `{Path(stats.get('best_path', '')).name}` |",
-        f"",
-        f"## Per-Epoch Metrics",
-        f"",
-        f"| Epoch | Total | RKD-D | RKD-A | Cosine | KoLeo | Recall@1 |",
-        f"|-------|-------|-------|-------|--------|-------|----------|",
+        "",
+        "## Per-Epoch Metrics",
+        "",
+        "| Epoch | Total | RKD-D | RKD-A | Cosine | KoLeo | Recall@1 |",
+        "|-------|-------|-------|-------|--------|-------|----------|",
     ]
     n = len(loss_history)
     for i in range(n):
@@ -784,42 +783,42 @@ def write_distill_stats_md(
         lines.append(f"| {i+1} | {loss_history[i]:.4f} | {rd:.4f} | {ra:.4f} | {cos:.4f} | {kol:.4f} | {r1:.3f} |")
 
     lines += [
-        f"",
-        f"## Architecture",
-        f"",
-        f"```",
-        f"Teacher (frozen):  DINOv3 ViT-B/14  →  768-dim embedding",
-        f"                         ↓ RKD-DA (distance + angle) + cosine anchor",
-        f"Proj head (temp):  Linear(384 → 768, orthogonal init)  [discarded after training]",
-        f"                         ↑",
-        f"Student (trained): DINOv2 ViT-S/14  →  384-dim embedding",
-        f"                         ↑",
-        f"                    KoLeo spread regulariser (prevents collapse)",
-        f"```",
-        f"",
-        f"**RKD-DA** (Relational Knowledge Distillation) preserves pairwise neighbourhood",
-        f"topology in the student embedding space, directly optimising retrieval Recall@K.",
+        "",
+        "## Architecture",
+        "",
+        "```",
+        "Teacher (frozen):  DINOv3 ViT-B/14  →  768-dim embedding",
+        "                         ↓ RKD-DA (distance + angle) + cosine anchor",
+        "Proj head (temp):  Linear(384 → 768, orthogonal init)  [discarded after training]",
+        "                         ↑",
+        "Student (trained): DINOv2 ViT-S/14  →  384-dim embedding",
+        "                         ↑",
+        "                    KoLeo spread regulariser (prevents collapse)",
+        "```",
+        "",
+        "**RKD-DA** (Relational Knowledge Distillation) preserves pairwise neighbourhood",
+        "topology in the student embedding space, directly optimising retrieval Recall@K.",
         f"The student is {compression:.1f}× smaller and ~2× faster at inference.",
-        f"The projection head is used only during training to align embedding spaces.",
-        f"The saved checkpoint contains **only the student backbone weights**.",
-        f"",
-        f"---",
+        "The projection head is used only during training to align embedding spaces.",
+        "The saved checkpoint contains **only the student backbone weights**.",
+        "",
+        "---",
         f"*Artifact produced by {_RUNNER_LABEL}. Student exported to `edge_models/dino_local.onnx`.*",
     ]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
 def write_comparison_md(
     output_path: Path,
     video_name: str,
-    base_results: List[Dict],
-    ft_results: List[Dict],
+    base_results: list[dict],
+    ft_results: list[dict],
     base_infer_ms: float,
     ft_infer_ms: float,
     ckpt_mb: float,
     onnx_mb: float,
-    text_descriptions: List[Tuple[str, float]],
+    text_descriptions: list[tuple[str, float]],
 ) -> None:
     base_paths = {r.get("payload", r).get("frame_path", "") for r in base_results}
     ft_paths   = {r.get("payload", r).get("frame_path", "") for r in ft_results}
@@ -830,113 +829,113 @@ def write_comparison_md(
     avg_ft   = float(np.mean(ft_scores))   if ft_scores   else 0.0
     lines = [
         f"# Model Comparison — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"",
-        f"## Video-to-Text Description",
-        f"",
-        f"Top content descriptions (via CLIP text similarity):",
-        f"",
+        "",
+        "## Video-to-Text Description",
+        "",
+        "Top content descriptions (via CLIP text similarity):",
+        "",
     ]
     for desc, score in text_descriptions[:3]:
         lines.append(f"- **{desc}** (similarity: {score:.3f})")
     lines += [
-        f"",
-        f"## Search Quality Comparison",
-        f"",
-        f"| Metric | Base Model | Fine-tuned Model |",
-        f"|--------|-----------|-----------------|",
+        "",
+        "## Search Quality Comparison",
+        "",
+        "| Metric | Base Model | Fine-tuned Model |",
+        "|--------|-----------|-----------------|",
         f"| Avg top-5 score | {avg_base:.4f} | {avg_ft:.4f} |",
         f"| Δ score | — | {avg_ft - avg_base:+.4f} |",
         f"| Result overlap | {overlap}/{len(base_results)} frames in common | |",
-        f"",
-        f"## Model Statistics",
-        f"",
-        f"| Metric | Base Model | Fine-tuned (PyTorch) | Fine-tuned (ONNX) |",
-        f"|--------|-----------|---------------------|------------------|",
+        "",
+        "## Model Statistics",
+        "",
+        "| Metric | Base Model | Fine-tuned (PyTorch) | Fine-tuned (ONNX) |",
+        "|--------|-----------|---------------------|------------------|",
         f"| Checkpoint size | ~330 MB (hub) | {ckpt_mb:.1f} MB | {onnx_mb:.1f} MB |",
         f"| Inference time (GPU/CPU) | {base_infer_ms:.1f} ms/frame | {ft_infer_ms:.1f} ms/frame | — |",
-        f"",
-        f"## How to Use Artifacts",
-        f"",
-        f"- **`base_search.md`** — nearest-neighbour results with the pretrained DINOv3 backbone",
-        f"- **`finetuned_search.md`** — same query with the mission-adapted backbone",
-        f"- **`edge_models/dino_local.onnx`** — ONNX model for on-device inference (Jetson, Hailo-8)",
-        f"- **`edge_models/gallery.npz`** — embedding gallery for 1-NN classification",
-        f"- **`3d_map/`** — sparse 3D point cloud from Structure-from-Motion",
-        f"",
-        f"```python",
-        f"from pipeline.training.edge_inference import EdgeClassifier",
-        f"clf = EdgeClassifier('edge_models/dino_local.onnx', 'edge_models/gallery.npz')",
-        f"labels = clf.classify(frame_pil)   # [(label, score), ...]",
-        f"```",
-        f"",
-        f"---",
+        "",
+        "## How to Use Artifacts",
+        "",
+        "- **`base_search.md`** — nearest-neighbour results with the pretrained DINOv3 backbone",
+        "- **`finetuned_search.md`** — same query with the mission-adapted backbone",
+        "- **`edge_models/dino_local.onnx`** — ONNX model for on-device inference (Jetson, Hailo-8)",
+        "- **`edge_models/gallery.npz`** — embedding gallery for 1-NN classification",
+        "- **`3d_map/`** — sparse 3D point cloud from Structure-from-Motion",
+        "",
+        "```python",
+        "from pipeline.training.edge_inference import EdgeClassifier",
+        "clf = EdgeClassifier('edge_models/dino_local.onnx', 'edge_models/gallery.npz')",
+        "labels = clf.classify(frame_pil)   # [(label, score), ...]",
+        "```",
+        "",
+        "---",
         f"*Artifact produced by {_RUNNER_LABEL}.*",
     ]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
 def write_description_md(
     output_path: Path,
     video_name: str,
-    frame_list: List[Tuple[str, float]],
-    text_descriptions: List[Tuple[str, float]],
-    all_scored: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
+    text_descriptions: list[tuple[str, float]],
+    all_scored: list[tuple[str, float]],
 ) -> None:
     lines = [
         f"# Image-to-Text Description — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"",
-        f"## Top Video Descriptions",
-        f"",
-        f"Ranked by cosine similarity between the average CLIP frame embedding and each text prompt:",
-        f"",
-        f"| Rank | Description | Similarity |",
-        f"|------|-------------|-----------|",
+        "",
+        "## Top Video Descriptions",
+        "",
+        "Ranked by cosine similarity between the average CLIP frame embedding and each text prompt:",
+        "",
+        "| Rank | Description | Similarity |",
+        "|------|-------------|-----------|",
     ]
     for rank, (desc, score) in enumerate(text_descriptions, 1):
         lines.append(f"| {rank} | {desc} | {score:.4f} |")
     lines += [
-        f"",
-        f"## All Prompts Scored",
-        f"",
-        f"| Description | Similarity |",
-        f"|-------------|-----------|",
+        "",
+        "## All Prompts Scored",
+        "",
+        "| Description | Similarity |",
+        "|-------------|-----------|",
     ]
     for desc, score in all_scored:
         lines.append(f"| {desc} | {score:.4f} |")
-    lines += [f"", f"## Sample Frames", f"", f"Frames used for description (evenly spaced, up to 32):", f""]
+    lines += ["", "## Sample Frames", "", "Frames used for description (evenly spaced, up to 32):", ""]
     step = max(1, len(frame_list) // 8)
     for fp, t_sec in frame_list[::step][:8]:
         lines.append(f"- `{Path(fp).name}` (t={t_sec:.1f}s)")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · model: OpenCLIP ViT-B/16 (openai)*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
 def write_final_stats_md(
     output_path: Path,
-    per_video: List[Dict[str, Any]],
+    per_video: list[dict[str, Any]],
     total_elapsed: float,
 ) -> None:
     step_sum = sum(sum(v.get("timings", {}).values()) for v in per_video)
     concurrent_overlap = max(0.0, step_sum - total_elapsed)
     lines = [
-        f"# Local Full-Analysis Pipeline — Final Statistics",
-        f"",
+        "# Local Full-Analysis Pipeline — Final Statistics",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Total elapsed: {total_elapsed:.1f}s",
         f"Step-time sum: {step_sum:.1f}s",
         f"Concurrent overlap: {concurrent_overlap:.1f}s",
         f"Videos processed: {len(per_video)}",
-        f"",
-        f"## Step Timing",
-        f"",
-        f"Step totals are per-step durations. They may exceed elapsed time because the 3D map step can run in the background.",
-        f"",
+        "",
+        "## Step Timing",
+        "",
+        "Step totals are per-step durations. They may exceed elapsed time because the 3D map step can run in the background.",
+        "",
     ]
     names = [v.get("name", f"video{i}") for i, v in enumerate(per_video)]
     header = "| Step | Type | " + " | ".join(names) + " | Total |"
@@ -950,11 +949,11 @@ def write_final_stats_md(
         dur_cells = " | ".join(_fmt_sec(s) for s in vals)
         lines.append(f"| {label} | {comp_type} | {dur_cells} | **{_fmt_sec(total_step)}** |")
     lines += [
-        f"",
-        f"## Per-Video Summary",
-        f"",
-        f"| Video | Frames | Index (s) | Finetune loss | Distill loss | SfM poses | Ckpt (MB) |",
-        f"|-------|--------|-----------|---------------|--------------|-----------|-----------|",
+        "",
+        "## Per-Video Summary",
+        "",
+        "| Video | Frames | Index (s) | Finetune loss | Distill loss | SfM poses | Ckpt (MB) |",
+        "|-------|--------|-----------|---------------|--------------|-----------|-----------|",
     ]
     for i, v in enumerate(per_video):
         distill_loss = v.get("distill_loss", float("nan"))
@@ -968,79 +967,79 @@ def write_final_stats_md(
             f"{v.get('ckpt_mb', 0):.1f} |"
         )
     lines += [
-        f"",
-        f"## Artifacts",
-        f"",
+        "",
+        "## Artifacts",
+        "",
         f"Each video produced these outputs under `{output_path.parent}/{{video_name}}/`:",
-        f"",
-        f"| File | Description |",
-        f"|------|-------------|",
-        f"| `frames_metadata.json` | Extracted frame paths, timestamps, fps |",
-        f"| `base_search.md` | Nearest-neighbour results with base DINOv3 |",
-        f"| `scene_captions.md` | Per-frame Florence-2 captions (confidence scores) |",
-        f"| `finetune_stats.md` | SSL fine-tuning loss curve + config |",
-        f"| `finetuned_search.md` | Nearest-neighbour results with fine-tuned DINOv3 |",
-        f"| `comparison.md` | Base vs fine-tuned stats + video description |",
-        f"| `checkpoints/dino_ssl_best.pt` | Fine-tuned teacher backbone (PyTorch) |",
-        f"| `checkpoints/student_best.pt` | Distilled student backbone (PyTorch, ~22M params) |",
-        f"| `distill_stats.md` | Distillation loss curve + architecture notes |",
-        f"| `edge_models/dino_local.onnx` | ONNX export (student when distilled, teacher otherwise) |",
-        f"| `edge_models/gallery.npz` | Embedding gallery for 1-NN classification |",
-        f"| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step 05) |",
-        f"| `state_fusion.md` | Probabilistic platform-state posterior summary and covariance samples |",
-        f"| `state_fusion.json` | Raw local probabilistic platform-state posterior payload |",
-        f"| `physical_state_summary.json` | Clip-level physical state summary: pose confidence, occupancy, object velocity, free-space estimate |",
-        f"| `field_state_summary.json` | Coarse local environmental field summary for visibility, RF interference, and thermal anomaly evidence |",
-        f"| `threat_primitives.json` | Structured evidence-gated threat primitives with score, uncertainty, support, and persistence |",
-        f"| `local_threat_assessment.json` | Clip-level threat estimate, top threats, automation confidence, and contradiction metrics (step 26) |",
-        f"| `policy_decision.json` | Separated action-policy output with recommended action, rationale, and sensor-health context (step 27) |",
-        f"| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps 06-11) |",
-        f"| `detailed_captions.md` | Qwen VLM detailed per-frame scene captions with ASR context (step 12) |",
-        f"| `unidrive_analysis.md` | UniDriveVLA understanding, perception, planning, and MoE consensus (step 13) |",
-        f"| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison and MoE agreement summary (step 24) |",
-        f"| `video_synthesis.md` | LLM video ontology + fine-grained narrative (step 28) |",
-        f"| `agentic_flow.md` | Step-by-step agentic context trace, risk analysis, and context-propagation audit (step 29) |",
-        f"| `video_ontology.json` | Structured ontology JSON (domain, environment, activities, objects) |",
-        f"| `3d_map/sparse_map.npz` | 3D point cloud (from SfM or PCA fallback) |",
-        f"| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
-        f"| `3d_map/map_quality_advisor.json` | Measured mapping-quality diagnostics and readiness score |",
-        f"| `3d_map/map_quality_advisor.md` | Capture guidance and flight-plan recommendations for higher-quality maps |",
-        f"",
+        "",
+        "| File | Description |",
+        "|------|-------------|",
+        "| `frames_metadata.json` | Extracted frame paths, timestamps, fps |",
+        "| `base_search.md` | Nearest-neighbour results with base DINOv3 |",
+        "| `scene_captions.md` | Per-frame Florence-2 captions (confidence scores) |",
+        "| `finetune_stats.md` | SSL fine-tuning loss curve + config |",
+        "| `finetuned_search.md` | Nearest-neighbour results with fine-tuned DINOv3 |",
+        "| `comparison.md` | Base vs fine-tuned stats + video description |",
+        "| `checkpoints/dino_ssl_best.pt` | Fine-tuned teacher backbone (PyTorch) |",
+        "| `checkpoints/student_best.pt` | Distilled student backbone (PyTorch, ~22M params) |",
+        "| `distill_stats.md` | Distillation loss curve + architecture notes |",
+        "| `edge_models/dino_local.onnx` | ONNX export (student when distilled, teacher otherwise) |",
+        "| `edge_models/gallery.npz` | Embedding gallery for 1-NN classification |",
+        "| `asr_subtitles.md` | Whisper ASR segments + per-frame subtitle coverage (step 05) |",
+        "| `state_fusion.md` | Probabilistic platform-state posterior summary and covariance samples |",
+        "| `state_fusion.json` | Raw local probabilistic platform-state posterior payload |",
+        "| `physical_state_summary.json` | Clip-level physical state summary: pose confidence, occupancy, object velocity, free-space estimate |",
+        "| `field_state_summary.json` | Coarse local environmental field summary for visibility, RF interference, and thermal anomaly evidence |",
+        "| `threat_primitives.json` | Structured evidence-gated threat primitives with score, uncertainty, support, and persistence |",
+        "| `local_threat_assessment.json` | Clip-level threat estimate, top threats, automation confidence, and contradiction metrics (step 26) |",
+        "| `policy_decision.json` | Separated action-policy output with recommended action, rationale, and sensor-health context (step 27) |",
+        "| `multimodal_features.md` | OCR text, depth percentiles, detections, world model (steps 06-11) |",
+        "| `detailed_captions.md` | Qwen VLM detailed per-frame scene captions with ASR context (step 12) |",
+        "| `unidrive_analysis.md` | UniDriveVLA understanding, perception, planning, and MoE consensus (step 13) |",
+        "| `multi_model_comparison.md` | Gemma vs Qwen vs UniDriveVLA comparison and MoE agreement summary (step 24) |",
+        "| `video_synthesis.md` | LLM video ontology + fine-grained narrative (step 28) |",
+        "| `agentic_flow.md` | Step-by-step agentic context trace, risk analysis, and context-propagation audit (step 29) |",
+        "| `video_ontology.json` | Structured ontology JSON (domain, environment, activities, objects) |",
+        "| `3d_map/sparse_map.npz` | 3D point cloud (from SfM or PCA fallback) |",
+        "| `3d_map/map_stats.json` | Point count, SfM pose count, scene count |",
+        "| `3d_map/map_quality_advisor.json` | Measured mapping-quality diagnostics and readiness score |",
+        "| `3d_map/map_quality_advisor.md` | Capture guidance and flight-plan recommendations for higher-quality maps |",
+        "",
         f"Run-level artifacts are written under `{output_path.parent}/`:",
-        f"",
-        f"| File | Description |",
-        f"|------|-------------|",
-        f"| `model_run_advisor.json` | Post-run model, environment, and rerun recommendations for the current hardware |",
-        f"| `model_run_advisor.md` | Human-readable model/run optimization plan based on warnings and analytics |",
-        f"",
-        f"---",
-        f"*Run `python main.py --mode local --help` for all options.*",
+        "",
+        "| File | Description |",
+        "|------|-------------|",
+        "| `model_run_advisor.json` | Post-run model, environment, and rerun recommendations for the current hardware |",
+        "| `model_run_advisor.md` | Human-readable model/run optimization plan based on warnings and analytics |",
+        "",
+        "---",
+        "*Run `python main.py --mode local --help` for all options.*",
     ]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("✓ Final stats written to %s", output_path)
 
 
 def write_multimodal_md(
     output_path: Path,
     video_name: str,
-    asr_result: Dict[str, Any],
-    ocr_result: Dict[str, Any],
-    depth_result: Dict[str, Any],
-    det_result: Dict[str, Any],
-    world_result: Dict[str, Any],
-    state_fusion_result: Dict[str, Any],
-    qwen_result: Dict[str, Any],
-    unidrive_result: Dict[str, Any],
+    asr_result: dict[str, Any],
+    ocr_result: dict[str, Any],
+    depth_result: dict[str, Any],
+    det_result: dict[str, Any],
+    world_result: dict[str, Any],
+    state_fusion_result: dict[str, Any],
+    qwen_result: dict[str, Any],
+    unidrive_result: dict[str, Any],
 ) -> None:
     lines = [
         f"# Multimodal Features — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"",
-        f"## Summary",
-        f"",
-        f"| Step | Status | Detail |",
-        f"|------|--------|--------|",
+        "",
+        "## Summary",
+        "",
+        "| Step | Status | Detail |",
+        "|------|--------|--------|",
         f"| ASR (Whisper) | {'✓' if not asr_result.get('skipped') else '—'} | "
         f"{asr_result.get('covered_frames', 0)} frames with subtitles |",
         f"| OCR | {'✓' if not ocr_result.get('skipped') else '—'} | "
@@ -1057,7 +1056,7 @@ def write_multimodal_md(
         f"{qwen_result.get('ok_count', 0)} frames captioned |",
         f"| UniDriveVLA expert analysis | {'✓' if not unidrive_result.get('skipped') else '—'} | "
         f"{unidrive_result.get('ok_count', 0)} frames analysed |",
-        f"",
+        "",
     ]
     if not ocr_result.get("skipped"):
         lines += ["## OCR — Sample Text Extractions", ""]
@@ -1105,7 +1104,7 @@ def write_multimodal_md(
             "",
         ]
     lines += ["---", f"*Produced by {_RUNNER_LABEL} · multimodal steps M–S*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
@@ -1153,14 +1152,14 @@ def write_state_fusion_md(output_path: Path, video_name: str, fusion_result: Any
     if not samples:
         lines.append("| — | — | — | — | — | — | — | — | — |")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · probabilistic platform-state fusion MVP*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
 def write_detailed_captions_md(
     output_path: Path,
     video_name: str,
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
     elapsed_sec: float,
     model_id: str,
 ) -> None:
@@ -1169,7 +1168,7 @@ def write_detailed_captions_md(
     unavailable = sum(1 for r in results if r.get("service_unavailable"))
 
     # Build text captions for scene-segment detection from only valid structured rows.
-    text_results: List[Dict[str, Any]] = []
+    text_results: list[dict[str, Any]] = []
     for r in results:
         if r.get("service_unavailable") or r.get("skipped") or r.get("parse_error"):
             continue
@@ -1182,7 +1181,7 @@ def write_detailed_captions_md(
     }
 
     # Segment-level summary
-    segments: List[Dict[str, Any]] = []
+    segments: list[dict[str, Any]] = []
     for r in enriched_valid:
         if r["is_new_segment"]:
             segments.append({
@@ -1203,17 +1202,17 @@ def write_detailed_captions_md(
 
     lines = [
         f"# Detailed Scene Captions — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Model: {model_id}  |  Frames processed: {ok}/{len(results)}"
         f"  |  Unique scenes: {len(segments)}  |  Repeated: {n_unchanged}",
         f"Elapsed: {elapsed_sec:.1f}s",
         f"Structured parse errors: {parse_errors}/{len(results)}  |  Service unavailable: {unavailable}",
-        f"",
-        f"## Scene Timeline",
-        f"",
-        f"| # | Start (s) | End (s) | Frames | Road | Condition | Vehicles | Summary |",
-        f"|---|-----------|---------|--------|------|-----------|----------|---------|",
+        "",
+        "## Scene Timeline",
+        "",
+        "| # | Start (s) | End (s) | Frames | Road | Condition | Vehicles | Summary |",
+        "|---|-----------|---------|--------|------|-----------|----------|---------|",
     ]
     if not segments:
         lines += [
@@ -1234,24 +1233,24 @@ def write_detailed_captions_md(
         )
 
     lines += [
-        f"",
-        f"## Per-Frame Analysis",
-        f"",
-        f"The **Δ Changes** column shows structured fields that differ from the previous frame.",
-        f"Frames with no changes are marked *unchanged*.",
-        f"",
-        f"| Frame | t (s) | Seg | Δ Changes | Caption / Scene Facts | Audio Context |",
-        f"|-------|-------|-----|-----------|----------------------|---------------|",
+        "",
+        "## Per-Frame Analysis",
+        "",
+        "The **Δ Changes** column shows structured fields that differ from the previous frame.",
+        "Frames with no changes are marked *unchanged*.",
+        "",
+        "| Frame | t (s) | Seg | Δ Changes | Caption / Scene Facts | Audio Context |",
+        "|-------|-------|-----|-----------|----------------------|---------------|",
     ]
 
-    prev_structured: Dict[str, Any] = {}
+    prev_structured: dict[str, Any] = {}
     for r in results:
         fp       = r.get("frame_path", "")
         name     = Path(fp).name if fp else "—"
         t        = r.get("t_sec", 0.0)
         subtitle = (r.get("subtitle_text") or "").replace("|", "\\|")[:60]
         enriched_row = enriched_index.get((str(fp), float(t)))
-        seg      = str((enriched_row["segment_id"] + 1)) if enriched_row else "—"
+        seg      = str(enriched_row["segment_id"] + 1) if enriched_row else "—"
 
         if r.get("service_unavailable"):
             caption  = "*sidecar unavailable*"
@@ -1293,31 +1292,31 @@ def write_detailed_captions_md(
         lines.append(f"| `{name}` | {t:.1f} | {seg} | {delta} | {caption} | {subtitle} |")
 
     lines += [
-        f"",
-        f"---",
+        "",
+        "---",
         f"*Produced by {_RUNNER_LABEL} · Qwen VLM step 12 · ASR subtitle context injected where available*",
     ]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
 def write_unidrive_analysis_md(
     output_path: Path,
     video_name: str,
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
     elapsed_sec: float,
     model_id: str,
 ) -> None:
     ok = sum(1 for r in results if not r.get("service_unavailable") and not r.get("parse_error"))
     lines = [
         f"# UniDriveVLA Expert Analysis — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Model: {model_id}  |  Frames processed: {ok}/{len(results)}",
         f"Elapsed: {elapsed_sec:.1f}s",
-        f"",
-        f"| t (s) | Risk | Drivable | Expert Agreement | Understanding | Planning |",
-        f"|-------|------|----------|------------------|---------------|----------|",
+        "",
+        "| t (s) | Risk | Drivable | Expert Agreement | Understanding | Planning |",
+        "|-------|------|----------|------------------|---------------|----------|",
     ]
     for r in results:
         if r.get("service_unavailable"):
@@ -1350,17 +1349,17 @@ def write_unidrive_analysis_md(
             f"(agreement={moe.get('expert_agreement', 'unknown')}; disagreements: {dis_str})"
         )
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · UniDriveVLA step 13*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
 def write_multi_model_comparison_md(
     output_path: Path,
     video_name: str,
-    gemma_result: Dict[str, Any],
-    qwen_result: Dict[str, Any],
-    unidrive_result: Dict[str, Any],
-) -> Dict[str, Any]:
+    gemma_result: dict[str, Any],
+    qwen_result: dict[str, Any],
+    unidrive_result: dict[str, Any],
+) -> dict[str, Any]:
     qwen_rows = [
         r for r in qwen_result.get("results", [])
         if not r.get("service_unavailable") and not r.get("parse_error")
@@ -1370,12 +1369,12 @@ def write_multi_model_comparison_md(
         if not r.get("service_unavailable") and not r.get("parse_error")
     ]
 
-    def _nearest(rows: List[Dict[str, Any]], t_sec: float) -> Optional[Dict[str, Any]]:
+    def _nearest(rows: list[dict[str, Any]], t_sec: float) -> dict[str, Any] | None:
         if not rows:
             return None
         return min(rows, key=lambda r: abs(float(r.get("t_sec", 0.0)) - t_sec))
 
-    pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for u in uni_rows:
         q = _nearest(qwen_rows, float(u.get("t_sec", 0.0)))
         if q is None:
@@ -1383,8 +1382,8 @@ def write_multi_model_comparison_md(
         if abs(float(u.get("t_sec", 0.0)) - float(q.get("t_sec", 0.0))) <= 2.0:
             pairs.append((q, u))
 
-    agreement_scores: List[float] = []
-    example_rows: List[Tuple[float, str, str, str, str]] = []
+    agreement_scores: list[float] = []
+    example_rows: list[tuple[float, str, str, str, str]] = []
     for q, u in pairs[:10]:
         q_summary = str(q.get("scene_summary") or q.get("caption") or "")
         u_under = u.get("understanding", {}) or {}
@@ -1412,28 +1411,28 @@ def write_multi_model_comparison_md(
     agreement_levels = [((r.get("mixture_of_experts") or {}).get("expert_agreement", "unknown")) for r in uni_rows]
     lines = [
         f"# Multi-Model Comparison — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"",
-        f"## Coverage",
-        f"",
-        f"| Model family | Frames analysed | Primary output |",
-        f"|-------------|-----------------|----------------|",
+        "",
+        "## Coverage",
+        "",
+        "| Model family | Frames analysed | Primary output |",
+        "|-------------|-----------------|----------------|",
         f"| Gemma | {gemma_result.get('n_frames', 0)} | scene classification, clustering, cross-model probes |",
         f"| Qwen | {qwen_result.get('ok_count', 0)} | structured per-frame scene facts |",
         f"| UniDriveVLA | {len(uni_rows)} | understanding/perception/planning + MoE consensus |",
-        f"",
-        f"## Cross-Model Signals",
-        f"",
+        "",
+        "## Cross-Model Signals",
+        "",
         f"- Gemma dominant scene category: `{gemma_scene or 'unknown'}`",
         f"- Qwen ↔ UniDrive scene-summary token agreement: {mean_agreement:.3f} across {len(agreement_scores)} matched frames",
         f"- UniDrive risk profile: low={sum(1 for v in risk_levels if v == 'low')}, medium={sum(1 for v in risk_levels if v == 'medium')}, high={sum(1 for v in risk_levels if v == 'high')}",
         f"- UniDrive expert agreement: high={sum(1 for v in agreement_levels if v == 'high')}, medium={sum(1 for v in agreement_levels if v == 'medium')}, low={sum(1 for v in agreement_levels if v == 'low')}",
-        f"",
-        f"## Matched Examples",
-        f"",
-        f"| t (s) | Qwen summary | UniDrive understanding | UniDrive MoE consensus | Expert agreement |",
-        f"|-------|--------------|------------------------|------------------------|------------------|",
+        "",
+        "## Matched Examples",
+        "",
+        "| t (s) | Qwen summary | UniDrive understanding | UniDrive MoE consensus | Expert agreement |",
+        "|-------|--------------|------------------------|------------------------|------------------|",
     ]
     for t_sec, q_summary, u_summary, moe_summary, expert_agreement in example_rows:
         q_summary_md = q_summary.replace("|", "\\|")[:60]
@@ -1459,7 +1458,7 @@ def write_multi_model_comparison_md(
         "---",
         f"*Produced by {_RUNNER_LABEL} · multi-model comparison step 21*",
     ]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
     return {
         "matched_frames": len(agreement_scores),
@@ -1469,12 +1468,12 @@ def write_multi_model_comparison_md(
 
 
 def _normalise_threat_rows(
-    local_threat: Optional[Dict[str, Any]],
-    policy_decision: Optional[Dict[str, Any]],
-    threat_primitives_result: Optional[Dict[str, Any]],
-    unidrive_rows: Optional[List[Dict[str, Any]]],
-    physical_state: Optional[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    local_threat: dict[str, Any] | None,
+    policy_decision: dict[str, Any] | None,
+    threat_primitives_result: dict[str, Any] | None,
+    unidrive_rows: list[dict[str, Any]] | None,
+    physical_state: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
     local_threat = local_threat or {}
     policy_decision = policy_decision or {}
     threat_primitives_result = threat_primitives_result or {}
@@ -1486,7 +1485,7 @@ def _normalise_threat_rows(
         for p in (threat_primitives_result.get("primitives") or [])
         if p.get("type")
     }
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for threat in (local_threat.get("top_threats") or []):
         threat_type = str(threat.get("type", "unknown"))
         primitive = primitive_by_type.get(threat_type, {})
@@ -1525,29 +1524,29 @@ def _normalise_threat_rows(
 def write_video_synthesis_md(
     output_path: Path,
     video_name: str,
-    ontology: Dict[str, Any],
+    ontology: dict[str, Any],
     narrative: str,
     elapsed_sec: float,
     model_id: str,
-    local_threat: Optional[Dict[str, Any]] = None,
-    policy_decision: Optional[Dict[str, Any]] = None,
-    threat_primitives_result: Optional[Dict[str, Any]] = None,
-    unidrive_rows: Optional[List[Dict[str, Any]]] = None,
-    physical_state: Optional[Dict[str, Any]] = None,
+    local_threat: dict[str, Any] | None = None,
+    policy_decision: dict[str, Any] | None = None,
+    threat_primitives_result: dict[str, Any] | None = None,
+    unidrive_rows: list[dict[str, Any]] | None = None,
+    physical_state: dict[str, Any] | None = None,
 ) -> None:
     lines = [
         f"# Video Synthesis — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Model: {model_id}  |  Elapsed: {elapsed_sec:.1f}s",
-        f"",
+        "",
     ]
     if ontology:
         lines += [
-            f"## Video Ontology",
-            f"",
-            f"| Field | Value |",
-            f"|-------|-------|",
+            "## Video Ontology",
+            "",
+            "| Field | Value |",
+            "|-------|-------|",
         ]
         for k, v in ontology.items():
             val = json.dumps(v) if isinstance(v, (list, dict)) else str(v)
@@ -1555,10 +1554,10 @@ def write_video_synthesis_md(
         lines.append("")
     if narrative:
         lines += [
-            f"## Video Narrative",
-            f"",
+            "## Video Narrative",
+            "",
             narrative,
-            f"",
+            "",
         ]
     if local_threat and not local_threat.get("skipped"):
         threat_rows = _normalise_threat_rows(
@@ -1569,17 +1568,17 @@ def write_video_synthesis_md(
             physical_state,
         )
         lines += [
-            f"## Local Threat Assessment",
-            f"",
+            "## Local Threat Assessment",
+            "",
             f"- Local threat score: {float(local_threat.get('local_threat_score', 0.0)):.3f}",
             f"- Recommended action: `{(policy_decision or {}).get('recommended_action', local_threat.get('recommended_action', 'continue'))}`",
             f"- Automation confidence: {float(local_threat.get('automation_confidence', 1.0)):.3f}",
             f"- Trust penalty: {float(local_threat.get('trust_penalty', 0.0)):.3f}",
-            f"",
-            f"## Threat Evidence",
-            f"",
-            f"| threat_type | score | uncertainty | sensor_sources | disagreeing_sources | recommended_action |",
-            f"|-------------|-------|-------------|----------------|---------------------|--------------------|",
+            "",
+            "## Threat Evidence",
+            "",
+            "| threat_type | score | uncertainty | sensor_sources | disagreeing_sources | recommended_action |",
+            "|-------------|-------|-------------|----------------|---------------------|--------------------|",
         ]
         if threat_rows:
             for row in threat_rows:
@@ -1609,30 +1608,30 @@ def write_video_synthesis_md(
         ]
         lines.append("")
     lines += ["---", f"*Produced by {_RUNNER_LABEL} · synthesis step 28 · context from steps 01-27*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
 def write_agentic_flow_md(
     output_path: Path,
     video_name: str,
-    trace: List[Dict[str, Any]],
+    trace: list[dict[str, Any]],
     elapsed_sec: float,
     model_id: str,
     llm_analysis: str,
-    video_context: Optional[Dict[str, Any]] = None,
+    video_context: dict[str, Any] | None = None,
 ) -> None:
     video_context = video_context or {}
     lines = [
         f"# Agentic Flow Trace — {video_name}",
-        f"",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Reasoning model: {model_id}  |  Elapsed: {elapsed_sec:.1f}s",
-        f"",
-        f"## Step Trace",
-        f"",
-        f"| Step | Status | Context Received | Context Produced | Key Risks |",
-        f"|------|--------|------------------|------------------|-----------|",
+        "",
+        "## Step Trace",
+        "",
+        "| Step | Status | Context Received | Context Produced | Key Risks |",
+        "|------|--------|------------------|------------------|-----------|",
     ]
 
     for item in trace:
@@ -1695,7 +1694,7 @@ def write_agentic_flow_md(
     else:
         lines.append("Reasoning analysis unavailable.")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · final agentic audit step*"]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
 
@@ -1703,7 +1702,7 @@ def write_agentic_flow_md(
 
 # (timing_key, step_label, computation_type)
 # Ordered by typical execution sequence.
-_STEP_LABELS: List[Tuple[str, str, str]] = [
+_STEP_LABELS: list[tuple[str, str, str]] = [
     ("A_extract",         "01 Ingest: Frame extraction",           "I/O"           ),
     ("B_index",           "02 Ingest: Vector indexing",            "GPU embed"     ),
     ("J_gemma",           "03 Analyze: Gemma multimodal",          "LLM API"       ),
@@ -1741,16 +1740,19 @@ def _fmt_sec(sec: float) -> str:
     if math.isnan(sec) or sec < 0:
         return "—"
     if sec >= 3600:
-        h = int(sec // 3600); m = int((sec % 3600) // 60); s = int(sec % 60)
+        h = int(sec // 3600)
+        m = int((sec % 3600) // 60)
+        s = int(sec % 60)
         return f"{h}h {m:02d}m {s:02d}s"
     if sec >= 60:
-        m = int(sec // 60); s = sec % 60
+        m = int(sec // 60)
+        s = sec % 60
         return f"{m}m {s:04.1f}s"
     return f"{sec:.1f}s"
 
 
 def print_run_stats(
-    per_video: List[Dict[str, Any]],
+    per_video: list[dict[str, Any]],
     total_elapsed: float,
     init_elapsed: float,
     device: str,
@@ -1801,7 +1803,7 @@ def print_run_stats(
     _log.info("  " + SEP)
 
     # Group by computation type for the subtotals
-    by_type: Dict[str, float] = {}
+    by_type: dict[str, float] = {}
     col_totals = [0.0] * n_vids
     grand_total = 0.0
     for key, label, comp_type in _STEP_LABELS:
@@ -1947,7 +1949,7 @@ def print_run_stats(
     _log.info("  " + "═" * (W-2))
 
 
-def _fmt_analytics_coverage(summary: Dict[str, Any]) -> str:
+def _fmt_analytics_coverage(summary: dict[str, Any]) -> str:
     rh = summary.get("run_health", {}) or {}
     text = (
         f"{100.0 * float(rh.get('florence_caption_coverage', 0.0)):.0f}/"
@@ -1961,7 +1963,7 @@ def _fmt_analytics_coverage(summary: Dict[str, Any]) -> str:
     return text
 
 
-def _fmt_analytics_detections(summary: Dict[str, Any]) -> str:
+def _fmt_analytics_detections(summary: dict[str, Any]) -> str:
     ds = summary.get("detection_stats", {}) or {}
     total = ds.get("total_objects")
     mean_per_frame = ds.get("mean_per_frame")
@@ -1972,7 +1974,7 @@ def _fmt_analytics_detections(summary: Dict[str, Any]) -> str:
     return f"{int(total)} ({float(mean_per_frame):.1f}/fr)"
 
 
-def _fmt_analytics_temporal(summary: Dict[str, Any]) -> str:
+def _fmt_analytics_temporal(summary: dict[str, Any]) -> str:
     ts = summary.get("temporal_stats", {}) or {}
     mean_surprise = ts.get("mean_surprise")
     peak_frames = ts.get("peak_frames", []) or []
@@ -1981,7 +1983,7 @@ def _fmt_analytics_temporal(summary: Dict[str, Any]) -> str:
     return f"{float(mean_surprise):.3f} / {len(peak_frames)} peaks"
 
 
-def _fmt_analytics_world_tracking(summary: Dict[str, Any]) -> str:
+def _fmt_analytics_world_tracking(summary: dict[str, Any]) -> str:
     rh = summary.get("run_health", {}) or {}
     tr = summary.get("tracking_stats", {}) or {}
     world = "ok" if rh.get("world_model_ok") else "degraded"
@@ -1991,7 +1993,7 @@ def _fmt_analytics_world_tracking(summary: Dict[str, Any]) -> str:
     return f"{world} / {int(tracks)} tracks"
 
 
-def _fmt_analytics_map(summary: Dict[str, Any]) -> str:
+def _fmt_analytics_map(summary: dict[str, Any]) -> str:
     ms = summary.get("map_stats", {}) or {}
     if not ms:
         return "—"
@@ -2005,7 +2007,7 @@ def _fmt_analytics_map(summary: Dict[str, Any]) -> str:
     return f"{quality} ({points}p/{poses} poses)"
 
 
-def _fmt_analytics_warnings(summary: Dict[str, Any]) -> str:
+def _fmt_analytics_warnings(summary: dict[str, Any]) -> str:
     warnings = ((summary.get("run_health", {}) or {}).get("warnings", []) or [])
     if not warnings:
         return "—"

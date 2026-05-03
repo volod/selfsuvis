@@ -1,9 +1,9 @@
 """Local-run platform-state fusion helpers."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from selfsuvis.pipeline.fusion import run_platform_state_fusion, run_full_state_fusion
+from selfsuvis.pipeline.fusion import run_full_state_fusion, run_platform_state_fusion
 from selfsuvis.pipeline.media.gps import extract_gps
 
 from ._common import _log, write_json_artifact
@@ -12,10 +12,10 @@ from .steps_report import write_state_fusion_md
 
 def step_platform_state_fusion(
     video_path: Path,
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     frame_times_sec = [t_sec for _frame_path, t_sec in frame_list]
     gps_samples = extract_gps(str(video_path), [t_sec * 1000.0 for t_sec in frame_times_sec])
     fusion_result = run_platform_state_fusion(
@@ -47,15 +47,15 @@ def step_platform_state_fusion(
 
 def step_full_state_fusion(
     video_path: Path,
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
-    sfm_frame_positions: Optional[List[Dict[str, Any]]] = None,
-    tracking_results: Optional[List[Dict[str, Any]]] = None,
-    gemma_analysis: Optional[Dict[str, Any]] = None,
-    qwen_captions: Optional[List[Dict[str, Any]]] = None,
-    rssm_surprise_mean: Optional[float] = None,
-) -> Dict[str, Any]:
+    sfm_frame_positions: list[dict[str, Any]] | None = None,
+    tracking_results: list[dict[str, Any]] | None = None,
+    gemma_analysis: dict[str, Any] | None = None,
+    qwen_captions: list[dict[str, Any]] | None = None,
+    rssm_surprise_mean: float | None = None,
+) -> dict[str, Any]:
     """Run full four-layer probabilistic state fusion.
 
     Layers:

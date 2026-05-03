@@ -9,15 +9,16 @@ fresh enough to trust together.
 
 
 import math
+from collections.abc import Iterable
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 from selfsuvis.pipeline.core import settings
 from selfsuvis.pipeline.realtime.sidecar import RealtimeSidecarClient
 from selfsuvis.realtime_pilot.adapters import create_pose_adapter
 
 
-def _coerce_float(value: Any) -> Optional[float]:
+def _coerce_float(value: Any) -> float | None:
     try:
         if value is None:
             return None
@@ -26,7 +27,7 @@ def _coerce_float(value: Any) -> Optional[float]:
         return None
 
 
-def _quat_from_yaw(yaw_rad: float) -> Dict[str, float]:
+def _quat_from_yaw(yaw_rad: float) -> dict[str, float]:
     half = yaw_rad / 2.0
     return {
         "x": 0.0,
@@ -36,7 +37,7 @@ def _quat_from_yaw(yaw_rad: float) -> Dict[str, float]:
     }
 
 
-def _quat_from_euler(roll_rad: float, pitch_rad: float, yaw_rad: float) -> Dict[str, float]:
+def _quat_from_euler(roll_rad: float, pitch_rad: float, yaw_rad: float) -> dict[str, float]:
     cy = math.cos(yaw_rad * 0.5)
     sy = math.sin(yaw_rad * 0.5)
     cp = math.cos(pitch_rad * 0.5)
@@ -51,7 +52,7 @@ def _quat_from_euler(roll_rad: float, pitch_rad: float, yaw_rad: float) -> Dict[
     }
 
 
-def _payload_global_map_id(payload: Dict[str, Any]) -> Optional[int]:
+def _payload_global_map_id(payload: dict[str, Any]) -> int | None:
     value = payload.get("global_map_id")
     if value is None:
         return None
@@ -61,7 +62,7 @@ def _payload_global_map_id(payload: Dict[str, Any]) -> Optional[int]:
         return None
 
 
-def _gps_pose(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _gps_pose(packet: dict[str, Any]) -> dict[str, Any] | None:
     payload = packet.get("payload") or {}
     east = _coerce_float(payload.get("east"))
     north = _coerce_float(payload.get("north"))
@@ -86,7 +87,7 @@ def _gps_pose(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def _imu_orientation(payload: Dict[str, Any]) -> Optional[Dict[str, float]]:
+def _imu_orientation(payload: dict[str, Any]) -> dict[str, float] | None:
     quat = payload.get("orientation_quat")
     if isinstance(quat, dict):
         x = _coerce_float(quat.get("x"))
@@ -103,7 +104,7 @@ def _imu_orientation(payload: Dict[str, Any]) -> Optional[Dict[str, float]]:
     return None
 
 
-def _imu_pose(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _imu_pose(packet: dict[str, Any]) -> dict[str, Any] | None:
     payload = packet.get("payload") or {}
     orientation = _imu_orientation(payload)
     velocity = payload.get("velocity_enu")
@@ -130,7 +131,7 @@ def _imu_pose(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def _barometer_pose(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _barometer_pose(packet: dict[str, Any]) -> dict[str, Any] | None:
     payload = packet.get("payload") or {}
     altitude = _coerce_float(payload.get("altitude"))
     if altitude is None:
@@ -144,7 +145,7 @@ def _barometer_pose(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def _magnetometer_pose(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _magnetometer_pose(packet: dict[str, Any]) -> dict[str, Any] | None:
     payload = packet.get("payload") or {}
     heading = _coerce_float(payload.get("heading"))
     if heading is None:
@@ -158,7 +159,7 @@ def _magnetometer_pose(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def _trace_covariance(modalities: List[str], time_offsets_ms: Dict[str, int]) -> Dict[str, Any]:
+def _trace_covariance(modalities: list[str], time_offsets_ms: dict[str, int]) -> dict[str, Any]:
     freshness_penalty = sum(max(offset, 0) for offset in time_offsets_ms.values()) / 1000.0
     base = max(0.05, 1.0 - min(len(modalities), 4) * 0.18)
     return {
@@ -169,15 +170,15 @@ def _trace_covariance(modalities: List[str], time_offsets_ms: Dict[str, int]) ->
 
 
 def build_fused_pose_from_packets(
-    packets: Iterable[Dict[str, Any]],
+    packets: Iterable[dict[str, Any]],
     *,
     max_lag_ms: int,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     sorted_packets = sorted(packets, key=lambda packet: float(packet["t_device"]))
     if not sorted_packets:
         return None
 
-    latest_by_type: Dict[str, Dict[str, Any]] = {}
+    latest_by_type: dict[str, dict[str, Any]] = {}
     for packet in sorted_packets:
         latest_by_type[packet["sensor_type"]] = packet
 
@@ -195,7 +196,7 @@ def build_fused_pose_from_packets(
     ]
     anchor_t = max(anchors)
 
-    def is_fresh(item: Optional[Dict[str, Any]]) -> bool:
+    def is_fresh(item: dict[str, Any] | None) -> bool:
         if item is None:
             return False
         return abs(anchor_t - float(item["t_sec"])) * 1000.0 <= max_lag_ms
@@ -274,11 +275,11 @@ def build_fused_pose_from_packets(
     }
 
 
-def build_stub_pose_from_packet(packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def build_stub_pose_from_packet(packet: dict[str, Any]) -> dict[str, Any] | None:
     return build_fused_pose_from_packets([packet], max_lag_ms=0)
 
 
-def normalize_pose_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_pose_payload(payload: dict[str, Any]) -> dict[str, Any]:
     position = dict(payload.get("position_enu") or {})
     orientation = payload.get("orientation_quat")
     velocity = payload.get("velocity_enu")
@@ -306,7 +307,7 @@ class RealtimePoseClient(RealtimeSidecarClient):
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
+        base_url: str | None = None,
         *,
         timeout_sec: float = 5.0,
     ) -> None:
@@ -322,8 +323,8 @@ class RealtimePoseClient(RealtimeSidecarClient):
         self,
         *,
         session_id: str,
-        packets: List[Dict[str, Any]],
-    ) -> Optional[Dict[str, Any]]:
+        packets: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
         if not self.is_configured:
             return None
         payload = {"session_id": session_id, "packets": packets}
@@ -334,7 +335,7 @@ class RealtimePoseClient(RealtimeSidecarClient):
         return normalize_pose_payload(pose)
 
 
-def pose_freshness_ms(created_at: Any, now: Optional[datetime] = None) -> Optional[int]:
+def pose_freshness_ms(created_at: Any, now: datetime | None = None) -> int | None:
     if created_at is None:
         return None
     if isinstance(created_at, str):

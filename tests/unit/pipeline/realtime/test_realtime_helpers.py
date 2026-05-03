@@ -3,22 +3,30 @@
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
 import pytest
 
 from selfsuvis.pipeline.media.drone_bridge import bridge_mavlink_messages, frame_capture_to_packet
 from selfsuvis.pipeline.media.mavlink import mavlink_message_to_packets
 from selfsuvis.pipeline.media.ros_bridge import ros_message_to_packets
 from selfsuvis.pipeline.realtime.ingest import normalize_packets
-from selfsuvis.pipeline.realtime.occupancy import default_tile_key, normalize_map_tile, write_stub_map_tile
+from selfsuvis.pipeline.realtime.occupancy import (
+    default_tile_key,
+    normalize_map_tile,
+    write_stub_map_tile,
+)
 from selfsuvis.pipeline.realtime.pose import (
     build_fused_pose_from_packets,
     build_stub_pose_from_packet,
     normalize_pose_payload,
     pose_freshness_ms,
 )
-from selfsuvis.pipeline.realtime.semantics import normalize_semantic_observation, project_detection_to_enu
-from selfsuvis.pipeline.realtime.session import build_sensor_profile
+from selfsuvis.pipeline.realtime.semantics import (
+    normalize_semantic_observation,
+    project_detection_to_enu,
+)
 from selfsuvis.pipeline.realtime.sensors import packet_sensor_summary
+from selfsuvis.pipeline.realtime.session import build_sensor_profile
 
 
 def test_normalize_packets_lowercases_and_coerces_types():

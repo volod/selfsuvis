@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
+from typing import Any
 
 import asyncpg
 
@@ -41,7 +41,7 @@ async def init_db_conn(conn) -> None:
     await conn.execute(_CREATE_TABLE_SQL)
 
 
-async def aget_by_hash(file_hash: str, conn=None) -> Optional[Dict[str, Any]]:
+async def aget_by_hash(file_hash: str, conn=None) -> dict[str, Any] | None:
     async with _borrow_conn(conn) as db:
         if db is None:
             return None
@@ -52,7 +52,7 @@ async def aget_by_hash(file_hash: str, conn=None) -> Optional[Dict[str, Any]]:
         return _row_to_dict(row) if row else None
 
 
-async def aget_by_url(url: str, conn=None) -> Optional[Dict[str, Any]]:
+async def aget_by_url(url: str, conn=None) -> dict[str, Any] | None:
     async with _borrow_conn(conn) as db:
         if db is None:
             return None
@@ -63,7 +63,7 @@ async def aget_by_url(url: str, conn=None) -> Optional[Dict[str, Any]]:
         return _row_to_dict(row) if row else None
 
 
-async def aget_by_size(size_bytes: int, conn=None) -> Optional[Dict[str, Any]]:
+async def aget_by_size(size_bytes: int, conn=None) -> dict[str, Any] | None:
     async with _borrow_conn(conn) as db:
         if db is None:
             return None
@@ -87,7 +87,7 @@ async def aupsert(
     size_bytes: int,
     mtime: float,
     status: str,
-    meta: Dict[str, Any],
+    meta: dict[str, Any],
     conn=None,
 ) -> None:
     async with _borrow_conn(conn) as db:
@@ -134,15 +134,15 @@ def init_db() -> None:
     asyncio.run(ainit_db())
 
 
-def get_by_hash(file_hash: str) -> Optional[Dict[str, Any]]:
+def get_by_hash(file_hash: str) -> dict[str, Any] | None:
     return asyncio.run(aget_by_hash(file_hash))
 
 
-def get_by_url(url: str) -> Optional[Dict[str, Any]]:
+def get_by_url(url: str) -> dict[str, Any] | None:
     return asyncio.run(aget_by_url(url))
 
 
-def get_by_size(size_bytes: int) -> Optional[Dict[str, Any]]:
+def get_by_size(size_bytes: int) -> dict[str, Any] | None:
     return asyncio.run(aget_by_size(size_bytes))
 
 
@@ -153,12 +153,12 @@ def upsert(
     size_bytes: int,
     mtime: float,
     status: str,
-    meta: Dict[str, Any],
+    meta: dict[str, Any],
 ) -> None:
     asyncio.run(aupsert(file_hash, video_id, path, size_bytes, mtime, status, meta))
 
 
-def _row_to_dict(row) -> Dict[str, Any]:
+def _row_to_dict(row) -> dict[str, Any]:
     meta = decoded_json(row["meta_json"], default={})
     return {
         "file_hash": row["file_hash"],

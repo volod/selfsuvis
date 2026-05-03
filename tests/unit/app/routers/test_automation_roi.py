@@ -10,8 +10,6 @@ import time
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 # ── Stub asyncpg before any imports that use it ───────────────────────────────
 if "asyncpg" not in sys.modules:
     _asyncpg = types.ModuleType("asyncpg")

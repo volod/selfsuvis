@@ -2,10 +2,9 @@
 
 import json
 import logging
-import math
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from selfsuvis.pipeline.fusion import FieldCellEstimate, FieldObservation, FieldStateResult
 from selfsuvis.pipeline.vision.rf_analyzer import RFSignalAnalyzer, _find_iq_sidecar
@@ -39,7 +38,7 @@ def _trend_label(gradient: float) -> str:
     return "stable"
 
 
-def _linear_gradient(observations: List[FieldObservation]) -> float:
+def _linear_gradient(observations: list[FieldObservation]) -> float:
     if len(observations) < 2:
         return 0.0
     xs = [float(obs.t_sec) for obs in observations]
@@ -56,14 +55,14 @@ def _linear_gradient(observations: List[FieldObservation]) -> float:
 def _field_cell_from_observations(
     field_type: str,
     cell_id: str,
-    observations: List[FieldObservation],
-) -> Optional[FieldCellEstimate]:
+    observations: list[FieldObservation],
+) -> FieldCellEstimate | None:
     if not observations:
         return None
     intensities = [obs.intensity for obs in observations]
     uncertainties = [obs.uncertainty for obs in observations]
-    support_frames: List[str] = []
-    evidence_sources: List[str] = []
+    support_frames: list[str] = []
+    evidence_sources: list[str] = []
     for obs in observations:
         if obs.frame_path and obs.frame_path not in support_frames:
             support_frames.append(obs.frame_path)
@@ -84,12 +83,12 @@ def _field_cell_from_observations(
 
 
 def _build_visibility_observations(
-    frame_list: List[Tuple[str, float]],
-    depth_result: Dict[str, Any],
-    physical_state_result: Dict[str, Any],
-    caption_results: List[Dict[str, Any]],
-    unidrive_result: Dict[str, Any],
-) -> List[FieldObservation]:
+    frame_list: list[tuple[str, float]],
+    depth_result: dict[str, Any],
+    physical_state_result: dict[str, Any],
+    caption_results: list[dict[str, Any]],
+    unidrive_result: dict[str, Any],
+) -> list[FieldObservation]:
     depth_rows = {
         str(r.get("frame_path", "")): r
         for r in (depth_result.get("depth_results") or [])
@@ -107,14 +106,14 @@ def _build_visibility_observations(
     }
     occupancy = _safe_float(physical_state_result.get("near_field_occupancy_density", 0.0), 0.0)
 
-    observations: List[FieldObservation] = []
+    observations: list[FieldObservation] = []
     for frame_path, t_sec in frame_list:
         fp = str(frame_path)
         depth_row = depth_rows.get(fp, {})
         caption_row = captions_by_path.get(fp, {})
         unidrive_row = unidrive_rows.get(fp, {})
 
-        sources: List[str] = []
+        sources: list[str] = []
         depth_term = 0.0
         if depth_row:
             if depth_row.get("depth_error") or depth_row.get("depth_unavailable") or depth_row.get("depth_disabled"):
@@ -132,8 +131,8 @@ def _build_visibility_observations(
 
         semantic_blob = " ".join([
             str(caption_row.get("caption", "") or caption_row.get("description", "") or ""),
-            str(((unidrive_row.get("understanding") or {}).get("scene_summary", "") or "")),
-            str(((unidrive_row.get("perception") or {}).get("environment", "") or "")),
+            str((unidrive_row.get("understanding") or {}).get("scene_summary", "") or ""),
+            str((unidrive_row.get("perception") or {}).get("environment", "") or ""),
         ]).lower()
         semantic_term = 0.0
         if any(term in semantic_blob for term in _VISIBILITY_TERMS):
@@ -165,8 +164,8 @@ def _build_visibility_observations(
 
 def _build_rf_observations(
     video_path: Path,
-    frame_list: List[Tuple[str, float]],
-) -> List[FieldObservation]:
+    frame_list: list[tuple[str, float]],
+) -> list[FieldObservation]:
     iq_path, _source = _find_iq_sidecar(str(video_path))
     if not iq_path:
         return []
@@ -176,7 +175,7 @@ def _build_rf_observations(
         [float(t_sec) for _fp, t_sec in frame_list],
         audio_wav_path=None,
     )
-    observations: List[FieldObservation] = []
+    observations: list[FieldObservation] = []
     for (frame_path, t_sec), row in zip(frame_list, rf_rows):
         signal = row.get("rf_signal") or {}
         if not signal or signal.get("rf_insufficient_samples") or signal.get("rf_spectrogram_error"):
@@ -188,7 +187,7 @@ def _build_rf_observations(
         intensity = _clamp01(flatness * 0.45 + occupied * 0.35 + low_snr * 0.20)
         if intensity <= 0.10:
             continue
-        sources: List[str] = []
+        sources: list[str] = []
         if flatness > 0.55:
             sources.append("rf_spectral_flatness")
         if occupied > 0.40:
@@ -216,10 +215,10 @@ def _build_rf_observations(
 
 
 def _build_thermal_observations(
-    frame_list: List[Tuple[str, float]],
-    caption_results: List[Dict[str, Any]],
-    unidrive_result: Dict[str, Any],
-) -> List[FieldObservation]:
+    frame_list: list[tuple[str, float]],
+    caption_results: list[dict[str, Any]],
+    unidrive_result: dict[str, Any],
+) -> list[FieldObservation]:
     captions_by_path = {
         str(r.get("frame_path", "")): r
         for r in (caption_results or [])
@@ -230,15 +229,15 @@ def _build_thermal_observations(
         for r in (unidrive_result.get("results") or [])
         if r.get("frame_path")
     }
-    observations: List[FieldObservation] = []
+    observations: list[FieldObservation] = []
     for frame_path, t_sec in frame_list:
         fp = str(frame_path)
         caption_row = captions_by_path.get(fp, {})
         unidrive_row = unidrive_rows.get(fp, {})
         blob = " ".join([
             str(caption_row.get("caption", "") or caption_row.get("description", "") or ""),
-            str(((unidrive_row.get("understanding") or {}).get("scene_summary", "") or "")),
-            str(((unidrive_row.get("perception") or {}).get("scene_elements", "") or "")),
+            str((unidrive_row.get("understanding") or {}).get("scene_summary", "") or ""),
+            str((unidrive_row.get("perception") or {}).get("scene_elements", "") or ""),
         ]).lower()
         matches = [term for term in _THERMAL_TERMS if term in blob]
         if not matches:
@@ -263,12 +262,12 @@ def step_field_state(
     video_path: Path,
     video_dir: Path,
     video_name: str,
-    frame_list: List[Tuple[str, float]],
-    depth_result: Dict[str, Any],
-    physical_state_result: Dict[str, Any],
-    caption_results: List[Dict[str, Any]],
-    unidrive_result: Dict[str, Any],
-) -> Dict[str, Any]:
+    frame_list: list[tuple[str, float]],
+    depth_result: dict[str, Any],
+    physical_state_result: dict[str, Any],
+    caption_results: list[dict[str, Any]],
+    unidrive_result: dict[str, Any],
+) -> dict[str, Any]:
     """Aggregate coarse continuous-field summaries from local evidence."""
     t0 = time.time()
 
@@ -297,9 +296,9 @@ def step_field_state(
         _log.info("  [field state] no field evidence available — skipped")
         return payload
 
-    cells: List[FieldCellEstimate] = []
-    clip_level_fields: Dict[str, Dict[str, Any]] = {}
-    field_types: List[str] = []
+    cells: list[FieldCellEstimate] = []
+    clip_level_fields: dict[str, dict[str, Any]] = {}
+    field_types: list[str] = []
     for field_type, observations in (
         ("visibility", visibility_obs),
         ("rf_interference", rf_obs),
@@ -349,6 +348,6 @@ def step_field_state(
     return payload
 
 
-def _write_json(video_dir: Path, payload: Dict[str, Any]) -> None:
+def _write_json(video_dir: Path, payload: dict[str, Any]) -> None:
     out = video_dir / "field_state_summary.json"
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")

@@ -1,11 +1,13 @@
 """Packet normalization for realtime sensor ingest."""
 
 
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
+
 from .sensors import require_supported_sensor_type
 
 
-def normalize_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_packet(packet: dict[str, Any]) -> dict[str, Any]:
     sensor_type = require_supported_sensor_type(packet.get("sensor_type", ""))
     if "t_device" not in packet:
         raise ValueError("packet missing t_device")
@@ -17,5 +19,5 @@ def normalize_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def normalize_packets(packets: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def normalize_packets(packets: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return [normalize_packet(packet) for packet in packets]

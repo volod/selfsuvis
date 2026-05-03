@@ -8,13 +8,17 @@ Modes:
 """
 
 import warnings
-warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
-                        category=FutureWarning)
 
-from selfsuvis.pipeline.workflows import build_parser
+warnings.filterwarnings(
+    "ignore",
+    message="Importing from timm.models.layers is deprecated",
+    category=FutureWarning,
+)
 
 
 def main() -> None:
+    from selfsuvis.pipeline.workflows import build_parser
+
     parser = build_parser()
     args = parser.parse_args()
 

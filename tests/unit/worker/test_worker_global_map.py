@@ -27,12 +27,9 @@ not imported directly.
 import asyncio
 import os
 import tempfile
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
-import pytest
-
 
 # ── synthetic splat helper ────────────────────────────────────────────────────
 
@@ -110,7 +107,7 @@ class MockConn:
             return [_Row(**r) for r in self._gmm if r["global_map_id"] == gm_id]
         raise NotImplementedError(f"fetch: {query[:60]}")
 
-    async def fetchrow(self, query: str, *args) -> Optional[_Row]:
+    async def fetchrow(self, query: str, *args) -> _Row | None:
         q = query.strip().upper()
         if "FROM GLOBAL_MAP WHERE ID" in q:
             gm_id = args[0]
@@ -161,11 +158,10 @@ async def _simulate_db_and_map(
     conn: MockConn,
     mission_id: str,
     global_map_id: int,
-    mapper_result: Dict[str, Any],
+    mapper_result: dict[str, Any],
 ) -> None:
     """Execute the _db_and_map logic against a MockConn."""
     from selfsuvis.pipeline.storage.global_maps import (
-        get_global_map_splats,
         register_mission,
         update_global_map_splat,
         update_mission_splat_path,
@@ -250,6 +246,7 @@ class TestUpdateMissionSplatPath:
 
     def test_updated_at_is_recent(self):
         from datetime import datetime, timezone
+
         from selfsuvis.pipeline.storage.global_maps import update_mission_splat_path
         conn = MockConn()
         conn._missions = [{"id": "m1", "splat_path": None, "updated_at": 0.0}]

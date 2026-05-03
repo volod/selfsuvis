@@ -3,7 +3,7 @@
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class Row(dict):
@@ -20,11 +20,11 @@ class PipelineMockConn:
     """Simulate asyncpg Connection behavior used by pipeline integration tests."""
 
     def __init__(self):
-        self._jobs: Dict[str, Row] = {}
-        self._missions: Dict[str, Row] = {}
-        self._frames: Dict[str, Row] = {}
-        self._timeline: List[Row] = []
-        self._processed: Dict[str, Row] = {}
+        self._jobs: dict[str, Row] = {}
+        self._missions: dict[str, Row] = {}
+        self._frames: dict[str, Row] = {}
+        self._timeline: list[Row] = []
+        self._processed: dict[str, Row] = {}
 
     @staticmethod
     def _min_dt() -> datetime:
@@ -131,7 +131,7 @@ class PipelineMockConn:
                 if f_id in self._frames:
                     self._frames[f_id]["global_pose_json"] = json.loads(pose_j)
 
-    async def fetchrow(self, query: str, *args) -> Optional[Row]:
+    async def fetchrow(self, query: str, *args) -> Row | None:
         q = query.strip().upper()
         if "FROM JOBS WHERE ID" in q:
             return self._jobs.get(args[0])
@@ -150,7 +150,7 @@ class PipelineMockConn:
             return sum(1 for m in self._missions.values() if m["status"] == args[0]) if args else len(self._missions)
         return None
 
-    async def fetch(self, query: str, *args) -> List[Row]:
+    async def fetch(self, query: str, *args) -> list[Row]:
         q = query.strip().upper()
 
         if "FROM FRAMES" in q and "ORDER BY CREATED_AT ASC" in q:
@@ -196,7 +196,7 @@ class PipelineMockConn:
 class PipelineMockPool:
     """Wrap PipelineMockConn so it supports `async with pool.acquire() as conn`."""
 
-    def __init__(self, conn: Optional[PipelineMockConn] = None):
+    def __init__(self, conn: PipelineMockConn | None = None):
         self.conn = conn or PipelineMockConn()
 
     def acquire(self):
@@ -233,9 +233,9 @@ def make_frame_record(
     gps_lon: float = 8.0,
     al_tag: str = "none",
     al_score: float = 0.1,
-    caption: Optional[str] = None,
-    qdrant_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    caption: str | None = None,
+    qdrant_id: int | None = None,
+) -> dict[str, Any]:
     return {
         "id": frame_id,
         "mission_id": mission_id,

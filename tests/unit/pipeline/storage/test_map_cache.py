@@ -2,24 +2,23 @@
 import json
 import math
 from io import BytesIO
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
-from selfsuvis.pipeline.storage.map_cache import build_map_cache, _PAGE_SIZE
-
+from selfsuvis.pipeline.storage.map_cache import build_map_cache
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _make_point(
-    clip: List[float],
+    clip: list[float],
     mission_id: str = "m1",
     t_sec: float = 1.0,
-    gps: Optional[Dict] = None,
-    enu: Optional[Dict] = None,
-    robot_id: Optional[str] = "robot_0",
+    gps: dict | None = None,
+    enu: dict | None = None,
+    robot_id: str | None = "robot_0",
     frame_path: str = "/data/frames/f.jpg",
 ) -> MagicMock:
     pt = MagicMock()
@@ -38,7 +37,7 @@ def _make_point(
     return pt
 
 
-def _make_store(points: List[MagicMock]) -> MagicMock:
+def _make_store(points: list[MagicMock]) -> MagicMock:
     store = MagicMock()
     store.collection_name = "test"
     # scroll returns (results, next_offset); single page with no next

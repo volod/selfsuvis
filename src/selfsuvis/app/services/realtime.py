@@ -2,12 +2,12 @@
 
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from selfsuvis.pipeline.core import settings
 from selfsuvis.pipeline.realtime import (
-    build_sensor_profile,
     build_fused_pose_from_packets,
+    build_sensor_profile,
     new_session_id,
     normalize_map_tile,
     normalize_packets,
@@ -18,27 +18,27 @@ from selfsuvis.pipeline.realtime import (
 )
 from selfsuvis.pipeline.realtime.occupancy import RealtimeOccupancyClient, write_stub_map_tile
 from selfsuvis.pipeline.realtime.pose import RealtimePoseClient
-from selfsuvis.pipeline.vision.depth import DepthModel
 from selfsuvis.pipeline.storage.jobs import create_job
 from selfsuvis.pipeline.storage.missions import upsert_mission
 from selfsuvis.pipeline.storage.realtime import (
     create_robot_session,
     fetch_realtime_state,
     insert_realtime_pose,
-    insert_sensor_packets,
     insert_semantic_observation,
-    list_realtime_frames,
+    insert_sensor_packets,
     list_map_tiles,
+    list_realtime_frames,
     list_semantic_observations,
-    summarize_realtime_session,
     stop_robot_session,
-    upsert_realtime_frame,
+    summarize_realtime_session,
     upsert_map_tile,
+    upsert_realtime_frame,
 )
+from selfsuvis.pipeline.vision.depth import DepthModel
 from selfsuvis.realtime_pilot.adapters import describe_occupancy_backends, describe_pose_backends
 
 
-async def _require_realtime_state(conn, session_id: str) -> Dict[str, Any]:
+async def _require_realtime_state(conn, session_id: str) -> dict[str, Any]:
     state = await fetch_realtime_state(conn, session_id)
     if state is None:
         raise LookupError("session not found")
@@ -49,7 +49,7 @@ async def _store_session_payload(
     conn,
     *,
     session_id: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     normalize_fn,
     store_fn,
 ) -> None:
@@ -58,24 +58,24 @@ async def _store_session_payload(
     await store_fn(conn, session_id=session_id, **normalized)
 
 
-async def _list_session_payloads(conn, *, session_id: str, list_fn, **kwargs: Any) -> List[Dict[str, Any]]:
+async def _list_session_payloads(conn, *, session_id: str, list_fn, **kwargs: Any) -> list[dict[str, Any]]:
     await _require_realtime_state(conn, session_id)
     return await list_fn(conn, session_id, **kwargs)
 
 
-def _pose_client() -> Optional[RealtimePoseClient]:
+def _pose_client() -> RealtimePoseClient | None:
     if settings.REALTIME_POSE_BACKEND == "stub":
         return None
     return RealtimePoseClient()
 
 
-def _occupancy_client() -> Optional[RealtimeOccupancyClient]:
+def _occupancy_client() -> RealtimeOccupancyClient | None:
     if settings.REALTIME_OCCUPANCY_BACKEND == "stub":
         return None
     return RealtimeOccupancyClient()
 
 
-def _row_to_pose_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+def _row_to_pose_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "source": row["source"],
         "t_sec": float(row["t_sec"]),
@@ -91,9 +91,9 @@ def _row_to_pose_payload(row: Dict[str, Any]) -> Dict[str, Any]:
 async def _estimate_realtime_pose(
     *,
     session_id: str,
-    packets: List[Dict[str, Any]],
-    latest_pose_row: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
+    packets: list[dict[str, Any]],
+    latest_pose_row: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     pose_client = _pose_client()
     if pose_client is not None and pose_client.is_configured and packets:
         try:
@@ -114,7 +114,7 @@ async def _estimate_realtime_pose(
     return None
 
 
-async def _collect_client_stats(client) -> Dict[str, Any]:
+async def _collect_client_stats(client) -> dict[str, Any]:
     if client is None:
         return {}
     try:
@@ -127,9 +127,9 @@ async def start_realtime_session(
     conn,
     *,
     robot_id: str,
-    mission_id: Optional[str],
-    sensors: List[str],
-) -> Dict[str, Any]:
+    mission_id: str | None,
+    sensors: list[str],
+) -> dict[str, Any]:
     session_id = new_session_id()
     sensor_profile = build_sensor_profile(sensors)
     await create_robot_session(
@@ -148,7 +148,7 @@ async def start_realtime_session(
     }
 
 
-async def ingest_realtime_packets(conn, *, session_id: str, packets: List[Dict[str, Any]]) -> Dict[str, Any]:
+async def ingest_realtime_packets(conn, *, session_id: str, packets: list[dict[str, Any]]) -> dict[str, Any]:
     normalized = normalize_packets(packets)
     if len(normalized) > settings.REALTIME_PACKET_BATCH_SIZE:
         raise ValueError(f"too many packets: max {settings.REALTIME_PACKET_BATCH_SIZE}")
@@ -180,8 +180,8 @@ async def ingest_realtime_packets(conn, *, session_id: str, packets: List[Dict[s
     }
 
 
-async def collect_realtime_stats() -> Dict[str, Any]:
-    stats: Dict[str, Any] = {
+async def collect_realtime_stats() -> dict[str, Any]:
+    stats: dict[str, Any] = {
         "pose_backend": settings.REALTIME_POSE_BACKEND,
         "occupancy_backend": settings.REALTIME_OCCUPANCY_BACKEND,
     }
@@ -194,7 +194,7 @@ async def collect_realtime_stats() -> Dict[str, Any]:
     return stats
 
 
-def list_realtime_backends() -> Dict[str, Any]:
+def list_realtime_backends() -> dict[str, Any]:
     return {
         "selected": {
             "pose_backend": settings.REALTIME_POSE_BACKEND,
@@ -209,20 +209,20 @@ async def integrate_realtime_frame(
     conn,
     *,
     session_id: str,
-    frame_id: Optional[str],
+    frame_id: str | None,
     t_sec: float,
     image_path: str,
-    packets: Optional[List[Dict[str, Any]]] = None,
-    semantic_observations: Optional[List[Dict[str, Any]]] = None,
-    pose: Optional[Dict[str, Any]] = None,
-    depth_path: Optional[str] = None,
+    packets: list[dict[str, Any]] | None = None,
+    semantic_observations: list[dict[str, Any]] | None = None,
+    pose: dict[str, Any] | None = None,
+    depth_path: str | None = None,
     map_type: str = "occupancy",
-    tile_key: Optional[str] = None,
-    stats: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    tile_key: str | None = None,
+    stats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     state = await _require_realtime_state(conn, session_id)
 
-    normalized_packets: List[Dict[str, Any]] = []
+    normalized_packets: list[dict[str, Any]] = []
     if packets:
         normalized_packets = normalize_packets(packets)
         await insert_sensor_packets(conn, session_id, normalized_packets)
@@ -256,6 +256,7 @@ async def integrate_realtime_frame(
         try:
             import numpy as np
             from PIL import Image
+
             from selfsuvis.pipeline.realtime.occupancy import realtime_tile_dir
 
             image = Image.open(image_path).convert("RGB")
@@ -342,7 +343,7 @@ async def integrate_realtime_frame(
     }
 
 
-async def publish_map_tile(conn, *, session_id: str, tile: Dict[str, Any]) -> None:
+async def publish_map_tile(conn, *, session_id: str, tile: dict[str, Any]) -> None:
     await _store_session_payload(
         conn,
         session_id=session_id,
@@ -356,9 +357,9 @@ async def fetch_map_tiles(
     conn,
     *,
     session_id: str,
-    map_type: Optional[str] = None,
+    map_type: str | None = None,
     limit: int = 50,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     return await _list_session_payloads(
         conn,
         session_id=session_id,
@@ -368,7 +369,7 @@ async def fetch_map_tiles(
     )
 
 
-async def publish_semantic_observation(conn, *, session_id: str, observation: Dict[str, Any]) -> None:
+async def publish_semantic_observation(conn, *, session_id: str, observation: dict[str, Any]) -> None:
     await _store_session_payload(
         conn,
         session_id=session_id,
@@ -382,9 +383,9 @@ async def fetch_semantic_observations(
     conn,
     *,
     session_id: str,
-    class_name: Optional[str] = None,
+    class_name: str | None = None,
     limit: int = 50,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     return await _list_session_payloads(
         conn,
         session_id=session_id,
@@ -398,9 +399,9 @@ async def finalize_realtime_session(
     conn,
     *,
     session_id: str,
-    recording_path: Optional[str] = None,
+    recording_path: str | None = None,
     enqueue_index_job: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     state = await _require_realtime_state(conn, session_id)
     session = state["session"]
     mission_id = session.get("mission_id") or f"realtime-{session_id}"
@@ -429,7 +430,7 @@ async def finalize_realtime_session(
         gps_origin=gps_origin,
     )
 
-    job_id: Optional[str] = None
+    job_id: str | None = None
     if enqueue_index_job and recording_path:
         job_id = uuid.uuid4().hex
         await create_job(

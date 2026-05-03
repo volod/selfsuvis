@@ -4,9 +4,8 @@ Uses the FastAPI test client with mocked DB pool and Qdrant.
 No live PostgreSQL or GPU required.
 """
 
-import json
 import sys
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -26,8 +25,9 @@ sys.modules.setdefault("selfsuvis.app.state", _state_stub)
 def client():
     """Return a TestClient for the FastAPI app with auth bypassed."""
     from fastapi import FastAPI
+
+    from selfsuvis.app.deps import rate_limit, require_api_key
     from selfsuvis.app.routers.scene import router
-    from selfsuvis.app.deps import require_api_key, rate_limit
 
     # Minimal app — just the scene router with auth/rate-limit overridden
     app = FastAPI()
@@ -46,7 +46,7 @@ def client():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_db_row(**kwargs) -> Dict[str, Any]:
+def _make_db_row(**kwargs) -> dict[str, Any]:
     """Build a fake asyncpg row-like dict."""
     defaults = {
         "frame_id": "frame_001",

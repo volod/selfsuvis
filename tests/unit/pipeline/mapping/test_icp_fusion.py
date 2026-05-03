@@ -3,10 +3,8 @@
 Tests that don't require open3d use the GPS/overlap helpers directly.
 Tests that call register_splats are skipped when open3d is not installed.
 """
-import math
 from pathlib import Path
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import numpy as np
 import pytest
@@ -26,9 +24,9 @@ skip_no_open3d = pytest.mark.skipif(not _HAS_OPEN3D, reason="open3d not installe
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
-_META_A: Dict[str, Any] = {"origin_lat": 48.0, "origin_lon": 11.0, "origin_alt": 100.0}
-_META_B: Dict[str, Any] = {"origin_lat": 48.00005, "origin_lon": 11.00005, "origin_alt": 100.0}  # ~7m NE
-_META_C: Dict[str, Any] = {"origin_lat": 48.05, "origin_lon": 11.05, "origin_alt": 100.0}        # ~6km away
+_META_A: dict[str, Any] = {"origin_lat": 48.0, "origin_lon": 11.0, "origin_alt": 100.0}
+_META_B: dict[str, Any] = {"origin_lat": 48.00005, "origin_lon": 11.00005, "origin_alt": 100.0}  # ~7m NE
+_META_C: dict[str, Any] = {"origin_lat": 48.05, "origin_lon": 11.05, "origin_alt": 100.0}        # ~6km away
 
 
 # ── check_overlap ─────────────────────────────────────────────────────────────

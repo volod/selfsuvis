@@ -14,16 +14,15 @@ All tests run without GPU, Docker, or real model weights.
 VideoIndexer.__init__ is bypassed via object.__new__ + direct attribute injection.
 """
 
-from typing import Any, Dict, List
-from unittest.mock import MagicMock, call, patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PIL import Image
 
-
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _make_records(n: int, tmp_path, *, base_t: float = 0.0) -> List[Dict[str, Any]]:
+def _make_records(n: int, tmp_path, *, base_t: float = 0.0) -> list[dict[str, Any]]:
     """Return n minimal frame_record dicts with valid PNGs under tmp_path."""
     records = []
     for i in range(n):
@@ -140,7 +139,7 @@ class TestRunASRPass:
 # ── Florence pass ─────────────────────────────────────────────────────────────
 
 class TestRunFlorencePass:
-    def _make_florence_model(self, captions: List[tuple]) -> MagicMock:
+    def _make_florence_model(self, captions: list[tuple]) -> MagicMock:
         """Return a fake FlorenceModel with given (caption, confidence) pairs."""
         m = MagicMock()
         m.model_tag = "florence-2-large"
@@ -186,7 +185,7 @@ class TestRunFlorencePass:
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
 
-        received_sizes: List[List] = []
+        received_sizes: list[list] = []
 
         def fake_caption_batch(imgs, batch_size=16):
             received_sizes.append([img.size for img in imgs])
@@ -209,7 +208,7 @@ class TestRunFlorencePass:
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 2)
 
-        call_sizes: List[int] = []
+        call_sizes: list[int] = []
 
         def fake_caption_batch(imgs, batch_size=2):
             call_sizes.append(len(imgs))
@@ -320,7 +319,7 @@ class TestRunOCRPass:
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 2)
 
-        call_sizes: List[int] = []
+        call_sizes: list[int] = []
 
         def fake_batch(imgs):
             call_sizes.append(len(imgs))
@@ -507,7 +506,7 @@ class TestRunDetectionPass:
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 4)
 
-        call_sizes: List[int] = []
+        call_sizes: list[int] = []
 
         def fake_detect(imgs):
             call_sizes.append(len(imgs))
@@ -541,7 +540,7 @@ class TestRunDetectionPass:
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 8)
 
-        received_sizes: List[tuple] = []
+        received_sizes: list[tuple] = []
 
         def fake_detect(imgs):
             received_sizes.append(tuple(img.size for img in imgs))
@@ -630,7 +629,7 @@ class TestRunSegmentationPass:
 # ── World model pass ──────────────────────────────────────────────────────────
 
 class TestRunWorldModelPass:
-    def _make_world_model(self, result: Dict[str, Any]) -> MagicMock:
+    def _make_world_model(self, result: dict[str, Any]) -> MagicMock:
         wm = MagicMock()
         wm.is_enabled.return_value = True
         wm.process_clip.return_value = result

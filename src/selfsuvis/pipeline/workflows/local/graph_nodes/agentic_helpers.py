@@ -7,14 +7,14 @@ No LangGraph imports here so helpers can be unit-tested independently.
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import httpx
 
 _log = logging.getLogger(__name__)
 
 # Default tracking targets used when Gemma JSON parse fails completely.
-DEFAULT_TRACKING_TARGETS: List[str] = ["person", "vehicle", "sign"]
+DEFAULT_TRACKING_TARGETS: list[str] = ["person", "vehicle", "sign"]
 
 # Minimum cosine similarity for a Gemma claim to be considered frame-supported.
 GEMMA_CLAIM_MIN_SIM: float = 0.25
@@ -25,7 +25,7 @@ MOE_CONSENSUS_THRESHOLD: float = 0.5
 
 # ── JSON guard ────────────────────────────────────────────────────────────────
 
-def json_guard(raw: str, required_keys: List[str]) -> Optional[Dict[str, Any]]:
+def json_guard(raw: str, required_keys: list[str]) -> dict[str, Any] | None:
     """Parse *raw* as JSON and return the dict only if all *required_keys* present."""
     try:
         # Strip markdown code fences if present.
@@ -47,18 +47,18 @@ def json_guard(raw: str, required_keys: List[str]) -> Optional[Dict[str, Any]]:
 
 def llm_call_with_retry(
     endpoint: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
     max_attempts: int = 3,
     backoff_base: float = 2.0,
     timeout_sec: float = 120.0,
-) -> Tuple[str, int]:
+) -> tuple[str, int]:
     """POST *payload* to *endpoint* up to *max_attempts* times.
 
     Returns ``(response_text, attempt_number_used)`` on success.
     Raises ``RuntimeError`` if all attempts fail.
     """
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
             resp = httpx.post(endpoint, json=payload, timeout=timeout_sec)
@@ -133,7 +133,7 @@ def _jaccard(a: str, b: str) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
-def moe_consensus_score(expert_outputs: List[Dict[str, Any]], field: str = "recommended_action") -> float:
+def moe_consensus_score(expert_outputs: list[dict[str, Any]], field: str = "recommended_action") -> float:
     """Mean pairwise Jaccard similarity of *field* across expert outputs."""
     texts = [str(e.get(field, "")) for e in expert_outputs if field in e]
     if len(texts) < 2:
@@ -148,10 +148,10 @@ def moe_consensus_score(expert_outputs: List[Dict[str, Any]], field: str = "reco
 
 
 def low_agreement_frames(
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
     experts_key: str = "experts",
     threshold: float = MOE_CONSENSUS_THRESHOLD,
-) -> List[int]:
+) -> list[int]:
     """Return indices of frames whose MoE consensus score is below *threshold*."""
     low = []
     for idx, frame_result in enumerate(results):
@@ -166,10 +166,10 @@ def low_agreement_frames(
 
 # ── Evidence summary builder ──────────────────────────────────────────────────
 
-def build_evidence_summary(state: Dict[str, Any]) -> str:
+def build_evidence_summary(state: dict[str, Any]) -> str:
     """Build a concise factual evidence string from accumulated state for critique prompts."""
     vc = state.get("video_context", {})
-    parts: List[str] = []
+    parts: list[str] = []
     if vc.get("gemma_analysis"):
         ga = vc["gemma_analysis"]
         parts.append(f"Gemma: scene_type={ga.get('task_results', {}).get('scene_type', '?')}, "

@@ -6,22 +6,20 @@ Contains: model/store init, per-video orchestrator, and the top-level
 
 
 import json
-import logging
 import os
 import re
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from PIL import Image
 
-from selfsuvis.pipeline.core import resolve_device, settings
-from selfsuvis.pipeline.media import extract_frames
-from selfsuvis.pipeline.storage import InMemoryStore
-from selfsuvis.pipeline.mapping.viewer import view_npz, _HAS_MPL
 from selfsuvis.models.openclip_model import OpenCLIPEmbedder
+from selfsuvis.pipeline.core import resolve_device, settings
+from selfsuvis.pipeline.mapping.viewer import _HAS_MPL, view_npz
+from selfsuvis.pipeline.storage import InMemoryStore
 
 try:
     from selfsuvis.models.dino_model import DINOEmbedder
@@ -36,14 +34,14 @@ except Exception:
     _HAS_GEMMA = False
 
 from ._common import (
-    _log,
-    _banner,
-    _step,
-    _Timer,
-    _configure_logging,
-    _configure_warnings,
     _TEXT_PROMPTS,
     VideoKnowledge,
+    _banner,
+    _configure_logging,
+    _configure_warnings,
+    _log,
+    _step,
+    _Timer,
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -56,13 +54,13 @@ _VIDEO_EXTS  = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 _SSL_GATE_MAX_LOSS = 10.0
 
 
-def _build_local_run_analytics_payload(summary: Any) -> Dict[str, Any]:
+def _build_local_run_analytics_payload(summary: Any) -> dict[str, Any]:
     diagnostics = getattr(summary, "diagnostics", None)
 
     def _diag_float(name: str, default: float = 0.0) -> float:
         return float(getattr(diagnostics, name, default) or 0.0)
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "video_name": summary.video_name,
         "n_frames": int(summary.n_frames),
         "duration_sec": float(summary.duration_sec),
@@ -163,7 +161,7 @@ def _build_local_run_analytics_payload(summary: Any) -> Dict[str, Any]:
     return payload
 
 
-def _emit_local_run_analytics(video_dir: Path) -> Optional[Dict[str, Any]]:
+def _emit_local_run_analytics(video_dir: Path) -> dict[str, Any] | None:
     try:
         from selfsuvis.analytics import LocalRunLoader
 
@@ -265,16 +263,17 @@ def _emit_local_run_analytics(video_dir: Path) -> Optional[Dict[str, Any]]:
 
 # ── Model & store initialisation ───────────────────────────────────────────────
 
-def init_models(device: str) -> Dict[str, Any]:
-    from .steps_caption import _unload_known_sidecars, _log_vram_snapshot
+def init_models(device: str) -> dict[str, Any]:
+    from .steps_caption import _log_vram_snapshot, _unload_known_sidecars
     _banner("Initialising models")
-    models: Dict[str, Any] = {"device": device, "uses_api_embedder": False}
+    models: dict[str, Any] = {"device": device, "uses_api_embedder": False}
 
     # The pre-flight check above may have left Ollama sidecars resident in VRAM.
     # Evict them now so local model loads (GemmaEmbedder / OpenCLIP / DINO) have
     # enough headroom.  We'll re-load the sidecar models on-demand in each step.
     if device == "cuda":
         import gc as _gc
+
         import torch as _torch_init
         _unload_known_sidecars([
             (settings.GEMMA_API_URL, settings.GEMMA_API_MODEL),
@@ -357,7 +356,7 @@ def init_models(device: str) -> Dict[str, Any]:
     return models
 
 
-def init_store(models: Dict[str, Any], use_qdrant: bool) -> Tuple[Any, bool]:
+def init_store(models: dict[str, Any], use_qdrant: bool) -> tuple[Any, bool]:
     if not use_qdrant:
         _log.info("Qdrant disabled (--no-qdrant) — using in-memory cosine store")
         return InMemoryStore(), False
@@ -378,11 +377,11 @@ def init_store(models: Dict[str, Any], use_qdrant: bool) -> Tuple[Any, bool]:
 
 # ── Video discovery ────────────────────────────────────────────────────────────
 
-def find_videos(videos_dir: Path) -> List[Path]:
+def find_videos(videos_dir: Path) -> list[Path]:
     return sorted(p for p in videos_dir.iterdir() if p.suffix.lower() in _VIDEO_EXTS)
 
 
-def resolve_local_videos(args: Any) -> Tuple[str, List[Path]]:
+def resolve_local_videos(args: Any) -> tuple[str, list[Path]]:
     """Resolve input videos for the local full-analysis workflow.
 
     Priority:
@@ -420,18 +419,18 @@ def resolve_local_videos(args: Any) -> Tuple[str, List[Path]]:
 # ── Step 20: compare + describe ───────────────────────────────────────────────
 
 def step_compare_and_describe(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     store: Any,
     is_qdrant: bool,
-    base_results: List[Dict],
-    ft_results: List[Dict],
-    models: Dict[str, Any],
+    base_results: list[dict],
+    ft_results: list[dict],
+    models: dict[str, Any],
     video_id: str,
     video_name: str,
     video_dir: Path,
     ckpt_mb: float,
     onnx_mb: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 20: compare results, caption video, write comparison.md."""
     from .steps_report import write_comparison_md, write_description_md
     out_md       = video_dir / "comparison.md"
@@ -460,13 +459,15 @@ def step_compare_and_describe(
         avg_embed     = frame_embeds.mean(axis=0)
         text_embeds   = clip_model.encode_texts(_TEXT_PROMPTS)
         scores        = text_embeds @ avg_embed
-        ranked        = sorted(zip(_TEXT_PROMPTS, scores.tolist()), key=lambda x: x[1], reverse=True)
-        text_descriptions = ranked[:3]; all_scored = ranked
+        ranked = sorted(zip(_TEXT_PROMPTS, scores.tolist()), key=lambda x: x[1], reverse=True)
+        text_descriptions = ranked[:3]
+        all_scored = ranked
         for desc, score in text_descriptions:
             _log.info("  Video description: \"%s\" (sim=%.3f)", desc, score)
     except Exception as exc:
         _log.warning("  Video-to-text failed (%s)", exc)
-        text_descriptions = [("description unavailable", 0.0)]; all_scored = text_descriptions
+        text_descriptions = [("description unavailable", 0.0)]
+        all_scored = text_descriptions
     write_comparison_md(out_md, video_name, base_results, ft_results,
                         base_infer_ms, ft_infer_ms, ckpt_mb, onnx_mb, text_descriptions)
     desc_md = video_dir / "description.md"
@@ -479,10 +480,10 @@ def step_compare_and_describe(
 def step_multi_model_compare(
     video_name: str,
     video_dir: Path,
-    gemma_result: Dict[str, Any],
-    qwen_result: Dict[str, Any],
-    unidrive_result: Dict[str, Any],
-) -> Dict[str, Any]:
+    gemma_result: dict[str, Any],
+    qwen_result: dict[str, Any],
+    unidrive_result: dict[str, Any],
+) -> dict[str, Any]:
     """Write a Gemma vs Qwen vs UniDriveVLA comparison artifact."""
     from .steps_report import write_multi_model_comparison_md
 
@@ -498,7 +499,7 @@ def step_multi_model_compare(
 
 # ── Agentic video synthesis helpers ───────────────────────────────────────────
 
-def _build_context_prompt(video_name: str, video_context: Dict[str, Any]) -> str:
+def _build_context_prompt(video_name: str, video_context: dict[str, Any]) -> str:
     """Build a text prompt summarising accumulated observations for the LLM."""
     parts = [f"Video: {video_name}"]
 
@@ -638,16 +639,16 @@ def _build_context_prompt(video_name: str, video_context: Dict[str, Any]) -> str
 
 
 def _append_agentic_step(
-    trace: List[Dict[str, Any]],
+    trace: list[dict[str, Any]],
     *,
     step_id: str,
     title: str,
     description: str,
     status: str,
-    context_inputs: Optional[List[str]] = None,
-    context_outputs: Optional[List[str]] = None,
-    risks: Optional[List[str]] = None,
-    artifacts: Optional[List[str]] = None,
+    context_inputs: list[str] | None = None,
+    context_outputs: list[str] | None = None,
+    risks: list[str] | None = None,
+    artifacts: list[str] | None = None,
 ) -> None:
     trace.append(
         {
@@ -663,7 +664,7 @@ def _append_agentic_step(
     )
 
 
-def _build_agentic_flow_prompt(video_name: str, video_context: Dict[str, Any]) -> str:
+def _build_agentic_flow_prompt(video_name: str, video_context: dict[str, Any]) -> str:
     trace = video_context.get("agentic_trace", [])
     lines = [
         f"Video: {video_name}",
@@ -706,7 +707,7 @@ def _build_agentic_flow_prompt(video_name: str, video_context: Dict[str, Any]) -
     return "\n".join(lines)
 
 
-def _build_agentic_flow_prompt_compact(video_name: str, video_context: Dict[str, Any]) -> str:
+def _build_agentic_flow_prompt_compact(video_name: str, video_context: dict[str, Any]) -> str:
     """Compact audit prompt tuned for slow reasoning models on Ollama."""
     trace = video_context.get("agentic_trace", [])
     lines = [
@@ -738,7 +739,7 @@ def _build_agentic_flow_prompt_compact(video_name: str, video_context: Dict[str,
     return "\n".join(lines)
 
 
-def _build_agentic_flow_prompt_simple(video_name: str, video_context: Dict[str, Any]) -> str:
+def _build_agentic_flow_prompt_simple(video_name: str, video_context: dict[str, Any]) -> str:
     """Minimal audit prompt for short, low-branching local runs."""
     trace = video_context.get("agentic_trace", [])
     lines = [
@@ -768,7 +769,7 @@ def _build_agentic_flow_prompt_simple(video_name: str, video_context: Dict[str, 
     return "\n".join(lines)
 
 
-def _is_simple_agentic_audit(video_context: Dict[str, Any]) -> bool:
+def _is_simple_agentic_audit(video_context: dict[str, Any]) -> bool:
     """Heuristic: use a smaller reasoning budget for low-branching videos."""
     caption_segments = int(video_context.get("caption_segments", 0) or 0)
     qwen_frames = len(video_context.get("qwen_captions", []) or [])
@@ -788,7 +789,7 @@ def _is_simple_agentic_audit(video_context: Dict[str, Any]) -> bool:
     )
 
 
-def _agentic_flow_required_sections(simple: bool) -> List[str]:
+def _agentic_flow_required_sections(simple: bool) -> list[str]:
     if simple:
         return [
             "## Flow Summary",
@@ -827,7 +828,7 @@ def _is_valid_agentic_flow_analysis(text: str, *, simple: bool) -> bool:
 def _reasoning_timeout_for_model(
     model: str,
     api_url: str = "",
-    resources: Optional[Dict[str, Any]] = None,
+    resources: dict[str, Any] | None = None,
 ) -> float:
     from .steps_caption import _compute_sidecar_timeout
     # REASONING_TIMEOUT_SEC env/settings hard-override takes priority
@@ -837,7 +838,7 @@ def _reasoning_timeout_for_model(
     return _compute_sidecar_timeout(model, api_url or "", resources)
 
 
-def _fallback_agentic_flow_analysis(video_context: Dict[str, Any]) -> str:
+def _fallback_agentic_flow_analysis(video_context: dict[str, Any]) -> str:
     trace = video_context.get("agentic_trace", [])
     lines = [
         "## Flow Summary",
@@ -876,14 +877,14 @@ def _fallback_agentic_flow_analysis(video_context: Dict[str, Any]) -> str:
 def step_agentic_flow_artifact(
     video_name: str,
     video_dir: Path,
-    video_context: Dict[str, Any],
+    video_context: dict[str, Any],
     api_url: str,
     model: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Final step: generate an artifact tracing agentic context and risks."""
-    from .steps_report import write_agentic_flow_md
     from .steps_caption import _log_vram_snapshot
-    result: Dict[str, Any] = {"skipped": True, "llm_used": False, "model": model or "deterministic"}
+    from .steps_report import write_agentic_flow_md
+    result: dict[str, Any] = {"skipped": True, "llm_used": False, "model": model or "deterministic"}
     output_path = video_dir / "agentic_flow.md"
     llm_analysis = ""
     t0 = time.time()
@@ -919,7 +920,7 @@ def step_agentic_flow_artifact(
                         "max_tokens": int(getattr(settings, "REASONING_MAX_TOKENS_FULL", 2400) or 2400),
                     },
                 ]
-            last_exc: Optional[Exception] = None
+            last_exc: Exception | None = None
             for idx, attempt in enumerate(attempts, 1):
                 try:
                     _log.info(
@@ -1014,20 +1015,20 @@ def step_agentic_flow_artifact(
 def step_video_synthesis(
     video_name: str,
     video_dir: Path,
-    video_context: Dict[str, Any],
+    video_context: dict[str, Any],
     api_url: str,
     model: str,
-    resources: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    resources: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Step 26: synthesise video ontology + narrative via Ollama/vLLM API.
 
     Uses all accumulated context from steps A–H as input.  No local model is
     loaded — this is a pure API call, so CLIP+DINO can remain offloaded.
     Writes ``video_synthesis.md`` and ``video_ontology.json``.
     """
-    from .steps_report import write_video_synthesis_md
     from .steps_caption import _log_vram_snapshot
-    result: Dict[str, Any] = {"skipped": True, "ontology": {}, "narrative": ""}
+    from .steps_report import write_video_synthesis_md
+    result: dict[str, Any] = {"skipped": True, "ontology": {}, "narrative": ""}
     if not api_url:
         _log.info("  Synthesis skipped (no QWEN_API_URL / --qwen-api-url set)")
         return result
@@ -1050,7 +1051,7 @@ def step_video_synthesis(
     _ollama_options = {"num_ctx": 8192}
     t0          = time.time()
     _log_vram_snapshot("before synthesis sidecar use")
-    ontology: Dict[str, Any] = {}
+    ontology: dict[str, Any] = {}
     narrative = ""
 
     # 1. Request structured ontology JSON
@@ -1158,12 +1159,12 @@ def run_video_pipeline(
     args: Any,
     video_path: Path,
     output_dir: Path,
-    models: Dict[str, Any],
+    models: dict[str, Any],
     store: Any,
     is_qdrant: bool,
     device: str,
-    _out: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    _out: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Run all pipeline steps for a single video. Returns per-video stats dict.
 
     When ``SELFSUVIS_USE_GRAPH=1`` is set this function delegates to the
@@ -1180,44 +1181,43 @@ def run_video_pipeline(
         from .runner_graph import run_graph_pipeline
         return run_graph_pipeline(args, video_path, output_dir, models, store, is_qdrant, device)
 
-    from .steps_embed import (
-        step_extract_frames,
-        step_index_to_store,
-        step_base_model_search_test,
-        step_finetuned_model_search_test,
-    )
-    from .steps_caption import (
-        step_gemma_analysis,
-        step_scene_captioning,
-        step_gemma_segment_captions,
-        step_asr_transcription,
-        step_ocr_extraction,
-        step_depth_estimation,
-        step_object_detection,
-        step_world_model_pass,
-        step_qwen_captioning,
-        step_unidrive_analysis,
-        _offload_models_to_cpu,
-        _restore_models_to_gpu,
-        _models_on_device,
-        _prep_vram_for_step,
-        _guard_min_free_vram,
-        _unload_ollama_model,
-        _unload_known_sidecars,
-        _log_vram_snapshot,
-        reset_runtime_telemetry,
-        get_runtime_telemetry,
-    )
-    from .steps_ssl import step_ssl_finetune
-    from .steps_distill import step_distill, step_distill_stage2, step_export_model
-    from .steps_map import step_advise_3d_map_quality, step_create_3d_map
-    from .steps_semantic_graph import step_build_semantic_environment_graph
-    from .steps_yolo_sam import step_yolo_sam_detection
-    from .steps_gemma_tracking import step_gemma_directed_tracking
-    from .steps_scenetok import step_scenetok
-    from .steps_report import write_multimodal_md, write_final_stats_md, print_run_stats
-
     import concurrent.futures as _cf
+
+    from .steps_caption import (
+        _guard_min_free_vram,
+        _models_on_device,
+        _offload_models_to_cpu,
+        _prep_vram_for_step,
+        _restore_models_to_gpu,
+        _unload_known_sidecars,
+        _unload_ollama_model,
+        get_runtime_telemetry,
+        reset_runtime_telemetry,
+        step_asr_transcription,
+        step_depth_estimation,
+        step_gemma_analysis,
+        step_gemma_segment_captions,
+        step_object_detection,
+        step_ocr_extraction,
+        step_qwen_captioning,
+        step_scene_captioning,
+        step_unidrive_analysis,
+        step_world_model_pass,
+    )
+    from .steps_distill import step_distill, step_distill_stage2, step_export_model
+    from .steps_embed import (
+        step_base_model_search_test,
+        step_extract_frames,
+        step_finetuned_model_search_test,
+        step_index_to_store,
+    )
+    from .steps_gemma_tracking import step_gemma_directed_tracking
+    from .steps_map import step_advise_3d_map_quality, step_create_3d_map
+    from .steps_report import write_multimodal_md
+    from .steps_scenetok import step_scenetok
+    from .steps_semantic_graph import step_build_semantic_environment_graph
+    from .steps_ssl import step_ssl_finetune
+    from .steps_yolo_sam import step_yolo_sam_detection
 
     video_name = video_path.stem
     video_id   = video_name.replace(" ", "_").lower()
@@ -1232,12 +1232,12 @@ def run_video_pipeline(
     if _out is None:
         _out = {}
     _out.update({"name": video_name, "video_path": str(video_path), "timings": {}})
-    stats: Dict[str, Any] = _out
+    stats: dict[str, Any] = _out
     T = stats["timings"]
 
     # Accumulated context passed through the pipeline; enriches synthesis at step 22.
-    video_context: Dict[str, Any] = {"video_name": video_name}
-    agentic_trace: List[Dict[str, Any]] = []
+    video_context: dict[str, Any] = {"video_name": video_name}
+    agentic_trace: list[dict[str, Any]] = []
     video_context["agentic_trace"] = agentic_trace
 
     # Tracks whether CLIP+DINO backbones are on GPU (relevant only when device=="cuda").
@@ -1250,7 +1250,7 @@ def run_video_pipeline(
     _step(1, _TOTAL_STEPS, "Frame extraction")
     with _Timer(T, "A_extract"):
         a = step_extract_frames(video_path, video_id, video_dir, fps=args.fps)
-    frame_list: List[Tuple[str, float]] = a["frame_list"]
+    frame_list: list[tuple[str, float]] = a["frame_list"]
     stats["frames"]       = a["meta"]["frame_count"]
     stats["duration_sec"] = a["meta"]["duration_sec"]
     video_context["meta"] = {
@@ -1323,7 +1323,7 @@ def run_video_pipeline(
     # available. All GPU steps remain serialised on the main thread.
     _banner("Phase 2 — Multimodal analysis (parallel)")
     _map_executor = _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="sfm-bg")
-    _map_future: Optional[_cf.Future] = None
+    _map_future: _cf.Future | None = None
 
     # Step 03: Gemma open-weight multimodal analysis
     _step(3, _TOTAL_STEPS, "Gemma multimodal analysis → gemma_analysis.md")
@@ -1377,7 +1377,7 @@ def run_video_pipeline(
         _unload_ollama_model(_gemma_api_url_j, _gemma_api_model_j)
 
     # Step 04: Scene captioning — offloads CLIP+DINO internally, does NOT restore them
-    caption_results: List[Dict[str, Any]] = []
+    caption_results: list[dict[str, Any]] = []
     if not args.no_caption:
         _step(4, _TOTAL_STEPS, "Florence-2 scene captioning → scene_captions.md")
         with _Timer(T, "L_caption"):
@@ -1424,7 +1424,7 @@ def run_video_pipeline(
 
     # Step 4b: Gemma segment-boundary diff — runs only when GEMMA_API_URL is set
     # and caption results are available; no model loading required.
-    seg_cap_result: Dict[str, Any] = {"skipped": True, "boundary_diffs": []}
+    seg_cap_result: dict[str, Any] = {"skipped": True, "boundary_diffs": []}
     _gemma_url_4b = getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL
     if _gemma_url_4b and caption_results:
         _step(4, _TOTAL_STEPS, "Gemma 4 segment-boundary diffs → gemma_segment_captions.md")
@@ -1455,7 +1455,7 @@ def run_video_pipeline(
     # Step 05: ASR — evict any Ollama model that may still be resident from the
     # Florence-2 Qwen fallback (or a normal Qwen caption pass) before loading
     # Whisper, which needs ~1.6 GB VRAM.
-    asr_result: Dict[str, Any] = {"skipped": True, "subtitle_map": {}, "segments": []}
+    asr_result: dict[str, Any] = {"skipped": True, "subtitle_map": {}, "segments": []}
     if args.asr:
         _step(5, _TOTAL_STEPS, "ASR transcription → asr_subtitles.md")
         _prep_vram_for_step(models, device)
@@ -1497,7 +1497,7 @@ def run_video_pipeline(
     video_context["platform_state_fusion"] = platform_fusion_result.get("summary", {})
 
     # Step 06: OCR
-    ocr_result: Dict[str, Any] = {"skipped": True, "ocr_results": []}
+    ocr_result: dict[str, Any] = {"skipped": True, "ocr_results": []}
     if args.ocr:
         _step(6, _TOTAL_STEPS, "OCR text extraction")
         _prep_vram_for_step(models, device)
@@ -1533,7 +1533,7 @@ def run_video_pipeline(
     )
 
     # Step 07: Depth
-    depth_result: Dict[str, Any] = {"skipped": True, "depth_results": []}
+    depth_result: dict[str, Any] = {"skipped": True, "depth_results": []}
     if args.depth:
         _step(7, _TOTAL_STEPS, "Depth estimation")
         _prep_vram_for_step(models, device)
@@ -1563,7 +1563,7 @@ def run_video_pipeline(
     )
 
     # Step 08: Detection — accumulate per-label object counts into context
-    det_result: Dict[str, Any] = {"skipped": True, "detection_results": []}
+    det_result: dict[str, Any] = {"skipped": True, "detection_results": []}
     if args.detection:
         _step(8, _TOTAL_STEPS, "Object detection")
         _prep_vram_for_step(models, device)
@@ -1574,7 +1574,7 @@ def run_video_pipeline(
     else:
         T["P_detection"] = 0.0
     if not det_result.get("skipped"):
-        obj_counts: Dict[str, int] = {}
+        obj_counts: dict[str, int] = {}
         for _r in det_result.get("detection_results", []):
             for _d in _r.get("detections", []):
                 lbl = _d.get("label", "unknown")
@@ -1600,7 +1600,7 @@ def run_video_pipeline(
     )
 
     # Step 09: YOLO11 + SAM2/3 detection and segmentation
-    yolo_sam_result: Dict[str, Any] = {"skipped": True, "detection_results": []}
+    yolo_sam_result: dict[str, Any] = {"skipped": True, "detection_results": []}
     if not getattr(args, "no_yolo", False):
         _step(9, _TOTAL_STEPS, "YOLO11 + SAM2/3 detection → yolo_sam/ + detection_comparison.md")
         _prep_vram_for_step(models, device)
@@ -1646,7 +1646,7 @@ def run_video_pipeline(
 
     # Step 10: Gemma 4 directed tracking — Gemma understands the scene, directs SAM to
     # segment named objects, RF-DETR tracks those objects across the full sequence.
-    gemma_tracking_result: Dict[str, Any] = {"skipped": True}
+    gemma_tracking_result: dict[str, Any] = {"skipped": True}
     _gemma_api_url_p3 = getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL
     _gemma_api_model_p3 = getattr(args, "gemma_api_model", "") or settings.GEMMA_API_MODEL
     if not getattr(args, "no_rfdetr", False) and _gemma_api_url_p3:
@@ -1729,7 +1729,7 @@ def run_video_pipeline(
     )
 
     # Step 11: World model
-    world_result: Dict[str, Any] = {"skipped": True, "world_results": []}
+    world_result: dict[str, Any] = {"skipped": True, "world_results": []}
     if args.world_model:
         _step(11, _TOTAL_STEPS, "World model video embeddings")
         _prep_vram_for_step(models, device)
@@ -1760,7 +1760,7 @@ def run_video_pipeline(
     )
 
     # Step 12: Qwen — uses ASR + OCR context from previous steps (already agentic)
-    qwen_result: Dict[str, Any] = {"skipped": True, "results": []}
+    qwen_result: dict[str, Any] = {"skipped": True, "results": []}
     if args.qwen:
         _step(12, _TOTAL_STEPS, "Qwen VLM detailed captioning → detailed_captions.md")
         with _Timer(T, "R_qwen"):
@@ -1805,7 +1805,7 @@ def run_video_pipeline(
     )
 
     # Step 13: UniDriveVLA expert analysis — compare understanding/perception/planning
-    unidrive_result: Dict[str, Any] = {"skipped": True, "results": []}
+    unidrive_result: dict[str, Any] = {"skipped": True, "results": []}
     if getattr(args, "unidrive", False):
         _step(13, _TOTAL_STEPS, "UniDriveVLA expert analysis → unidrive_analysis.md")
         with _Timer(T, "S_unidrive"):
@@ -1852,7 +1852,7 @@ def run_video_pipeline(
                             depth_result, det_result, world_result, platform_fusion_result, qwen_result, unidrive_result)
 
     # Step 14: SceneTok streaming scene encoder + segmentation decoder
-    scenetok_result: Dict[str, Any] = {"skipped": True}
+    scenetok_result: dict[str, Any] = {"skipped": True}
     if getattr(args, "scenetok", False):
         _step(14, _TOTAL_STEPS, "SceneTok streaming encoder + segmentation decoder → scenetok_tokens.npz")
         _scenetok_api_url = getattr(args, "scenetok_api_url", "") or settings.SCENETOK_API_URL
@@ -1923,7 +1923,9 @@ def run_video_pipeline(
     with _Timer(T, "C_base_search"):
         c = step_base_model_search_test(frame_list, store, is_qdrant, models,
                                         video_id, video_name, video_dir, top_k=args.top_k)
-    base_results = c["results"]; query_frame = c["query_frame"]; query_t_sec = c["query_t_sec"]
+    base_results = c["results"]
+    query_frame = c["query_frame"]
+    query_t_sec = c["query_t_sec"]
     stats["base_top_score"] = base_results[0]["score"] if base_results else 0.0
     _append_agentic_step(
         agentic_trace,
@@ -1984,7 +1986,7 @@ def run_video_pipeline(
             ),
         )
     stats["splat_ply"]     = h.get("splat_ply")
-    semantic_graph_result: Dict[str, Any] = {"skipped": True}
+    semantic_graph_result: dict[str, Any] = {"skipped": True}
     if not getattr(args, "no_yolo", False) and settings.YOLO_SSG_ENABLED:
         semantic_graph_result = step_build_semantic_environment_graph(
             video_id=video_id,
@@ -2169,7 +2171,8 @@ def run_video_pipeline(
         T["E_distill"] = 0.0
         _step(20, _TOTAL_STEPS, "SSL DINOv3 fine-tuning (skipped — API embedder)")
         _step(21, _TOTAL_STEPS, "Knowledge distillation (skipped — API embedder)")
-        student_backbone = None; student_dim = 768
+        student_backbone = None
+        student_dim = 768
     else:
         if device == "cuda":
             _prep_vram_for_step(
@@ -2212,8 +2215,9 @@ def run_video_pipeline(
                 full_fusion_result=full_fusion_result,
                 physical_state_result=physical_state_result,
             )
-        stats["best_loss"] = d["best_loss"]; stats["ckpt_mb"] = d["ckpt_mb"]
-        checkpoint_path    = d["checkpoint"]
+        stats["best_loss"] = d["best_loss"]
+        stats["ckpt_mb"] = d["ckpt_mb"]
+        checkpoint_path = d["checkpoint"]
         _append_agentic_step(
             agentic_trace,
             step_id="17",
@@ -2255,10 +2259,11 @@ def run_video_pipeline(
             )
 
         # Step 17: Distillation — maximum-hydration chain (Gemma teacher + caption anchor when available)
-        student_backbone = None; student_dim = 768
+        student_backbone = None
+        student_dim = 768
         if ssl_gate_passed and not args.no_distill:
             # Build caption anchor embeddings from Florence captions via CLIP text encoder
-            _cap_anchor_embs: Optional[np.ndarray] = None
+            _cap_anchor_embs: np.ndarray | None = None
             _scene_captions = caption_results  # set by step_scene_captioning (step 04)
             if _scene_captions and models.get("clip"):
                 try:
@@ -2341,7 +2346,8 @@ def run_video_pipeline(
             )
     if models.get("uses_api_embedder"):
         ssl_gate_passed = False
-        student_backbone = None; student_dim = 768
+        student_backbone = None
+        student_dim = 768
         _append_agentic_step(
             agentic_trace,
             step_id="17",
@@ -2371,7 +2377,7 @@ def run_video_pipeline(
 
     # Step 18b: Stage 2 distillation — ViT-S/14 → EfficientViT-B1 (RKD-D + KoLeo only)
     # Runs only when Stage 1 produced a student backbone and --no-distill is not set.
-    e_distill_stage2: Dict[str, Any] = {"skipped": True, "onnx_exported": False}
+    e_distill_stage2: dict[str, Any] = {"skipped": True, "onnx_exported": False}
     if ssl_gate_passed and not args.no_distill and not e_distill.get("skipped"):
         _step(22, _TOTAL_STEPS, "Stage 2 distillation: ViT-S/14 → EfficientViT-B1 student")
         with _Timer(T, "E_distill_stage2"):
@@ -2391,7 +2397,7 @@ def run_video_pipeline(
             status="skipped" if e_distill_stage2.get("skipped") else "ok",
             context_inputs=["Stage 1 ViT-S/14 student backbone", "frame paths"],
             context_outputs=[
-                f"EfficientViT-B1 dim=384",
+                "EfficientViT-B1 dim=384",
                 f"best_loss={e_distill_stage2.get('best_loss', float('nan')):.4f}",
                 f"onnx_exported={e_distill_stage2.get('onnx_exported', False)}",
             ] if not e_distill_stage2.get("skipped") else ["no Stage 2 student"],
@@ -2433,7 +2439,8 @@ def run_video_pipeline(
             e = step_export_model(checkpoint_path, frame_list, video_dir, device, models,
                                   no_onnx=args.no_onnx,
                                   student_backbone=student_backbone, student_dim=student_dim)
-        stats["onnx_mb"] = e.get("onnx_mb", 0.0); stats["onnx_exported"] = e.get("exported", False)
+        stats["onnx_mb"] = e.get("onnx_mb", 0.0)
+        stats["onnx_exported"] = e.get("exported", False)
         _append_agentic_step(
             agentic_trace,
             step_id="19",
@@ -2454,7 +2461,8 @@ def run_video_pipeline(
         )
     else:
         T["F_export"] = 0.0
-        stats.setdefault("onnx_mb", 0.0); stats.setdefault("onnx_exported", False)
+        stats.setdefault("onnx_mb", 0.0)
+        stats.setdefault("onnx_exported", False)
         _step(23, _TOTAL_STEPS, "ONNX export (skipped — SSL gate did not pass)")
         _append_agentic_step(
             agentic_trace,
@@ -2469,14 +2477,15 @@ def run_video_pipeline(
         )
 
     # Step 19: Fine-tuned search — only if SSL gate passed (needs fine-tuned or distilled backbone)
-    ft_results: List[Dict] = []
+    ft_results: list[dict] = []
     if ssl_gate_passed:
         _step(24, _TOTAL_STEPS, "Fine-tuned model transformation test → finetuned_search.md")
         with _Timer(T, "G_ft_search"):
             f = step_finetuned_model_search_test(frame_list, store, is_qdrant, models,
                                                  query_frame, query_t_sec, video_id, video_name,
                                                  video_dir, top_k=args.top_k)
-        ft_results = f["results"]; stats["ft_top_score"] = ft_results[0]["score"] if ft_results else 0.0
+        ft_results = f["results"]
+        stats["ft_top_score"] = ft_results[0]["score"] if ft_results else 0.0
         _append_agentic_step(
             agentic_trace,
             step_id="20",
@@ -2814,17 +2823,17 @@ def _run_video_pipeline_safe(
     args: Any,
     video_path: "Path",
     output_dir: "Path",
-    models: Dict[str, Any],
+    models: dict[str, Any],
     store: Any,
     is_qdrant: bool,
     device: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Wrapper around :func:`run_video_pipeline` that always returns a stats dict.
 
     On exception, returns the partial stats dict with timings recorded up to
     the failure point so step times and frame counts are not lost.
     """
-    _out: Dict[str, Any] = {}
+    _out: dict[str, Any] = {}
     try:
         result = run_video_pipeline(args, video_path, output_dir, models, store, is_qdrant, device, _out=_out)
         # The graph-pipeline path returns a new dict without mutating _out; merge it back.
@@ -2854,15 +2863,14 @@ def run_local(args: Any) -> None:
     this module is imported.
     """
     from .steps_caption import (
-        _unload_known_sidecars,
+        _compute_sidecar_timeout,
+        _list_ollama_models,
+        _recommend_gemma_sidecar_models,
         _resolve_ollama_gemma_model,
         _resolve_ollama_reasoning_model,
-        _recommend_gemma_sidecar_models,
-        _list_ollama_models,
-        _log_vram_snapshot,
-        _compute_sidecar_timeout,
+        _unload_known_sidecars,
     )
-    from .steps_report import write_final_stats_md, print_run_stats
+    from .steps_report import print_run_stats, write_final_stats_md
 
     _configure_logging()
     _configure_warnings()
@@ -3060,7 +3068,7 @@ def run_local(args: Any) -> None:
     store, is_qdrant = init_store(models, use_qdrant=not args.no_qdrant)
     init_elapsed = time.time() - t_init
 
-    per_video_stats: List[Dict[str, Any]] = []
+    per_video_stats: list[dict[str, Any]] = []
     try:
         for i, video_path in enumerate(videos, 1):
             _banner(f"Video {i}/{len(videos)}: {video_path.name}")
@@ -3078,9 +3086,10 @@ def run_local(args: Any) -> None:
         if per_video_stats:
             total_elapsed = time.time() - t_start
             stats_path    = output_dir / "final_stats.md"
+            from selfsuvis.pipeline.fusion import persist_threat_memory
+
             from .steps_global_threat import step_global_threat
             from .steps_threat_eval import write_threat_calibration, write_threat_eval_summary
-            from selfsuvis.pipeline.fusion import persist_threat_memory
             global_threat_result = step_global_threat(output_dir, per_video_stats)
             persist_threat_memory(output_dir, per_video_stats, global_threat_result)
             write_threat_calibration(output_dir, per_video_stats)
@@ -3096,10 +3105,11 @@ def run_local(args: Any) -> None:
 
     total_elapsed = time.time() - t_start
     stats_path    = output_dir / "final_stats.md"
+    from selfsuvis.pipeline.fusion import persist_threat_memory
+
     from .steps_global_threat import step_global_threat
     from .steps_model_advisor import write_model_run_advisor
     from .steps_threat_eval import write_threat_calibration, write_threat_eval_summary
-    from selfsuvis.pipeline.fusion import persist_threat_memory
     global_threat_result = step_global_threat(output_dir, per_video_stats)
     persist_threat_memory(output_dir, per_video_stats, global_threat_result)
     write_threat_calibration(output_dir, per_video_stats)

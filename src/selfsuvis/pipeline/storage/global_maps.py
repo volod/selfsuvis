@@ -16,7 +16,7 @@ Schema (created by scripts/migrate_postgres.py):
     )
 """
 import math
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from selfsuvis.pipeline.core import get_logger, utcnow
 from selfsuvis.pipeline.storage.common import jsonb, row_dict, row_dicts
@@ -124,7 +124,7 @@ async def get_or_create_global_map(
     return row_id
 
 
-async def get_global_map_splats(conn, global_map_id: int) -> List[str]:
+async def get_global_map_splats(conn, global_map_id: int) -> list[str]:
     """Return splat.ply paths for all missions already registered to this global map.
 
     These are the target paths passed to run_mapper for ICP registration of new scenes.
@@ -148,8 +148,8 @@ async def register_mission(
     conn,
     global_map_id: int,
     mission_id: str,
-    transform_4x4: List[List[float]],
-    registration_error: Optional[float],
+    transform_4x4: list[list[float]],
+    registration_error: float | None,
 ) -> None:
     """Upsert a mission registration into global_map_missions.
 
@@ -232,7 +232,7 @@ async def update_global_map_splat(
 
 async def get_global_map_origin(
     conn, global_map_id: int
-) -> Optional[tuple]:
+) -> tuple | None:
     """Return (origin_lat, origin_lon, origin_alt) for a global_map id, or None."""
     row = await conn.fetchrow(
         "SELECT origin_lat, origin_lon, origin_alt FROM global_map WHERE id = $1",
@@ -243,7 +243,7 @@ async def get_global_map_origin(
     return (row["origin_lat"], row["origin_lon"], row["origin_alt"])
 
 
-async def list_global_maps(conn) -> List[Dict[str, Any]]:
+async def list_global_maps(conn) -> list[dict[str, Any]]:
     """Return all global_map rows ordered by creation time (oldest first)."""
     rows = await conn.fetch(
         "SELECT id, origin_lat, origin_lon, origin_alt, splat_path, created_at "
@@ -252,7 +252,7 @@ async def list_global_maps(conn) -> List[Dict[str, Any]]:
     return row_dicts(rows)
 
 
-async def get_global_map_by_id(conn, global_map_id: int) -> Optional[Dict[str, Any]]:
+async def get_global_map_by_id(conn, global_map_id: int) -> dict[str, Any] | None:
     """Fetch a global_map row by id. Returns None if not found."""
     row = await conn.fetchrow(
         "SELECT * FROM global_map WHERE id = $1", global_map_id
@@ -262,7 +262,7 @@ async def get_global_map_by_id(conn, global_map_id: int) -> Optional[Dict[str, A
 
 async def list_mission_registrations(
     conn, global_map_id: int
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Return all global_map_missions rows for a global map, newest first."""
     rows = await conn.fetch(
         """

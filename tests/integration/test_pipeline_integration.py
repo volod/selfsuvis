@@ -13,7 +13,7 @@ tmp_path fixtures:
 
 import asyncio
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pytest
@@ -41,7 +41,7 @@ def _frames_with_al(
     n: int,
     top_k: int = 2,
     novel_threshold: float = 0.7,
-) -> tuple[List[Dict[str, Any]], List[float], List[str]]:
+) -> tuple[list[dict[str, Any]], list[float], list[str]]:
     """Create *n* synthetic frames, assign AL tags, and return (frame_records, scores, tags)."""
     from selfsuvis.pipeline.analysis.active_learning import assign_al_tags
 
@@ -171,8 +171,8 @@ def _make_cd_frame(
     lat: float = 47.0,
     lon: float = 8.0,
     seed: int = 0,
-    facts: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    facts: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Minimal frame dict for change detection."""
     return {
         "frame_id": frame_id,
@@ -183,7 +183,7 @@ def _make_cd_frame(
     }
 
 
-def _ref_query_fn(ref_frames: List[Dict[str, Any]]):
+def _ref_query_fn(ref_frames: list[dict[str, Any]]):
     """Synthetic query_fn that returns all ref_frames regardless of bbox."""
     def _fn(embedding, bbox):
         return ref_frames
@@ -323,7 +323,7 @@ def test_detect_changes_no_references_no_event():
 
 def test_detect_changes_change_score_in_event():
     """Change event carries the cosine distance as change_score."""
-    from selfsuvis.pipeline.analysis.change_detection import detect_changes, cosine_distance
+    from selfsuvis.pipeline.analysis.change_detection import cosine_distance, detect_changes
 
     emb_new = _make_embedding(0)
     emb_ref = _make_embedding(99)
@@ -443,7 +443,7 @@ def report_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _sample_frames(mission_id: str = "m1") -> List[Dict[str, Any]]:
+def _sample_frames(mission_id: str = "m1") -> list[dict[str, Any]]:
     return [
         {"frame_path": "/frames/f0.jpg", "caption": "road ahead", "al_tag": "none",
          "al_score": 0.1, "t_sec": 0.0},

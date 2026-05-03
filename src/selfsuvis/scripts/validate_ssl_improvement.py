@@ -13,7 +13,6 @@ Exit codes:
 
 import argparse
 from pathlib import Path
-from typing import List, Optional
 
 import numpy as np
 
@@ -25,7 +24,7 @@ _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 _DEFAULT_WINDOW = 3  # temporal window for R@1 (±window frames are considered positives)
 
 
-def _collect_frames(directory) -> List[Path]:
+def _collect_frames(directory) -> list[Path]:
     """Return sorted list of image paths under `directory` (recursive)."""
     root = Path(directory)
     frames = [
@@ -61,7 +60,7 @@ def recall_at_1(embeddings: np.ndarray, window: int = _DEFAULT_WINDOW) -> float:
     return float(hits) / n
 
 
-def _embed_frames(model, frames: List[Path]) -> np.ndarray:
+def _embed_frames(model, frames: list[Path]) -> np.ndarray:
     """Encode frames with a DINOEmbedder; return L2-normalised (N, D) array."""
     from PIL import Image as PILImage
     images = [PILImage.open(p).convert("RGB") for p in frames]
@@ -101,6 +100,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     import json as _json
+
     from selfsuvis.models.dino_model import DINOEmbedder
     from selfsuvis.pipeline.core import get_dino_model_name
 

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-_CONFLICT_SEVERITY: Dict[str, float] = {
+_CONFLICT_SEVERITY: dict[str, float] = {
     "occupancy_vs_unidrive_clear": 0.30,
     "collision_vs_unidrive_low_risk": 0.24,
     "collision_vs_unidrive_continue": 0.24,
@@ -22,7 +22,7 @@ _CONFLICT_SEVERITY: Dict[str, float] = {
     "unidrive_moe_disagreement": 0.14,
 }
 
-_EVIDENCE_SOURCE_SENSOR_MAP: Dict[str, List[str]] = {
+_EVIDENCE_SOURCE_SENSOR_MAP: dict[str, list[str]] = {
     "near_field_occupancy": ["object-state fusion", "occupancy aggregation"],
     "object_velocity": ["RF-DETR tracking", "object Kalman fusion"],
     "free_space_estimate": ["depth estimation", "physical scene aggregation"],
@@ -44,8 +44,8 @@ _EVIDENCE_SOURCE_SENSOR_MAP: Dict[str, List[str]] = {
 }
 
 
-def sensor_sources_from_evidence(evidence_sources: List[str]) -> List[str]:
-    sensors: List[str] = []
+def sensor_sources_from_evidence(evidence_sources: list[str]) -> list[str]:
+    sensors: list[str] = []
     for source in evidence_sources:
         for label in _EVIDENCE_SOURCE_SENSOR_MAP.get(str(source), [str(source)]):
             if label not in sensors:
@@ -53,8 +53,8 @@ def sensor_sources_from_evidence(evidence_sources: List[str]) -> List[str]:
     return sensors
 
 
-def support_frame_names(paths: List[str], limit: int = 4) -> List[str]:
-    names: List[str] = []
+def support_frame_names(paths: list[str], limit: int = 4) -> list[str]:
+    names: list[str] = []
     for path in paths:
         if not path:
             continue
@@ -67,9 +67,9 @@ def support_frame_names(paths: List[str], limit: int = 4) -> List[str]:
 
 
 def matching_unidrive_rows(
-    support_paths: List[str],
-    unidrive_rows: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    support_paths: list[str],
+    unidrive_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     if not support_paths or not unidrive_rows:
         return []
     support_set = {str(p) for p in support_paths if p}
@@ -83,13 +83,13 @@ def matching_unidrive_rows(
 
 def contradiction_signals_for_threat(
     threat_type: str,
-    primitive: Dict[str, Any],
-    unidrive_rows: List[Dict[str, Any]],
-    physical_state: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    primitive: dict[str, Any],
+    unidrive_rows: list[dict[str, Any]],
+    physical_state: dict[str, Any],
+) -> list[dict[str, Any]]:
     support_paths = list(primitive.get("spatial_support") or [])
     rows = matching_unidrive_rows(support_paths, unidrive_rows) or list(unidrive_rows[:6])
-    disagreements: List[Dict[str, Any]] = []
+    disagreements: list[dict[str, Any]] = []
     occupancy_dense = float(physical_state.get("near_field_occupancy_density", 0.0) or 0.0) > 0.15
 
     for row in rows:
@@ -221,9 +221,9 @@ def contradiction_signals_for_threat(
 
 
 def summarize_contradictions(
-    threat_rows: Optional[List[Dict[str, Any]]] = None,
-    contradiction_signals: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    threat_rows: list[dict[str, Any]] | None = None,
+    contradiction_signals: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     rows = list(threat_rows or [])
     signals = list(contradiction_signals or [])
     for row in rows:
@@ -235,7 +235,7 @@ def summarize_contradictions(
     disagreement_count = len(signals)
     disagreement_rate = min(1.0, disagreement_count / comparison_budget)
 
-    grouped: Dict[str, Dict[str, Any]] = {}
+    grouped: dict[str, dict[str, Any]] = {}
     for signal in signals:
         pattern = str(signal.get("pattern", "unknown") or "unknown")
         severity = float(signal.get("severity", _CONFLICT_SEVERITY.get(pattern, 0.15)) or 0.15)
@@ -275,13 +275,13 @@ def summarize_contradictions(
 
 
 def _add_signal(
-    items: List[Dict[str, Any]],
+    items: list[dict[str, Any]],
     *,
     pattern: str,
     description: str,
     source_a: str,
     source_b: str,
-    frame_id: Optional[str] = None,
+    frame_id: str | None = None,
 ) -> None:
     key = (pattern, frame_id or "", source_a, source_b)
     for item in items:

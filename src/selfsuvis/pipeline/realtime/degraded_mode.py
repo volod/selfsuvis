@@ -1,24 +1,32 @@
 """Realtime degraded-mode and automation-confidence policies."""
 
-from typing import Any, Dict, Iterable, List, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any
 
-from .event_access import event_freshness_sec, event_node_id, event_payload, event_sensor_type, payload_float, payload_text
+from .event_access import (
+    event_freshness_sec,
+    event_node_id,
+    event_payload,
+    event_sensor_type,
+    payload_float,
+    payload_text,
+)
 from .freshness import downweight_score
 
 _HIGH_VALUE_SENSORS = ("camera", "gps", "imu", "fusion")
 
 
 def evaluate_degraded_mode(
-    sensor_events: Sequence[Dict[str, Any]],
-    node_health_events: Sequence[Dict[str, Any]],
+    sensor_events: Sequence[dict[str, Any]],
+    node_health_events: Sequence[dict[str, Any]],
     *,
     base_automation_confidence: float,
     required_sensors: Iterable[str] = _HIGH_VALUE_SENSORS,
     outage_warning_sec: float = 30.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     required = [str(sensor).strip().lower() for sensor in required_sensors if str(sensor).strip()]
-    freshest_by_sensor: Dict[str, float] = {}
-    warnings: List[str] = []
+    freshest_by_sensor: dict[str, float] = {}
+    warnings: list[str] = []
 
     for event in sensor_events:
         sensor = event_sensor_type(event)
@@ -64,7 +72,7 @@ def apply_degraded_mode_to_threat(
     automation_confidence: float,
     *,
     trust_penalty: float = 0.0,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     confidence = max(0.0, min(1.0, float(automation_confidence) - float(trust_penalty or 0.0)))
     weighted_threat = downweight_score(
         threat_score,

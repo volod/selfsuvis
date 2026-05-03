@@ -1,12 +1,11 @@
 from pathlib import Path
-from typing import Dict
 
 import pytest
+from tests.support.realtime_db import FakeRealtimeConn
 
 from selfsuvis.app.services.realtime import ingest_realtime_packets, start_realtime_session
 from selfsuvis.pipeline.realtime import replay_bridge_trace
 from selfsuvis.pipeline.storage.realtime import fetch_realtime_state, summarize_realtime_session
-from tests.support.realtime_db import FakeRealtimeConn
 
 
 @pytest.mark.anyio
@@ -21,7 +20,7 @@ async def test_replay_bridge_trace_end_to_end_ingests_recorded_samples(
     backend: str,
     fixture_name: str,
     expected_pose_source: str,
-    expected_packet_counts: Dict[str, int],
+    expected_packet_counts: dict[str, int],
 ):
     fixture_dir = Path(__file__).resolve().parents[3] / "fixtures" / "realtime"
     conn = FakeRealtimeConn()

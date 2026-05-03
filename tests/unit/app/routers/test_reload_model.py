@@ -8,8 +8,6 @@ import types
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 # ── Stub asyncpg (not installed in test venv) ─────────────────────────────────
 if "asyncpg" not in sys.modules:
     _asyncpg = types.ModuleType("asyncpg")
@@ -27,6 +25,7 @@ if "selfsuvis.app.state" not in sys.modules:
 def _make_client():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+
     from selfsuvis.app.routers.admin import router as admin_router
 
     app = FastAPI()

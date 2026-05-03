@@ -7,7 +7,7 @@ in heavier SLAM / occupancy engines.
 
 import os
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -22,45 +22,45 @@ from selfsuvis.pipeline.realtime import (
 )
 
 app = FastAPI(title="selfsuvis-realtime-reference", version="1.0.0")
-_STATS: Dict[str, Any] = {
+_STATS: dict[str, Any] = {
     "estimate_pose_calls": 0,
     "integrate_frame_calls": 0,
     "tiles_written": 0,
 }
-_TILE_INDEX: Dict[str, Dict[str, Any]] = {}
-_SESSION_COUNTS: Dict[str, int] = defaultdict(int)
+_TILE_INDEX: dict[str, dict[str, Any]] = {}
+_SESSION_COUNTS: dict[str, int] = defaultdict(int)
 _ENGINE_NAME = os.getenv("REALTIME_ENGINE_NAME", "stub").strip().lower()
 
 
 class EstimatePoseRequest(BaseModel):
     session_id: str
-    packets: List[Dict[str, Any]]
+    packets: list[dict[str, Any]]
 
 
 class EstimatePoseResponse(BaseModel):
-    pose: Optional[Dict[str, Any]]
+    pose: dict[str, Any] | None
 
 
 class IntegrateFrameRequest(BaseModel):
     session_id: str
-    frame_id: Optional[str] = None
+    frame_id: str | None = None
     t_sec: float
     image_path: str = Field(min_length=1)
-    depth_path: Optional[str] = None
+    depth_path: str | None = None
     map_type: str = "occupancy"
-    tile_key: Optional[str] = None
+    tile_key: str | None = None
     resolution_m: float = 0.2
-    pose: Optional[Dict[str, Any]] = None
-    packets: List[Dict[str, Any]] = Field(default_factory=list)
-    stats: Dict[str, Any] = Field(default_factory=dict)
+    pose: dict[str, Any] | None = None
+    packets: list[dict[str, Any]] = Field(default_factory=list)
+    stats: dict[str, Any] = Field(default_factory=dict)
 
 
 class IntegrateFrameResponse(BaseModel):
-    tile: Dict[str, Any]
+    tile: dict[str, Any]
 
 
 @app.get("/health")
-def health() -> Dict[str, str]:
+def health() -> dict[str, str]:
     return {"status": "ok", "service": "realtime-reference", "engine": _ENGINE_NAME}
 
 
@@ -99,7 +99,7 @@ def integrate_frame(body: IntegrateFrameRequest) -> IntegrateFrameResponse:
 
 
 @app.get("/map_tile/{tile_key}")
-def get_map_tile(tile_key: str) -> Dict[str, Any]:
+def get_map_tile(tile_key: str) -> dict[str, Any]:
     tile = _TILE_INDEX.get(tile_key)
     if tile is None:
         raise HTTPException(status_code=404, detail="tile not found")
@@ -107,7 +107,7 @@ def get_map_tile(tile_key: str) -> Dict[str, Any]:
 
 
 @app.get("/stats")
-def stats() -> Dict[str, Any]:
+def stats() -> dict[str, Any]:
     return {
         **_STATS,
         "engine": _ENGINE_NAME,

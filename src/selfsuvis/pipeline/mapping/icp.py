@@ -21,8 +21,8 @@ Typical usage (called by mapper/main.py):
     # result.converged       — True if ICP converged within criteria
 """
 import math
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -30,7 +30,7 @@ import numpy as np
 @dataclass
 class IcpResult:
     """Result of an ICP registration attempt."""
-    transform_4x4: List[List[float]]   # SE(3) 4×4 matrix (source → target)
+    transform_4x4: list[list[float]]   # SE(3) 4×4 matrix (source → target)
     rmse: float                         # correspondence RMSE in metres
     fitness: float                      # overlap fraction [0, 1]
     converged: bool
@@ -43,8 +43,8 @@ class IcpResult:
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _initial_transform_from_gps(
-    source_meta: Dict[str, Any],
-    target_meta: Dict[str, Any],
+    source_meta: dict[str, Any],
+    target_meta: dict[str, Any],
 ) -> np.ndarray:
     """Compute the Phase-1 GPS translation as a 4×4 SE(3) matrix.
 
@@ -96,8 +96,8 @@ def _voxel_size_for(n_points: int, target_points: int = 5_000) -> float:
 def register_splats(
     source_path: str,
     target_path: str,
-    source_meta: Optional[Dict[str, Any]] = None,
-    target_meta: Optional[Dict[str, Any]] = None,
+    source_meta: dict[str, Any] | None = None,
+    target_meta: dict[str, Any] | None = None,
     max_correspondence_m: float = 2.0,
     max_iterations: int = 100,
     voxel_size_m: float = 0.0,
@@ -124,6 +124,7 @@ def register_splats(
         FileNotFoundError: if either PLY file does not exist.
     """
     import open3d as o3d  # type: ignore
+
     from selfsuvis.pipeline.mapping.splat_io import splat_positions
 
     # Load positions
@@ -193,11 +194,11 @@ def register_splats(
 
 
 def check_overlap(
-    source_meta: Dict[str, Any],
-    target_meta: Dict[str, Any],
+    source_meta: dict[str, Any],
+    target_meta: dict[str, Any],
     radius_a_m: float = 15.0,
     radius_b_m: float = 15.0,
-) -> Tuple[bool, float]:
+) -> tuple[bool, float]:
     """Quick GPS check: do two scenes overlap enough to attempt ICP?
 
     Uses the GPS ENU origins and approximate scene radii to estimate overlap.

@@ -45,9 +45,7 @@ import argparse
 import json
 import logging
 import os
-import sys
 from collections import defaultdict
-from typing import Dict, List
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,13 +56,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _parse_labels_arg(labels_args: List[str]) -> Dict[str, List[str]]:
+def _parse_labels_arg(labels_args: list[str]) -> dict[str, list[str]]:
     """Parse --labels entries of the form "label:path" or "label:path1,label:path2,...".
 
     Each --labels value is a comma-separated list of label:path pairs.
     Multiple --labels flags are allowed.
     """
-    result: Dict[str, List[str]] = defaultdict(list)
+    result: dict[str, list[str]] = defaultdict(list)
     for arg in labels_args:
         for token in arg.split(","):
             token = token.strip()
@@ -79,10 +77,10 @@ def _parse_labels_arg(labels_args: List[str]) -> Dict[str, List[str]]:
     return dict(result)
 
 
-def _load_labels_file(path: str) -> Dict[str, List[str]]:
+def _load_labels_file(path: str) -> dict[str, list[str]]:
     """Load a JSON or YAML labels file."""
     _, ext = os.path.splitext(path)
-    with open(path, "r") as fh:
+    with open(path) as fh:
         content = fh.read()
 
     if ext.lower() in {".json"}:
@@ -200,7 +198,7 @@ def main() -> None:
     else:
         # Load PyTorch backbone
         import torch
-        from selfsuvis.pipeline.training.ssl import DINOFineTuner
+
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         from selfsuvis.models.dino_model import hub_load_dino

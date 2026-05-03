@@ -12,8 +12,6 @@ Covers:
 """
 
 import asyncio
-import json
-from datetime import datetime, timezone
 
 import pytest
 
@@ -263,8 +261,8 @@ def test_list_frames_after_returns_all_when_limit_large(conn):
 
 
 def test_list_frames_after_cursor_paginates(conn):
-    from selfsuvis.pipeline.storage.missions import list_frames_after, replace_frames
     from selfsuvis.pipeline.core.utils import utcnow
+    from selfsuvis.pipeline.storage.missions import list_frames_after, replace_frames
 
     now = utcnow()
     frames = [make_frame_record(f"f{i}", "m1") for i in range(6)]

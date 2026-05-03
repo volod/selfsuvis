@@ -1,9 +1,10 @@
 """Realtime semantic-observation helpers."""
 
 
-from typing import Any, Dict, Optional
+from typing import Any
 
-def normalize_semantic_observation(observation: Dict[str, Any]) -> Dict[str, Any]:
+
+def normalize_semantic_observation(observation: dict[str, Any]) -> dict[str, Any]:
     class_name = str(observation.get("class_name", "")).strip().lower()
     if not class_name:
         raise ValueError("class_name is required")
@@ -24,10 +25,10 @@ def normalize_semantic_observation(observation: Dict[str, Any]) -> Dict[str, Any
 
 def project_detection_to_enu(
     *,
-    pose: Dict[str, Any],
-    bbox: Dict[str, Any],
-    range_m: Optional[float] = None,
-) -> Optional[Dict[str, float]]:
+    pose: dict[str, Any],
+    bbox: dict[str, Any],
+    range_m: float | None = None,
+) -> dict[str, float] | None:
     """Approximate ENU backprojection for a detection.
 
     This is intentionally lightweight: it uses the bbox center as an angular hint

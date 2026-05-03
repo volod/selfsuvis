@@ -22,19 +22,55 @@ import base64
 import hashlib
 import io
 import json
+import logging as _logging_mod
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from selfsuvis.pipeline.core import settings
 from selfsuvis.pipeline.vision.rfdetr import RFDETRTracker
+
 from . import _common as _local_common
-import logging as _logging_mod
+
 _log = _logging_mod.getLogger("pipeline.local.tracking")
 _open_frame_image = _local_common._open_frame_image
+gemma_cache_file = getattr(
+    _local_common,
+    "gemma_cache_file",
+    lambda video_dir: video_dir / "runtime_cache" / "gemma_responses.json",
+)
+gemma_frame_cache_key = getattr(
+    _local_common,
+    "gemma_frame_cache_key",
+    lambda frame_path, *, model, prompt_tag: f"{prompt_tag}:{model}:{hashlib.sha256(Path(frame_path).read_bytes()).hexdigest()}",
+)
+load_gemma_cache = getattr(
+    _local_common,
+    "load_gemma_cache",
+    lambda video_dir, *, enabled: (
+        {}
+        if (not enabled or not gemma_cache_file(video_dir).exists())
+        else json.loads(gemma_cache_file(video_dir).read_text(encoding="utf-8"))
+    ),
+)
+save_gemma_cache = getattr(
+    _local_common,
+    "save_gemma_cache",
+    lambda video_dir, cache, *, enabled: (
+        None
+        if not enabled
+        else (
+            gemma_cache_file(video_dir).parent.mkdir(parents=True, exist_ok=True),
+            gemma_cache_file(video_dir).write_text(
+                json.dumps(cache, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            ),
+        )
+    ),
+)
 write_json_artifact = getattr(
     _local_common,
     "write_json_artifact",
@@ -99,14 +135,14 @@ _VALID_SCENE_TYPES = frozenset({
 # ── Gemma structured scene analysis ───────────────────────────────────────────
 
 def _gemma_structured_scene_analysis(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     api_url: str,
     model: str,
     timeout: float,
     clip_model: Any,
     *,
-    video_dir: Optional[Path] = None,
-) -> Dict[str, Any]:
+    video_dir: Path | None = None,
+) -> dict[str, Any]:
     """Send sampled frames to Gemma asking for structured JSON scene understanding.
 
     The JSON schema asks for:
@@ -132,7 +168,9 @@ def _gemma_structured_scene_analysis(
     step = max(1, n_avail // max(1, n_sample))
     sampled = frame_list[::step][:n_sample]
     try:
-        from selfsuvis.pipeline.workflows.local.steps_caption import _reduce_llm_sample_frames  # noqa: PLC0415
+        from selfsuvis.pipeline.workflows.local.steps_caption import (
+            _reduce_llm_sample_frames,  # noqa: PLC0415
+        )
         sampled = _reduce_llm_sample_frames(sampled, max_frames=n_sample)
     except Exception:
         pass
@@ -172,24 +210,25 @@ def _gemma_structured_scene_analysis(
     ollama_base = base[:-3] if base.endswith("/v1") else base
     ollama_endpoint = f"{ollama_base}/api/chat"
 
-    per_frame_responses: List[Dict[str, Any]] = []
+    per_frame_responses: list[dict[str, Any]] = []
     n_failed = 0
-    cache: Dict[str, Any] = {}
-    cache_path: Optional[Path] = None
-    if video_dir is not None and settings.GEMMA_CACHE_RESPONSES:
-        cache_path = video_dir / "runtime_cache" / "gemma_responses.json"
-        if cache_path.exists():
-            try:
-                cache = json.loads(cache_path.read_text(encoding="utf-8"))
-            except Exception:
-                cache = {}
+    cache: dict[str, Any] = {}
+    cache_enabled = video_dir is not None and settings.GEMMA_CACHE_RESPONSES
+    if video_dir is not None:
+        try:
+            cache = load_gemma_cache(video_dir, enabled=cache_enabled)
+        except Exception:
+            cache = {}
 
     for fp, _t_sec in sampled:
         try:
             cache_key = ""
-            if cache_path is not None:
-                digest = hashlib.sha256(Path(fp).read_bytes()).hexdigest()
-                cache_key = f"gemma_tracking_structured_v1:{model}:{digest}"
+            if cache_enabled:
+                cache_key = gemma_frame_cache_key(
+                    fp,
+                    model=model,
+                    prompt_tag="gemma_tracking_structured_v1",
+                )
                 cached = cache.get(cache_key)
                 if isinstance(cached, dict) and cached.get("parsed_json"):
                     per_frame_responses.append(cached["parsed_json"])
@@ -229,10 +268,9 @@ def _gemma_structured_scene_analysis(
         except Exception as exc:
             n_failed += 1
             _log.debug("  [Step10/Gemma] frame analysis failed: %s", exc)
-    if cache_path is not None:
+    if video_dir is not None:
         try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+            save_gemma_cache(video_dir, cache, enabled=cache_enabled)
         except Exception:
             pass
 
@@ -327,7 +365,7 @@ def _gemma_vision_request(
     return ""
 
 
-def _empty_scene() -> Dict[str, Any]:
+def _empty_scene() -> dict[str, Any]:
     return {
         "scene_type": "other",
         "dominant_objects": [],
@@ -361,7 +399,7 @@ def _valid_gemma_object(obj: Any) -> bool:
     return 0.0 <= x1 < x2 <= 1.0 and 0.0 <= y1 < y2 <= 1.0
 
 
-def _scene_is_actionable(scene: Optional[Dict[str, Any]]) -> bool:
+def _scene_is_actionable(scene: dict[str, Any] | None) -> bool:
     """Return True when a precomputed scene contains usable tracking targets."""
     if not scene:
         return False
@@ -375,14 +413,14 @@ def _scene_is_actionable(scene: Optional[Dict[str, Any]]) -> bool:
     return bool(tracking_targets and valid_objects)
 
 
-def _aggregate_scene_responses(responses: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _aggregate_scene_responses(responses: list[dict[str, Any]]) -> dict[str, Any]:
     """Merge per-frame structured Gemma responses into one scene summary."""
     from collections import Counter
 
-    scene_types: List[str] = []
-    objects_by_cat: Dict[str, Dict[str, Any]] = {}
-    priorities: List[str] = []
-    areas: List[str] = []
+    scene_types: list[str] = []
+    objects_by_cat: dict[str, dict[str, Any]] = {}
+    priorities: list[str] = []
+    areas: list[str] = []
 
     for r in responses:
         st = str(r.get("scene_type", "other") or "").strip().lower()
@@ -438,7 +476,7 @@ def _aggregate_scene_responses(responses: List[Dict[str, Any]]) -> Dict[str, Any
     }
 
 
-def _bbox_area(bbox: List[float]) -> float:
+def _bbox_area(bbox: list[float]) -> float:
     """Return fractional area of a normalised [x1, y1, x2, y2] bbox."""
     try:
         w = max(0.0, bbox[2] - bbox[0])
@@ -449,9 +487,9 @@ def _bbox_area(bbox: List[float]) -> float:
 
 
 def _normalise_tracking_targets(
-    tracking_priority: List[str],
-    gemma_objects: List[Dict[str, Any]],
-) -> List[str]:
+    tracking_priority: list[str],
+    gemma_objects: list[dict[str, Any]],
+) -> list[str]:
     """Reduce Gemma scene nouns to detector-aligned target classes."""
     candidates = [*(tracking_priority or [])]
     candidates.extend(
@@ -459,7 +497,7 @@ def _normalise_tracking_targets(
         for obj in gemma_objects
         if (obj.get("category") or "").strip()
     )
-    result: List[str] = []
+    result: list[str] = []
     seen: set[str] = set()
     for raw in candidates:
         norm = " ".join(raw.lower().replace("-", " ").replace("_", " ").split())
@@ -478,8 +516,8 @@ def _normalise_tracking_targets(
     return result
 
 
-def _track_length_stats(tracking_results: List[Dict[str, Any]]) -> Tuple[float, float]:
-    lengths: Dict[int, int] = {}
+def _track_length_stats(tracking_results: list[dict[str, Any]]) -> tuple[float, float]:
+    lengths: dict[int, int] = {}
     for frame_res in tracking_results:
         seen_ids: set[int] = set()
         for det in frame_res.get("detections", []):
@@ -505,7 +543,7 @@ def _track_length_stats(tracking_results: List[Dict[str, Any]]) -> Tuple[float, 
 def _get_sam_auto_masks(
     image: Image.Image,
     sam_predictor: Any,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Generate candidate masks from SAM in automatic mode.
 
     Uses the cached ``SAMPredictor.get_auto_mask_generator()`` (points_per_side=8,
@@ -537,7 +575,7 @@ def _get_sam_auto_masks(
         _log.debug("  [Step10/SAM] Auto-mask generator unavailable (%s); using grid fallback", exc)
 
     # Grid fallback: 4×4 evenly-spaced boxes (5% of image per side)
-    grid_bboxes: List[Tuple[float, float, float, float]] = []
+    grid_bboxes: list[tuple[float, float, float, float]] = []
     pad = 0.05
     for row in range(4):
         for col in range(4):
@@ -570,12 +608,12 @@ def _get_sam_auto_masks(
 
 
 def _clip_filter_sam_masks(
-    auto_masks: List[Dict[str, Any]],
-    target_categories: List[str],
+    auto_masks: list[dict[str, Any]],
+    target_categories: list[str],
     clip_model: Any,
     image: Image.Image,
     threshold: float = _CLIP_MASK_THRESHOLD,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Filter SAM auto-masks to those semantically matching *target_categories*.
 
     Encodes all valid mask crops in a **single batched** ``encode_images`` call
@@ -597,8 +635,8 @@ def _clip_filter_sam_masks(
     w_img, h_img = image.size
 
     # ── Pass 1: extract all valid crops and remember their mask indices ────────
-    valid_indices: List[int] = []
-    crops: List[Any] = []  # PIL images
+    valid_indices: list[int] = []
+    crops: list[Any] = []  # PIL images
 
     for i, mask_info in enumerate(auto_masks):
         bbox = mask_info.get("bbox")
@@ -636,7 +674,7 @@ def _clip_filter_sam_masks(
     max_scores = scores_matrix.max(axis=0)             # (N,)
     best_cats = scores_matrix.argmax(axis=0)           # (N,)
 
-    passing: List[Dict[str, Any]] = []
+    passing: list[dict[str, Any]] = []
     for j, orig_idx in enumerate(valid_indices):
         if max_scores[j] >= threshold:
             m = dict(auto_masks[orig_idx])
@@ -650,12 +688,12 @@ def _clip_filter_sam_masks(
 
 def _sam_directed_by_gemma(
     image: Image.Image,
-    gemma_objects: List[Dict[str, Any]],
+    gemma_objects: list[dict[str, Any]],
     sam_predictor: Any,
     clip_model: Any,
     use_auto_mask: bool = True,
     path_b_allowed: bool = True,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Segment objects identified by Gemma using SAM.
 
     Path A (preferred): use Gemma's rough_bbox as direct box prompts to SAM.
@@ -671,11 +709,11 @@ def _sam_directed_by_gemma(
         return []
 
     categories = [o.get("category", "") for o in gemma_objects if o.get("category")]
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     # ── Path A: Gemma bbox prompts ────────────────────────────────────────────
-    path_a_bboxes: List[Tuple[float, float, float, float]] = []
-    path_a_categories: List[str] = []
+    path_a_bboxes: list[tuple[float, float, float, float]] = []
+    path_a_categories: list[str] = []
     for obj in gemma_objects:
         bbox = obj.get("rough_bbox", _FALLBACK_BBOX)
         cat = obj.get("category", "unknown")
@@ -747,8 +785,8 @@ def _sam_directed_by_gemma(
 
 
 def _is_duplicate(
-    candidate: Dict[str, Any],
-    existing: List[Dict[str, Any]],
+    candidate: dict[str, Any],
+    existing: list[dict[str, Any]],
     iou_threshold: float = 0.7,
 ) -> bool:
     """Return True when candidate mask overlaps any existing mask above iou_threshold."""
@@ -775,8 +813,8 @@ def _is_duplicate(
 
 def _draw_tracking_frame(
     image: Image.Image,
-    detections: List[Dict[str, Any]],
-    sam_masks: Optional[List[Dict[str, Any]]] = None,
+    detections: list[dict[str, Any]],
+    sam_masks: list[dict[str, Any]] | None = None,
 ) -> Image.Image:
     """Draw tracking boxes (with IDs) and optional SAM masks on *image*."""
     w, h = image.size
@@ -838,15 +876,15 @@ def _draw_tracking_frame(
 # ── Main step function ─────────────────────────────────────────────────────────
 
 def step_gemma_directed_tracking(
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
     device: str,
-    models: Dict[str, Any],
+    models: dict[str, Any],
     gemma_api_url: str,
     gemma_api_model: str,
-    precomputed_scene: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    precomputed_scene: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Step 10: Gemma 4 directed tracking (SAM segmentation + RF-DETR tracking).
 
     Args:
@@ -863,7 +901,7 @@ def step_gemma_directed_tracking(
             n_tracked_objects (int), n_frames (int), sam_masks_total (int),
             elapsed_sec (float), results_json_path (str), summary_md_path (str).
     """
-    result: Dict[str, Any] = {"skipped": True, "detection_results": []}
+    result: dict[str, Any] = {"skipped": True, "detection_results": []}
 
     if not settings.RFDETR_ENABLED:
         result["reason"] = "RFDETR_ENABLED=false"
@@ -926,7 +964,7 @@ def step_gemma_directed_tracking(
     sam_step = max(1, n_avail // _GEMMA_STRUCTURED_SAMPLE_N)
     sam_frames = frame_list[::sam_step][:_GEMMA_STRUCTURED_SAMPLE_N]
 
-    frame_sam_masks: Dict[str, List[Dict[str, Any]]] = {}  # frame_path → masks
+    frame_sam_masks: dict[str, list[dict[str, Any]]] = {}  # frame_path → masks
     sam_masks_total = 0
 
     if sam_available and sam_predictor is not None and gemma_objects:
@@ -994,9 +1032,9 @@ def step_gemma_directed_tracking(
     n_track = len(track_frames)
 
     tracker = RFDETRTracker()
-    tracking_results: List[Dict[str, Any]] = []
+    tracking_results: list[dict[str, Any]] = []
     n_unique_track_ids = 0
-    by_category: Dict[str, int] = {}
+    by_category: dict[str, int] = {}
     total_objects = 0
 
     if tracker.is_enabled():
@@ -1004,7 +1042,7 @@ def step_gemma_directed_tracking(
             "RF-DETR tracking (%s) on %d/%d frames, target_labels=%s",
             tracker.model_id, n_track, n_avail, tracking_targets or "(all)",
         )
-        effective_tracking_targets: Optional[List[str]] = list(tracking_targets) if tracking_targets else None
+        effective_tracking_targets: list[str] | None = list(tracking_targets) if tracking_targets else None
         tracking_results = tracker.track_sequence(
             track_frames,
             target_labels=effective_tracking_targets,
@@ -1062,7 +1100,7 @@ def step_gemma_directed_tracking(
     # ── Annotate frames ───────────────────────────────────────────────────────
     out_dir = video_dir / "gemma_tracking"
     out_dir.mkdir(parents=True, exist_ok=True)
-    annotated_paths: List[str] = []
+    annotated_paths: list[str] = []
 
     for frame_res in tracking_results:
         fp = frame_res["frame_path"]
@@ -1158,9 +1196,9 @@ def step_gemma_directed_tracking(
 def _write_gemma_tracking_summary_md(
     video_dir: Path,
     video_name: str,
-    gemma_scene: Dict[str, Any],
-    results_json: Dict[str, Any],
-    annotated_paths: List[str],
+    gemma_scene: dict[str, Any],
+    results_json: dict[str, Any],
+    annotated_paths: list[str],
     elapsed_sec: float,
 ) -> str:
     """Write ``gemma_tracking_summary.md`` and return its path."""

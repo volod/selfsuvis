@@ -2,26 +2,26 @@
 
 import argparse
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import cv2
 
 from selfsuvis.pipeline.core import get_logger, settings
-from selfsuvis.pipeline.storage.elastic import bulk_index_jsonl
 from selfsuvis.pipeline.media.frames import (
     FrameRecord,
     extract_frames_adaptive,
     extract_frames_fixed,
     extract_stream_frames,
 )
+from selfsuvis.pipeline.storage.elastic import bulk_index_jsonl
 
 
 def _run_metadata(
     args: argparse.Namespace,
     mode: str,
-    video_path: Optional[str] = None,
-    stream_source: Optional[str] = None,
-) -> Dict[str, Any]:
+    video_path: str | None = None,
+    stream_source: str | None = None,
+) -> dict[str, Any]:
     """Build run_metadata dict for file or stream mode."""
     if mode == "stream":
         return {
@@ -51,7 +51,7 @@ def _run_metadata(
 
 
 def _jsonl_path(
-    result: Optional[Dict[str, Any]], out_dir: str, video_name: str
+    result: dict[str, Any] | None, out_dir: str, video_name: str
 ) -> str:
     """Return jsonl path from process_frames result or default path."""
     if result and "jsonl_path" in result:
@@ -59,9 +59,9 @@ def _jsonl_path(
     return os.path.join(out_dir, f"{video_name}.jsonl")
 
 
-def _list_videos(path: str) -> List[str]:
+def _list_videos(path: str) -> list[str]:
     """List video files under path (recursive)."""
-    videos: List[str] = []
+    videos: list[str] = []
     for root, _, files in os.walk(path):
         for name in files:
             if os.path.splitext(name)[1].lower() in settings.VIDEO_EXTS:
@@ -75,7 +75,7 @@ def _safe_stem(path: str) -> str:
     return os.path.splitext(base)[0]
 
 
-def _parse_steps(raw: Optional[str]) -> List[str]:
+def _parse_steps(raw: str | None) -> list[str]:
     """Parse comma-separated steps; default extract,describe,index."""
     if not raw:
         return ["extract", "describe", "index"]
@@ -87,9 +87,9 @@ def _parse_steps(raw: Optional[str]) -> List[str]:
     return steps
 
 
-def _load_existing_frames(out_dir: str) -> List[FrameRecord]:
+def _load_existing_frames(out_dir: str) -> list[FrameRecord]:
     """Load FrameRecords from existing frame_*.png files in out_dir."""
-    frames: List[FrameRecord] = []
+    frames: list[FrameRecord] = []
     if not os.path.isdir(out_dir):
         return frames
     for name in sorted(os.listdir(out_dir)):
@@ -138,7 +138,7 @@ def run_file_mode(args: argparse.Namespace) -> None:
         run_metadata = _run_metadata(
             args, "file", video_path=os.path.abspath(video_path)
         )
-        frames: List[FrameRecord] = []
+        frames: list[FrameRecord] = []
         if "extract" in steps:
             if args.adaptive:
                 frames = extract_frames_adaptive(

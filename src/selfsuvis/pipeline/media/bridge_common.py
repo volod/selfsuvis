@@ -1,15 +1,16 @@
 """Shared helpers for telemetry-to-packet media bridges."""
 
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
+from collections.abc import Awaitable, Callable, Iterable
+from typing import Any
 
 
 def build_packet(
     *,
     sensor_type: str,
     t_device: float,
-    payload: Dict[str, Any],
-    seq: Optional[int] = None,
-) -> Dict[str, Any]:
+    payload: dict[str, Any],
+    seq: int | None = None,
+) -> dict[str, Any]:
     return {
         "sensor_type": str(sensor_type).strip().lower(),
         "t_device": float(t_device),
@@ -19,10 +20,10 @@ def build_packet(
 
 
 def flatten_packet_batches(
-    messages: Iterable[Dict[str, Any]],
-    converter: Callable[[Dict[str, Any]], List[Dict[str, Any]]],
-) -> List[Dict[str, Any]]:
-    packets: List[Dict[str, Any]] = []
+    messages: Iterable[dict[str, Any]],
+    converter: Callable[[dict[str, Any]], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    packets: list[dict[str, Any]] = []
     for message in messages:
         packets.extend(converter(message))
     return packets
@@ -33,22 +34,22 @@ class PacketBridge:
 
     def __init__(
         self,
-        converter: Callable[[Dict[str, Any]], List[Dict[str, Any]]],
+        converter: Callable[[dict[str, Any]], list[dict[str, Any]]],
         *,
-        on_packet: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+        on_packet: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         self._converter = converter
         self._on_packet = on_packet
 
-    async def ingest_message(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def ingest_message(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         packets = self._converter(message)
         if self._on_packet is not None:
             for packet in packets:
                 await self._on_packet(packet)
         return packets
 
-    async def ingest_messages(self, messages: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        collected: List[Dict[str, Any]] = []
+    async def ingest_messages(self, messages: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+        collected: list[dict[str, Any]] = []
         for message in messages:
             collected.extend(await self.ingest_message(message))
         return collected

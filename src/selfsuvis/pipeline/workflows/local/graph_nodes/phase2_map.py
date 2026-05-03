@@ -4,21 +4,21 @@ import concurrent.futures as _cf
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
 
-from ..runner import _append_agentic_step
 from ..graph_state import PipelineState
+from ..runner import _append_agentic_step
 
 _log = logging.getLogger(__name__)
 
 # Module-level registry — keyed by video_id — holds the (executor, future) pair.
 # Future objects are not JSON-serialisable so they cannot live in graph state.
-_MAP_FUTURES: Dict[str, tuple] = {}  # video_id → (_cf.ThreadPoolExecutor, _cf.Future)
+_MAP_FUTURES: dict[str, tuple] = {}  # video_id → (_cf.ThreadPoolExecutor, _cf.Future)
 
 
-def node_p2_map_3d_submit(state: PipelineState) -> Dict[str, Any]:
+def node_p2_map_3d_submit(state: PipelineState) -> dict[str, Any]:
     """Submit step_create_3d_map to a background thread and register the future."""
     from ..steps_map import step_create_3d_map
 
@@ -56,7 +56,7 @@ def node_p2_map_3d_submit(state: PipelineState) -> Dict[str, Any]:
     return {}  # no state change — side-effect only
 
 
-def node_p2_map_3d_join(state: PipelineState) -> Dict[str, Any]:
+def node_p2_map_3d_join(state: PipelineState) -> dict[str, Any]:
     """Join the 3D-map background thread, then run advisor and semantic graph."""
     from ..steps_map import step_advise_3d_map_quality
     from ..steps_semantic_graph import step_build_semantic_environment_graph
@@ -86,7 +86,7 @@ def node_p2_map_3d_join(state: PipelineState) -> Dict[str, Any]:
         }
 
     args = state["args"]
-    semantic_graph_result: Dict[str, Any] = {"skipped": True}
+    semantic_graph_result: dict[str, Any] = {"skipped": True}
     if not getattr(args, "no_yolo", False) and settings.YOLO_SSG_ENABLED:
         semantic_graph_result = step_build_semantic_environment_graph(
             video_id=video_id,
@@ -108,7 +108,6 @@ def node_p2_map_3d_join(state: PipelineState) -> Dict[str, Any]:
     stats = dict(state.get("stats", {}))
     stats["sfm_poses"] = h["sfm_poses"]
     stats["map_method"] = h["method"]
-    import numpy as np
     stats["map_points"] = int(h["points"].shape[0]) if h.get("points") is not None else 0
     stats["gsplat_method"] = h.get("gsplat_method", "skipped")
     stats["map_degraded"] = bool(

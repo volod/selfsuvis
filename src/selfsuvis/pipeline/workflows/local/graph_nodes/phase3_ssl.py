@@ -6,21 +6,21 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
 
-from ..runner import _append_agentic_step
 from ..graph_state import PipelineState
+from ..runner import _append_agentic_step
 
 _log = logging.getLogger(__name__)
 
 _SSL_GATE_MAX_LOSS = 10.0
 
 
-def node_p3_ssl_finetune(state: PipelineState) -> Dict[str, Any]:
+def node_p3_ssl_finetune(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _guard_min_free_vram, _prep_vram_for_step
     from ..steps_ssl import step_ssl_finetune
-    from ..steps_caption import _prep_vram_for_step, _guard_min_free_vram, _models_on_device
 
     args = state["args"]
     models = state["models"]
@@ -133,9 +133,9 @@ def ssl_gate_router(state: PipelineState) -> str:
     return "p4_multi_model_compare"
 
 
-def node_p3_distill(state: PipelineState) -> Dict[str, Any]:
+def node_p3_distill(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _restore_models_to_gpu
     from ..steps_distill import step_distill
-    from ..steps_caption import _restore_models_to_gpu, _models_on_device
 
     args = state["args"]
     models = state["models"]
@@ -211,9 +211,9 @@ def node_p3_distill(state: PipelineState) -> Dict[str, Any]:
     }
 
 
-def node_p3_onnx_export(state: PipelineState) -> Dict[str, Any]:
+def node_p3_onnx_export(state: PipelineState) -> dict[str, Any]:
+    from ..steps_caption import _models_on_device, _restore_models_to_gpu
     from ..steps_distill import step_export_model
-    from ..steps_caption import _restore_models_to_gpu, _models_on_device
 
     args = state["args"]
     device = state["device"]
@@ -256,7 +256,7 @@ def node_p3_onnx_export(state: PipelineState) -> Dict[str, Any]:
     }
 
 
-def node_p3_ft_search(state: PipelineState) -> Dict[str, Any]:
+def node_p3_ft_search(state: PipelineState) -> dict[str, Any]:
     from ..steps_embed import step_finetuned_model_search_test
 
     args = state["args"]
@@ -287,10 +287,9 @@ def node_p3_ft_search(state: PipelineState) -> Dict[str, Any]:
     return {"ft_results": ft_results, "stats": stats, "agentic_trace": agentic_trace}
 
 
-def node_p3_compare(state: PipelineState) -> Dict[str, Any]:
+def node_p3_compare(state: PipelineState) -> dict[str, Any]:
     from ..runner import step_compare_and_describe
 
-    args = state["args"]
     stats = dict(state.get("stats", {}))
     agentic_trace = list(state.get("agentic_trace", []))
     video_context = dict(state.get("video_context", {}))

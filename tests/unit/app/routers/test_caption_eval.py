@@ -1,9 +1,9 @@
 """Unit tests for GET /admin/caption-eval and caption_null_rate in automation-roi."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -11,8 +11,9 @@ from fastapi.testclient import TestClient
 def admin_client():
     """TestClient for the admin router with auth bypassed."""
     from fastapi import FastAPI
+
+    from selfsuvis.app.deps import rate_limit, require_api_key
     from selfsuvis.app.routers.admin import router
-    from selfsuvis.app.deps import require_api_key, rate_limit
 
     app = FastAPI()
 
@@ -191,9 +192,6 @@ def test_caption_eval_confidence_rounded(admin_client):
 
 def test_automation_roi_includes_caption_null_rate(admin_client):
     """GET /admin/automation-roi response includes caption_null_rate field."""
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc)
     annotated_row = {"first_at": None, "last_at": None}
 
     conn = AsyncMock()

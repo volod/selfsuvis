@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class AcquireCtx:
@@ -26,14 +26,14 @@ class FakeRealtimePool:
 
 class FakeRealtimeConn:
     def __init__(self):
-        self.sessions: Dict[str, Dict[str, Any]] = {}
-        self.packets: List[Dict[str, Any]] = []
-        self.poses: List[Dict[str, Any]] = []
-        self.tiles: List[Dict[str, Any]] = []
-        self.semantic: List[Dict[str, Any]] = []
-        self.realtime_frames: List[Dict[str, Any]] = []
-        self.jobs: Dict[str, Dict[str, Any]] = {}
-        self.missions: Dict[str, Dict[str, Any]] = {}
+        self.sessions: dict[str, dict[str, Any]] = {}
+        self.packets: list[dict[str, Any]] = []
+        self.poses: list[dict[str, Any]] = []
+        self.tiles: list[dict[str, Any]] = []
+        self.semantic: list[dict[str, Any]] = []
+        self.realtime_frames: list[dict[str, Any]] = []
+        self.jobs: dict[str, dict[str, Any]] = {}
+        self.missions: dict[str, dict[str, Any]] = {}
 
     async def execute(self, query: str, *args):
         if "INSERT INTO robot_sessions" in query:
@@ -166,7 +166,7 @@ class FakeRealtimeConn:
             return
         raise AssertionError(f"unexpected executemany query: {query}")
 
-    async def fetchrow(self, query: str, *args) -> Optional[Dict[str, Any]]:
+    async def fetchrow(self, query: str, *args) -> dict[str, Any] | None:
         if "FROM robot_sessions" in query:
             return self.sessions.get(args[0])
         if "FROM realtime_poses" in query:
@@ -185,7 +185,7 @@ class FakeRealtimeConn:
     async def fetch(self, query: str, *args):
         if "FROM sensor_packets" in query and "GROUP BY sensor_type" in query:
             session_id = args[0]
-            counts: Dict[str, int] = {}
+            counts: dict[str, int] = {}
             for row in self.packets:
                 if row["session_id"] != session_id:
                     continue

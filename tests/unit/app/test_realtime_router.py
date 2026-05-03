@@ -1,17 +1,17 @@
 """Unit tests for app/routers/realtime.py."""
 
 
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import patch
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from tests.support.realtime_db import FakeRealtimeConn as FakeConn
+from tests.support.realtime_db import FakeRealtimePool as FakePool
 
 from selfsuvis.app.deps import rate_limit, require_api_key
 from selfsuvis.app.routers.realtime import router
-from tests.support.realtime_db import FakeRealtimeConn as FakeConn
-from tests.support.realtime_db import FakeRealtimePool as FakePool
 
 
 class FakeMediaMtxClient:
@@ -39,7 +39,7 @@ class FakeMediaMtxClient:
 
 class FakeRealtimeStreamManager:
     def __init__(self):
-        self.streams: Dict[str, Dict[str, Any]] = {}
+        self.streams: dict[str, dict[str, Any]] = {}
 
     async def start(self, *, session_id, mission_id, robot_id, path_name, caption_fps=None):
         data = {

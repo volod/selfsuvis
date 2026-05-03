@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 def _make_fake_db_pool():
@@ -51,8 +50,9 @@ def test_rtsp_captioner_override_fps():
 
 def test_caption_frame_uses_gemma_when_enabled():
     """_caption_frame returns Gemma facts when QwenModel is enabled and healthy."""
-    from selfsuvis.pipeline.media.rtsp_captioner import RtspCaptioner
     from PIL import Image
+
+    from selfsuvis.pipeline.media.rtsp_captioner import RtspCaptioner
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool())
 
@@ -76,8 +76,9 @@ def test_caption_frame_uses_gemma_when_enabled():
 
 def test_caption_frame_falls_back_to_florence_on_gemma_timeout():
     """_caption_frame falls back to Florence when Gemma times out."""
-    from selfsuvis.pipeline.media.rtsp_captioner import RtspCaptioner
     from PIL import Image
+
+    from selfsuvis.pipeline.media.rtsp_captioner import RtspCaptioner
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool(), florence_fallback=True)
 
@@ -101,8 +102,9 @@ def test_caption_frame_falls_back_to_florence_on_gemma_timeout():
 
 def test_caption_frame_falls_back_to_florence_when_gemma_disabled():
     """_caption_frame uses Florence when Gemma is not enabled."""
-    from selfsuvis.pipeline.media.rtsp_captioner import RtspCaptioner
     from PIL import Image
+
+    from selfsuvis.pipeline.media.rtsp_captioner import RtspCaptioner
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool(), florence_fallback=True)
 
@@ -122,8 +124,9 @@ def test_caption_frame_falls_back_to_florence_when_gemma_disabled():
 
 def test_caption_frame_returns_none_when_both_fail():
     """_caption_frame returns null caption when both Gemma and Florence fail."""
-    from selfsuvis.pipeline.media.rtsp_captioner import RtspCaptioner
     from PIL import Image
+
+    from selfsuvis.pipeline.media.rtsp_captioner import RtspCaptioner
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool(), florence_fallback=True)
 
@@ -213,8 +216,8 @@ async def test_run_stops_on_stop_event():
 @pytest.mark.anyio
 async def test_run_handles_missing_cv2():
     """run() raises ImportError with helpful message when cv2 is missing."""
+
     from selfsuvis.pipeline.media.rtsp_captioner import RtspCaptioner
-    import sys
 
     captioner = RtspCaptioner("rtsp://x", "m1", _make_fake_db_pool())
 

@@ -8,4 +8,4 @@ either path reaches the same module-level reference.
 import socket  # noqa: F401
 import subprocess  # noqa: F401
 
-from selfsuvis.pipeline.media.rtsp_ingest import validate_rtsp_url, record_rtsp  # noqa: F401
+from selfsuvis.pipeline.media.rtsp_ingest import record_rtsp, validate_rtsp_url  # noqa: F401

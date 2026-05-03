@@ -1,10 +1,11 @@
 """ROS-style message normalization for realtime ingest."""
 
-from typing import Any, Dict, List
+from typing import Any
 
 from .bridge_common import PacketBridge, build_packet
 
-def ros_message_to_packets(message: Dict[str, Any]) -> List[Dict[str, Any]]:
+
+def ros_message_to_packets(message: dict[str, Any]) -> list[dict[str, Any]]:
     topic = str(message.get("topic") or "").strip()
     t_device = float(message.get("t_device") or message.get("stamp") or 0.0)
     payload = dict(message.get("payload") or {})

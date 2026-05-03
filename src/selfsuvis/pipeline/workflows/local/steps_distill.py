@@ -1,28 +1,25 @@
 """Distillation and ONNX export steps."""
 
 
-import logging
 import math
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from PIL import Image
 
-from selfsuvis.pipeline.core import settings
 from selfsuvis.pipeline.training import DistillConfig, run_distillation
+
 from ._common import _log
 
 try:
-    from selfsuvis.models.dino_model import DINOEmbedder
     _HAS_DINO = True
 except Exception:
     _HAS_DINO = False
 
 try:
-    from selfsuvis.models.gemma_model import GemmaEmbedder
     _HAS_GEMMA = True
 except Exception:
     _HAS_GEMMA = False
@@ -30,15 +27,15 @@ except Exception:
 
 def step_distill(
     teacher_checkpoint: str,
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
     device: str,
     distill_epochs: int,
     batch_size: int,
-    caption_embeddings: Optional[np.ndarray] = None,
-    gemma_embedder: Optional[Any] = None,
-) -> Dict[str, Any]:
+    caption_embeddings: np.ndarray | None = None,
+    gemma_embedder: Any | None = None,
+) -> dict[str, Any]:
     """Step 17: distil fine-tuned teacher → student with maximum hydration.
 
     Maximum-hydration distillation chain:
@@ -54,7 +51,7 @@ def step_distill(
     from .steps_report import write_distill_stats_md
 
     out_md = video_dir / "distill_stats.md"
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "student_backbone": None, "best_path": "", "best_loss": float("nan"),
         "best_recall": float("nan"), "compression_ratio": 0.0,
         "student_dim": 384, "teacher_dim": 768,
@@ -62,7 +59,8 @@ def step_distill(
     }
     if not _HAS_DINO:
         _log.warning("  DINO not available — skipping distillation")
-        result["skipped"] = True; return result
+        result["skipped"] = True
+        return result
 
     # ── Choose teacher ────────────────────────────────────────────────────────
     teacher_bb = None
@@ -71,7 +69,7 @@ def step_distill(
     if gemma_embedder is not None and _HAS_GEMMA:
         try:
             from selfsuvis.pipeline.training.distill import GemmaVisionTeacher
-            teacher_bb    = GemmaVisionTeacher(gemma_embedder)
+            teacher_bb = GemmaVisionTeacher(gemma_embedder)
             teacher_label = f"Gemma 4 vision encoder (dim={gemma_embedder.image_dim()})"
             result["teacher_dim"] = gemma_embedder.image_dim()
             _log.info("  Distillation teacher: %s", teacher_label)
@@ -82,18 +80,21 @@ def step_distill(
     if teacher_bb is None:
         try:
             import torch
+
             from selfsuvis.models.dino_model import hub_load_dino
             teacher_bb = hub_load_dino("dinov3_vitb14", pretrained=True).to(device)
             state = torch.load(teacher_checkpoint, map_location=device)
-            teacher_bb.load_state_dict(state); teacher_bb.eval()
+            teacher_bb.load_state_dict(state)
+            teacher_bb.eval()
             _log.info("  Teacher loaded from checkpoint: %s", teacher_checkpoint)
         except Exception as exc:
             _log.warning("  Could not load teacher checkpoint (%s) — skipping distillation", exc)
-            result["skipped"] = True; return result
+            result["skipped"] = True
+            return result
 
     # ── Caption anchor ────────────────────────────────────────────────────────
     lambda_cap = 0.0
-    cap_embs   = None
+    cap_embs = None
     if caption_embeddings is not None and len(caption_embeddings) > 0:
         lambda_cap = 0.5
         cap_embs   = caption_embeddings
@@ -120,7 +121,8 @@ def step_distill(
         stats = run_distillation(teacher_bb, frame_paths, video_dir / "checkpoints", cfg)
     except Exception as exc:
         _log.warning("  Distillation failed (%s) — skipping", exc)
-        result["skipped"] = True; return result
+        result["skipped"] = True
+        return result
     distiller = stats.pop("distiller")
     best_path = stats.get("best_path", "")
     if not best_path or not os.path.exists(best_path) or not math.isfinite(stats.get("best_loss", float("nan"))):
@@ -144,13 +146,13 @@ def step_distill(
 
 def step_distill_stage2(
     stage1_student_backbone: Any,
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_name: str,
     video_dir: Path,
     device: str,
     distill_epochs: int,
     batch_size: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 22: Stage 1→2 distillation — ViT-S/14 teacher → EfficientViT-B1 student.
 
     Uses RKD-D + KoLeo only (no RKD-A); both teacher and student are 384-dim so
@@ -158,12 +160,13 @@ def step_distill_stage2(
     """
     from selfsuvis.pipeline.training.distill import run_distillation_efficientvit
     from selfsuvis.pipeline.training.edge_inference import export_efficientvit_onnx
+
     from .steps_report import write_distill_stats_md
 
     edge_dir = video_dir / "edge_models"
     edge_dir.mkdir(parents=True, exist_ok=True)
     onnx_path = str(edge_dir / "efficientvit_local.onnx")
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "student_backbone": None, "best_path": "", "best_loss": float("nan"),
         "best_recall": float("nan"), "compression_ratio": 0.0,
         "student_dim": 384, "teacher_dim": 384,
@@ -233,23 +236,23 @@ def step_distill_stage2(
 
 def step_export_model(
     checkpoint_path: str,
-    frame_list: List[Tuple[str, float]],
+    frame_list: list[tuple[str, float]],
     video_dir: Path,
     device: str,
-    models: Dict[str, Any],
+    models: dict[str, Any],
     no_onnx: bool,
-    student_backbone: Optional[Any] = None,
+    student_backbone: Any | None = None,
     student_dim: int = 768,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Step 18: export model to ONNX + build gallery.npz."""
-    from selfsuvis.pipeline.training.edge_inference import build_gallery
     from selfsuvis.models.openclip_model import OpenCLIPEmbedder
+    from selfsuvis.pipeline.training.edge_inference import build_gallery
 
     edge_dir     = video_dir / "edge_models"
     edge_dir.mkdir(parents=True, exist_ok=True)
     onnx_path    = str(edge_dir / "dino_local.onnx")
     gallery_path = str(edge_dir / "gallery.npz")
-    result: Dict[str, Any] = {"onnx_path": onnx_path, "gallery_path": gallery_path,
+    result: dict[str, Any] = {"onnx_path": onnx_path, "gallery_path": gallery_path,
                                "onnx_mb": 0.0, "exported": False, "gallery_saved": False}
     backbone_to_export = None
     if student_backbone is not None:
@@ -305,7 +308,8 @@ def step_export_model(
                                   do_constant_folding=True, dynamo=False)
             if os.path.exists(onnx_path):
                 onnx_mb = os.path.getsize(onnx_path) / 1e6
-                result["onnx_mb"] = onnx_mb; result["exported"] = True
+                result["onnx_mb"] = onnx_mb
+                result["exported"] = True
                 _log.info("  ✓ ONNX export complete: %.1f MB → %s", onnx_mb, onnx_path)
             else:
                 _log.warning("  ONNX export ran but file not found at %s", onnx_path)

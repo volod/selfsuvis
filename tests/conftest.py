@@ -1,5 +1,4 @@
 """Shared pytest configuration and custom marks."""
-import pytest
 
 
 def pytest_configure(config):

@@ -1,7 +1,7 @@
 """Pose engine adapters."""
 
-from .base import RealtimeEngineAdapter, build_descriptor
 from ..config import settings
+from .base import RealtimeEngineAdapter, build_descriptor
 
 
 class StubPoseAdapter(RealtimeEngineAdapter):

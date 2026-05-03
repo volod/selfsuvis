@@ -120,9 +120,9 @@ async def test_load_reembed_cursor_empty_job_row():
 @pytest.mark.asyncio
 async def test_run_reembed_checkpoints_after_each_batch(tmp_path):
     """After each batch, update_job is called with updated cursor and frame count."""
-    from selfsuvis.worker.main import _run_reembed
-
     import datetime
+
+    from selfsuvis.worker.main import _run_reembed
 
     ts = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
     frame_rows = [
@@ -158,7 +158,7 @@ async def test_run_reembed_checkpoints_after_each_batch(tmp_path):
     qdrant.upsert_points = MagicMock()
 
     with patch("selfsuvis.worker.main.list_frames_after", new_callable=AsyncMock) as mock_lfa, \
-         patch("selfsuvis.worker.main.update_job", side_effect=_fake_update_job) as mock_upd, \
+         patch("selfsuvis.worker.main.update_job", side_effect=_fake_update_job), \
          patch("selfsuvis.worker.main._load_reembed_cursor",
                new_callable=AsyncMock, return_value=(None, 0)):
 
@@ -177,6 +177,7 @@ async def test_run_reembed_checkpoints_after_each_batch(tmp_path):
 @pytest.mark.asyncio
 async def test_reembed_all_returns_409_when_job_active():
     from fastapi import HTTPException
+
     from selfsuvis.app.routers.admin import reembed_all
 
     conn = AsyncMock()

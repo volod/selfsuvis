@@ -20,17 +20,17 @@ Output schema (physical_state_summary.json):
 
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from selfsuvis.pipeline.fusion.object_state import summarize_object_frame_dicts
-from ._common import _log, write_json_artifact
 
+from ._common import _log, write_json_artifact
 
 # ── Platform confidence ───────────────────────────────────────────────────────
 
 def _platform_pose_confidence(
     platform_status: str,
-    smoothed_trajectory: List[Dict[str, Any]],
+    smoothed_trajectory: list[dict[str, Any]],
 ) -> float:
     """Derive a [0, 1] pose confidence from the Kalman covariance trace.
 
@@ -52,7 +52,7 @@ def _platform_pose_confidence(
 
 # ── Depth near-ratio ──────────────────────────────────────────────────────────
 
-def _mean_depth_near_ratio(depth_results: List[Dict[str, Any]]) -> float:
+def _mean_depth_near_ratio(depth_results: list[dict[str, Any]]) -> float:
     """Average fraction of near pixels across all valid depth frames."""
     ratios = []
     for r in depth_results:
@@ -77,7 +77,7 @@ def _free_space_estimate(near_field_density: float, depth_near_ratio: float) -> 
     return max(0.0, 1.0 - effective_occupancy)
 
 
-def _yolo_near_field_density(yolo_sam_result: Dict[str, Any]) -> float:
+def _yolo_near_field_density(yolo_sam_result: dict[str, Any]) -> float:
     """Estimate central occupancy from YOLO/SAM detections when fusion is sparse.
 
     Prefers SAM mask area when available; otherwise falls back to bbox area.
@@ -87,7 +87,7 @@ def _yolo_near_field_density(yolo_sam_result: Dict[str, Any]) -> float:
         return 0.0
 
     _LO, _HI = 0.3, 0.7
-    frame_areas: List[float] = []
+    frame_areas: list[float] = []
     for frame_result in detection_results:
         area = 0.0
         for det in frame_result.get("detections", []):
@@ -110,14 +110,14 @@ def _yolo_near_field_density(yolo_sam_result: Dict[str, Any]) -> float:
 # ── Main step ─────────────────────────────────────────────────────────────────
 
 def step_physical_state(
-    full_fusion_result: Dict[str, Any],
-    depth_result: Dict[str, Any],
-    gemma_tracking_result: Dict[str, Any],
-    yolo_sam_result: Dict[str, Any],
-    frame_list: List[Tuple[str, float]],
+    full_fusion_result: dict[str, Any],
+    depth_result: dict[str, Any],
+    gemma_tracking_result: dict[str, Any],
+    yolo_sam_result: dict[str, Any],
+    frame_list: list[tuple[str, float]],
     video_dir: Path,
     video_name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Aggregate fusion outputs into an explicit local physical state summary.
 
     This step is deliberately lightweight — it reads from already-computed
@@ -147,13 +147,13 @@ def step_physical_state(
 
     if fusion_skipped and depth_skipped and tracking_skipped and yolo_skipped:
         _log.info("  [physical state] all upstream inputs skipped — producing empty summary")
-        result: Dict[str, Any] = _empty_summary()
+        result: dict[str, Any] = _empty_summary()
         result["skipped"] = True
         _write_json(result, video_dir)
         return result
 
     # ── Object-state summary ──────────────────────────────────────────────────
-    per_frame_dicts: List[List[Dict[str, Any]]] = (
+    per_frame_dicts: list[list[dict[str, Any]]] = (
         full_fusion_result.get("per_frame_object_states") or []
         if not fusion_skipped else []
     )
@@ -226,7 +226,7 @@ def step_physical_state(
     return result
 
 
-def _empty_summary() -> Dict[str, Any]:
+def _empty_summary() -> dict[str, Any]:
     return {
         "platform_pose_confidence":     0.0,
         "near_field_occupancy_density": 0.0,
@@ -246,7 +246,7 @@ def _empty_summary() -> Dict[str, Any]:
     }
 
 
-def _write_json(result: Dict[str, Any], video_dir: Path) -> None:
+def _write_json(result: dict[str, Any], video_dir: Path) -> None:
     out = video_dir / "physical_state_summary.json"
     try:
         write_json_artifact(out, result)

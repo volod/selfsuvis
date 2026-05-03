@@ -1,10 +1,9 @@
 import os
 import pathlib
 import uuid
-from typing import Generator, Optional, Tuple
+from collections.abc import Generator
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
-from fastapi import Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 
 from selfsuvis.app.api_utils import ERROR_RESPONSES, error_response
 from selfsuvis.app.db import get_db_pool
@@ -13,9 +12,9 @@ from selfsuvis.app.services.upload_utils import hash_upload_limited, write_uploa
 from selfsuvis.app.state import logger
 from selfsuvis.pipeline.core import ensure_dir, file_sha256, resolve_allowed_path, settings
 from selfsuvis.pipeline.media import safe_request, validate_url
+from selfsuvis.pipeline.storage import create_job
 from selfsuvis.pipeline.storage.processed import aget_by_hash, aget_by_size, aget_by_url
 from selfsuvis.pipeline.storage.processed import get_by_hash as _sync_get_by_hash
-from selfsuvis.pipeline.storage import create_job
 
 router = APIRouter(tags=["index"], dependencies=[Depends(require_api_key), Depends(rate_limit)])
 get_by_hash = _sync_get_by_hash
@@ -66,7 +65,7 @@ class _DirLimitExceeded(Exception):
 
 def _iter_video_paths_in_allowed_dir(
     resolved: str,
-) -> Generator[Tuple[str, bool], None, None]:
+) -> Generator[tuple[str, bool], None, None]:
     """Yield (video_path, stat_failed) for each video file under `resolved`.
     stat_failed is True when os.path.getsize failed. Raises _DirLimitExceeded on limit."""
     file_count = 0
@@ -95,8 +94,8 @@ def _iter_video_paths_in_allowed_dir(
 )
 async def index_video(
     request: Request,
-    file: Optional[UploadFile] = File(default=None),
-    path: Optional[str] = Form(default=None),
+    file: UploadFile | None = File(default=None),
+    path: str | None = Form(default=None),
     enable_tiles: bool = Form(default=True),
 ):
     """Accept video file upload or a path (within ALLOWED_INDEX_PATHS). Returns video_id and job_id."""
@@ -133,8 +132,8 @@ async def index_video(
 @router.post("/index/url", summary="Index a video from URL", responses={400: ERROR_RESPONSES[400]})
 async def index_url(
     request: Request,
-    url: Optional[str] = Form(default=None),
-    stream_url: Optional[str] = Form(default=None),
+    url: str | None = Form(default=None),
+    stream_url: str | None = Form(default=None),
     enable_tiles: bool = Form(default=True),
 ):
     url = url or stream_url
@@ -160,8 +159,8 @@ async def index_url(
 )
 async def index_dir(
     request: Request,
-    path: Optional[str] = Form(default=None),
-    dir_path: Optional[str] = Form(default=None),
+    path: str | None = Form(default=None),
+    dir_path: str | None = Form(default=None),
     enable_tiles: bool = Form(default=True),
 ):
     path = path or dir_path
@@ -246,8 +245,8 @@ async def _precheck_url(url: str):
 async def index_rtsp(
     request: Request,
     stream_url: str = Form(...),
-    mission_id: Optional[str] = Form(default=None),
-    duration_sec: Optional[int] = Form(default=None),
+    mission_id: str | None = Form(default=None),
+    duration_sec: int | None = Form(default=None),
     enable_tiles: bool = Form(default=True),
 ):
     """Record a live RTSP or RTMP stream and queue it for indexing.
@@ -288,10 +287,10 @@ async def index_rtsp(
 
 @router.post("/index/precheck")
 async def precheck(
-    file: Optional[UploadFile] = File(default=None),
-    path: Optional[str] = Form(default=None),
-    file_path: Optional[str] = Form(default=None),
-    url: Optional[str] = Form(default=None),
+    file: UploadFile | None = File(default=None),
+    path: str | None = Form(default=None),
+    file_path: str | None = Form(default=None),
+    url: str | None = Form(default=None),
 ):
     path = path or file_path
     if not file and not path and not url:
@@ -306,8 +305,8 @@ async def precheck(
 @router.post("/index/precheck_dir")
 async def precheck_dir(
     request: Request,
-    path: Optional[str] = Form(default=None),
-    dir_path: Optional[str] = Form(default=None),
+    path: str | None = Form(default=None),
+    dir_path: str | None = Form(default=None),
     enqueue: bool = Form(default=False),
     enable_tiles: bool = Form(default=True),
 ):

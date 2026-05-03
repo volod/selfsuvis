@@ -1,4 +1,3 @@
-from typing import Optional
 
 from selfsuvis.pipeline.core import settings
 
@@ -10,7 +9,7 @@ def download_url(
     url: str,
     dest_path: str,
     chunk_size: int = 1024 * 1024,
-    max_bytes: Optional[int] = None,
+    max_bytes: int | None = None,
 ) -> None:
     """Download URL to dest_path. Stops after max_bytes if set."""
     max_bytes = max_bytes if max_bytes is not None else settings.MAX_DOWNLOAD_BYTES

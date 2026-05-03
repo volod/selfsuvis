@@ -13,8 +13,7 @@ Environment:
   PORT      — listen port (default 8000).
 """
 import os
-import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -31,12 +30,12 @@ app = FastAPI(title="selfsuvis-mapper", version="1.0.0")
 class FuseRequest(BaseModel):
     source_path: str = Field(..., description="Path to source splat.ply (new mission)")
     target_path: str = Field(..., description="Path to target splat.ply (reference)")
-    source_meta: Optional[Dict[str, Any]] = Field(
+    source_meta: dict[str, Any] | None = Field(
         default=None,
         description="GPS origin dict {origin_lat, origin_lon, origin_alt}. "
                     "Auto-loaded from <source>_meta.json if omitted.",
     )
-    target_meta: Optional[Dict[str, Any]] = Field(
+    target_meta: dict[str, Any] | None = Field(
         default=None,
         description="GPS origin dict for target. Auto-loaded if omitted.",
     )
@@ -47,16 +46,16 @@ class FuseRequest(BaseModel):
 
 class FuseResponse(BaseModel):
     status: str                         # "ok" | "no_overlap" | "error"
-    transform_4x4: Optional[List[List[float]]]
-    rmse: Optional[float]
-    fitness: Optional[float]
+    transform_4x4: list[list[float]] | None
+    rmse: float | None
+    fitness: float | None
     converged: bool
     message: str
 
 
 class OverlapRequest(BaseModel):
-    source_meta: Dict[str, Any]
-    target_meta: Dict[str, Any]
+    source_meta: dict[str, Any]
+    target_meta: dict[str, Any]
     radius_a_m: float = Field(default=15.0, gt=0)
     radius_b_m: float = Field(default=15.0, gt=0)
 
@@ -69,7 +68,7 @@ class OverlapResponse(BaseModel):
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/health")
-def health() -> Dict[str, str]:
+def health() -> dict[str, str]:
     return {"status": "ok", "service": "mapper"}
 
 

@@ -1,7 +1,7 @@
 """Shared HTTP helpers for realtime sidecar clients."""
 
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 
@@ -13,7 +13,7 @@ class RealtimeSidecarClient:
         self,
         *,
         backend_name: str,
-        base_url: Optional[str],
+        base_url: str | None,
         timeout_sec: float,
     ) -> None:
         self._backend_name = str(backend_name or "").strip().lower()
@@ -29,9 +29,9 @@ class RealtimeSidecarClient:
         method: str,
         path: str,
         *,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
         allow_404: bool = False,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         if not self.is_configured:
             return None
         async with httpx.AsyncClient(timeout=self._timeout_sec) as client:
@@ -42,14 +42,14 @@ class RealtimeSidecarClient:
             return resp.json()
 
     @staticmethod
-    def unwrap_dict_payload(data: Any, *, field: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def unwrap_dict_payload(data: Any, *, field: str | None = None) -> dict[str, Any] | None:
         if not isinstance(data, dict):
             return None
         if field and isinstance(data.get(field), dict):
             return data[field]
         return data
 
-    async def stats(self) -> Dict[str, Any]:
+    async def stats(self) -> dict[str, Any]:
         if not self.is_configured:
             return {"configured": False, "backend": self._backend_name}
         data = await self._request_json("GET", "/stats")

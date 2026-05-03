@@ -7,7 +7,7 @@ polling — no external lock manager required.
 All functions accept an asyncpg Connection (or pool) as their first argument
 so callers control connection lifecycle and transaction boundaries.
 """
-from typing import Any, Dict, Optional
+from typing import Any
 
 from selfsuvis.pipeline.core import datetime_to_ts, get_logger, to_utc_datetime, utcnow
 from selfsuvis.pipeline.storage.common import decoded_json, jsonb
@@ -39,7 +39,7 @@ async def init_db(conn) -> None:
     await conn.execute(_CREATE_TABLE_SQL)
 
 
-async def create_job(conn, job_id: str, payload: Dict[str, Any], job_type: Optional[str] = None) -> None:
+async def create_job(conn, job_id: str, payload: dict[str, Any], job_type: str | None = None) -> None:
     """Insert a new job in 'pending' state."""
     now = utcnow()
     await conn.execute(
@@ -89,13 +89,13 @@ async def update_job(conn, job_id: str, **kwargs: Any) -> None:
     )
 
 
-async def fetch_job(conn, job_id: str) -> Optional[Dict[str, Any]]:
+async def fetch_job(conn, job_id: str) -> dict[str, Any] | None:
     """Fetch a single job by id. Returns None if not found."""
     row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1", job_id)
     return _row_to_dict(row) if row else None
 
 
-async def fetch_and_claim_next_pending(conn) -> Optional[Dict[str, Any]]:
+async def fetch_and_claim_next_pending(conn) -> dict[str, Any] | None:
     """Atomically claim the oldest pending job.
 
     Uses SELECT FOR UPDATE SKIP LOCKED so multiple workers can poll concurrently
@@ -131,7 +131,7 @@ async def fetch_queue_depth(conn) -> int:
     return await conn.fetchval("SELECT COUNT(*) FROM jobs WHERE status = 'pending'")
 
 
-def _row_to_dict(row) -> Dict[str, Any]:
+def _row_to_dict(row) -> dict[str, Any]:
     progress = decoded_json(row["progress_json"], default={})
     payload = decoded_json(row["payload_json"], default={})
     return {

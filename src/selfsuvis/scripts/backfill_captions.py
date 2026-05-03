@@ -21,7 +21,6 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -36,9 +35,9 @@ if _env_file.exists():
 else:
     load_dotenv()
 
-from selfsuvis.pipeline.core.config import settings
-from selfsuvis.pipeline.vision.florence import FlorenceModel
-from selfsuvis.pipeline.core.logging import get_logger
+from selfsuvis.pipeline.core.config import settings  # noqa: E402
+from selfsuvis.pipeline.core.logging import get_logger  # noqa: E402
+from selfsuvis.pipeline.vision.florence import FlorenceModel  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -87,7 +86,7 @@ async def _count_skipped(conn) -> int:
     return row[0]
 
 
-async def _fetch_pending_batch(conn, after_id: str, limit: int) -> List[dict]:
+async def _fetch_pending_batch(conn, after_id: str, limit: int) -> list[dict]:
     """Fetch next batch of frames needing captioning.
 
     Excludes frames that already have a caption OR a skip reason — both indicate
@@ -110,7 +109,7 @@ async def _fetch_pending_batch(conn, after_id: str, limit: int) -> List[dict]:
     return [dict(r) for r in rows]
 
 
-async def _update_frames(conn, updates: List[Tuple[str, str, float, str]]) -> None:
+async def _update_frames(conn, updates: list[tuple[str, str, float, str]]) -> None:
     """Bulk-update caption, caption_confidence, caption_model for a batch of frames.
 
     updates: list of (frame_id, caption, confidence, model_tag)
@@ -128,7 +127,7 @@ async def _update_frames(conn, updates: List[Tuple[str, str, float, str]]) -> No
     )
 
 
-async def _mark_skip_reason(conn, frame_ids: List[str], reason: str) -> None:
+async def _mark_skip_reason(conn, frame_ids: list[str], reason: str) -> None:
     """Set caption_skip_reason for frames that cannot be captioned.
 
     These frames remain with caption=NULL but are excluded from future backfill
@@ -146,7 +145,7 @@ async def _mark_skip_reason(conn, frame_ids: List[str], reason: str) -> None:
 
 
 def _set_qdrant_payload(
-    updates: List[Tuple[str, str, float, str]],
+    updates: list[tuple[str, str, float, str]],
     qdrant_id_map: dict,
     skip_qdrant: bool,
 ) -> None:
@@ -219,9 +218,9 @@ async def run_backfill(args: argparse.Namespace) -> None:
                 break
 
             # Load PIL images; collect missing-file frame_ids for DB marking
-            pil_images: List[Image.Image] = []
-            valid_rows: List[dict] = []
-            missing_ids: List[str] = []
+            pil_images: list[Image.Image] = []
+            valid_rows: list[dict] = []
+            missing_ids: list[str] = []
 
             for row in rows:
                 fp = row["frame_path"]

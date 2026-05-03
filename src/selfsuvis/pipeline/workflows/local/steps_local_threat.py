@@ -31,13 +31,13 @@ Schema:
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ._common import _log
 from ._threat_contradictions import contradiction_signals_for_threat, summarize_contradictions
 
 _PERSIST_MIN_FRAMES = 3
-_TYPE_WEIGHTS: Dict[str, float] = {
+_TYPE_WEIGHTS: dict[str, float] = {
     "collision_risk": 1.00,
     "visibility_degradation": 0.85,
     "rf_anomaly": 0.70,
@@ -46,12 +46,12 @@ _TYPE_WEIGHTS: Dict[str, float] = {
 }
 
 
-def _support_frame_count(primitive: Dict[str, Any]) -> int:
+def _support_frame_count(primitive: dict[str, Any]) -> int:
     return len([fp for fp in (primitive.get("spatial_support") or []) if fp])
 
 
 def _persistence_factor(
-    primitive: Dict[str, Any],
+    primitive: dict[str, Any],
     min_frames: int,
 ) -> float:
     support_frames = _support_frame_count(primitive)
@@ -63,7 +63,7 @@ def _persistence_factor(
 
 
 def _effective_score(
-    primitive: Dict[str, Any],
+    primitive: dict[str, Any],
     min_frames: int,
 ) -> float:
     ptype = str(primitive.get("type", ""))
@@ -72,7 +72,7 @@ def _effective_score(
     return min(1.0, base * _persistence_factor(primitive, min_frames) * weight)
 
 
-def _primitive_evidence(primitive: Dict[str, Any]) -> Dict[str, Any]:
+def _primitive_evidence(primitive: dict[str, Any]) -> dict[str, Any]:
     return {
         "evidence_sources": list(primitive.get("evidence_sources") or []),
         "support_frames": _support_frame_count(primitive),
@@ -81,7 +81,7 @@ def _primitive_evidence(primitive: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _empty_result() -> Dict[str, Any]:
+def _empty_result() -> dict[str, Any]:
     return {
         "local_threat_score": 0.0,
         "automation_confidence": 1.0,
@@ -101,13 +101,13 @@ def _empty_result() -> Dict[str, Any]:
 
 
 def step_local_threat(
-    threat_primitives_result: Dict[str, Any],
+    threat_primitives_result: dict[str, Any],
     video_dir: Path,
     video_name: str,
-    unidrive_rows: Optional[List[Dict[str, Any]]] = None,
-    physical_state: Optional[Dict[str, Any]] = None,
+    unidrive_rows: list[dict[str, Any]] | None = None,
+    physical_state: dict[str, Any] | None = None,
     persist_min_frames: int = _PERSIST_MIN_FRAMES,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Aggregate per-primitive signals into one clip-level threat assessment."""
     t0 = time.time()
 
@@ -123,8 +123,8 @@ def step_local_threat(
     unidrive_rows = unidrive_rows or []
     physical_state = physical_state or {}
 
-    active: List[Dict[str, Any]] = []
-    top_threats: List[Dict[str, Any]] = []
+    active: list[dict[str, Any]] = []
+    top_threats: list[dict[str, Any]] = []
     remaining_risk = 1.0
 
     for primitive in primitives:
@@ -201,7 +201,7 @@ def step_local_threat(
     return result
 
 
-def _write_json(result: Dict[str, Any], video_dir: Path) -> None:
+def _write_json(result: dict[str, Any], video_dir: Path) -> None:
     out = video_dir / "local_threat_assessment.json"
     try:
         out.write_text(json.dumps(result, indent=2), encoding="utf-8")

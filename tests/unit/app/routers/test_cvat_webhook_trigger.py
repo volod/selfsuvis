@@ -1,11 +1,7 @@
 """Unit tests for CVAT webhook finetune trigger and label fetch-back logic."""
 import asyncio
-import json
-import os
 import sys
-import tempfile
 import types
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -169,7 +165,6 @@ def test_fetch_labels_http_401_returns_empty_with_warning(mock_settings, caplog)
     mock_settings.CVAT_API_TOKEN = "mytoken"
     mock_settings.CVAT_URL = "http://cvat.local"
 
-    import httpx
     import logging
 
     mock_response = MagicMock()

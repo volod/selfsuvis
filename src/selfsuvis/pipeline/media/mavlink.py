@@ -4,12 +4,12 @@ These helpers intentionally operate on decoded dict-like payloads so the bridge
 can be tested without a hard MAVSDK / pymavlink dependency.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .bridge_common import build_packet
 
 
-def _f(value: Any) -> Optional[float]:
+def _f(value: Any) -> float | None:
     try:
         if value is None:
             return None
@@ -18,7 +18,7 @@ def _f(value: Any) -> Optional[float]:
         return None
 
 
-def mavlink_message_to_packets(message: Dict[str, Any]) -> List[Dict[str, Any]]:
+def mavlink_message_to_packets(message: dict[str, Any]) -> list[dict[str, Any]]:
     kind = str(message.get("message_type") or message.get("type") or "").strip().upper()
     t_device = _f(message.get("t_device") or message.get("timestamp") or message.get("time_usec"))
     if t_device is None:

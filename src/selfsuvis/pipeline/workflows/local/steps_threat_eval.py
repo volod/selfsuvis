@@ -1,16 +1,17 @@
 """Offline calibration and evaluation artifacts for threat outputs."""
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 from ._common import write_json_artifact
 
 
 def write_threat_calibration(
     output_dir: Path,
-    per_video_stats: Sequence[Dict[str, Any]],
-) -> Dict[str, Any]:
+    per_video_stats: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
     records = _collect_video_records(per_video_stats)
     histogram = _histogram([float(r.get("local_threat_score", 0.0) or 0.0) for r in records])
     disagreement_trend = [
@@ -39,10 +40,10 @@ def write_threat_calibration(
 
 def write_threat_eval_summary(
     output_dir: Path,
-    per_video_stats: Sequence[Dict[str, Any]],
+    per_video_stats: Sequence[dict[str, Any]],
     *,
-    label_path: Optional[Path] = None,
-) -> Dict[str, Any]:
+    label_path: Path | None = None,
+) -> dict[str, Any]:
     records = _collect_video_records(per_video_stats)
     labels = _load_eval_labels(output_dir, label_path=label_path)
     matched = []
@@ -75,8 +76,8 @@ def write_threat_eval_summary(
     return payload
 
 
-def _collect_video_records(per_video_stats: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    records: List[Dict[str, Any]] = []
+def _collect_video_records(per_video_stats: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
     for stats in per_video_stats:
         video_dir = Path(str(stats.get("video_dir", "")))
         if not video_dir.exists():
@@ -102,7 +103,7 @@ def _collect_video_records(per_video_stats: Sequence[Dict[str, Any]]) -> List[Di
     return records
 
 
-def _histogram(values: Sequence[float], *, n_bins: int = 5) -> List[Dict[str, Any]]:
+def _histogram(values: Sequence[float], *, n_bins: int = 5) -> list[dict[str, Any]]:
     bins = [0 for _ in range(n_bins)]
     for value in values:
         clipped = max(0.0, min(0.999999, float(value or 0.0)))
@@ -116,7 +117,7 @@ def _histogram(values: Sequence[float], *, n_bins: int = 5) -> List[Dict[str, An
     return out
 
 
-def _reliability_diagram(records: Sequence[Dict[str, Any]], labels: Dict[str, Dict[str, Any]], *, n_bins: int = 5) -> Dict[str, Any]:
+def _reliability_diagram(records: Sequence[dict[str, Any]], labels: dict[str, dict[str, Any]], *, n_bins: int = 5) -> dict[str, Any]:
     rows = []
     for idx in range(n_bins):
         start = idx / n_bins
@@ -148,7 +149,7 @@ def _reliability_diagram(records: Sequence[Dict[str, Any]], labels: Dict[str, Di
     return {"bins": rows}
 
 
-def _persistence_threshold_sweeps(records: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _persistence_threshold_sweeps(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     sweeps = []
     for threshold in range(1, 6):
         scores = []
@@ -175,7 +176,7 @@ def _persistence_threshold_sweeps(records: Sequence[Dict[str, Any]]) -> List[Dic
     return sweeps
 
 
-def _threat_detection_metrics(matched: Sequence[Tuple[Dict[str, Any], Dict[str, Any]]]) -> Dict[str, Any]:
+def _threat_detection_metrics(matched: Sequence[tuple[dict[str, Any], dict[str, Any]]]) -> dict[str, Any]:
     tp = fp = fn = 0
     for record, label in matched:
         predicted = set(record.get("predicted_threat_types") or [])
@@ -194,18 +195,18 @@ def _threat_detection_metrics(matched: Sequence[Tuple[Dict[str, Any], Dict[str, 
     }
 
 
-def _action_policy_metrics(matched: Sequence[Tuple[Dict[str, Any], Dict[str, Any]]]) -> Dict[str, Any]:
+def _action_policy_metrics(matched: Sequence[tuple[dict[str, Any], dict[str, Any]]]) -> dict[str, Any]:
     if not matched:
         return {"accuracy": None, "count": 0}
     correct = sum(1 for record, label in matched if _action_matches_label(record, label))
     return {"accuracy": round(correct / len(matched), 4), "count": len(matched)}
 
 
-def _action_matches_label(record: Dict[str, Any], label: Dict[str, Any]) -> bool:
+def _action_matches_label(record: dict[str, Any], label: dict[str, Any]) -> bool:
     return str(record.get("recommended_action", "") or "") == str(label.get("recommended_action", "") or "")
 
 
-def _load_eval_labels(output_dir: Path, *, label_path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
+def _load_eval_labels(output_dir: Path, *, label_path: Path | None = None) -> dict[str, dict[str, Any]]:
     path = label_path or (output_dir / "threat_eval_labels.json")
     if not path.exists():
         return {}
@@ -215,7 +216,7 @@ def _load_eval_labels(output_dir: Path, *, label_path: Optional[Path] = None) ->
     return {}
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:

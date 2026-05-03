@@ -3,23 +3,23 @@
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
 
-from ..runner import _append_agentic_step
 from ..graph_state import PipelineState
-from .agentic_helpers import DEFAULT_TRACKING_TARGETS, json_guard
+from ..runner import _append_agentic_step
+from .agentic_helpers import DEFAULT_TRACKING_TARGETS
 
 _log = logging.getLogger(__name__)
 
 
-def node_p2_yolo_sam(state: PipelineState) -> Dict[str, Any]:
-    from ..steps_yolo_sam import step_yolo_sam_detection
+def node_p2_yolo_sam(state: PipelineState) -> dict[str, Any]:
     from ..steps_caption import _prep_vram_for_step
+    from ..steps_yolo_sam import step_yolo_sam_detection
 
     args = state["args"]
-    yolo_sam_result: Dict[str, Any] = {"skipped": True, "detection_results": []}
+    yolo_sam_result: dict[str, Any] = {"skipped": True, "detection_results": []}
     knowledge = state.get("knowledge")
     t0 = time.monotonic()
 
@@ -71,15 +71,15 @@ def node_p2_yolo_sam(state: PipelineState) -> Dict[str, Any]:
     }
 
 
-def node_p2_gemma_tracking(state: PipelineState) -> Dict[str, Any]:
+def node_p2_gemma_tracking(state: PipelineState) -> dict[str, Any]:
     """Step 10: Gemma directed tracking with JSON-guard fallback for empty target_labels."""
-    from ..steps_gemma_tracking import step_gemma_directed_tracking
     from ..steps_caption import _prep_vram_for_step
+    from ..steps_gemma_tracking import step_gemma_directed_tracking
 
     args = state["args"]
     gemma_api_url = getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL
     gemma_api_model = getattr(args, "gemma_api_model", "") or settings.GEMMA_API_MODEL
-    gemma_tracking_result: Dict[str, Any] = {"skipped": True}
+    gemma_tracking_result: dict[str, Any] = {"skipped": True}
     t0 = time.monotonic()
 
     if not getattr(args, "no_rfdetr", False) and gemma_api_url:

@@ -1,8 +1,9 @@
+import logging
 import os
 import time
-import logging
-import requests
+
 import pytest
+import requests
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 ASSETS_DIR = os.getenv("ASSETS_DIR", os.path.join(os.path.dirname(__file__), "assets"))

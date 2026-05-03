@@ -3,7 +3,13 @@
 from .aggregator import RealtimeThreatAggregator
 from .degraded_mode import apply_degraded_mode_to_threat, evaluate_degraded_mode
 from .events import NodeHealthEvent, SensorEvent, ThreatEvent
-from .freshness import apply_freshness, downweight_score, expire_event, freshness_seconds, staleness_weight
+from .freshness import (
+    apply_freshness,
+    downweight_score,
+    expire_event,
+    freshness_seconds,
+    staleness_weight,
+)
 from .ingest import normalize_packets
 from .occupancy import (
     RealtimeOccupancyClient,
@@ -21,9 +27,14 @@ from .pose import (
 )
 from .replay import load_jsonl_records, replay_bridge_trace, replay_local_run, write_replay_jsonl
 from .semantics import normalize_semantic_observation, project_detection_to_enu
+from .sensors import (
+    normalize_sensor_type,
+    packet_sensor_summary,
+    require_supported_sensor_type,
+    supported_sensor_types,
+)
 from .session import build_sensor_profile, new_session_id
 from .sidecar import RealtimeSidecarClient
-from .sensors import normalize_sensor_type, packet_sensor_summary, require_supported_sensor_type, supported_sensor_types
 
 __all__ = [
     "apply_degraded_mode_to_threat",
