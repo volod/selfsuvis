@@ -43,17 +43,13 @@ labels-file YAML format (requires PyYAML):
 """
 import argparse
 import json
-import logging
 import os
 from collections import defaultdict
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
+from selfsuvis.pipeline.core.logging import configure_logging, get_logger
 
-logger = logging.getLogger(__name__)
+configure_logging()
+logger = get_logger(__name__)
 
 
 def _parse_labels_arg(labels_args: list[str]) -> dict[str, list[str]]:

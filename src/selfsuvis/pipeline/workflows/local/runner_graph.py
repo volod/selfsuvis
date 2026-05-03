@@ -25,13 +25,14 @@ LangSmith tracing
 Set LANGCHAIN_TRACING_V2=true and LANGCHAIN_API_KEY=<key> to emit traces.
 """
 
-import logging
 import os
 import time
 from pathlib import Path
 from typing import Any
 
-_log = logging.getLogger(__name__)
+from selfsuvis.pipeline.core.logging import get_logger
+
+_log = get_logger(__name__)
 
 
 # ── Graph builder ─────────────────────────────────────────────────────────────

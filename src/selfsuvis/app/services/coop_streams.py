@@ -10,10 +10,11 @@ All work is backgrounded as asyncio tasks and cancelled cleanly on shutdown.
 """
 
 import asyncio
-import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from selfsuvis.pipeline.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class CoopStreamService:

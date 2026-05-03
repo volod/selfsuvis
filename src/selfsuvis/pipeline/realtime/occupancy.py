@@ -90,7 +90,7 @@ class RealtimeOccupancyClient(RealtimeSidecarClient):
     async def integrate_frame(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         if not self.is_configured:
             return None
-        data = await self._request_json("POST", "/integrate_frame", payload=payload)
+        data = await self.request_json("POST", "/integrate_frame", payload=payload)
         if not isinstance(data, dict):
             return None
         tile = self.unwrap_dict_payload(data, field="tile")
@@ -101,7 +101,7 @@ class RealtimeOccupancyClient(RealtimeSidecarClient):
     async def fetch_map_tile(self, tile_key: str) -> dict[str, Any] | None:
         if not self.is_configured:
             return None
-        data = await self._request_json("GET", f"/map_tile/{tile_key}", allow_404=True)
+        data = await self.request_json("GET", f"/map_tile/{tile_key}", allow_404=True)
         if not isinstance(data, dict):
             return None
         tile = self.unwrap_dict_payload(data, field="tile")

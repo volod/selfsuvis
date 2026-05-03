@@ -400,7 +400,12 @@ def _valid_gemma_object(obj: Any) -> bool:
 
 
 def _scene_is_actionable(scene: dict[str, Any] | None) -> bool:
-    """Return True when a precomputed scene contains usable tracking targets."""
+    """Return True when a precomputed scene contains usable tracking targets.
+
+    Text-only step-03 summaries often know *what* to track before they can infer
+    precise boxes. In that case the precomputed scene is still valuable for
+    RF-DETR label filtering even if SAM-directed masks will be sparse.
+    """
     if not scene:
         return False
     if not _valid_scene_type(scene.get("scene_type")):
@@ -410,7 +415,20 @@ def _scene_is_actionable(scene: dict[str, Any] | None) -> bool:
         scene.get("tracking_priority", []),
         valid_objects,
     )
-    return bool(tracking_targets and valid_objects)
+    has_non_fallback_geometry = any(
+        "fallback" not in str(obj.get("spatial_hint") or "").lower()
+        for obj in valid_objects
+    )
+    if valid_objects and tracking_targets and has_non_fallback_geometry:
+        return True
+    return bool(
+        tracking_targets
+        and (
+            scene.get("areas_of_interest")
+            or scene.get("motion_present")
+        )
+        and not valid_objects
+    )
 
 
 def _aggregate_scene_responses(responses: list[dict[str, Any]]) -> dict[str, Any]:
@@ -721,6 +739,13 @@ def _sam_directed_by_gemma(
         if _bbox_area(bbox) < _FALLBACK_AREA_THRESHOLD:
             path_a_bboxes.append(tuple(bbox[:4]))  # type: ignore[arg-type]
             path_a_categories.append(cat)
+
+    # When all Gemma bboxes were too large (e.g. aerial full-frame estimates) AND
+    # the AMG path is also blocked (cap reached or disabled), use the standard
+    # fallback bbox so SAM still runs rather than returning 0 masks.
+    if not path_a_bboxes and not path_b_allowed:
+        path_a_bboxes = [tuple(_FALLBACK_BBOX)]  # type: ignore[arg-type]
+        path_a_categories = [categories[0] if categories else "unknown"]
 
     if path_a_bboxes:
         try:

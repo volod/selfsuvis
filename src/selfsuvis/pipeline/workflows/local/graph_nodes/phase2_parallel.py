@@ -6,14 +6,15 @@ VRAM serialisation is handled internally by _prep_vram_for_step /
 _guard_min_free_vram inside each step function — no additional locking needed.
 """
 
-import logging
 import time
 from pathlib import Path
 from typing import Any
 
+from selfsuvis.pipeline.core.logging import get_logger
+
 from ..graph_state import PipelineState
 
-_log = logging.getLogger(__name__)
+_log = get_logger(__name__)
 
 
 def node_p2_florence_caption(state: PipelineState) -> dict[str, Any]:

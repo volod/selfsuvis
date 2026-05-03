@@ -59,6 +59,11 @@ def _configure_warnings() -> None:
         message=r"You seem to be using the pipelines sequentially on GPU.*",
         category=UserWarning,
     )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Constant folding.*",
+        category=UserWarning,
+    )
 
 
 # Apply timm FutureWarning filter at import time so it takes effect before

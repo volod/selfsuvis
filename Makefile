@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs
+.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints
 
 # Default target: show help when no target is given
 help:
@@ -25,6 +25,9 @@ help:
 	@echo "  make venv-cuda               Same as venv but forces CUDA wheel install (use if nvidia-smi is absent but GPU present)"
 	@echo "  make venv-pip                Install pip into an existing .venv (e.g. after uv venv .venv)"
 	@echo "  make venv-rebuild-xformers   Rebuild xformers from source for common GPU arches (RTX 2000/3000/4000, H100)"
+	@echo "  make utlz-install            Install optional Utilyze GPU profiler (Linux amd64, NVIDIA Ampere+)"
+	@echo "  make utlz                    Run Utilyze with selfsuvis-safe defaults (disables upstream metrics by default)"
+	@echo "  make utlz-endpoints          Show Utilyze-discovered inference endpoints per GPU"
 	@echo ""
 	@echo "  Tests"
 	@echo "  -----"
@@ -191,3 +194,12 @@ mapper-logs: docker-check
 lint:
 	ruff check .
 	ruff format --check .
+
+utlz-install:
+	./scripts/install_utilyze.sh
+
+utlz:
+	./scripts/selfsuvis-utilyze.sh
+
+utlz-endpoints:
+	./scripts/selfsuvis-utilyze.sh --endpoints

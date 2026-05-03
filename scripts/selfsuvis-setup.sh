@@ -25,6 +25,8 @@
 #   (none)                Full setup — installs deps, models, test data
 #   --with-docker         Also start Docker stack (Qdrant + PostgreSQL) and migrate
 #   --no-ollama           Skip Ollama install and model pulls (use HF weights)
+#   --with-utilyze        Install optional Utilyze GPU profiler (default)
+#   --no-utilyze          Skip Utilyze install
 #   --sensor-data-only    Download/generate sensor sidecars only; skip models
 #
 # ENVIRONMENT VARIABLES (set before running):
@@ -48,6 +50,12 @@
 #
 #   # Setup without Ollama (no GPU inference sidecars):
 #   ./scripts/selfsuvis-setup.sh --no-ollama
+#
+#   # Setup plus default Utilyze profiler install:
+#   ./scripts/selfsuvis-setup.sh
+#
+#   # Skip Utilyze on unsupported hosts:
+#   ./scripts/selfsuvis-setup.sh --no-utilyze
 #
 #   # Re-download sensor sample data only (already have models):
 #   ./scripts/selfsuvis-setup.sh --sensor-data-only
@@ -87,16 +95,19 @@ fi
 WITH_DOCKER=false
 NO_OLLAMA=false
 SENSOR_DATA_ONLY=false
+WITH_UTILYZE=true
 
 for arg in "$@"; do
   case "$arg" in
     --with-docker)      WITH_DOCKER=true ;;
     --no-docker)        WITH_DOCKER=false ;;   # kept for backwards compat; now the default
     --no-ollama)        NO_OLLAMA=true ;;
+    --with-utilyze)     WITH_UTILYZE=true ;;
+    --no-utilyze)       WITH_UTILYZE=false ;;
     --sensor-data-only) SENSOR_DATA_ONLY=true ;;
     *)
       echo "Unknown flag: $arg"
-      echo "Valid flags: --with-docker  --no-ollama  --sensor-data-only"
+      echo "Valid flags: --with-docker  --no-ollama  --with-utilyze  --no-utilyze  --sensor-data-only"
       exit 1
       ;;
   esac
@@ -248,6 +259,11 @@ if ! command -v uv >/dev/null 2>&1; then
     || error "Failed to install uv. Install manually: pip install uv"
 fi
 log "uv OK: $(uv --version)"
+
+if $WITH_UTILYZE; then
+  section "Step 0a — Optional Utilyze profiler"
+  bash scripts/install_utilyze.sh
+fi
 
 # =============================================================================
 # STEP 1: PYTHON VIRTUAL ENVIRONMENT
@@ -891,4 +907,10 @@ echo ""
 echo "Full run variants, flags reference, and sidecar naming:"
 echo "   docs/quickstart.md — Step 6"
 echo ""
+if $WITH_UTILYZE; then
+  echo -e "${BOLD}GPU profiling:${RESET}"
+  echo "   make utlz"
+  echo "   make utlz-endpoints"
+  echo ""
+fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -120,23 +120,17 @@ for _mod_name in list(sys.modules):
 # Allow running from repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Load .env so HF_TOKEN / GEMMA_MODEL_ID etc. are visible to os.getenv() calls below.
-try:
-    from dotenv import load_dotenv as _load_dotenv
-    _load_dotenv()
-except ImportError:
-    pass
+from selfsuvis.pipeline.core.env import load_layered_env  # noqa: E402
+from selfsuvis.pipeline.core.logging import configure_logging, get_logger  # noqa: E402
+
+load_layered_env(anchor_file=__file__, app_env=os.getenv("APP_ENV", "prod"))
 
 os.environ.setdefault("DEVICE", "auto")
 os.environ.setdefault("ALLOWED_INDEX_PATHS", "")
 os.environ.setdefault("API_KEY", "")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-7s  %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("prepare_models")
+configure_logging()
+log = get_logger("prepare_models")
 # Suppress httpx/httpcore request-level logs — they flood the output with
 # expected 404s from HF library probes for optional files (chat_template.jinja,
 # audio_tokenizer_config.json, additional_chat_templates/, etc.).
@@ -686,6 +680,14 @@ def _is_editable_installed(package_name: str) -> bool:
         return False
 
 
+def _importable_module(module_name: str) -> bool:
+    try:
+        __import__(module_name)
+        return True
+    except Exception:
+        return False
+
+
 def _is_scenetok_cached(checkpoint_name: str) -> bool:
     ckpt_file = _normalize_scenetok_checkpoint_name(checkpoint_name)
     return (_SCENETOK_CACHE_DIR / ckpt_file).exists()
@@ -726,7 +728,7 @@ def _download_scenetok(checkpoint_name: str) -> None:
     # find_spec() misses editable installs in newer pip (direct-url / no egg-link).
     # Check the dist-info directory as a more reliable "already installed" signal.
     src_dir = _SCENETOK_CACHE_DIR.parent / "scenetok_src"
-    _scenetok_installed = importlib.util.find_spec("scenetok") is not None or _is_editable_installed("scenetok")
+    _scenetok_installed = _importable_module("scenetok")
     if not _scenetok_installed:
         t0 = time.monotonic()
         if not src_dir.exists():
@@ -766,7 +768,13 @@ def _download_scenetok(checkpoint_name: str) -> None:
                 f"pip install -e {src_dir} failed (exit {install_result.returncode}).\n"
                 f"  Manual fix: pip install -e {src_dir}"
             )
-        log.info("  ✓ scenetok package installed  (%.1fs)  src=%s", time.monotonic() - t0, src_dir)
+        if _importable_module("scenetok"):
+            log.info("  ✓ scenetok package installed  (%.1fs)  src=%s", time.monotonic() - t0, src_dir)
+        else:
+            log.warning(
+                "  scenetok source was installed as an editable distribution, but `import scenetok` still fails. "
+                "Local in-process SceneTok is not ready; use the sidecar mode only after exposing a real importable package."
+            )
     else:
         log.info("  ✓ scenetok package already installed")
 

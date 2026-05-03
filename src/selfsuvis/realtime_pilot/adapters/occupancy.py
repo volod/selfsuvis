@@ -1,5 +1,7 @@
 """Occupancy engine adapters."""
 
+from selfsuvis.pipeline.core.docker import REALTIME_ENGINE_IMAGES
+
 from ..config import settings
 from .base import RealtimeEngineAdapter, build_descriptor
 
@@ -35,7 +37,7 @@ class NvbloxAdapter(RealtimeEngineAdapter):
         role="occupancy",
         provider="sidecar",
         service_name="realtime-nvblox",
-        env_image_var="REALTIME_NVBLOX_IMAGE",
+        image=REALTIME_ENGINE_IMAGES["nvblox"],
         hardware_profile="gpu",
         required_modalities=("pose", "depth"),
         recommended_modalities=("pose", "depth", "camera"),
@@ -59,7 +61,7 @@ class VoxbloxAdapter(RealtimeEngineAdapter):
         role="occupancy",
         provider="sidecar",
         service_name="realtime-voxblox",
-        env_image_var="REALTIME_VOXBLOX_IMAGE",
+        image=REALTIME_ENGINE_IMAGES["voxblox"],
         hardware_profile="cpu",
         required_modalities=("pose", "depth"),
         recommended_modalities=("pose", "depth", "camera"),

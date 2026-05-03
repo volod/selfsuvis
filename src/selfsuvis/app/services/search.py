@@ -1,4 +1,3 @@
-import logging
 import time
 from typing import Any
 
@@ -9,8 +8,9 @@ from qdrant_client.http import models as qmodels
 
 from selfsuvis.app.state import dino_model, store
 from selfsuvis.pipeline.core import settings
+from selfsuvis.pipeline.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _REEMBED_STATUS_CACHE_TTL_SEC = 2.0
 _reembed_status_cache: dict = {"value": False, "checked_at": 0.0}

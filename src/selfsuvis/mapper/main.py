@@ -12,15 +12,17 @@ Environment:
   DATA_DIR  — base data directory (default ./data).
   PORT      — listen port (default 8000).
 """
-import os
 from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from selfsuvis.pipeline.core.env import env_int, load_layered_env
 from selfsuvis.pipeline.mapping.icp import IcpResult, check_overlap, register_splats
 from selfsuvis.pipeline.mapping.splat_io import read_splat_metadata
+
+load_layered_env(anchor_file=__file__)
 
 app = FastAPI(title="selfsuvis-mapper", version="1.0.0")
 
@@ -135,5 +137,5 @@ def api_fuse(req: FuseRequest) -> FuseResponse:
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8000"))
+    port = env_int("PORT", 8000)
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

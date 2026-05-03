@@ -8,14 +8,15 @@ Requires the `aiomqtt` package (listed in the coop_pilot optional dep group).
 """
 
 import asyncio
-import logging
 from collections.abc import Awaitable, Callable
+
+from selfsuvis.pipeline.core import get_logger
 
 from ..config import settings
 from .frigate_events import CameraEvent, FrigateEventConsumer
 from .lorawan_decoder import SensorReading, decode_chirpstack_uplink
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 OnSensorCallback = Callable[[SensorReading], Awaitable[None]]
 OnCameraCallback = Callable[[CameraEvent], Awaitable[None]]

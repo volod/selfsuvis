@@ -12,16 +12,17 @@ are automatically picked up without a restart.
 """
 
 import asyncio
-import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
+from selfsuvis.pipeline.core.logging import get_logger
+
 from ..config import settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _FRIGATE_CAM_RTSP_TEMPLATE = "rtsp://{host}:8554/{camera}"
 

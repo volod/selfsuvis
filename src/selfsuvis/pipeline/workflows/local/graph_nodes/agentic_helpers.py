@@ -5,13 +5,14 @@ No LangGraph imports here so helpers can be unit-tested independently.
 """
 
 import json
-import logging
 import time
 from typing import Any
 
 import httpx
 
-_log = logging.getLogger(__name__)
+from selfsuvis.pipeline.core.logging import get_logger
+
+_log = get_logger(__name__)
 
 # Default tracking targets used when Gemma JSON parse fails completely.
 DEFAULT_TRACKING_TARGETS: list[str] = ["person", "vehicle", "sign"]

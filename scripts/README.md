@@ -33,7 +33,7 @@ Project scripts now live directly under `scripts/`.
 
 Legacy names are kept as thin wrappers for compatibility:
 
-- `setup_local_full.sh` → `selfsuvis-setup.sh`
+- `setup_local_full.sh` → `selfsuvis-setup.sh` (inherits the default Utilyze install; pass `--no-utilyze` to skip)
 - `prepare_sensor_data.sh` → `selfsuvis-prepare-sensor-data.sh`
 - `reset_qdrant.sh` → `selfsuvis-reset-qdrant.sh`
 - `bootstrap.sh` → `coop-bootstrap.sh`

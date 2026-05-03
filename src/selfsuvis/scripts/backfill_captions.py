@@ -25,15 +25,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncpg
-from dotenv import load_dotenv
 from PIL import Image
 
-_env_name = os.getenv("APP_ENV", "prod")
-_env_file = Path(__file__).parent.parent / "env" / f"{_env_name}.env"
-if _env_file.exists():
-    load_dotenv(_env_file)
-else:
-    load_dotenv()
+from selfsuvis.pipeline.core.env import env_str, load_layered_env
+
+load_layered_env(anchor_file=__file__, app_env=os.getenv("APP_ENV", "prod"))
 
 from selfsuvis.pipeline.core.config import settings  # noqa: E402
 from selfsuvis.pipeline.core.logging import get_logger  # noqa: E402
@@ -41,7 +37,7 @@ from selfsuvis.pipeline.vision.florence import FlorenceModel  # noqa: E402
 
 logger = get_logger(__name__)
 
-DATABASE_URL = os.getenv(
+DATABASE_URL = env_str(
     "DATABASE_URL",
     "postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis",
 )

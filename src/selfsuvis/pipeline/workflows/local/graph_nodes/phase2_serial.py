@@ -3,12 +3,12 @@ world_model, qwen_caption (agentic), unidrive (agentic), scenetok,
 base_search, full_fusion.
 """
 
-import logging
 import time
 from pathlib import Path
 from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
+from selfsuvis.pipeline.core.logging import get_logger
 
 from ..graph_state import PipelineState
 from ..runner import _append_agentic_step
@@ -18,7 +18,7 @@ from .agentic_helpers import (
     moe_consensus_score,
 )
 
-_log = logging.getLogger(__name__)
+_log = get_logger(__name__)
 
 
 # ── Step 03: Gemma multimodal analysis (with claim verification) ──────────────

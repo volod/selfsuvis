@@ -1,5 +1,7 @@
 """Pose engine adapters."""
 
+from selfsuvis.pipeline.core.docker import REALTIME_ENGINE_IMAGES
+
 from ..config import settings
 from .base import RealtimeEngineAdapter, build_descriptor
 
@@ -35,7 +37,7 @@ class VinsFusionAdapter(RealtimeEngineAdapter):
         role="pose",
         provider="sidecar",
         service_name="realtime-vins-fusion",
-        env_image_var="REALTIME_VINS_FUSION_IMAGE",
+        image=REALTIME_ENGINE_IMAGES["vins_fusion"],
         hardware_profile="cpu_or_gpu",
         required_modalities=("camera", "imu"),
         recommended_modalities=("camera", "imu", "gps"),
@@ -59,7 +61,7 @@ class OrbSlam3Adapter(RealtimeEngineAdapter):
         role="pose",
         provider="sidecar",
         service_name="realtime-orbslam3",
-        env_image_var="REALTIME_ORBSLAM3_IMAGE",
+        image=REALTIME_ENGINE_IMAGES["orbslam3"],
         hardware_profile="cpu",
         required_modalities=("camera",),
         recommended_modalities=("camera", "imu"),
@@ -83,7 +85,7 @@ class LioSamAdapter(RealtimeEngineAdapter):
         role="pose",
         provider="sidecar",
         service_name="realtime-liosam",
-        env_image_var="REALTIME_LIOSAM_IMAGE",
+        image=REALTIME_ENGINE_IMAGES["liosam"],
         hardware_profile="cpu",
         required_modalities=("lidar", "imu"),
         recommended_modalities=("lidar", "imu", "gps"),

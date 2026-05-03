@@ -37,6 +37,7 @@ HF_TOKEN=hf_xxxx bash scripts/selfsuvis-setup.sh
 ```
 
 **Already ran `setup_local_full.sh`?** Skip directly to [Step 6 — Run the pipeline](#step-6--run-the-pipeline).
+That wrapper now also installs Utilyze by default on supported Linux/NVIDIA hosts; use `--no-utilyze` if you want to skip it.
 If you already completed the video pipeline and only want the coop extension, skip
 to [Optional Step 7 — Run coop_pilot Steps 37-43](#optional-step-7--run-coop_pilot-steps-37-43).
 
@@ -140,6 +141,18 @@ This installs the scenetok package from GitHub, downloads `va-videodc_re10k.ckpt
 ```bash
 .venv/bin/python -m selfsuvis.scripts.prepare_models --verify
 .venv/bin/python -m selfsuvis.scripts.prepare_models --verify --all
+```
+
+The local CLI now runs its own startup preflight before `--mode local` begins.
+It checks Python dependencies, local model caches, Ollama/vLLM-local model presence,
+and common degraded-runtime conditions such as unreachable Qdrant or mapper services.
+If a required local artifact is missing, the run stops before frame extraction.
+
+The API and worker run the same production preflight at startup in logging-only mode.
+To make production startup fail hard on preflight errors, set:
+
+```bash
+export STARTUP_PREFLIGHT_STRICT=true
 ```
 
 **Per-step model reference:**
@@ -591,6 +604,8 @@ ollama pull qwen2.5vl:7b      # Step 12       — detailed captioning           
 ollama pull qwen3:14b         # Step 30       — agentic flow audit / reasoning        (~8 GB)
 
 # Cache local-only weights once before the run:
+# Also warm the YOLOv8n training weights once if you plan to enable Step 31.
+# .venv/bin/python -m selfsuvis.scripts.prepare_models --yolo
 # .venv/bin/python -m selfsuvis.scripts.prepare_models --unidrive
 # .venv/bin/python -m selfsuvis.scripts.prepare_models --scenetok
 
@@ -625,6 +640,9 @@ ollama pull qwen3:14b         # Step 30       — agentic flow audit / reasoning
 > **Local SceneTok note:** if `SCENETOK_API_URL` is unset, SceneTok falls back to
 > local torch and is enabled only when enough VRAM is detected. On 12-16 GB cards,
 > omit `--scenetok`; on 24 GB+ cards, local sequential execution is realistic.
+>
+> **SceneTok env note:** `SCENETOK_ENABLED=true` in `.env` is now respected when the
+> CLI omits both `--scenetok` and `--no-scenetok`. Only the explicit flags override it.
 
 **Full run — vLLM only** (all LLM/VLM steps via vLLM, including UniDriveVLA):
 

@@ -48,6 +48,13 @@ def apply_local_env(args: Any) -> None:
     except ImportError:
         pass
 
+    if getattr(args, "scenetok", None) is None:
+        _env_scenetok = os.environ.get("SCENETOK_ENABLED", "").strip().lower()
+        if _env_scenetok in {"true", "1", "yes", "on"}:
+            args.scenetok = True
+        elif _env_scenetok in {"false", "0", "no", "off"}:
+            args.scenetok = False
+
     # Reduce CUDA allocator fragmentation OOM on large models. Set both names
     # because PyTorch ≥ 2.0 reads PYTORCH_CUDA_ALLOC_CONF; older builds use
     # PYTORCH_ALLOC_CONF. setdefault lets a user override from the shell.
@@ -128,8 +135,11 @@ def apply_local_env(args: Any) -> None:
         os.environ["UNIDRIVE_MODEL"] = args.unidrive_model
     if getattr(args, "unidrive_backend", ""):
         os.environ["UNIDRIVE_BACKEND"] = args.unidrive_backend
-    # SceneTok — force-set the enable flag and propagate sidecar URL + checkpoint.
-    os.environ["SCENETOK_ENABLED"] = "true" if getattr(args, "scenetok", False) else "false"
+    # SceneTok follows the same tri-state pattern as the other optional steps:
+    # only override the env when the CLI explicitly set --scenetok/--no-scenetok.
+    _scenetok_enabled = getattr(args, "scenetok", None)
+    if _scenetok_enabled is not None:
+        os.environ["SCENETOK_ENABLED"] = "true" if _scenetok_enabled else "false"
     if getattr(args, "scenetok_api_url", ""):
         os.environ["SCENETOK_API_URL"] = args.scenetok_api_url
     os.environ.setdefault("SCENETOK_API_URL", "")

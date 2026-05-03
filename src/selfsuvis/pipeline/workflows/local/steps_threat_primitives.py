@@ -19,14 +19,15 @@ Output artifact: threat_primitives.json
 """
 
 import json
-import logging
 import time
 from pathlib import Path
 from typing import Any
 
+from selfsuvis.pipeline.core.logging import get_logger
+
 from ._threat_contradictions import contradiction_signals_for_threat, summarize_contradictions
 
-_log = logging.getLogger("pipeline.local")
+_log = get_logger("pipeline.local")
 
 # ── Evidence thresholds ───────────────────────────────────────────────────────
 

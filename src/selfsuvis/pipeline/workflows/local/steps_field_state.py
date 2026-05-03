@@ -1,15 +1,15 @@
 """Environmental field-state estimation for local runs."""
 
 import json
-import logging
 import time
 from pathlib import Path
 from typing import Any
 
+from selfsuvis.pipeline.core.logging import get_logger
 from selfsuvis.pipeline.fusion import FieldCellEstimate, FieldObservation, FieldStateResult
 from selfsuvis.pipeline.vision.rf_analyzer import RFSignalAnalyzer, _find_iq_sidecar
 
-_log = logging.getLogger("pipeline.local")
+_log = get_logger("pipeline.local")
 
 _VISIBILITY_TERMS = (
     "fog", "smoke", "dust", "haze", "rain", "blur", "low visibility", "mist",

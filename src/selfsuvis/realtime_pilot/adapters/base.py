@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from selfsuvis.pipeline.core.docker import DockerImageRef
+
 
 @dataclass(frozen=True)
 class EngineDescriptor:
@@ -12,8 +14,7 @@ class EngineDescriptor:
     provider: str = "selfsuvis"
     open_source: bool = True
     service_name: str = ""
-    env_image_var: str = ""
-    default_image: str = ""
+    image: DockerImageRef = DockerImageRef("")
     hardware_profile: str = ""
     required_modalities: tuple[str, ...] = ()
     recommended_modalities: tuple[str, ...] = ()
@@ -46,8 +47,7 @@ class RealtimeEngineAdapter:
             "open_source": self.descriptor.open_source,
             "service_name": self.descriptor.service_name,
             "api_url": self.descriptor.api_url,
-            "env_image_var": self.descriptor.env_image_var,
-            "default_image": self.descriptor.default_image,
+            **self.descriptor.image.describe(),
             "hardware_profile": self.descriptor.hardware_profile,
             "required_modalities": list(self.descriptor.required_modalities),
             "recommended_modalities": list(self.descriptor.recommended_modalities),
@@ -66,8 +66,7 @@ def build_descriptor(
     provider: str = "selfsuvis",
     open_source: bool = True,
     service_name: str = "",
-    env_image_var: str = "",
-    default_image: str = "",
+    image: DockerImageRef | None = None,
     hardware_profile: str = "",
     required_modalities: tuple[str, ...] = (),
     recommended_modalities: tuple[str, ...] = (),
@@ -83,8 +82,7 @@ def build_descriptor(
         provider=provider,
         open_source=open_source,
         service_name=service_name,
-        env_image_var=env_image_var,
-        default_image=default_image,
+        image=image or DockerImageRef(""),
         hardware_profile=hardware_profile,
         required_modalities=required_modalities,
         recommended_modalities=recommended_modalities,

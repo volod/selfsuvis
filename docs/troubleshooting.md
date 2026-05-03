@@ -54,6 +54,37 @@ If `/index/video path=...` or `/index/dir` returns path errors, set `ALLOWED_IND
 - Set `HF_TOKEN` for gated Hugging Face models
 - Lower batch sizes or disable optional multimodal stages if VRAM is insufficient
 
+## Startup preflight fails
+
+Before a local run, `selfsuvis --mode local` now checks that local dependencies are
+installed and that the required model weights are already cached.
+
+- Read the `preflight:` log lines first; they name the exact missing cache or package
+- Warm missing assets with `python -m selfsuvis.scripts.prepare_models --all`
+- If only one stage is missing, run the narrower command, for example:
+  - `python -m selfsuvis.scripts.prepare_models --ocr`
+  - `python -m selfsuvis.scripts.prepare_models --world-model`
+  - `python -m selfsuvis.scripts.prepare_models --scenetok`
+- If Step 31 is enabled, also make sure `onnxslim` is installed and `yolov8n.pt` has
+  already been downloaded into `~/.cache/ultralytics/`
+
+For API/worker startup, preflight findings are logged by default. To make startup fail
+on preflight errors, set `STARTUP_PREFLIGHT_STRICT=true`.
+
+## Local run degrades instead of failing
+
+Common examples from the local pipeline:
+
+- `Qdrant unavailable`:
+  - the run falls back to the in-memory vector store
+  - persistent search, reuse across runs, and production parity are degraded
+- `3D map quality is degraded`:
+  - short clips under `SFM_MIN_DURATION_SEC` skip true SfM and use pseudo-3D fallback
+  - this is usually a capture-path problem, not a mapper-library problem
+- `SceneTok skipped`:
+  - on current code, `.env`-driven `SCENETOK_ENABLED=true` is honored unless you passed
+    `--no-scenetok`
+
 ## Root-owned runtime data
 
 If services fail with permissions under `data/` or `cache/`:

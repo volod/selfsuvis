@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 from selfsuvis.pipeline.core import settings
+from selfsuvis.pipeline.core.log_analytics import get_log_analytics
 from selfsuvis.pipeline.realtime import (
     build_fused_pose_from_packets,
     build_sensor_profile,
@@ -184,6 +185,7 @@ async def collect_realtime_stats() -> dict[str, Any]:
     stats: dict[str, Any] = {
         "pose_backend": settings.REALTIME_POSE_BACKEND,
         "occupancy_backend": settings.REALTIME_OCCUPANCY_BACKEND,
+        "logging": get_log_analytics().snapshot(),
     }
     pose_stats = await _collect_client_stats(_pose_client())
     occ_stats = await _collect_client_stats(_occupancy_client())

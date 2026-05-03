@@ -13,6 +13,8 @@ from selfsuvis.pipeline.core import (
     file_sha256,
     get_dino_model_name,
     get_logger,
+    log_preflight,
+    run_production_preflight,
     settings,
     utcnow,
     validate_settings,
@@ -860,6 +862,10 @@ def main() -> None:
 
     validate_settings()
     logger = get_logger(__name__)
+    report = run_production_preflight("worker")
+    log_preflight(report)
+    if os.getenv("STARTUP_PREFLIGHT_STRICT", "false").lower() == "true":
+        report.raise_for_errors()
     logger.info("Worker started")
 
     conn_url = settings.DATABASE_URL

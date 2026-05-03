@@ -1,15 +1,16 @@
 """Phase 1 graph nodes: init_state, extract_frames, index_vectors."""
 
-import logging
 import time
 from pathlib import Path
 from typing import Any
+
+from selfsuvis.pipeline.core.logging import get_logger
 
 from .._common import VideoKnowledge
 from ..graph_state import PipelineState
 from ..runner import _append_agentic_step
 
-_log = logging.getLogger(__name__)
+_log = get_logger(__name__)
 
 
 def node_init_state(state: PipelineState) -> dict[str, Any]:

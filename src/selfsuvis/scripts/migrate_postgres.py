@@ -14,20 +14,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncpg
-from dotenv import load_dotenv
 
-_env_name = os.getenv("APP_ENV", "prod")
-_env_file = Path(__file__).parent.parent / "env" / f"{_env_name}.env"
-if _env_file.exists():
-    load_dotenv(_env_file)
-else:
-    load_dotenv()
-# Repo-root .env overrides the packaged template (same priority as config.py)
-_repo_env = Path(__file__).resolve().parents[5] / ".env"
-if _repo_env.exists():
-    load_dotenv(_repo_env, override=True)
+from selfsuvis.pipeline.core.env import env_str, load_layered_env
 
-DATABASE_URL = os.getenv(
+load_layered_env(anchor_file=__file__, app_env=os.getenv("APP_ENV", "prod"))
+
+DATABASE_URL = env_str(
     "DATABASE_URL",
     "postgresql://selfsuvis:selfsuvis@localhost:5432/selfsuvis",
 )

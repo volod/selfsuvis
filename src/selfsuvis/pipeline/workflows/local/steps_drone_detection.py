@@ -19,17 +19,19 @@ Outputs (all under video_dir/drone_detection/):
   drone_detection_report.md        training summary + edge-deployment notes
 """
 
-import logging
 import shutil
 import textwrap
 import time
 import zipfile
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
+from selfsuvis.pipeline.core.logging import get_logger
+
 from ._common import write_markdown_artifact
 
-_log = logging.getLogger("pipeline.local.drone_detection")
+_log = get_logger("pipeline.local.drone_detection")
 
 # Maximum images we download from the HF dataset for the demo training run.
 _MAX_TRAIN_IMAGES = 400
@@ -40,6 +42,8 @@ _MAX_NEGATIVES = 80
 _TRAIN_EPOCHS = 5
 _IMG_SIZE = 640
 _HF_REPO = "lgrzybowski/seraphim-drone-detection-dataset"
+_YOLOV8N_MODEL = "yolov8n.pt"
+_ULTRALYTICS_AUX_MODELS = ("yolov8n.pt", "yolo26n.pt")
 
 
 # ── Dataset helpers ───────────────────────────────────────────────────────────
@@ -153,7 +157,8 @@ def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> dict[str, Any
     except ImportError:
         return {"error": "ultralytics not installed"}
 
-    model = YOLO("yolov8n.pt")
+    _relocate_repo_root_ultralytics_artifacts()
+    model = YOLO(str(_ultralytics_cached_model_path(_YOLOV8N_MODEL)))
     torch_device = "0" if device == "cuda" else "cpu"
     results = model.train(
         data=str(yaml_path),
@@ -190,6 +195,26 @@ def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> dict[str, Any
     return metrics
 
 
+def _relocate_repo_root_ultralytics_artifacts() -> None:
+    """Move stray Ultralytics weight downloads from cwd into the cache dir.
+
+    Ultralytics sometimes drops helper weights like ``yolo26n.pt`` into the
+    process cwd during AMP checks. They are cache artifacts, not project files.
+    """
+    cache_dir = Path.home() / ".cache" / "ultralytics"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    repo_root = Path.cwd()
+    for model_name in _ULTRALYTICS_AUX_MODELS:
+        src = repo_root / model_name
+        dst = cache_dir / model_name
+        if not src.exists() or src.resolve() == dst.resolve():
+            continue
+        if dst.exists():
+            src.unlink(missing_ok=True)
+            continue
+        shutil.move(str(src), str(dst))
+
+
 # ── Export helpers ────────────────────────────────────────────────────────────
 
 def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Path | None:
@@ -200,7 +225,12 @@ def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Path | None:
     try:
         from ultralytics import YOLO
         m = YOLO(str(best_pt))
-        exported = m.export(format="onnx", imgsz=_IMG_SIZE, simplify=True, opset=17)
+        exported = m.export(
+            format="onnx",
+            imgsz=_IMG_SIZE,
+            simplify=find_spec("onnxslim") is not None,
+            opset=17,
+        )
         src = Path(str(exported))
         if src.exists():
             shutil.move(str(src), str(out))
@@ -208,6 +238,11 @@ def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Path | None:
     except Exception as exc:
         _log.warning("ONNX fp32 export failed: %s", exc)
         return None
+
+
+def _ultralytics_cached_model_path(model_name: str) -> Path:
+    """Return the canonical ultralytics cache path for *model_name*."""
+    return Path.home() / ".cache" / "ultralytics" / model_name
 
 
 def _quantize_onnx_int8(onnx_fp32: Path, export_dir: Path) -> Path | None:

@@ -1,17 +1,17 @@
 """Phase 2 map nodes: submit 3D map to background thread, join result (step 16)."""
 
 import concurrent.futures as _cf
-import logging
 import time
 from pathlib import Path
 from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
+from selfsuvis.pipeline.core.logging import get_logger
 
 from ..graph_state import PipelineState
 from ..runner import _append_agentic_step
 
-_log = logging.getLogger(__name__)
+_log = get_logger(__name__)
 
 # Module-level registry — keyed by video_id — holds the (executor, future) pair.
 # Future objects are not JSON-serialisable so they cannot live in graph state.

@@ -26,13 +26,10 @@ The fine-tuned backbone will be loaded by DINOEmbedder automatically when
 DINO_CHECKPOINT is set and the file exists.
 """
 import argparse
-import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
+from selfsuvis.pipeline.core.logging import configure_logging
+
+configure_logging()
 
 
 def main() -> None:

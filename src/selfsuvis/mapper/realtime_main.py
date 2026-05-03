@@ -5,7 +5,6 @@ contract so deployments can start with a consistent HTTP surface before swapping
 in heavier SLAM / occupancy engines.
 """
 
-import os
 from collections import defaultdict
 from typing import Any
 
@@ -13,6 +12,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from selfsuvis.pipeline.core.env import env_int, env_str, load_layered_env
 from selfsuvis.pipeline.realtime import (
     build_fused_pose_from_packets,
     normalize_map_tile,
@@ -20,6 +20,8 @@ from selfsuvis.pipeline.realtime import (
     normalize_pose_payload,
     write_stub_map_tile,
 )
+
+load_layered_env(anchor_file=__file__)
 
 app = FastAPI(title="selfsuvis-realtime-reference", version="1.0.0")
 _STATS: dict[str, Any] = {
@@ -29,7 +31,7 @@ _STATS: dict[str, Any] = {
 }
 _TILE_INDEX: dict[str, dict[str, Any]] = {}
 _SESSION_COUNTS: dict[str, int] = defaultdict(int)
-_ENGINE_NAME = os.getenv("REALTIME_ENGINE_NAME", "stub").strip().lower()
+_ENGINE_NAME = env_str("REALTIME_ENGINE_NAME", "stub").strip().lower()
 
 
 class EstimatePoseRequest(BaseModel):
@@ -117,5 +119,5 @@ def stats() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8101"))
+    port = env_int("PORT", 8101)
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

@@ -11,7 +11,6 @@ Requires: ffmpeg on PATH, faster-whisper installed.
 """
 
 import asyncio
-import logging
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -19,7 +18,9 @@ from typing import Any
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from selfsuvis.pipeline.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Acoustic event labels and their simple spectral signatures.
 # Each entry: (label, min_freq_hz, max_freq_hz, energy_ratio_threshold)

@@ -23,16 +23,12 @@ Usage:
 """
 import argparse
 import glob
-import logging
 import os
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
+from selfsuvis.pipeline.core.logging import configure_logging, get_logger
 
-logger = logging.getLogger(__name__)
+configure_logging()
+logger = get_logger(__name__)
 
 
 def _load_backbone(model_name: str, checkpoint: str | None, device: str):

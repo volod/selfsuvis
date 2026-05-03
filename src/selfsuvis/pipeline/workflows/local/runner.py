@@ -33,6 +33,8 @@ try:
 except Exception:
     _HAS_GEMMA = False
 
+from selfsuvis.pipeline.core.logging import log_pipeline_finished
+
 from ._common import (
     _TEXT_PROMPTS,
     VideoKnowledge,
@@ -1427,7 +1429,7 @@ def run_video_pipeline(
     seg_cap_result: dict[str, Any] = {"skipped": True, "boundary_diffs": []}
     _gemma_url_4b = getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL
     if _gemma_url_4b and caption_results:
-        _step(4, _TOTAL_STEPS, "Gemma 4 segment-boundary diffs → gemma_segment_captions.md")
+        _log.info("─── Step 4b/%d: Gemma 4 segment-boundary diffs → gemma_segment_captions.md", _TOTAL_STEPS)
         with _Timer(T, "L_seg_caps"):
             seg_cap_result = step_gemma_segment_captions(
                 frame_list, caption_results, video_name, video_dir,
@@ -3098,6 +3100,7 @@ def run_local(args: Any) -> None:
             print_run_stats(per_video_stats, total_elapsed, init_elapsed, device)
             _log.warning("  Partial results written to: %s", stats_path)
         _log.warning("  Re-run to process remaining videos.")
+        log_pipeline_finished(total_elapsed)
         sys.exit(130)
 
     if not args.no_view:
@@ -3160,3 +3163,4 @@ def run_local(args: Any) -> None:
     _log.info("    • Full stack:      make up")
     _log.info("    • Fine-tune rerun: DINO_CHECKPOINT=<path> python main.py --mode local")
     _log.info("")
+    log_pipeline_finished(total_elapsed)

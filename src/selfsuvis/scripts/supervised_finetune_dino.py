@@ -23,20 +23,16 @@ Warm-starting from an SSL checkpoint (recommended):
          --ssl-checkpoint data/checkpoints/dino_ssl_best.pt
 """
 import argparse
-import logging
 import sys
 from pathlib import Path
 
 # Allow running from repo root without installing the package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from selfsuvis.pipeline.core.logging import configure_logging
 from selfsuvis.pipeline.training.supervised import SupervisedFinetuneConfig, run_supervised_finetune
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+configure_logging()
 
 
 def parse_args() -> argparse.Namespace:

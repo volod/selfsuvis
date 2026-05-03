@@ -1,5 +1,5 @@
 import asyncio
-import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -19,9 +19,10 @@ from selfsuvis.app.routers.site_state import router as site_state_router
 from selfsuvis.app.services.coop_streams import CoopStreamService
 from selfsuvis.app.services.form_templates import get_index_form_html
 from selfsuvis.app.services.live_streams import MediaMtxClient, RealtimeStreamManager
+from selfsuvis.pipeline.core import get_logger, log_preflight, run_production_preflight
 from selfsuvis.pipeline.storage.processed import ainit_db as init_processed_db
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _start_coop_pilot(app: FastAPI) -> "asyncio.Task | None":
@@ -79,6 +80,10 @@ def _multi_callback(*cbs):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize and tear down shared resources."""
+    report = run_production_preflight("api")
+    log_preflight(report)
+    if os.getenv("STARTUP_PREFLIGHT_STRICT", "false").lower() == "true":
+        report.raise_for_errors()
     await init_processed_db()
     await init_db_pool(app)
     app.state.mediamtx_client = MediaMtxClient()

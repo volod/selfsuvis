@@ -19,6 +19,23 @@ only show up in the artifacts:
 
 Treat the run directory as evidence, not as proof that every stage worked.
 
+## New Startup Contract
+
+Current local runs have a stricter contract than older notes in this learning path:
+
+- `selfsuvis --mode local` now runs a startup preflight before frame extraction
+- missing local dependencies or uncached model weights are treated as startup errors
+- degraded-but-allowed conditions are still logged as warnings
+  - Qdrant unreachable
+  - mapper API unreachable
+  - drone-detection dataset cache still cold
+
+This changes how you read a failed run:
+
+- if the run never started, inspect `preflight:` log lines rather than the output directory
+- if the run started and later degraded, the remaining issues are usually runtime quality limits
+  rather than missing packages or first-run downloads
+
 ## Recommended Inspection Order
 
 1. `final_stats.md`
@@ -152,6 +169,21 @@ That combination means:
 
 For that class of run, the right corrective action is not "change SfM library".
 It is "capture a longer, lower, more oblique, more cross-linked flight path".
+
+## New Failure Pattern: Startup-Clean, Runtime-Degraded
+
+After the preflight changes, a useful mental split is:
+
+- **startup-clean**:
+  all required local models were already cached, and the run did not depend on surprise installs
+- **runtime-degraded**:
+  the run still completed with lower-quality artifacts because the scene, clip, or hardware was weak
+
+Examples:
+
+- Stage 2 distillation warning about mismatched CUDA tensor dtypes was a code bug and should no longer appear
+- SceneTok being skipped despite `SCENETOK_ENABLED=true` in `.env` was a CLI/env bug and should no longer appear
+- a short 10-second aerial clip still produces degraded mapping because that is a capture constraint, not a startup issue
 
 ## Code Traceback Map
 

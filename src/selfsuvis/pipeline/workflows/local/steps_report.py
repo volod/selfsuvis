@@ -1707,6 +1707,7 @@ _STEP_LABELS: list[tuple[str, str, str]] = [
     ("B_index",           "02 Ingest: Vector indexing",            "GPU embed"     ),
     ("J_gemma",           "03 Analyze: Gemma multimodal",          "LLM API"       ),
     ("L_caption",         "04 Analyze: Florence captions",         "GPU vision"    ),
+    ("L_seg_caps",        "04b Analyze: Gemma segment diffs",      "LLM API"       ),
     ("M_asr",             "05 Analyze: ASR transcription",         "GPU speech"    ),
     ("N_ocr",             "06 Analyze: OCR text extraction",       "LLM API"       ),
     ("O_depth",           "07 Analyze: Depth estimation",          "GPU vision"    ),
@@ -1724,6 +1725,7 @@ _STEP_LABELS: list[tuple[str, str, str]] = [
     ("PS_threat_primitives", "19 Analyze: Threat primitives",         "CPU fusion"    ),
     ("D_finetune",           "20 Adapt: SSL DINOv3 fine-tune",        "GPU train"     ),
     ("E_distill",            "21 Adapt: Knowledge distillation",      "GPU train"     ),
+    ("E_distill_stage2",     "21b Adapt: Stage 2 distillation",       "GPU train"     ),
     ("F_export",             "22 Export: ONNX + gallery",             "CPU"           ),
     ("G_ft_search",          "23 Eval: Fine-tuned search test",       "GPU embed"     ),
     ("H_compare",            "24 Eval: Model comparison",             "GPU embed"     ),
@@ -1732,7 +1734,8 @@ _STEP_LABELS: list[tuple[str, str, str]] = [
     ("PS_policy",            "27 Decide: Action policy",              "CPU policy"    ),
     ("Z_synthesis",          "28 Synthesize: Ontology+narrative",     "LLM API"       ),
     ("AA_agentic",           "29 Audit: Agentic flow",                "LLM API"       ),
-    ("AB_model_advisor",      "30 Optimize: Model/run advisor",        "CPU analysis"  ),
+    ("AC_drone_detection",   "31 Train: Drone detection",             "GPU train"     ),
+    ("AB_model_advisor",     "32 Optimize: Model/run advisor",        "CPU analysis"  ),
 ]
 
 

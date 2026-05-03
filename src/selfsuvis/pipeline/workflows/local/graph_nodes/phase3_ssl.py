@@ -2,18 +2,18 @@
 ft_search, compare.
 """
 
-import logging
 import os
 import time
 from pathlib import Path
 from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
+from selfsuvis.pipeline.core.logging import get_logger
 
 from ..graph_state import PipelineState
 from ..runner import _append_agentic_step
 
-_log = logging.getLogger(__name__)
+_log = get_logger(__name__)
 
 _SSL_GATE_MAX_LOSS = 10.0
 

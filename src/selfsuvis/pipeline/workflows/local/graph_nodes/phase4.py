@@ -3,12 +3,12 @@ emit_analytics.
 """
 
 import json
-import logging
 import time
 from pathlib import Path
 from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
+from selfsuvis.pipeline.core.logging import get_logger
 
 from ..graph_state import PipelineState
 from ..runner import (
@@ -19,7 +19,7 @@ from ..runner import (
 )
 from .agentic_helpers import build_evidence_summary, critique_pass, llm_call_with_retry
 
-_log = logging.getLogger(__name__)
+_log = get_logger(__name__)
 
 
 # ── Step 22: Multi-model comparison ──────────────────────────────────────────

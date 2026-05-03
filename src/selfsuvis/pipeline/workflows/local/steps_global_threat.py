@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from selfsuvis.pipeline.core.logging import get_logger
 from selfsuvis.pipeline.fusion import (
     GlobalThreatResult,
     PersistentAnomaly,
@@ -22,7 +22,7 @@ from selfsuvis.pipeline.fusion.sectors import (
     unique_sector_sequence,
 )
 
-_log = logging.getLogger("pipeline.local")
+_log = get_logger("pipeline.local")
 
 
 def _load_json(path: Path) -> dict[str, Any]:

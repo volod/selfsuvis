@@ -328,7 +328,7 @@ class RealtimePoseClient(RealtimeSidecarClient):
         if not self.is_configured:
             return None
         payload = {"session_id": session_id, "packets": packets}
-        data = await self._request_json("POST", "/estimate_pose", payload=payload)
+        data = await self.request_json("POST", "/estimate_pose", payload=payload)
         pose = self.unwrap_dict_payload(data, field="pose")
         if not isinstance(pose, dict):
             return None

@@ -1,7 +1,6 @@
 """Step 14: SceneTok streaming scene encoder + segmentation decoder."""
 
 import base64
-import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -9,10 +8,11 @@ from typing import Any
 from PIL import Image
 
 from selfsuvis.pipeline.core import settings
+from selfsuvis.pipeline.core.logging import get_logger
 
 from ._common import _open_frame_image
 
-_log = logging.getLogger("pipeline.local.scenetok")
+_log = get_logger("pipeline.local.scenetok")
 
 _DEFAULT_MAX_FRAMES = 32
 

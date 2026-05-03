@@ -1,17 +1,17 @@
 """Phase 2 tracking nodes: yolo_sam (step 9), gemma_tracking (step 10, agentic)."""
 
-import logging
 import time
 from pathlib import Path
 from typing import Any
 
 from selfsuvis.pipeline.core.config import settings
+from selfsuvis.pipeline.core.logging import get_logger
 
 from ..graph_state import PipelineState
 from ..runner import _append_agentic_step
 from .agentic_helpers import DEFAULT_TRACKING_TARGETS
 
-_log = logging.getLogger(__name__)
+_log = get_logger(__name__)
 
 
 def node_p2_yolo_sam(state: PipelineState) -> dict[str, Any]:

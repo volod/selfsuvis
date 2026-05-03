@@ -293,6 +293,7 @@ For missions involving road networks, vehicle behavior, and outdoor navigation, 
 - [`pipeline/vision/unidrive.py`](../../src/selfsuvis/pipeline/vision/unidrive.py) — thin OpenAI-compatible HTTP adapter
 - [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — `step_unidrive_analysis()`
 - [`pipeline/core/config.py`](../../src/selfsuvis/pipeline/core/config.py) — `UNIDRIVE_*` settings
+- [`pipeline/core/preflight.py`](../../src/selfsuvis/pipeline/core/preflight.py) — startup cache/dependency checks for local runs and production startup
 - Model prep: `python scripts/prepare_models.py --unidrive`
 
 **Key concepts:**
@@ -331,6 +332,8 @@ Recommended actions are advisory interpretations ("reduce speed"), not robot com
 - Road / urban missions: use `owl10/UniDriveVLA_Nusc_Large_Stage3` if vLLM bridge is available
 - Aerial / off-road / maritime: use `Qwen/Qwen2.5-VL-7B-Instruct` as backend (avoids domain mismatch)
 - Low VRAM (< 8 GB): use `Qwen/Qwen2.5-VL-3B-Instruct`
+- If `UNIDRIVE_API_URL` is empty, the local pipeline now expects the HF weights to be cached already;
+  startup preflight catches cold-cache runs before processing begins
 
 **Output artifact:**
 `unidrive_analysis.md` in the video output directory: per-frame UniDriveVLA structured analysis.

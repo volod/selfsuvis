@@ -3,10 +3,12 @@ import os
 import requests
 import streamlit as st
 
-API_URL = os.getenv("API_URL", "http://api:8000")
+from selfsuvis.pipeline.core.env import env_str
+
+API_URL = env_str("API_URL", "http://api:8000")
 
 # If API_KEY is configured, send it with every request.
-_API_KEY = os.getenv("API_KEY", "")
+_API_KEY = env_str("API_KEY", "")
 _HEADERS = {"X-API-Key": _API_KEY} if _API_KEY else {}
 
 st.set_page_config(page_title="Video Semantic Search", layout="wide")
@@ -169,8 +171,8 @@ with tab_admin:
 
     # ── 3DGS Scene Viewer ────────────────────────────────────────────────────
     st.subheader("3DGS Scene Viewer")
-    supersplat_url = os.getenv("SUPERSPLAT_SERVER_URL", "http://localhost:8090")
-    static_url = os.getenv("STATIC_SERVER_URL", "http://localhost:8080")
+    supersplat_url = env_str("SUPERSPLAT_SERVER_URL", "http://localhost:8090")
+    static_url = env_str("STATIC_SERVER_URL", "http://localhost:8080")
 
     try:
         missions_resp = requests.get(
@@ -208,7 +210,7 @@ with tab_admin:
         mission_id = selected_mission["id"]
         rel_path = os.path.relpath(
             chosen_splat,
-            os.environ.get("MAPS_DIR", "data/maps"),
+            env_str("MAPS_DIR", "data/maps"),
         )
         splat_static_url = f"{static_url}/static/maps/{rel_path}"
         viewer_url = f"{supersplat_url}/?load={splat_static_url}"
