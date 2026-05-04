@@ -23,6 +23,11 @@ def _get_client_key(request: Request) -> str:
 
 def require_api_key(x_api_key: str = Header(default="")) -> None:
     if not settings.API_KEY:
+        if settings.API_AUTH_REQUIRED:
+            raise HTTPException(
+                status_code=503,
+                detail="Server authentication is not configured",
+            )
         return
     if not hmac.compare_digest(x_api_key, settings.API_KEY):
         raise HTTPException(status_code=403, detail="Invalid API key")

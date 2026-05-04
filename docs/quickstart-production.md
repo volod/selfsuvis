@@ -32,12 +32,23 @@ Generate a repo-root `.env` for production first:
 python -m selfsuvis.scripts.generate_env --env prod
 ```
 
-Then set the two values that have no default:
+Then set the values that have no default:
 
 ```
 API_KEY=<choose-a-secret>
 ALLOWED_INDEX_PATHS=/app/data/videos
 ```
+
+The API now fails closed in production: when `APP_ENV=prod`, startup raises an error if `API_KEY` is empty unless you explicitly override `API_AUTH_REQUIRED=false`.
+
+**Optional — CVAT annotation webhook** (required if you use CVAT for supervised fine-tuning):
+
+```
+CVAT_WEBHOOK_SECRET=<openssl rand -hex 32>
+CVAT_API_TOKEN=<your-cvat-api-token>
+```
+
+`CVAT_WEBHOOK_SECRET` must match the secret you enter in CVAT's webhook settings (see [Configuring the CVAT webhook](#configuring-the-cvat-webhook) below). When it is unset the webhook endpoint rejects all incoming requests.
 
 Edit `.env` directly:
 
@@ -204,6 +215,50 @@ curl -X POST http://localhost:8000/realtime/streams/<session_id>/stop \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"delete_path": true}'
+```
+
+---
+
+## Configuring the CVAT webhook
+
+Skip this section if you are not using CVAT for annotation-driven fine-tuning.
+
+### 1. Generate a secret and add it to `.env`
+
+```bash
+echo "CVAT_WEBHOOK_SECRET=$(openssl rand -hex 32)" >> .env
+```
+
+Restart the stack so the API picks it up:
+
+```bash
+make down && make up
+```
+
+### 2. Register the webhook in CVAT
+
+1. Open CVAT at `http://localhost:8091`.
+2. Click your avatar (top-right) → **Settings** → **Webhooks** → **Create webhook**.
+3. Fill in the form:
+
+   | Field | Value |
+   |---|---|
+   | **Target URL** | `http://api:8000/webhook/cvat` (inside Docker) or `http://<host>:8000/webhook/cvat` |
+   | **Secret** | The value you set for `CVAT_WEBHOOK_SECRET` |
+   | **Events** | Check **Job updated** and **Task updated** |
+   | **Content type** | `application/json` |
+
+4. Save.
+
+CVAT will HMAC-SHA256-sign every POST using that secret in the `X-Hook-Secret` header. The API verifies the signature before processing any event.
+
+### 3. Verify
+
+Annotate one frame in CVAT and mark the job as completed. The API logs should show:
+
+```
+CVAT webhook received: event=update:job
+CVAT webhook: task_id=<N> completed → N frames annotated
 ```
 
 ---

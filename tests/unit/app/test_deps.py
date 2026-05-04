@@ -22,6 +22,7 @@ from selfsuvis.pipeline.core import config
 def test_require_api_key_passes_when_no_key_configured(monkeypatch):
     """When API_KEY is empty, require_api_key allows any request."""
     monkeypatch.setattr(config.settings, "API_KEY", "")
+    monkeypatch.setattr(config.settings, "API_AUTH_REQUIRED", False)
     # Should not raise
     require_api_key(x_api_key="anything")
 
@@ -54,6 +55,15 @@ def test_require_api_key_rejects_empty_key_when_configured(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         require_api_key(x_api_key="")
     assert exc_info.value.status_code == 403
+
+
+def test_require_api_key_rejects_misconfigured_required_auth(monkeypatch):
+    """Missing API_KEY is a server misconfiguration when auth is required."""
+    monkeypatch.setattr(config.settings, "API_KEY", "")
+    monkeypatch.setattr(config.settings, "API_AUTH_REQUIRED", True)
+    with pytest.raises(HTTPException) as exc_info:
+        require_api_key(x_api_key="anything")
+    assert exc_info.value.status_code == 503
 
 
 # ---------------------------------------------------------------------------

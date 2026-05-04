@@ -43,11 +43,12 @@ logger = get_logger(__name__)
 def _verify_cvat_signature(body: bytes, signature: str) -> bool:
     """Verify HMAC-SHA256 from CVAT's X-Hook-Secret header.
 
-    Returns True when CVAT_WEBHOOK_SECRET is not set (dev/test mode — skip check).
+    Fail-closed: returns False (reject) when CVAT_WEBHOOK_SECRET is not configured.
+    Set CVAT_WEBHOOK_SECRET to the secret you configured in CVAT's webhook settings.
     """
     secret = settings.CVAT_WEBHOOK_SECRET
     if not secret:
-        return True
+        return False
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
 
@@ -255,10 +256,12 @@ async def cvat_webhook(
     Triggered by CVAT when a job or task reaches state=completed.
     Marks all frames mapped to that task as al_tag='annotated'.
 
-    Security: verifies HMAC-SHA256 signature in X-Hook-Secret when
-    CVAT_WEBHOOK_SECRET is configured. Returns 400 on signature mismatch.
+    Security: verifies HMAC-SHA256 signature in X-Hook-Secret.
+    CVAT_WEBHOOK_SECRET must be set; requests with a missing or incorrect
+    signature are rejected with 400. Configure the same secret in CVAT:
+    Webhooks → Secret → <your CVAT_WEBHOOK_SECRET value>.
 
-    Configure in CVAT: Webhooks → Target URL → http://<api_host>:8000/webhook/cvat
+    Configure target URL in CVAT: http://<api_host>:8000/webhook/cvat
     """
     body = await request.body()
 
