@@ -21,7 +21,8 @@ Deep-dive entry points:
 - [Temporal SSL and physical state](learning_path/14_temporal_ssl_physical_state.md)
 - [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md)
 - [coop_pilot IoT edge monitoring](learning_path/16_coop_pilot_iot_edge_monitoring.md)
-- [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)
+- [Essential technology stack](learning_path/17_essential_technology_stack.md)
+- [Future directions: cross-modal SSL, environmental fields, calibration, global threats](learning_path/18_future_directions.md)
 
 ## How To Use This Path
 
@@ -29,7 +30,8 @@ Deep-dive entry points:
 2. Pick the deep-dive document for the phase you are working on.
 3. Before the sensor phase, read the sensor-fusion fundamentals session once so clocks, calibration, and contradiction handling are already in your head.
 4. Use the day-by-day syllabus if you want a realistic study plan instead of reading everything at once.
-5. Once the current runtime makes sense, use the advanced-directions document to decide what to study next instead of reading research topics randomly.
+5. Read the essential-technology guide to connect the codebase to the underlying tools before choosing advanced research topics.
+6. Once the current runtime makes sense, use the advanced-directions document to decide what to study next instead of reading research topics randomly.
 
 ## Human Recommendations
 
@@ -158,4 +160,5 @@ If you only have time for a fast pass:
 9. [Temporal SSL and physical state](learning_path/14_temporal_ssl_physical_state.md)
 10. [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md)
 11. [coop_pilot IoT edge monitoring](learning_path/16_coop_pilot_iot_edge_monitoring.md)
-12. [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)
+12. [Essential technology stack](learning_path/17_essential_technology_stack.md)
+13. [Future directions: cross-modal SSL, environmental fields, calibration, global threats](learning_path/18_future_directions.md)

@@ -19,7 +19,7 @@ They are written to answer:
 | Document | Purpose |
 |---|---|
 | [00_day_by_day_syllabus.md](00_day_by_day_syllabus.md) | Multi-week human study plan with prerequisites, exercises, checkpoints, and milestones |
-| [../future_implementation_directions.md](../future_implementation_directions.md) | Advanced directions after the current local stack: cross-modal world models, environmental fields, global threats, sensor meshes, contradiction modeling, and calibration |
+| [18_future_directions.md](18_future_directions.md) | Not-yet-implemented advanced themes: full cross-modal temporal SSL, environmental field models, calibration and contradiction handling, global cross-mission threat inference |
 | [01_runtime_and_study_guide.md](01_runtime_and_study_guide.md) | Best entry point: how the current repo is organized, what runs in production vs local mode, and how to study without getting lost |
 | [02_perception_core_steps_01_08.md](02_perception_core_steps_01_08.md) | Frame extraction, embeddings, Gemma, Florence, ASR, OCR, depth, and detection — with key concepts, artifacts, and failure modes |
 | [03_sensor_fusion_fundamentals.md](03_sensor_fusion_fundamentals.md) | Knowledge session on clocks, calibration, uncertainty, contradiction handling, and what fusion means in the current `selfsuvis` architecture |
@@ -36,6 +36,8 @@ They are written to answer:
 | [14_temporal_ssl_physical_state.md](14_temporal_ssl_physical_state.md) | Track-aware SSL: why frame augmentation is insufficient, how RF-DETR track IDs produce identity-consistent positive pairs, and how cycle-consistency loss prevents embedding drift along long tracks |
 | [15_threat_primitives_local_inference.md](15_threat_primitives_local_inference.md) | Threat primitive layer: structured evidence-gated threat signals from physical state + fusion; schema design, the two-source gate, and why free-text hazards are insufficient |
 | [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) | IoT edge monitoring deep dive: MQTT, LoRaWAN/ChirpStack, Frigate, MediaMTX RTSP bridge, acoustic analysis, rolling site state, scene synthesis, and realtime threat ingestion |
+| [17_essential_technology_stack.md](17_essential_technology_stack.md) | Extended human guide to every essential technology in the stack: package layout, pipeline.core shared modules (env, preflight, sidecars, logging), API/worker/DB/Qdrant service flow, security boundaries (APP_ENV, HMAC, fail-closed), FFmpeg and sidecar JSONL, CLIP/DINO embeddings and named-vector retrieval, all vision/language models (Gemma, Florence, Whisper, OCR, depth, YOLO/RF-DETR, SAM, Qwen, UniDriveVLA, SceneTok), temporal state and fusion (RSSM, Kalman, Mahalanobis, Hungarian, RTS, SfM, Gaussian Splat), 33-step local runner, preflight startup contract, LangGraph path, runtime gates, analysis_summary.json analytics, Utilyze profiling, SSL fine-tuning, distillation, ONNX/RKNN edge export, drone detection training, drone audio CNN training, and realtime/coop stack (MediaMTX, Mosquitto MQTT, ChirpStack LoRaWAN, Frigate, rolling site state) |
+| [19_drone_audio_detection.md](19_drone_audio_detection.md) | Step 32 deep dive: DroneAudioCNN binary classifier, MFCC feature extraction without librosa (scipy-only STFT + mel filterbank + DCT), Conv2d/BN/ReLU/AdaptiveAvgPool architecture (~52k params), ONNX export for edge inference, dataset split, inference example, physics-based audio simulation (inverse-square, atmospheric absorption, Doppler) |
 
 ## Probabilistic State Fusion — Quick Reference
 
@@ -53,7 +55,7 @@ Entry point for the math: [12_probabilistic_fusion_deep_dive.md](12_probabilisti
 
 ## Current Runtime vs Conceptual Path
 
-The current local runner executes **27 top-level steps**.
+The current monolithic local runner reports **33 runtime/post-run steps**.
 Some older learning-path documents still group the system using a broader **36-step conceptual map**.
 That is intentional:
 
@@ -80,7 +82,7 @@ uncertainty.
 
 If you already understand the current runner and want to reason about where the
 system should go next, read
-[../future_implementation_directions.md](../future_implementation_directions.md)
+[18_future_directions.md](18_future_directions.md)
 after the fusion and adaptation docs.
 
 ## If You Are New Here
@@ -99,7 +101,9 @@ Use this order:
 10. [14_temporal_ssl_physical_state.md](14_temporal_ssl_physical_state.md)
 11. [15_threat_primitives_local_inference.md](15_threat_primitives_local_inference.md)
 12. [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md)
-13. [../future_implementation_directions.md](../future_implementation_directions.md)
+13. [17_essential_technology_stack.md](17_essential_technology_stack.md)
+14. [19_drone_audio_detection.md](19_drone_audio_detection.md)
+15. [18_future_directions.md](18_future_directions.md)
 
 That route gets you from “what is this repo?” to “how does evidence move?” before
 you branch into adaptation, physical-world modeling, and advanced global-threat work.
@@ -124,11 +128,12 @@ Supporting sessions:
 - [Probabilistic state fusion implementation order](11_probabilistic_state_fusion_implementation_order.md): delivery status, gaps, validation sequence
 - [**Probabilistic fusion deep dive**](12_probabilistic_fusion_deep_dive.md): full math, worked example, artifact reading guide
 - [**Local analytics math and methodology**](13_local_analytics_math_methodology.md): diagnostic equations, quality scoring, and failure interpretation
-- [**Advanced directions: global threats, sensor meshes, and cross-modal world models**](../future_implementation_directions.md): what to study after the local stack, including cross-modal SSL, field models, contradiction-aware scoring, global threat inference, realtime mesh runtime, and calibration
-- [**Temporal SSL and track-aware representation learning**](14_temporal_ssl_physical_state.md): implementation deep dive for the track-pair and cycle-consistency SSL upgrade (Area 1 of future directions §11)
-- [**Threat primitives and local inference**](15_threat_primitives_local_inference.md): structured evidence-gated threat signals from physical state, the two-source gate, and why free-text hazards are insufficient for decision-making (Area 3 of future directions §11)
+- [**Future directions: not-yet-implemented advanced themes**](18_future_directions.md): full cross-modal SSL, environmental field models (RF/gas/acoustic), calibration and formal contradiction modeling, global cross-mission threat inference
+- [**Temporal SSL and track-aware representation learning**](14_temporal_ssl_physical_state.md): implementation deep dive for the track-pair and cycle-consistency SSL upgrade
+- [**Threat primitives and local inference**](15_threat_primitives_local_inference.md): structured evidence-gated threat signals from physical state, the two-source gate, and why free-text hazards are insufficient for decision-making
 - [**Drone detection runbook**](../runbooks/drone-detection.md): operational guide for step 30 — YOLOv8n training, hard negative injection, ONNX fp32/int8 export, RKNN NPU conversion, and edge inference on Cortex-A76 and RV1106G3
 - [**coop_pilot IoT edge monitoring**](16_coop_pilot_iot_edge_monitoring.md): continuous site-awareness layer with MQTT sensor ingestion, LoRaWAN decoding, Frigate event handling, RTSP bridge sessions, acoustic analysis, scene synthesis, and realtime threat-sector integration
+- [**Essential technology stack**](17_essential_technology_stack.md): extended guide covering pipeline.core shared modules (env, preflight, sidecars, logging), API/worker/DB/Qdrant service flow, fail-closed security (APP_ENV, HMAC-SHA256, constant-time comparison, bounded rate-limit buckets), FFmpeg and sidecar JSONL, CLIP/DINO named-vector retrieval, all VLMs and detector families, Kalman/Mahalanobis/Hungarian/RTS fusion math, SfM and Gaussian Splat mapping, 32-step local runner startup contract, analysis_summary.json analytics, Utilyze profiling, SSL fine-tuning, distillation, ONNX/RKNN edge export, and realtime/coop technologies (MediaMTX, Mosquitto, ChirpStack LoRaWAN, Frigate)
 
 ## Related Repo Docs
 

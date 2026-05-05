@@ -48,7 +48,7 @@ from ._common import (
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_TOTAL_STEPS = 32
+_TOTAL_STEPS = 33
 _VIDEO_EXTS  = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 
 # Phase 3 SSL gate: skip distillation / ONNX / search comparison when the
@@ -2804,6 +2804,51 @@ def run_video_pipeline(
         )
     else:
         _step(31, _TOTAL_STEPS, "Drone detection training (skipped — pass --drone-detection to enable)")
+
+    # ── Step 32: Drone audio detection model training ─────────────────────────
+    _audio_enabled = getattr(args, "drone_audio", None)
+    if _audio_enabled is None:
+        _audio_enabled = True  # on by default when not explicitly disabled
+    if _audio_enabled:
+        from .steps_drone_audio import step_drone_audio_training
+        _step(32, _TOTAL_STEPS, "Drone audio training → drone_audio/")
+        _append_agentic_step(
+            agentic_trace,
+            step_id="32",
+            title="Drone audio detection model training",
+            description=(
+                "Train DroneAudioCNN (small 2-D CNN on MFCC features) on "
+                "geronimobasso/drone-audio-detection-samples cached in "
+                "data/drone-audio-data/; export ONNX for edge inference."
+            ),
+            status="ok",
+            context_inputs=[
+                "data/drone-audio-data/train/drone/*.wav",
+                "data/drone-audio-data/train/no_drone/*.wav",
+            ],
+            context_outputs=[
+                "drone_audio_cnn.pt",
+                "drone_audio_cnn.onnx",
+                "drone_audio_report.md",
+            ],
+            risks=[
+                "datasets library required for first-time HF download",
+                "small dataset may limit generalisation to novel drone types",
+                "run scripts/split_drone_audio_data.sh first for best results",
+            ],
+            artifacts=["drone_audio/drone_audio_report.md"],
+        )
+        with _Timer(T, "AC_drone_audio"):
+            audio_result = step_drone_audio_training(video_dir, output_dir, device, args)
+        stats["drone_audio"] = audio_result
+        _log.info(
+            "  Drone audio: val_acc=%.3f  val_f1=%.3f  onnx=%s",
+            audio_result.get("val_acc", float("nan")),
+            audio_result.get("val_f1", float("nan")),
+            "✓" if audio_result.get("model_onnx") else "✗",
+        )
+    else:
+        _step(32, _TOTAL_STEPS, "Drone audio training (skipped — pass --drone-audio to enable)")
 
     stats["pipeline_sec"] = sum(T.values())
     runtime_metrics = get_runtime_telemetry()

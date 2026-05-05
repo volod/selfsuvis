@@ -88,6 +88,14 @@ coop_pilot = [
     "jinja2>=3.1",
     "rich>=13.0",
 ]
+audio = [
+    # HuggingFace dataset download (drone-audio-detection-samples)
+    "datasets>=2.18",
+    # WAV read/write (fallback path for scipy.io.wavfile already covered by scipy)
+    "soundfile>=0.12",
+    # Audio playback for scripts/play_drone_sound.sh
+    "sounddevice>=0.4",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -101,6 +109,9 @@ selfsuvis-migrate = "selfsuvis.scripts.migrate_postgres:main"
 selfsuvis-models  = "selfsuvis.scripts.prepare_models:main"
 selfsuvis-export  = "selfsuvis.scripts.export_onnx:main"
 selfsuvis-gallery = "selfsuvis.scripts.build_gallery:main"
+selfsuvis-split-audio    = "selfsuvis.scripts.split_drone_audio_data:main"
+selfsuvis-play-drone     = "selfsuvis.scripts.play_drone_sound:main"
+selfsuvis-prepare-audio  = "selfsuvis.scripts.prepare_audio_data:main"
 selfsuvis-realtime-bridge = "selfsuvis.realtime_pilot.bridge_runtime:main"
 coop-analytics   = "selfsuvis.coop_pilot.analytics.cli:main"
 

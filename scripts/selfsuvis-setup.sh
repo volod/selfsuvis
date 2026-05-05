@@ -332,6 +332,8 @@ fi
 #   librosa           — audio feature extraction: MFCC, spectrograms (Step 19)
 #   torchaudio        — PyTorch audio transforms, wav2vec2, HuBERT (Step 19)
 #   sounddevice       — real-time audio capture from microphone (Step 19)
+#   soundfile         — WAV/FLAC read-write (used by audio dataset prep, Step 32)
+#   datasets          — HuggingFace datasets client (drone audio download, Step 32)
 #   scipy             — signal processing: FFTs, CFAR, peak detection (Steps 9, 14)
 #   rasterio          — multispectral GeoTIFF read/write (Step 11)
 #   pyproj            — geodetic ↔ UTM/ENU coordinate transforms (Steps 15, 20)
@@ -356,6 +358,8 @@ uv pip install --python .venv \
   librosa \
   torchaudio \
   sounddevice \
+  "soundfile>=0.12" \
+  "datasets>=2.18" \
   scipy \
   rasterio \
   pyproj \
@@ -782,6 +786,22 @@ fi
 log "Generating sensor sample data (Steps 9–19)..."
 bash scripts/selfsuvis-prepare-sensor-data.sh data/sensors
 log "Sensor data ready in data/sensors/"
+
+# ── 4d: Drone audio dataset (Step 32 — DroneAudioCNN training) ───────────────
+# Downloads geronimobasso/drone-audio-detection-samples from HuggingFace and
+# splits it into data/drone-audio-data/{train,val,test}/{drone,no_drone}/.
+# Step 32 in the local pipeline runner trains DroneAudioCNN from this cache.
+# Re-running is safe — already-split files are skipped.
+#
+# Requires: pip install datasets soundfile  (installed in Step 1a above)
+# Dataset:  https://huggingface.co/datasets/geronimobasso/drone-audio-detection-samples
+section "Step 4d — Drone audio dataset (Step 32 training cache)"
+
+log "Preparing drone audio dataset → data/drone-audio-data/ ..."
+"$PYTHON" -m selfsuvis.scripts.prepare_audio_data \
+  --data-dir data/drone-audio-data \
+  || warn "Drone audio dataset prep failed — Step 32 will download on first run instead."
+log "Drone audio dataset ready."
 
 # =============================================================================
 # STEP 5: DOCKER SERVICES (Qdrant + PostgreSQL)

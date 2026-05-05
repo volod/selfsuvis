@@ -23,7 +23,8 @@ Recommended reading order:
 11. [Temporal SSL and physical state](learning_path/14_temporal_ssl_physical_state.md)
 12. [Threat primitives and local inference](learning_path/15_threat_primitives_local_inference.md)
 13. [coop_pilot IoT edge monitoring](learning_path/16_coop_pilot_iot_edge_monitoring.md)
-14. [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)
+14. [Essential technology stack](learning_path/17_essential_technology_stack.md)
+15. [Future directions: cross-modal SSL, environmental fields, calibration, global threats](learning_path/18_future_directions.md)
 
 If you were sent here by an older script or document, use this page as the compatibility entry point.
 
@@ -53,7 +54,8 @@ After completing your first local run, use the analytics toolkit to inspect resu
 
 - [Analytics & Visualization guide](analytics.md) — charts, HTML report, Python API
 - [Local analytics math and methodology](learning_path/13_local_analytics_math_methodology.md) — derived metrics, equations, and interpretation rules
-- [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md) — what to study next once the current local stack is understood
+- [Future directions: cross-modal SSL, environmental fields, calibration, global threats](learning_path/18_future_directions.md) — not-yet-implemented advanced themes to study after the current local stack is understood
+- [Essential technology stack](learning_path/17_essential_technology_stack.md) — extended human-readable guide to the core technologies behind the current implementation
 
 ## coop_pilot IoT Edge Monitoring
 

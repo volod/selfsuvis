@@ -140,6 +140,16 @@ Recent pipeline additions that materially changed the system architecture:
 - **Resource-aware env generation**: `selfsuvis-env` generates a project-root `.env`
   from packaged presets and detected hardware, which is now the standard way to bootstrap
   local configuration.
+- **Startup preflight and local analytics**: the CLI checks required model caches,
+  Python packages, local sidecar model presence, and service reachability before a
+  run starts; completed runs emit `analysis_summary.json` so a human can inspect
+  modality coverage, degradation, tracking, mapping, training, and artifact health.
+- **Realtime bridge runtimes**: pose and occupancy adapters can replay or bridge
+  ROS/MAVLink-style traces into the realtime ingestion layer without making any
+  single SLAM or mapping engine mandatory.
+- **Security hardening**: production auth now fails closed when required secrets
+  are missing, CVAT webhooks use HMAC-SHA256 body signatures, and API rate-limit
+  buckets are bounded.
 
 ## Shared utility packages
 

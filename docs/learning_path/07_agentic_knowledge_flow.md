@@ -187,7 +187,7 @@ The most impactful contamination sources, ranked by severity:
 
 4. **Stale ASR** (Step 5): if the ASR window is too wide (±5 s instead of ±2 s), speech from one scene contaminates frames in an adjacent scene.
 
-The audit step (Step 35) is designed to surface these contamination paths.
+The audit step (conceptual Step 36, runtime step 30) is designed to surface these contamination paths.
 If you see a wrong synthesis output, start with the audit document.
 
 ---
@@ -277,7 +277,7 @@ score. Frames below 0.5 are flagged `low_moe_agreement=true` and logged as warni
 The `mean_moe_agreement` and `low_agreement_frame_count` fields are surfaced in the
 agentic trace, making disagreement explicit for the audit step.
 
-**Draft → critique → conditional regeneration (step 23 — `node_p4_synthesis`)**
+**Draft → critique → conditional regeneration (runtime step 29 — `node_p4_synthesis`)**
 
 1. `step_video_synthesis()` generates the ontology and narrative (unchanged logic).
 2. A critique prompt asks the LLM to compare the generation against a factual evidence
@@ -285,7 +285,7 @@ agentic trace, making disagreement explicit for the audit step.
 3. If the verdict is `MAJOR_CONTRADICTION`, synthesis is re-run with the critique note
    prepended to `video_context`. The regenerated file overwrites the original.
 
-**Reflection sub-loop (step 24 — `node_p4_audit`)**
+**Reflection sub-loop (runtime step 30 — `node_p4_audit`)**
 
 After `step_agentic_flow_artifact()` produces `agentic_flow.md`, a reflection prompt
 checks whether every step ID in `agentic_trace` appears in the audit text, and whether
@@ -298,11 +298,11 @@ of a ReAct loop — one self-check round, deterministic fallback on failure.
 | Helper | Used by |
 |--------|---------|
 | `json_guard(raw, required_keys)` | Step 10 — validates Gemma JSON before acting on it |
-| `llm_call_with_retry(endpoint, payload, *, max_attempts, backoff_base)` | Steps 23, 24 |
-| `critique_pass(endpoint, model, generation, evidence_summary)` | Step 23 |
+| `llm_call_with_retry(endpoint, payload, *, max_attempts, backoff_base)` | Runtime steps 29, 30 |
+| `critique_pass(endpoint, model, generation, evidence_summary)` | Runtime step 29 |
 | `moe_consensus_score(expert_outputs, field)` | Step 13 |
 | `low_agreement_frames(results, threshold)` | Step 13 |
-| `build_evidence_summary(state)` | Steps 23, 24 — builds CLIP-grounded evidence string |
+| `build_evidence_summary(state)` | Runtime steps 29, 30 — builds CLIP-grounded evidence string |
 
 ---
 
@@ -370,7 +370,7 @@ The `VideoKnowledge` class is an episodic memory store with a rolling state mech
 **Why it matters:** The five contamination risks in `VideoKnowledge` (wrong domain hint, stale Qwen state, garbled OCR, misaligned ASR, wrong depth) all share a common structure: a wrong input at step N poisons every downstream consumer without any error signal. This is the core reliability problem in any pipeline that chains LLM outputs.
 
 **Core paper**
-- Maynez et al., "On Faithfulness and Factuality in Abstractive Summarization" (ACL, 2020). Defines the distinction between intrinsic hallucination (contradicts source) and extrinsic hallucination (adds information not in source). The audit step (Step 35) detects both types. [arxiv.org/abs/2005.00661](https://arxiv.org/abs/2005.00661)
+- Maynez et al., "On Faithfulness and Factuality in Abstractive Summarization" (ACL, 2020). Defines the distinction between intrinsic hallucination (contradicts source) and extrinsic hallucination (adds information not in source). The audit step detects both types. [arxiv.org/abs/2005.00661](https://arxiv.org/abs/2005.00661)
 
 **Deep dive**
 - Min et al., "FActScoring: Fine-grained Atomic Evaluation of Factual Precision in Long-form Text Generation" (2023). Per-claim factuality scoring — the automated equivalent of what the agentic audit does manually. [arxiv.org/abs/2305.14251](https://arxiv.org/abs/2305.14251)

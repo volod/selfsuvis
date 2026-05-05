@@ -40,7 +40,7 @@ The learning path is broader than the runner implementation itself. That is inte
 
 Current reality:
 
-- the local runner executes **23 top-level steps**
+- the monolithic local runner reports **32 runtime/post-run steps**
 - the learning path sometimes uses a more granular conceptual breakdown
 - production indexing is a different execution path from local full-analysis
 
@@ -74,7 +74,7 @@ Read the system in five layers:
 5. Adaptation and audit: SSL, distillation, export, evaluation, final synthesis
 
 That model is still the easiest way to think about the pipeline even though the current
-runner is organized as 23 top-level execution steps.
+runner is organized as 32 runtime/post-run steps.
 
 ## How A Human Should Study It
 
@@ -124,11 +124,21 @@ If you are returning to the repo after an older version, these are the changes t
 - the project now uses `pyproject.toml` as the dependency source of truth
 - environment bootstrapping is centered on `selfsuvis-env`
 - tests are now mostly organized to mirror `src/selfsuvis/`
+- shared `pipeline.core` helpers now handle layered env loading, model/cache
+  preflight checks, sidecar HTTP clients, device resolution, and startup logging
+- the local CLI fails early when required cached models or dependencies are
+  missing, instead of failing deep inside a model step
+- production security is stricter: `API_KEY` is required when auth is enabled,
+  CVAT webhooks require `CVAT_WEBHOOK_SECRET`, and rate-limiting state is bounded
+- local-run analytics writes `analysis_summary.json` and emits coverage,
+  degradation, mapping, tracking, training, and artifact-quality diagnostics
 - the architecture now explicitly includes:
   - semantic environment graph generation
   - Gemma-directed tracking
   - UniDriveVLA expert analysis
   - resource-aware `.env` generation
+  - realtime bridge runtimes for pose and occupancy sidecars
+  - coop_pilot MQTT/RTSP site monitoring
 
 ## What To Inspect After A Real Run
 
@@ -184,6 +194,7 @@ That keeps you moving from orchestration to evidence flow to specialized interna
 - For Steps 21-27: [05_tracking_mapping_steps_21_27.md](05_tracking_mapping_steps_21_27.md)
 - For Steps 28-35: [06_adaptation_eval_steps_28_35.md](06_adaptation_eval_steps_28_35.md)
 - For context accumulation: [07_agentic_knowledge_flow.md](07_agentic_knowledge_flow.md)
+- For the core technologies behind the latest implementation: [17_essential_technology_stack.md](17_essential_technology_stack.md)
 
 ---
 

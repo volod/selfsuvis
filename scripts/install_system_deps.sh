@@ -14,6 +14,7 @@ for arg in "$@"; do
       echo "Installs system packages needed to run the project locally (no Docker):"
       echo "  - ffmpeg (video decoding)"
       echo "  - OpenCV runtime libs (libgl1, libglib2.0-0, libsm, libxext, libxrender)"
+      echo "  - PortAudio (libportaudio2) — required by sounddevice for audio playback/capture"
       echo ""
       echo "Options:"
       echo "  --with-python  Also install Python 3 and python3-venv / python3-pip."
@@ -165,7 +166,7 @@ _maybe_install_cuda_nvcc_debian() {
 install_debian() {
   echo "Installing packages with apt (Debian/Ubuntu)..."
   apt-get update
-  echo "  Installing ffmpeg, OpenCV runtime libraries, and build tools..."
+  echo "  Installing ffmpeg, OpenCV runtime libraries, PortAudio, and build tools..."
   apt-get install -y --no-install-recommends \
     ffmpeg \
     libgl1 \
@@ -173,6 +174,7 @@ install_debian() {
     libsm6 \
     libxext6 \
     libxrender1 \
+    libportaudio2 \
     ninja-build
   if [[ "$WITH_PYTHON" == true ]]; then
     echo "  Installing Python 3, venv, and pip..."
@@ -189,7 +191,7 @@ install_debian() {
 
 install_fedora() {
   echo "Installing packages with dnf (Fedora/RHEL)..."
-  echo "  Installing ffmpeg, OpenCV runtime libraries, and build tools..."
+  echo "  Installing ffmpeg, OpenCV runtime libraries, PortAudio, and build tools..."
   dnf install -y \
     ffmpeg \
     mesa-libGL \
@@ -197,6 +199,7 @@ install_fedora() {
     libSM \
     libXext \
     libXrender \
+    portaudio-devel \
     ninja-build
   if [[ "$WITH_PYTHON" == true ]]; then
     echo "  Installing Python 3 and pip..."
@@ -209,7 +212,7 @@ install_fedora() {
 
 install_arch() {
   echo "Installing packages with pacman (Arch)..."
-  echo "  Installing ffmpeg, OpenCV runtime libraries, and build tools..."
+  echo "  Installing ffmpeg, OpenCV runtime libraries, PortAudio, and build tools..."
   pacman -Sy --noconfirm --needed \
     ffmpeg \
     mesa \
@@ -217,6 +220,7 @@ install_arch() {
     libsm \
     libxext \
     libxrender \
+    portaudio \
     ninja
   if [[ "$WITH_PYTHON" == true ]]; then
     echo "  Installing Python and pip..."

@@ -430,9 +430,9 @@ offline analysis (all future observations have been used).
 
 - [Adaptation and eval steps 28-35](06_adaptation_eval_steps_28_35.md) — full SSL context
 - [Tracking and mapping steps 21-27](05_tracking_mapping_steps_21_27.md) — how RF-DETR produces the track IDs used here
-- [Future implementation directions](../future_implementation_directions.md) — broader remaining SSL roadmap and next-stage expansion priorities
+- [Future directions](18_future_directions.md) — broader remaining SSL roadmap and next-stage expansion priorities
 - [Probabilistic fusion deep dive](12_probabilistic_fusion_deep_dive.md) — full Kalman/RTS/Mahalanobis math with worked example
 
 ---
 
-[← Adaptation and eval](06_adaptation_eval_steps_28_35.md) | [Future directions →](../future_implementation_directions.md)
+[← Adaptation and eval](06_adaptation_eval_steps_28_35.md) | [Future directions →](18_future_directions.md)

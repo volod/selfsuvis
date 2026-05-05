@@ -292,5 +292,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-drone-detection", dest="drone_detection",
                         action="store_const", const=False,
                         help="[local] Skip drone detection training (step 30)")
+    parser.add_argument("--drone-audio", dest="drone_audio",
+                        action="store_const", const=True, default=None,
+                        help="[local] Train DroneAudioCNN on drone-audio-detection-samples "
+                             "and export ONNX (step 32). Dataset cached in data/drone-audio-data/. "
+                             "Prepare with: scripts/split_drone_audio_data.sh")
+    parser.add_argument("--no-drone-audio", dest="drone_audio",
+                        action="store_const", const=False,
+                        help="[local] Skip drone audio detection training (step 32)")
+    parser.add_argument("--drone-audio-epochs", type=int, default=None,
+                        help="[local] DroneAudioCNN training epochs (default: DRONE_AUDIO_EPOCHS env var, "
+                             "or 10)")
 
     return parser

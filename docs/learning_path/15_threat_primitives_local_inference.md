@@ -13,7 +13,7 @@ It covers:
 Related code: `pipeline/workflows/local/steps_threat_primitives.py`
 Related docs: [Physical scene layer](14_temporal_ssl_physical_state.md),
 [Tracking and mapping](05_tracking_mapping_steps_21_27.md),
-[Future implementation directions](../future_implementation_directions.md) §5 and §10.
+[Future directions](18_future_directions.md).
 
 ---
 
@@ -492,8 +492,8 @@ before a resolution advisory).
 - [Physical scene layer](14_temporal_ssl_physical_state.md) — how physical_state_summary is computed
 - [Tracking and mapping steps](05_tracking_mapping_steps_21_27.md) — RF-DETR track IDs and the tracker lifecycle
 - [Probabilistic fusion deep dive](12_probabilistic_fusion_deep_dive.md) — Kalman/RTS/Mahalanobis math
-- [Future implementation directions](../future_implementation_directions.md) — global threat inference, cross-mission persistence, and realtime mesh expansion
+- [Future directions](18_future_directions.md) — global threat inference, cross-mission persistence, and realtime mesh expansion
 
 ---
 
-[← Temporal SSL and physical state](14_temporal_ssl_physical_state.md) | [Future directions →](../future_implementation_directions.md)
+[← Temporal SSL and physical state](14_temporal_ssl_physical_state.md) | [Future directions →](18_future_directions.md)

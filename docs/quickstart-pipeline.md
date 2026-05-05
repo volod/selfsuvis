@@ -4,7 +4,7 @@ Run the full local learning pipeline (`selfsuvis --mode local`) directly on your
 machine. It processes videos, runs every enabled perception and captioning stage,
 fine-tunes a DINOv3 model on the mission frames, and exports it to ONNX.
 
-The local runner has 32 reported runtime/post-run steps and maps to the 36-step
+The local runner has 33 reported runtime/post-run steps and maps to the 36-step
 conceptual learning path. The optional `coop_pilot` extension adds Steps 37-43
 for live IoT site monitoring after the video pipeline run.
 
@@ -109,7 +109,7 @@ Run this once before the first pipeline run. All weights are cached locally; sub
 .venv/bin/python -m selfsuvis.scripts.prepare_models --reasoning --reasoning-model deepseek-r1:14b
 ```
 
-Default tag is `qwen3:14b` (~8 GB). `deepseek-r1:14b` (~9 GB) is a strong alternative. The pipeline auto-selects a reasoning model when this flag is omitted, but pulling it in advance avoids a cold-start delay at step 24.
+Default tag is `qwen3:14b` (~8 GB). `deepseek-r1:14b` (~9 GB) is a strong alternative. The pipeline auto-selects a reasoning model when this flag is omitted, but pulling it in advance avoids a cold-start delay at step 30.
 
 **SceneTok** (optional — Step 14, streaming scene encoder + segmentation decoder; requires **~24 GB VRAM**, RTX 4090 minimum):
 
@@ -177,6 +177,71 @@ export STARTUP_PREFLIGHT_STRICT=true
 
 ---
 
+### Step 3b — Prepare drone audio dataset (Step 32)
+
+Step 32 of the local pipeline trains a small `DroneAudioCNN` on `geronimobasso/drone-audio-detection-samples`.
+The dataset is cached in `data/drone-audio-data/`; download and split it once before the first run.
+`selfsuvis-setup.sh` does this automatically (Step 4d). For manual setup:
+
+```bash
+# Download and split into train/val/test (≈200 MB, no login required):
+.venv/bin/python -m selfsuvis.scripts.prepare_audio_data
+
+# Custom cache directory:
+.venv/bin/python -m selfsuvis.scripts.prepare_audio_data \
+  --data-dir /mnt/data/drone-audio-data
+
+# Verify an existing split (no network, no writes):
+.venv/bin/python -m selfsuvis.scripts.prepare_audio_data --verify
+
+# Limit to 100 samples per class for a quick smoke-test:
+.venv/bin/python -m selfsuvis.scripts.prepare_audio_data --max-per-class 100
+```
+
+Or via the installed entry point:
+
+```bash
+selfsuvis-prepare-audio --verify
+selfsuvis-prepare-audio --data-dir data/drone-audio-data
+```
+
+Step 32 runs automatically on each local pipeline run. To skip it:
+
+```bash
+.venv/bin/selfsuvis --mode local --videos-dir data/videos --no-drone-audio
+```
+
+To control training epochs:
+
+```bash
+# Override epochs (default: DRONE_AUDIO_EPOCHS env var, or 10):
+.venv/bin/selfsuvis --mode local --videos-dir data/videos --drone-audio-epochs 20
+```
+
+**Simulate drone sound** (useful for testing the trained ONNX model):
+
+```bash
+# Drone flyover from 200 m at 10 m/s — classic counter-UAS test case:
+./scripts/play_drone_sound.sh --scenario flyover --distance 200 --speed 10
+
+# Hovering drone at 30 m altitude:
+./scripts/play_drone_sound.sh --scenario hover --distance 30 --duration 15
+
+# Override speaker/output calibration when auto-detected volume is not enough:
+./scripts/play_drone_sound.sh --scenario flyover --distance 80 \
+  --speaker-ref-db 78 --system-volume 0.6
+
+# Ask for microphone/speaker placement guidance:
+./scripts/play_drone_sound.sh --placement-help \
+  --mic-type headset --player-type laptop --probe-distance-m 0.3
+
+# Save to WAV instead of playing:
+./scripts/play_drone_sound.sh --scenario approach --distance 500 --speed 20 \
+  --output data/reports/sim_approach_500m.wav
+```
+
+---
+
 ### Step 4 — Start sidecars
 
 The Ollama sidecars serve Gemma (scene analysis) and the reasoning model. They must be running before `selfsuvis --mode local` starts.
@@ -184,7 +249,7 @@ The Ollama sidecars serve Gemma (scene analysis) and the reasoning model. They m
 ```bash
 ollama serve                              # keep running in a terminal
 ollama pull <GEMMA_API_MODEL>             # value from .env, e.g. gemma4:e4b
-ollama pull qwen3:14b                     # Step 24 reasoning model (or deepseek-r1:14b)
+ollama pull qwen3:14b                     # Step 30 reasoning model (or deepseek-r1:14b)
 ```
 
 If using vLLM instead (set during `make env-interactive`):
@@ -221,7 +286,7 @@ If `SCENETOK_API_URL` is absent or unreachable, the pipeline falls back to loadi
 
 The pipeline needs at least one video in `data/videos/` and, for sensor fusion, matching sidecar files.
 
-> **Note on step labels in this section:** the "Step N" labels in the sensor tables below are *sensor-type identifiers* used by `prepare_sensor_data.sh` to name its output directories (`step09_rf/`, `step10_thermal/`, …). They are a data-organisation convention and are separate from the pipeline runner's execution steps (1–24).
+> **Note on step labels in this section:** the "Step N" labels in the sensor tables below are *sensor-type identifiers* used by `prepare_sensor_data.sh` to name its output directories (`step09_rf/`, `step10_thermal/`, …). They are a data-organisation convention and are separate from the pipeline runner's execution steps (1–32).
 
 #### Option A — Use your own footage
 
@@ -745,6 +810,9 @@ SCENETOK_CHECKPOINT=va-videodc_re10k.ckpt \
 | `--no-rfdetr` | off | Skip RF-DETR tracking |
 | `--no-distill` | off | Skip knowledge distillation; export teacher to ONNX |
 | `--no-onnx` | off | Skip ONNX export |
+| `--drone-audio` | on | Enable Step 32 — DroneAudioCNN training and ONNX export |
+| `--no-drone-audio` | — | Skip Step 32 drone audio training |
+| `--drone-audio-epochs` | `10` | Training epochs for DroneAudioCNN |
 | `--rfdetr-model` | `base` | RF-DETR tier: `base` or `large` |
 | `--gemma-api-url` | from `.env` | Gemma sidecar endpoint |
 | `--qwen-api-url` | from `.env` | Qwen sidecar endpoint |

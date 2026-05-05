@@ -959,4 +959,4 @@ Without this layer, the system may describe the world well but still fail to ans
 - what should the platform or operator do differently?
 
 For the dedicated roadmap, see
-[future_implementation_directions.md](../future_implementation_directions.md).
+[18_future_directions.md](18_future_directions.md).

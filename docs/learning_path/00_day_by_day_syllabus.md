@@ -562,6 +562,11 @@ Structure it as: input → evidence extraction → sensor expansion → structur
 Then: compare your write-up to [`local_path.md`](../local_path.md) and [`01_runtime_and_study_guide.md`](01_runtime_and_study_guide.md).
 Note the gaps — these are the areas where you should go back and re-read.
 
+**Technology-stack checkpoint:**
+Read [`17_essential_technology_stack.md`](17_essential_technology_stack.md).
+For each technology family in that guide, write down one code file and one artifact
+or API endpoint that proves the technology is actually used in this repo.
+
 ---
 
 ## Week 4: Application And Depth (Optional)
@@ -684,7 +689,8 @@ realtime sensor-mesh threat analysis.
 
 **Topics:**
 - Re-read Step 23 (RSSM surprise) and Step 28 (SSL DINO fine-tuning) as one temporal-learning story.
-- Read [future_implementation_directions.md](../future_implementation_directions.md), Sections 2 and 10.
+- Read [18_future_directions.md](18_future_directions.md) and
+  [17_essential_technology_stack.md](17_essential_technology_stack.md) sections 7-9.
 - Focus on track-aware, clip-aware, and cross-view self-supervision.
 
 **Exercise:**
@@ -789,7 +795,9 @@ Why is a global threat map mostly an aggregation and evidence-management problem
 
 **Topics:**
 - Draft a concrete extension of `selfsuvis` from current fusion outputs toward global threat inference and sensor-mesh operation.
-- Use the proposed layers in [future_implementation_directions.md](../future_implementation_directions.md).
+- Use the not-yet-implemented themes in [18_future_directions.md](18_future_directions.md)
+  and the realtime/coop technology notes in
+  [17_essential_technology_stack.md](17_essential_technology_stack.md).
 
 **Exercise:**
 Write a one-page architecture proposal with these layers:

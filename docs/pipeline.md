@@ -360,7 +360,7 @@ and `GEMMA_API_URL` are set.
 This page describes the current runtime.
 The forward-looking roadmap now lives in the learning-path deep dive:
 
-- [Advanced directions: global threats, sensor meshes, and cross-modal world models](future_implementation_directions.md)
+- [Future directions: cross-modal SSL, environmental fields, calibration, global threats](learning_path/18_future_directions.md)
 
 Use that document for:
 
