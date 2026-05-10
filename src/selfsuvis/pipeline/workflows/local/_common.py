@@ -11,7 +11,7 @@ from typing import Any
 
 from PIL import Image
 
-# ── Logging helpers ────────────────────────────────────────────────────────────
+# -- Logging helpers ------------------------------------------------------------
 
 _LOG_FMT = "%(asctime)s  %(levelname)-7s  %(message)s"
 _DATE_FMT = "%H:%M:%S"
@@ -120,7 +120,7 @@ def _banner(msg: str) -> None:
 
 
 def _step(n: int, total: int, name: str) -> None:
-    _log.info("─── Step %d/%d: %s", n, total, name)
+    _log.info("--- Step %d/%d: %s", n, total, name)
 
 
 def write_json_artifact(path: Path, payload: Any, *, ensure_ascii: bool = True) -> None:
@@ -222,7 +222,7 @@ def _run_batched_frame_inference(
     return results
 
 
-# ── Text prompts for CLIP video-to-text description ───────────────────────────
+# -- Text prompts for CLIP video-to-text description ---------------------------
 
 _TEXT_PROMPTS: list[str] = [
     "aerial footage of a road or highway",
@@ -271,7 +271,7 @@ _TEXT_PROMPTS: list[str] = [
     "radar detector or traffic speed radar on a road",
 ]
 
-# ── Gemma analysis constants ──────────────────────────────────────────────────
+# -- Gemma analysis constants --------------------------------------------------
 
 _GEMMA_ANALYSIS_SAMPLE_N = 30  # max frames sampled per video for Gemma analysis
 _SCENE_CHANGE_THRESH = 0.25  # cosine distance threshold for scene change detection
@@ -290,11 +290,11 @@ _GEMMA_TEXT_PROBES: list[str] = [
     "coastal or water feature",
 ]
 
-# ── Runner label ──────────────────────────────────────────────────────────────
+# -- Runner label --------------------------------------------------------------
 
 _RUNNER_LABEL = "local full-analysis pipeline (`main.py --mode local`)"
 
-# ── VideoKnowledge — agentic knowledge accumulator ────────────────────────────
+# -- VideoKnowledge — agentic knowledge accumulator ----------------------------
 
 
 def _analyze_caption_sequence(
@@ -408,7 +408,7 @@ class VideoKnowledge:
         # Physical state summary (step_physical_state)
         self._physical_state: dict[str, Any] | None = None
 
-    # ── Deposit methods ───────────────────────────────────────────────────────
+    # -- Deposit methods -------------------------------------------------------
 
     def add_gemma(self, task_results: dict[str, Any], mnn_dino: float = 0.0) -> None:
         """Deposit Gemma analysis results (step 03)."""
@@ -495,7 +495,7 @@ class VideoKnowledge:
         if not result.get("service_unavailable") and not result.get("parse_error"):
             self._last_qwen = result
 
-    # ── Query methods ─────────────────────────────────────────────────────────
+    # -- Query methods ---------------------------------------------------------
 
     def physical_state_hint(self) -> str:
         """One-line physical state summary for prompt injection."""
@@ -597,7 +597,7 @@ class VideoKnowledge:
 
         return "\n".join(lines)
 
-    # ── Private helpers ───────────────────────────────────────────────────────
+    # -- Private helpers -------------------------------------------------------
 
     @staticmethod
     def _nearest(ts_index: list[float], data: dict, t: float, max_gap: float = 5.0):

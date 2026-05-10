@@ -363,7 +363,7 @@ def step_field_state(
     payload["elapsed_sec"] = round(time.time() - t0, 3)
     _write_json(video_dir, payload)
     _log.info(
-        "  ✓ Field state: fields=%s observations=%d",
+        "  [ok] Field state: fields=%s observations=%d",
         field_types or ["none"],
         len(all_observations),
     )

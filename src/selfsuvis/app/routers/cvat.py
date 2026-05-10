@@ -37,7 +37,7 @@ from selfsuvis.pipeline.core import get_logger, settings
 logger = get_logger(__name__)
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
+# -- helpers -------------------------------------------------------------------
 
 
 def _verify_cvat_signature(body: bytes, signature: str) -> bool:
@@ -247,7 +247,7 @@ async def _maybe_trigger_finetune(pool: asyncpg.Pool) -> None:
         logger.warning("_maybe_trigger_finetune failed (non-fatal): %s", exc)
 
 
-# ── Webhook router (no API key — CVAT uses HMAC secret) ──────────────────────
+# -- Webhook router (no API key — CVAT uses HMAC secret) ----------------------
 
 webhook_router = APIRouter(prefix="/webhook", tags=["webhook"])
 
@@ -315,7 +315,7 @@ async def cvat_webhook(
     return {"status": "ok", "event": event, "annotated": 0}
 
 
-# ── Admin CVAT router (API key required) ─────────────────────────────────────
+# -- Admin CVAT router (API key required) -------------------------------------
 
 cvat_admin_router = APIRouter(
     prefix="/admin/cvat",

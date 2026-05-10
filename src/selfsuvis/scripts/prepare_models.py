@@ -207,7 +207,7 @@ _SCENETOK_CHECKPOINT_URLS: dict = {
 }
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
+# -- helpers -------------------------------------------------------------------
 
 
 def _has_ollama_installed() -> bool:
@@ -303,7 +303,7 @@ def _download_ollama_model(model: str) -> None:
         raise RuntimeError("Cannot pull Ollama model because 'ollama' is not installed.")
     log.info("Ollama — model=%s", model)
     if _is_ollama_model_cached(model):
-        log.info("  ✓ Ollama model already present — skipping pull")
+        log.info("  [ok] Ollama model already present — skipping pull")
         return
     t0 = time.monotonic()
     result = subprocess.run(["ollama", "pull", model], check=False)
@@ -311,10 +311,10 @@ def _download_ollama_model(model: str) -> None:
         raise RuntimeError(
             f"ollama pull {model!r} failed. Ensure the Ollama daemon is running and the model tag exists."
         )
-    log.info("  ✓ Ollama model ready  (%.1fs)", time.monotonic() - t0)
+    log.info("  [ok] Ollama model ready  (%.1fs)", time.monotonic() - t0)
 
 
-# ── Auth error detection & interactive retry ──────────────────────────────────
+# -- Auth error detection & interactive retry ----------------------------------
 
 
 def _is_auth_error(exc: Exception):
@@ -370,7 +370,7 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
                 raise
 
             hf_url = f"https://huggingface.co/{model_id}"
-            bar = "─" * 70
+            bar = "-" * 70
             print(f"\n{bar}", flush=True)
             print(f"  ACCESS REQUIRED — {label}", flush=True)
             print(f"{bar}", flush=True)
@@ -453,7 +453,7 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
             log.info("Retrying download: %s …", label)
 
 
-# ── flash-attn installation ───────────────────────────────────────────────────
+# -- flash-attn installation ---------------------------------------------------
 
 
 def _install_flash_attn() -> None:
@@ -468,7 +468,7 @@ def _install_flash_attn() -> None:
     try:
         import flash_attn
 
-        log.info("  ✓ flash-attn already installed  (version %s)", flash_attn.__version__)
+        log.info("  [ok] flash-attn already installed  (version %s)", flash_attn.__version__)
         return
     except ImportError:
         pass
@@ -510,19 +510,19 @@ def _install_flash_attn() -> None:
             "  Download the matching .whl and install manually:\n"
             "    pip install <wheel_file.whl>"
         )
-    log.info("  ✓ flash-attn installed  (%.1fs)", time.monotonic() - t0)
+    log.info("  [ok] flash-attn installed  (%.1fs)", time.monotonic() - t0)
 
 
 def _download_openclip(model: str, pretrained: str, device: str) -> None:
     log.info("OpenCLIP — model=%s  pretrained=%s  device=%s", model, pretrained, device)
     if _is_openclip_cached(model, pretrained):
-        log.info("  ✓ OpenCLIP already cached — skipping load")
+        log.info("  [ok] OpenCLIP already cached — skipping load")
         return
     import open_clip
 
     t0 = time.monotonic()
     open_clip.create_model_and_transforms(model, pretrained=pretrained, device=device)
-    log.info("  ✓ OpenCLIP ready  (%.1fs)", time.monotonic() - t0)
+    log.info("  [ok] OpenCLIP ready  (%.1fs)", time.monotonic() - t0)
 
 
 # Tracks resolved model names already warmed up in this session so we don't
@@ -539,14 +539,14 @@ def _label(model_name: str, resolved: str) -> str:
 def _download_whisper(model_id: str) -> None:
     log.info("Whisper ASR — model=%s", model_id)
     if _is_hf_cached(model_id):
-        log.info("  ✓ Whisper already cached — skipping load")
+        log.info("  [ok] Whisper already cached — skipping load")
         return
     t0 = time.monotonic()
     try:
         from transformers import pipeline as _hf_pipeline
 
         _hf_pipeline("automatic-speech-recognition", model=model_id, device="cpu")
-        log.info("  ✓ Whisper ready  (%.1fs)", time.monotonic() - t0)
+        log.info("  [ok] Whisper ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
         log.warning("  Whisper download failed: %s", exc)
         raise
@@ -555,7 +555,7 @@ def _download_whisper(model_id: str) -> None:
 def _download_florence(model_id: str = "microsoft/Florence-2-large") -> None:
     log.info("Florence-2 — model=%s", model_id)
     if _is_hf_cached(model_id):
-        log.info("  ✓ Florence-2 already cached — skipping load")
+        log.info("  [ok] Florence-2 already cached — skipping load")
         return
     t0 = time.monotonic()
     try:
@@ -570,7 +570,7 @@ def _download_florence(model_id: str = "microsoft/Florence-2-large") -> None:
             trust_remote_code=True,
             torch_dtype="auto",
         )
-        log.info("  ✓ Florence-2 ready  (%.1fs)", time.monotonic() - t0)
+        log.info("  [ok] Florence-2 ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
         log.warning("  Florence-2 download failed: %s", exc)
         raise
@@ -588,7 +588,7 @@ def _download_ocr(model_id: str) -> None:
     """
     log.info("OCR model — model=%s", model_id)
     if _is_hf_cached(model_id):
-        log.info("  ✓ OCR model already cached — skipping load")
+        log.info("  [ok] OCR model already cached — skipping load")
         return
     t0 = time.monotonic()
     try:
@@ -620,7 +620,7 @@ def _download_ocr(model_id: str) -> None:
                 torch_dtype="auto",
                 low_cpu_mem_usage=True,
             )
-        log.info("  ✓ OCR model ready  (%.1fs)", time.monotonic() - t0)
+        log.info("  [ok] OCR model ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
         log.warning("  OCR model download failed: %s", exc)
         raise
@@ -630,14 +630,14 @@ def _download_depth(model_id: str) -> None:
     """Download depth-estimation model weights via HF transformers pipeline."""
     log.info("Depth model — model=%s", model_id)
     if _is_hf_cached(model_id):
-        log.info("  ✓ Depth model already cached — skipping load")
+        log.info("  [ok] Depth model already cached — skipping load")
         return
     t0 = time.monotonic()
     try:
         from transformers import pipeline as _hf_pipeline
 
         _hf_pipeline("depth-estimation", model=model_id, device="cpu")
-        log.info("  ✓ Depth model ready  (%.1fs)", time.monotonic() - t0)
+        log.info("  [ok] Depth model ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
         log.warning("  Depth model download failed: %s", exc)
         raise
@@ -647,7 +647,7 @@ def _download_detection(model_id: str) -> None:
     """Download object-detection model weights via HF transformers pipeline."""
     log.info("Detection model — model=%s", model_id)
     if _is_hf_cached(model_id):
-        log.info("  ✓ Detection model already cached — skipping load")
+        log.info("  [ok] Detection model already cached — skipping load")
         return
     t0 = time.monotonic()
     try:
@@ -655,7 +655,7 @@ def _download_detection(model_id: str) -> None:
 
         with _quiet_hf():
             _hf_pipeline("object-detection", model=model_id, device="cpu")
-        log.info("  ✓ Detection model ready  (%.1fs)", time.monotonic() - t0)
+        log.info("  [ok] Detection model ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
         log.warning("  Detection model download failed: %s", exc)
         raise
@@ -674,7 +674,7 @@ def _download_yolo(model_id: str) -> None:
     ult_cache_dir = Path.home() / ".cache" / "ultralytics"
     ult_cache = ult_cache_dir / model_file
     if ult_cache.exists():
-        log.info("  ✓ YOLO11 already cached at %s — skipping download", ult_cache)
+        log.info("  [ok] YOLO11 already cached at %s — skipping download", ult_cache)
         return
 
     try:
@@ -700,7 +700,7 @@ def _download_yolo(model_id: str) -> None:
             model = YOLO(str(ult_cache))
             dummy = np.zeros((64, 64, 3), dtype=np.uint8)
             model(dummy, verbose=False)
-        log.info("  ✓ YOLO11 ready  (%.1fs)  file=%s", time.monotonic() - t0, ult_cache)
+        log.info("  [ok] YOLO11 ready  (%.1fs)  file=%s", time.monotonic() - t0, ult_cache)
     except Exception as exc:
         log.warning("  YOLO11 download/verification failed: %s", exc)
         raise
@@ -818,7 +818,7 @@ def _download_scenetok(checkpoint_name: str) -> None:
             )
         if _importable_module("scenetok"):
             log.info(
-                "  ✓ scenetok package installed  (%.1fs)  src=%s", time.monotonic() - t0, src_dir
+                "  [ok] scenetok package installed  (%.1fs)  src=%s", time.monotonic() - t0, src_dir
             )
         else:
             log.warning(
@@ -826,13 +826,13 @@ def _download_scenetok(checkpoint_name: str) -> None:
                 "Local in-process SceneTok is not ready; use the sidecar mode only after exposing a real importable package."
             )
     else:
-        log.info("  ✓ scenetok package already installed")
+        log.info("  [ok] scenetok package already installed")
 
     # 2. Download HuggingFace model dependencies (vavae + Open-Sora DC-AE).
     for hf_dep in _SCENETOK_HF_DEPS:
         log.info("  HF dep — %s", hf_dep)
         if _is_hf_cached(hf_dep):
-            log.info("  ✓ already cached — %s", hf_dep)
+            log.info("  [ok] already cached — %s", hf_dep)
             continue
         t0 = time.monotonic()
         from huggingface_hub import snapshot_download
@@ -841,12 +841,12 @@ def _download_scenetok(checkpoint_name: str) -> None:
             repo_id=hf_dep,
             ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
         )
-        log.info("  ✓ %s  (%.1fs)  cache=%s", hf_dep, time.monotonic() - t0, local_dir)
+        log.info("  [ok] %s  (%.1fs)  cache=%s", hf_dep, time.monotonic() - t0, local_dir)
 
     # 3. Download the checkpoint file from MPI Nextcloud.
     # Checkpoints are NOT on HuggingFace — they are public Nextcloud shares.
     if ckpt_path.exists():
-        log.info("  ✓ checkpoint already cached — %s", ckpt_path)
+        log.info("  [ok] checkpoint already cached — %s", ckpt_path)
         return
 
     # Strip .ckpt extension to look up the URL map.
@@ -876,7 +876,7 @@ def _download_scenetok(checkpoint_name: str) -> None:
         tmp_path.rename(ckpt_path)
         size_mb = ckpt_path.stat().st_size / 1_048_576
         log.info(
-            "  ✓ checkpoint ready  (%.1fs  %.0f MiB)  path=%s",
+            "  [ok] checkpoint ready  (%.1fs  %.0f MiB)  path=%s",
             time.monotonic() - t0,
             size_mb,
             ckpt_path,
@@ -930,7 +930,7 @@ def _sam3_dialog() -> str:
         return "sam2"
 
     print()
-    print("  ┌─ SAM3 — gated model ───────────────────────────────────────────┐")
+    print("  ┌- SAM3 — gated model -------------------------------------------┐")
     print("  │  facebook/sam3 requires HuggingFace access approval.           │")
     print("  │                                                                 │")
     print("  │  To unlock SAM3:                                                │")
@@ -940,7 +940,7 @@ def _sam3_dialog() -> str:
     print("  │    4. Choose [r] Retry below                                    │")
     print("  │                                                                 │")
     print("  │  SAM2 (facebook/sam2-hiera-large) is a fully open fallback.    │")
-    print("  └─────────────────────────────────────────────────────────────────┘")
+    print("  └-----------------------------------------------------------------┘")
     print()
     print("  [s]  Use SAM2 fallback  (default)")
     print("  [r]  Retry              (after granting access in another tab)")
@@ -993,7 +993,7 @@ def _download_sam(model_id: str) -> None:
 
     log.info("SAM — model=%s", model_id)
     if _is_hf_cached(model_id):
-        log.info("  ✓ SAM already cached — skipping load")
+        log.info("  [ok] SAM already cached — skipping load")
         return
 
     t0 = time.monotonic()
@@ -1004,12 +1004,12 @@ def _download_sam(model_id: str) -> None:
             repo_id=model_id,
             ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
         )
-        log.info("  ✓ SAM ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
+        log.info("  [ok] SAM ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
     except Exception as exc:
         if is_sam3:
             log.info("  SAM3 download failed — falling back to %s", SAM2_FALLBACK)
             if _is_hf_cached(SAM2_FALLBACK):
-                log.info("  ✓ SAM2 fallback already cached — skipping download")
+                log.info("  [ok] SAM2 fallback already cached — skipping download")
                 return
             try:
                 from huggingface_hub import snapshot_download as _sd
@@ -1019,7 +1019,7 @@ def _download_sam(model_id: str) -> None:
                     ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
                 )
                 log.info(
-                    "  ✓ SAM2 fallback ready  (%.1fs)  cache=%s",
+                    "  [ok] SAM2 fallback ready  (%.1fs)  cache=%s",
                     time.monotonic() - t0,
                     local_dir,
                 )
@@ -1039,7 +1039,7 @@ def _download_world_model(model_id: str) -> None:
     """
     log.info("World model — model=%s", model_id)
     if _is_hf_cached(model_id):
-        log.info("  ✓ World model already cached — skipping load")
+        log.info("  [ok] World model already cached — skipping load")
         return
     t0 = time.monotonic()
     try:
@@ -1055,7 +1055,9 @@ def _download_world_model(model_id: str) -> None:
                     repo_id=model_id,
                     ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
                 )
-                log.info("  ✓ World model cached at %s  (%.1fs)", local_dir, time.monotonic() - t0)
+                log.info(
+                    "  [ok] World model cached at %s  (%.1fs)", local_dir, time.monotonic() - t0
+                )
                 return
             raise
         AutoModel.from_pretrained(model_id, torch_dtype="auto")
@@ -1064,7 +1066,7 @@ def _download_world_model(model_id: str) -> None:
             local_files_only=True,
             ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
         )
-        log.info("  ✓ World model ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
+        log.info("  [ok] World model ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
     except Exception as exc:
         log.warning("  World model download failed: %s", exc)
         raise
@@ -1074,7 +1076,7 @@ def _download_unidrive(model_id: str) -> None:
     """Download UniDriveVLA model assets for local bridges / sidecars."""
     log.info("UniDriveVLA — model=%s", model_id)
     if _is_hf_cached(model_id):
-        log.info("  ✓ UniDriveVLA already cached — skipping load")
+        log.info("  [ok] UniDriveVLA already cached — skipping load")
         return
     t0 = time.monotonic()
     try:
@@ -1100,7 +1102,7 @@ def _download_unidrive(model_id: str) -> None:
                 model_id,
                 exc,
             )
-        log.info("  ✓ UniDriveVLA ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
+        log.info("  [ok] UniDriveVLA ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
     except Exception as exc:
         log.warning("  UniDriveVLA download failed: %s", exc)
         raise
@@ -1130,14 +1132,14 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
         model.to(device)
         _run_dummy(model, device)
         _warmed.add(model_name)
-        log.info("  ✓ DINO cached from HF  %s  (%.1fs)", label, time.monotonic() - t0)
+        log.info("  [ok] DINO cached from HF  %s  (%.1fs)", label, time.monotonic() - t0)
         return
 
     hub_source, repo_or_dir, resolved = _resolve_dino_hub(model_name)
     log.info("DINO — %s  source=%s", label, hub_source)
 
     if model_name in _warmed:
-        log.info("  ✓ DINO already warmed in this session  %s", label)
+        log.info("  [ok] DINO already warmed in this session  %s", label)
         return
 
     if hub_source == "local":
@@ -1150,7 +1152,7 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
         )
         if any(hub_checkpoints.glob(f"{resolved}*pretrain*.pth")):
             _warmed.add(model_name)
-            log.info("  ✓ DINO weights cached  %s  — skipping load", label)
+            log.info("  [ok] DINO weights cached  %s  — skipping load", label)
             return
     else:
         log.info("  Downloading hub archive from %s …", DINO_HUB_REPO)
@@ -1178,7 +1180,7 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
 
             _req.urlretrieve(url, dst, reporthook=_hook)
             bar.close()
-            log.info("  ✓ saved %s", dst)
+            log.info("  [ok] saved %s", dst)
         except Exception:
             _orig(url, dst, *a, **kw)
 
@@ -1193,7 +1195,7 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
         _run_dummy(model, device)
         _warmed.add(model_name)
         elapsed = time.monotonic() - t0
-        log.info("  ✓ DINO cached  %s  device=%s  (%.1fs)", label, device, elapsed)
+        log.info("  [ok] DINO cached  %s  device=%s  (%.1fs)", label, device, elapsed)
     finally:
         _hub.download_url_to_file = _orig
 
@@ -1232,7 +1234,7 @@ def _run_dummy(model, device: str) -> None:
         model(dummy)
 
 
-# ── Gemma open-weight model download ─────────────────────────────────────────
+# -- Gemma open-weight model download -----------------------------------------
 
 
 def _download_gemma(model_id: str) -> None:
@@ -1274,7 +1276,7 @@ def _download_gemma(model_id: str) -> None:
             trust_remote_code=True,
             token=token,
         )
-        log.info("  ✓ Gemma %s cached", model_id)
+        log.info("  [ok] Gemma %s cached", model_id)
 
     _with_auth_retry(f"Gemma ({model_id})", model_id, _do_download)
 
@@ -1284,7 +1286,7 @@ def _is_gemma_cached(model_id: str) -> bool:
     return _is_hf_cached(model_id)
 
 
-# ── verify ────────────────────────────────────────────────────────────────────
+# -- verify --------------------------------------------------------------------
 
 
 def _is_hf_cached(model_id: str) -> bool:
@@ -1383,7 +1385,7 @@ def _verify_models(model_specs: list) -> tuple:
     return ok, missing
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# -- CLI -----------------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1692,7 +1694,7 @@ def main() -> None:
 
     from selfsuvis.pipeline.core.config import settings
 
-    # ── Resolve all HF model IDs up front ────────────────────────────────────
+    # -- Resolve all HF model IDs up front ------------------------------------
     errors: list = []
     whisper_id = args.whisper_model
     florence_id = args.florence_model
@@ -1711,7 +1713,7 @@ def main() -> None:
             log.warning("UniDrive skipped: %s", exc)
             do_unidrive = False
 
-    # ── Verify mode ───────────────────────────────────────────────────────────
+    # -- Verify mode -----------------------------------------------------------
     if args.verify:
         log.info("Verifying model cache (no downloads) …")
         specs = []
@@ -1776,7 +1778,7 @@ def main() -> None:
 
         ok, missing = _verify_models(specs)
         for label in ok:
-            log.info("  ✓ CACHED    %s", label)
+            log.info("  [ok] CACHED    %s", label)
         for label in missing:
             log.warning("  ✗ MISSING   %s", label)
 
@@ -1788,7 +1790,7 @@ def main() -> None:
         log.info("All %d model(s) verified in cache.", len(ok))
         return
 
-    # ── Download mode ─────────────────────────────────────────────────────────
+    # -- Download mode ---------------------------------------------------------
     if do_flash_attn:
         try:
             _install_flash_attn()

@@ -32,7 +32,7 @@ def _merge_stats(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
 
 
 class PipelineState(TypedDict, total=False):
-    # ── Runtime config (injected once at graph entry, never mutated) ─────────
+    # -- Runtime config (injected once at graph entry, never mutated) ---------
     args: Any  # parsed CLI args namespace
     video_path: str  # absolute path
     video_name: str
@@ -44,13 +44,13 @@ class PipelineState(TypedDict, total=False):
     store: Any  # Qdrant client or InMemoryStore
     is_qdrant: bool
 
-    # ── Phase 1 outputs ───────────────────────────────────────────────────────
+    # -- Phase 1 outputs -------------------------------------------------------
     frame_list: list[tuple[str, float]]  # [(frame_path, t_sec), …]
     frames_meta: dict[str, Any]
     knowledge: Any  # VideoKnowledge instance
     clip_dino_on_gpu: bool
 
-    # ── Phase 2 outputs — one key per step ───────────────────────────────────
+    # -- Phase 2 outputs — one key per step -----------------------------------
     gemma_result: dict[str, Any]
     caption_results: list[dict[str, Any]]
     asr_result: dict[str, Any]
@@ -76,7 +76,7 @@ class PipelineState(TypedDict, total=False):
     local_threat_result: dict[str, Any]
     policy_result: dict[str, Any]
 
-    # ── Phase 3 SSL outputs ───────────────────────────────────────────────────
+    # -- Phase 3 SSL outputs ---------------------------------------------------
     ssl_result: dict[str, Any]
     ssl_gate_passed: bool
     checkpoint_path: str
@@ -87,16 +87,16 @@ class PipelineState(TypedDict, total=False):
     ft_results: list[dict[str, Any]]
     compare_result: dict[str, Any]
 
-    # ── Phase 4 outputs ───────────────────────────────────────────────────────
+    # -- Phase 4 outputs -------------------------------------------------------
     multi_model_result: dict[str, Any]
     synthesis_result: dict[str, Any]
     audit_result: dict[str, Any]
 
-    # ── Cross-cutting accumulation ────────────────────────────────────────────
+    # -- Cross-cutting accumulation --------------------------------------------
     stats: Annotated[dict[str, Any], _merge_stats]  # timing dict T + numeric summaries
     video_context: dict[str, Any]  # rich context fed to LLM synthesis/audit
     agentic_trace: list[dict[str, Any]]
 
-    # ── Resume support ───────────────────────────────────────────────────────
+    # -- Resume support -------------------------------------------------------
     completed_phases: list[str]
     error: str | None

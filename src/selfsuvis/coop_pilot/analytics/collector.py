@@ -43,7 +43,7 @@ class LogCollector:
     def __init__(self) -> None:
         self.docker_client = _docker_client()
 
-    # ── Log collection ────────────────────────────────────────────────────────
+    # -- Log collection --------------------------------------------------------
 
     def get_container_logs(
         self,
@@ -94,7 +94,7 @@ class LogCollector:
             pass
         return []
 
-    # ── Container statistics ──────────────────────────────────────────────────
+    # -- Container statistics --------------------------------------------------
 
     def get_container_stats(self, service: str) -> dict[str, Any] | None:
         container_name = self.CONTAINER_MAP.get(service, service)
@@ -130,7 +130,7 @@ class LogCollector:
             service: s for service in self.CONTAINER_MAP if (s := self.get_container_stats(service))
         }
 
-    # ── Container health ──────────────────────────────────────────────────────
+    # -- Container health ------------------------------------------------------
 
     def get_container_health(self) -> dict[str, dict[str, Any]]:
         return {

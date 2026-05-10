@@ -135,7 +135,7 @@ class VideoIndexer:
             self._florence_model = FlorenceModel()
         return self._florence_model
 
-    # ── per-frame helpers ─────────────────────────────────────────────────────
+    # -- per-frame helpers -----------------------------------------------------
 
     def _stabilize(self, prev_small: np.ndarray, small: np.ndarray) -> np.ndarray:
         """Return `small` aligned to `prev_small` via phase correlation, or `small` unchanged."""
@@ -227,7 +227,7 @@ class VideoIndexer:
             payload=payload,
         )
 
-    # ── main frame processing ─────────────────────────────────────────────────
+    # -- main frame processing -------------------------------------------------
 
     def _process_frame(
         self,
@@ -459,11 +459,11 @@ class VideoIndexer:
         if points:
             self.store.upsert_points(points)
 
-        # ── ASR pass — audio transcription (before captioning so Qwen can use it) ──
+        # -- ASR pass — audio transcription (before captioning so Qwen can use it) --
         if frame_records and self.asr_model and self.asr_model.is_enabled():
             self._run_asr_pass(dst_path, frame_records)
 
-        # ── Captioning pass (post-loop) ───────────────────────────────────────
+        # -- Captioning pass (post-loop) ---------------------------------------
         # When GEMMA_API_URL is set, the top-N highest-quality frames (ranked by
         # histogram-diff score) are captioned via Gemma in async chunks; the
         # remainder fall back to Florence.  Without GEMMA_API_URL, all frames
@@ -474,23 +474,23 @@ class VideoIndexer:
             else:
                 self._run_florence_pass(frame_records)
 
-        # ── OCR pass — visible text extraction ───────────────────────────────
+        # -- OCR pass — visible text extraction -------------------------------
         if frame_records and self.ocr_model and self.ocr_model.is_enabled():
             self._run_ocr_pass(frame_records)
 
-        # ── Qwen2.5-VL Phase 2 structured extraction pass ─────────────────────
+        # -- Qwen2.5-VL Phase 2 structured extraction pass ---------------------
         if frame_records and self.qwen_model:
             self._run_qwen_pass(frame_records)
 
-        # ── Depth estimation pass ─────────────────────────────────────────────
+        # -- Depth estimation pass ---------------------------------------------
         if frame_records and self.depth_model and self.depth_model.is_enabled():
             self._run_depth_pass(frame_records)
 
-        # ── Object detection pass ─────────────────────────────────────────────
+        # -- Object detection pass ---------------------------------------------
         if frame_records and self.detection_model and self.detection_model.is_enabled():
             self._run_detection_pass(frame_records)
 
-        # ── Automatic segmentation summary pass ──────────────────────────────
+        # -- Automatic segmentation summary pass ------------------------------
         if (
             frame_records
             and self.segmentation_predictor
@@ -498,11 +498,11 @@ class VideoIndexer:
         ):
             self._run_segmentation_pass(frame_records)
 
-        # ── RF signal analysis pass (TorchSig) ───────────────────────────────
+        # -- RF signal analysis pass (TorchSig) -------------------------------
         if frame_records and self.rf_analyzer and self.rf_analyzer.is_enabled():
             self._run_rf_analysis_pass(dst_path, frame_records)
 
-        # ── YOLO11 + SAM3/SAM2 pass (priority-ranked detections + masks) ─────
+        # -- YOLO11 + SAM3/SAM2 pass (priority-ranked detections + masks) -----
         if frame_records and self.yolo_detector and self.yolo_detector.is_enabled():
             self._run_yolo_sam_pass(frame_records)
 
@@ -514,15 +514,15 @@ class VideoIndexer:
                 frame_records=frame_records,
             )
 
-        # ── Gemma directed tracking pass (step P3) ────────────────────────────
+        # -- Gemma directed tracking pass (step P3) ----------------------------
         if frame_records and settings.RFDETR_ENABLED and settings.GEMMA_API_URL:
             self._run_gemma_directed_tracking_pass(frame_records)
 
-        # ── World model pass (video clip embeddings) ──────────────────────────
+        # -- World model pass (video clip embeddings) --------------------------
         if frame_records and self.world_model and self.world_model.is_enabled():
             self._run_world_model_pass(frame_records)
 
-        # ── UniDriveVLA expert pass (understanding/perception/planning) ──────
+        # -- UniDriveVLA expert pass (understanding/perception/planning) ------
         if frame_records and self.unidrive_model and self.unidrive_model.is_enabled():
             self._run_unidrive_pass(frame_records)
 
@@ -556,7 +556,7 @@ class VideoIndexer:
                 }
                 record["frame_facts_json"] = frame_facts
 
-        # ── RSSM temporal surprise + active learning tagging ─────────────────
+        # -- RSSM temporal surprise + active learning tagging -----------------
         # Runs after all enrichment passes so caption_confidence is available.
         # Populates al_score and al_tag in frame_records; strips _clip_embed.
         if frame_records:
@@ -1175,7 +1175,7 @@ class VideoIndexer:
         n = len(frame_records)
         self.logger.info("AL+RSSM pass: %d frames", n)
 
-        # ── Collect CLIP embeds (written temporarily during _process_frame) ──
+        # -- Collect CLIP embeds (written temporarily during _process_frame) --
         clip_embeds_list = []
         valid_indices = []
         for i, rec in enumerate(frame_records):
@@ -1186,7 +1186,7 @@ class VideoIndexer:
 
         caption_confidences = [float(rec.get("caption_confidence") or 0.5) for rec in frame_records]
 
-        # ── Compute dino-proxy distance via CLIP k-means centroid distance ──
+        # -- Compute dino-proxy distance via CLIP k-means centroid distance --
         # Uses CLIP embeddings as proxy when DINOv3 is not separately embedded.
         # The k-means distance captures per-frame novelty relative to the
         # mission's overall embedding distribution.
@@ -1201,7 +1201,7 @@ class VideoIndexer:
             except Exception as exc:
                 self.logger.debug("AL k-means failed (%s) — using uniform dino_dists", exc)
 
-        # ── RSSM temporal surprise ────────────────────────────────────────────
+        # -- RSSM temporal surprise --------------------------------------------
         rssm_surprises: list[float] | None = None
         if self.rssm_embedder is not None and clip_embeds_list:
             try:
@@ -1244,7 +1244,7 @@ class VideoIndexer:
             except Exception as exc:
                 self.logger.warning("RSSM temporal surprise failed (%s) — skipping", exc)
 
-        # ── Assign AL scores and tags ─────────────────────────────────────────
+        # -- Assign AL scores and tags -----------------------------------------
         scores, tags = assign_al_tags(
             dino_dists,
             caption_confidences,

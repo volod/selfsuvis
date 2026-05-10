@@ -47,7 +47,7 @@ from ._common import (
     _Timer,
 )
 
-# ── Constants ──────────────────────────────────────────────────────────────────
+# -- Constants ------------------------------------------------------------------
 
 _TOTAL_STEPS = 33
 _VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
@@ -267,7 +267,7 @@ def _emit_local_run_analytics(video_dir: Path) -> dict[str, Any] | None:
     return payload
 
 
-# ── Model & store initialisation ───────────────────────────────────────────────
+# -- Model & store initialisation -----------------------------------------------
 
 
 def init_models(device: str) -> dict[str, Any]:
@@ -339,11 +339,13 @@ def init_models(device: str) -> dict[str, Any]:
             models["dino"] = None
             models["uses_api_embedder"] = False
             _log.info(
-                "  ✓ GemmaEmbedder ready in %.1fs  (dim=%d)",
+                "  [ok] GemmaEmbedder ready in %.1fs  (dim=%d)",
                 time.time() - t0,
                 models["clip"].image_dim(),
             )
-            _log.info("  ℹ  SSL fine-tuning and distillation steps are skipped for Gemma embedder.")
+            _log.info(
+                "  [info]  SSL fine-tuning and distillation steps are skipped for Gemma embedder."
+            )
             return models
         # Fall through to load OpenCLIP when local Gemma failed but sidecar is set
 
@@ -351,7 +353,7 @@ def init_models(device: str) -> dict[str, Any]:
     t0 = time.time()
     _log_vram_snapshot("before OpenCLIP load")
     models["clip"] = OpenCLIPEmbedder()
-    _log.info("  ✓ CLIP ready in %.1fs  (dim=%d)", time.time() - t0, models["clip"].image_dim())
+    _log.info("  [ok] CLIP ready in %.1fs  (dim=%d)", time.time() - t0, models["clip"].image_dim())
 
     if _HAS_DINO:
         _log.info("Loading DINOv3 ViT-B/14 …  (first run downloads ~330 MB)")
@@ -359,7 +361,7 @@ def init_models(device: str) -> dict[str, Any]:
         try:
             models["dino"] = DINOEmbedder("dinov3_vitb14")
             _log.info(
-                "  ✓ DINO ready in %.1fs  (dim=%d)", time.time() - t0, models["dino"].image_dim()
+                "  [ok] DINO ready in %.1fs  (dim=%d)", time.time() - t0, models["dino"].image_dim()
             )
         except Exception as exc:
             _log.warning("  ✗ DINOv3 load failed (%s) — using CLIP only", exc)
@@ -383,7 +385,7 @@ def init_store(models: dict[str, Any], use_qdrant: bool) -> tuple[Any, bool]:
         store = QdrantStore(clip_dim=clip_dim, dino_dim=dino_dim)
         store.client.get_collections()
         _log.info(
-            "✓ Qdrant connected at %s:%s  collection=%s",
+            "[ok] Qdrant connected at %s:%s  collection=%s",
             settings.QDRANT_HOST,
             settings.QDRANT_PORT,
             settings.QDRANT_COLLECTION,
@@ -395,7 +397,7 @@ def init_store(models: dict[str, Any], use_qdrant: bool) -> tuple[Any, bool]:
         return InMemoryStore(), False
 
 
-# ── Video discovery ────────────────────────────────────────────────────────────
+# -- Video discovery ------------------------------------------------------------
 
 
 def find_videos(videos_dir: Path) -> list[Path]:
@@ -437,7 +439,7 @@ def resolve_local_videos(args: Any) -> tuple[str, list[Path]]:
     return str(videos_dir), videos
 
 
-# ── Step 20: compare + describe ───────────────────────────────────────────────
+# -- Step 20: compare + describe -----------------------------------------------
 
 
 def step_compare_and_describe(
@@ -532,7 +534,7 @@ def step_multi_model_compare(
     )
 
 
-# ── Agentic video synthesis helpers ───────────────────────────────────────────
+# -- Agentic video synthesis helpers -------------------------------------------
 
 
 def _build_context_prompt(video_name: str, video_context: dict[str, Any]) -> str:
@@ -903,7 +905,7 @@ def _fallback_agentic_flow_analysis(video_context: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-# ── Step 23: agentic flow artifact ───────────────────────────────────────────
+# -- Step 23: agentic flow artifact -------------------------------------------
 
 
 def step_agentic_flow_artifact(
@@ -990,7 +992,7 @@ def step_agentic_flow_artifact(
                     ):
                         llm_analysis = candidate
                         result["llm_used"] = True
-                        _log.info("  ✓ Agentic flow analysis generated with %s", model)
+                        _log.info("  [ok] Agentic flow analysis generated with %s", model)
                         break
                     if candidate:
                         _log.warning(
@@ -1033,7 +1035,7 @@ def step_agentic_flow_artifact(
                     if _is_valid_agentic_flow_analysis(candidate, simple=False):
                         llm_analysis = candidate
                         result["llm_used"] = True
-                        _log.info("  ✓ Agentic flow analysis generated with %s", model)
+                        _log.info("  [ok] Agentic flow analysis generated with %s", model)
                 except Exception as exc:
                     last_exc = exc
                     _log.warning("  Agentic flow reasoning fallback failed (%s)", exc)
@@ -1061,7 +1063,7 @@ def step_agentic_flow_artifact(
     return result
 
 
-# ── Step 22: video synthesis ──────────────────────────────────────────────────
+# -- Step 22: video synthesis --------------------------------------------------
 
 
 def step_video_synthesis(
@@ -1144,7 +1146,7 @@ def step_video_synthesis(
             if raw.startswith("json"):
                 raw = raw[4:]
         ontology = json.loads(raw.strip())
-        _log.info("  ✓ Video ontology generated  (domain=%s)", ontology.get("domain", "?"))
+        _log.info("  [ok] Video ontology generated  (domain=%s)", ontology.get("domain", "?"))
     except Exception as exc:
         _log.warning("  Ontology generation failed (%s)", exc)
 
@@ -1175,12 +1177,12 @@ def step_video_synthesis(
         )
         resp.raise_for_status()
         narrative = resp.json()["choices"][0]["message"]["content"].strip()
-        _log.info("  ✓ Video narrative generated (%d chars)", len(narrative))
+        _log.info("  [ok] Video narrative generated (%d chars)", len(narrative))
     except Exception as exc:
         _log.warning("  Narrative generation failed (%s)", exc)
 
     elapsed = time.time() - t0
-    _log.info("  ✓ Video synthesis complete in %.1fs", elapsed)
+    _log.info("  [ok] Video synthesis complete in %.1fs", elapsed)
 
     write_video_synthesis_md(
         video_dir / "video_synthesis.md",
@@ -1199,7 +1201,7 @@ def step_video_synthesis(
         (video_dir / "video_ontology.json").write_text(
             json.dumps(ontology, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        _log.info("  ✓ Ontology saved → video_ontology.json")
+        _log.info("  [ok] Ontology saved → video_ontology.json")
 
     result.update(
         {"skipped": False, "ontology": ontology, "narrative": narrative, "elapsed_sec": elapsed}
@@ -1208,7 +1210,7 @@ def step_video_synthesis(
     return result
 
 
-# ── Per-video orchestrator ────────────────────────────────────────────────────
+# -- Per-video orchestrator ----------------------------------------------------
 
 
 def run_video_pipeline(
@@ -1301,7 +1303,7 @@ def run_video_pipeline(
     # Tracks whether CLIP+DINO backbones are on GPU (relevant only when device=="cuda").
     clip_dino_on_gpu = device == "cuda" and _models_on_device(models, "cuda")
 
-    # ── Phase 1: Foundational ingestion (no gate) ─────────────────────────────
+    # -- Phase 1: Foundational ingestion (no gate) -----------------------------
     _banner("Phase 1 — Foundational ingestion")
 
     # Step 01: Extract frames
@@ -1375,7 +1377,7 @@ def run_video_pipeline(
         artifacts=[],
     )
 
-    # ── Phase 2: Multimodal analysis (no gate, parallel where feasible) ───────
+    # -- Phase 2: Multimodal analysis (no gate, parallel where feasible) -------
     # The 3D-map step is CPU-bound (pycolmap SfM + fallback enrichment) and is
     # submitted to a background thread after depth/detection/tracking cues are
     # available. All GPU steps remain serialised on the main thread.
@@ -1498,7 +1500,7 @@ def run_video_pipeline(
     _gemma_url_4b = getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL
     if _gemma_url_4b and caption_results:
         _log.info(
-            "─── Step 4b/%d: Gemma 4 segment-boundary diffs → gemma_segment_captions.md",
+            "--- Step 4b/%d: Gemma 4 segment-boundary diffs → gemma_segment_captions.md",
             _TOTAL_STEPS,
         )
         with _Timer(T, "L_seg_caps"):
@@ -1819,7 +1821,7 @@ def run_video_pipeline(
             _sfm_min_dur,
         )
         _run_sfm = False
-    _log.info("  ▷ Submitting 3D-map step 16 to background thread (SfM+enrichment+Splat) …")
+    _log.info("  -> Submitting 3D-map step 16 to background thread (SfM+enrichment+Splat) …")
     _map_future = _map_executor.submit(
         step_create_3d_map,
         video_path,
@@ -2177,8 +2179,8 @@ def run_video_pipeline(
     if advisor_issues:
         _log.info("  Map advisor: %s", advisor_issues[0])
     if h.get("splat_ply"):
-        _log.info("  ✓ Gaussian Splat → %s", h["splat_ply"])
-        _log.info("  ✓ Interactive viewer → %s", h.get("viewer_html", ""))
+        _log.info("  [ok] Gaussian Splat → %s", h["splat_ply"])
+        _log.info("  [ok] Interactive viewer → %s", h.get("viewer_html", ""))
     video_context["map"] = {
         "method": h["method"],
         "points": stats["map_points"],
@@ -2215,7 +2217,7 @@ def run_video_pipeline(
         else ["3d_map/sparse_map.npz", "3d_map/map_stats.json"],
     )
 
-    # ── Full probabilistic state fusion (all four layers) ─────────────────────
+    # -- Full probabilistic state fusion (all four layers) ---------------------
     from .steps_fusion import step_full_state_fusion
 
     # Collect RSSM surprise mean (from world model result if available)
@@ -2327,7 +2329,7 @@ def run_video_pipeline(
         )
     video_context["threat_primitives"] = threat_primitives_result
 
-    # ── Phase 3: SSL-gated adaptation (SSL gate required) ─────────────────────
+    # -- Phase 3: SSL-gated adaptation (SSL gate required) ---------------------
     # Step 16 (SSL fine-tuning) always runs to evaluate the gate.
     # Steps E, F, G, H only proceed when D produces a valid checkpoint with
     # best_loss < _SSL_GATE_MAX_LOSS. Steps 22 and 23 always run as finalization.
@@ -2421,7 +2423,7 @@ def run_video_pipeline(
             artifacts=["finetune_stats.md", "checkpoints/dino_ssl_best.pt"],
         )
 
-        # ── SSL gate: only proceed to E/F/G/H if D produced a usable checkpoint ──
+        # -- SSL gate: only proceed to E/F/G/H if D produced a usable checkpoint --
         import os as _os
 
         _ssl_best_loss = stats.get("best_loss", float("inf"))
@@ -2432,7 +2434,7 @@ def run_video_pipeline(
         )
         if ssl_gate_passed:
             _log.info(
-                "  ✓ SSL gate passed (best_loss=%.4f < %.1f) — proceeding to distillation, "
+                "  [ok] SSL gate passed (best_loss=%.4f < %.1f) — proceeding to distillation, "
                 "ONNX export, and search comparison",
                 _ssl_best_loss,
                 _SSL_GATE_MAX_LOSS,
@@ -2930,7 +2932,7 @@ def run_video_pipeline(
         artifacts=["policy_decision.json"] if not policy_result.get("skipped") else [],
     )
 
-    # ── Finalization (always runs regardless of SSL gate) ──────────────────────
+    # -- Finalization (always runs regardless of SSL gate) ----------------------
     # Step 28: Video synthesis — offload CLIP+DINO; Ollama API call only (no local model)
     if device == "cuda" and clip_dino_on_gpu:
         _offload_models_to_cpu(models)
@@ -3027,7 +3029,7 @@ def run_video_pipeline(
             ]
         )
 
-    # ── Step 30: Drone-detection edge model training ──────────────────────────
+    # -- Step 30: Drone-detection edge model training --------------------------
     _drone_enabled = getattr(args, "drone_detection", None)
     if _drone_enabled is None:
         _drone_enabled = True  # on by default when not explicitly disabled
@@ -3065,9 +3067,9 @@ def run_video_pipeline(
         _log.info(
             "  Drone detection: map50=%.4f | fp32=%s | int8=%s | rknn=%s",
             drone_result.get("map50", float("nan")),
-            "✓" if drone_result.get("model_fp32") else "✗",
-            "✓" if drone_result.get("model_int8") else "✗",
-            "✓" if drone_result.get("model_rknn") else "skipped",
+            "[ok]" if drone_result.get("model_fp32") else "✗",
+            "[ok]" if drone_result.get("model_int8") else "✗",
+            "[ok]" if drone_result.get("model_rknn") else "skipped",
         )
     else:
         _step(
@@ -3076,7 +3078,7 @@ def run_video_pipeline(
             "Drone detection training (skipped — pass --drone-detection to enable)",
         )
 
-    # ── Step 32: Drone audio detection model training ─────────────────────────
+    # -- Step 32: Drone audio detection model training -------------------------
     _audio_enabled = getattr(args, "drone_audio", None)
     if _audio_enabled is None:
         _audio_enabled = True  # on by default when not explicitly disabled
@@ -3117,7 +3119,7 @@ def run_video_pipeline(
             "  Drone audio: val_acc=%.3f  val_f1=%.3f  onnx=%s",
             audio_result.get("val_acc", float("nan")),
             audio_result.get("val_f1", float("nan")),
-            "✓" if audio_result.get("model_onnx") else "✗",
+            "[ok]" if audio_result.get("model_onnx") else "✗",
         )
     else:
         _step(32, _TOTAL_STEPS, "Drone audio training (skipped — pass --drone-audio to enable)")
@@ -3133,7 +3135,7 @@ def run_video_pipeline(
     stats["analysis_summary"] = _emit_local_run_analytics(video_dir) or {}
     stats["video_dir"] = str(video_dir)
 
-    _banner(f"✓ Video complete: {video_path.name}")
+    _banner(f"[ok] Video complete: {video_path.name}")
     _log.info("  Output dir: %s", video_dir)
     return stats
 
@@ -3174,7 +3176,7 @@ def _run_video_pipeline_safe(
     return _out
 
 
-# ── Main entry point ──────────────────────────────────────────────────────────
+# -- Main entry point ----------------------------------------------------------
 
 
 def run_local(args: Any) -> None:
@@ -3365,7 +3367,9 @@ def run_local(args: Any) -> None:
                     _gemma_model,
                 )
                 sys.exit(1)
-            _log.info("  ✓ Gemma API reachable (HTTP %d  model=%s)", _r.status_code, _gemma_model)
+            _log.info(
+                "  [ok] Gemma API reachable (HTTP %d  model=%s)", _r.status_code, _gemma_model
+            )
         except Exception as _exc:
             _log.error(
                 "Gemma API pre-flight error: %s. Check that Ollama is running at %s",
@@ -3426,7 +3430,9 @@ def run_local(args: Any) -> None:
                 )
                 sys.exit(1)
             _log.info(
-                "  ✓ Reasoning API reachable (HTTP %d  model=%s)", _r.status_code, _reasoning_model
+                "  [ok] Reasoning API reachable (HTTP %d  model=%s)",
+                _r.status_code,
+                _reasoning_model,
             )
         except Exception as _exc:
             _log.error(

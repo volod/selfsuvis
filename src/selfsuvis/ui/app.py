@@ -171,7 +171,7 @@ with tab_admin:
                 f"none: {none_count} ({100 * none_count // total}%)"
             )
 
-    # ── 3DGS Scene Viewer ────────────────────────────────────────────────────
+    # -- 3DGS Scene Viewer ----------------------------------------------------
     st.subheader("3DGS Scene Viewer")
     supersplat_url = env_str("SUPERSPLAT_SERVER_URL", "http://localhost:8090")
     static_url = env_str("STATIC_SERVER_URL", "http://localhost:8080")
@@ -235,10 +235,10 @@ with tab_text:
         else:
             st.error(resp.text)
 
-# ── Site Monitor (Phase 5) ────────────────────────────────────────────────────
+# -- Site Monitor (Phase 5) ----------------------------------------------------
 
 _V1_HEADERS = {"X-Api-Key": _API_KEY} if _API_KEY else {}
-_RISK_COLORS = {"low": "🟡", "medium": "🟠", "high": "🔴", "critical": "💀"}
+_RISK_COLORS = {"low": "[low]", "medium": "[med]", "high": "[high]", "critical": "[critical]"}
 
 
 def _v1_get(path: str, params: dict | None = None):
@@ -293,7 +293,7 @@ with tab_site:
                 {
                     "Zone": z["zone_id"],
                     "Label": z["label"],
-                    "Risk": f"{_RISK_COLORS.get(z['risk_level'], '⚪')} {z['risk_level']}"
+                    "Risk": f"{_RISK_COLORS.get(z['risk_level'], '')} {z['risk_level']}"
                     if z["risk_level"]
                     else "— none",
                     "Active Incidents": len(active),
@@ -325,7 +325,7 @@ with tab_site:
                 )
                 for inc in incidents:
                     with st.expander(
-                        f"{_RISK_COLORS.get(inc['risk_level'], '⚪')} "
+                        f"{_RISK_COLORS.get(inc['risk_level'], '')} "
                         f"{inc['risk_level'].upper()} | {inc['ts'][:19]} | {inc['incident_id'][:8]}…"
                     ):
                         st.json(inc)

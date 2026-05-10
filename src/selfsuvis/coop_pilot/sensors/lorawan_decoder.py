@@ -97,7 +97,7 @@ def decode_chirpstack_uplink(payload: str | bytes | dict) -> SensorReading | Non
     return reading
 
 
-# ── Codec field mapping ───────────────────────────────────────────────────────
+# -- Codec field mapping -------------------------------------------------------
 
 # Each entry is (canonical_field_on_SensorReading, [possible_key_names_in_decoded_object])
 _FIELD_ALIASES: list[tuple[str, list[str]]] = [

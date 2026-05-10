@@ -30,13 +30,13 @@ def step_platform_state_fusion(
     summary = fusion_result.summary()
     if fusion_result.status == "ok":
         _log.info(
-            "  ✓ Platform-state fusion: %d posterior samples (%s)",
+            "  [ok] Platform-state fusion: %d posterior samples (%s)",
             len(fusion_result.posterior_samples),
             ", ".join(fusion_result.telemetry_sources) or "no telemetry sources",
         )
     else:
         _log.info(
-            "  ▷ Platform-state fusion skipped: %s", fusion_result.reason or fusion_result.status
+            "  -> Platform-state fusion skipped: %s", fusion_result.reason or fusion_result.status
         )
     return {
         "skipped": fusion_result.status != "ok",
@@ -87,7 +87,7 @@ def step_full_state_fusion(
 
     summary = result.summary()
     _log.info(
-        "  ✓ Full state fusion: platform=%s | tracks=%d (confirmed=%d) | "
+        "  [ok] Full state fusion: platform=%s | tracks=%d (confirmed=%d) | "
         "map smoother=%s | SfM constraints=%d | scene=%s",
         summary.get("platform_status", "n/a"),
         summary.get("object_tracks", 0),

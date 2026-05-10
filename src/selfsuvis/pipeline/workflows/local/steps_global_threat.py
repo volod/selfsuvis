@@ -337,7 +337,7 @@ def step_global_threat(
     payload["skipped"] = False
     _write_json(output_dir / "global_threat_summary.json", payload)
     _log.info(
-        "✓ Global threat aggregation: sectors=%d routes=%d anomalies=%d",
+        "[ok] Global threat aggregation: sectors=%d routes=%d anomalies=%d",
         len(sector_states),
         len(route_advisories),
         len(anomalies),

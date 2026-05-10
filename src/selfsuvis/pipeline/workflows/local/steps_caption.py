@@ -292,7 +292,7 @@ def _select_segment_boundary_pairs(
     return [(prev_row, next_row) for _, _, prev_row, next_row in strongest]
 
 
-# ── VRAM snapshot helper ──────────────────────────────────────────────────────
+# -- VRAM snapshot helper ------------------------------------------------------
 
 
 def _log_vram_snapshot(label: str) -> None:
@@ -329,7 +329,7 @@ def _log_vram_snapshot(label: str) -> None:
         _log.debug("  [VRAM] %s | resource snapshot failed: %s", label, exc)
 
 
-# ── Memory helpers for GPU-constrained machines ───────────────────────────────
+# -- Memory helpers for GPU-constrained machines -------------------------------
 
 
 def _detect_free_vram_gb() -> float:
@@ -830,7 +830,7 @@ def _select_qwen_frames(
     return ordered[:max_frames]
 
 
-# ── Ollama helpers ────────────────────────────────────────────────────────────
+# -- Ollama helpers ------------------------------------------------------------
 
 
 def _list_ollama_models(api_url: str) -> list[str]:
@@ -1147,7 +1147,7 @@ def _unload_known_sidecars(pairs: list[tuple[str, str]]) -> int:
     return unload_count
 
 
-# ── Gemma analysis ────────────────────────────────────────────────────────────
+# -- Gemma analysis ------------------------------------------------------------
 
 
 def _gemma_analyse_frame_via_api(
@@ -1859,7 +1859,7 @@ def step_gemma_analysis(
     return result
 
 
-# ── Florence / Qwen captioning ────────────────────────────────────────────────
+# -- Florence / Qwen captioning ------------------------------------------------
 
 
 def _caption_via_florence_api(
@@ -1956,7 +1956,7 @@ def _caption_via_florence_api(
     elapsed = time.time() - t0
     captioned = sum(1 for r in caption_results if r.get("caption"))
     _log.info(
-        "  ✓ Florence API captions: %d/%d frames in %.1fs", captioned, len(frame_list), elapsed
+        "  [ok] Florence API captions: %d/%d frames in %.1fs", captioned, len(frame_list), elapsed
     )
     out_md = video_dir / "scene_captions.md"
     write_scene_captions_md(out_md, video_name, caption_results, elapsed)
@@ -2100,7 +2100,9 @@ def _caption_via_qwen_api(
 
     elapsed = time.time() - t0
     captioned = sum(1 for r in caption_results if r.get("caption"))
-    _log.info("  ✓ Qwen API captions: %d/%d frames in %.1fs", captioned, len(frame_list), elapsed)
+    _log.info(
+        "  [ok] Qwen API captions: %d/%d frames in %.1fs", captioned, len(frame_list), elapsed
+    )
     out_md = video_dir / "scene_captions.md"
     write_scene_captions_md(out_md, video_name, caption_results, elapsed)
     return {
@@ -2140,7 +2142,7 @@ def step_scene_captioning(
     """
     from .steps_report import write_scene_captions_md
 
-    # ── API route: vLLM serving Florence-2 ────────────────────────────────────
+    # -- API route: vLLM serving Florence-2 ------------------------------------
     effective_florence_api_url = florence_api_url or settings.FLORENCE_API_URL
     effective_florence_model = florence_model or settings.FLORENCE_MODEL
     if effective_florence_api_url:
@@ -2160,7 +2162,7 @@ def step_scene_captioning(
         _log_vram_snapshot("after Florence API captioning")
         return result
 
-    # ── Local route: load Florence-2 weights into this process ────────────────
+    # -- Local route: load Florence-2 weights into this process ----------------
     out_md = video_dir / "scene_captions.md"
     try:
         from selfsuvis.pipeline.vision.florence import FlorenceModel
@@ -2208,7 +2210,7 @@ def step_scene_captioning(
         )
         return {"skipped": True, "reason": str(exc), "captions": []}
 
-    _log.info("  ✓ Florence-2-large loaded in %.1fs", time.time() - t0)
+    _log.info("  [ok] Florence-2-large loaded in %.1fs", time.time() - t0)
     _log.info("  Captioning %d frames …", len(frame_list))
     caption_results: list[dict[str, Any]] = []
     florence_runtime_mode = florence.runtime_mode
@@ -2258,7 +2260,7 @@ def step_scene_captioning(
 
     elapsed = time.time() - t0
     captioned = sum(1 for r in caption_results if r.get("caption"))
-    _log.info("  ✓ %d/%d frames captioned in %.1fs", captioned, len(frame_list), elapsed)
+    _log.info("  [ok] %d/%d frames captioned in %.1fs", captioned, len(frame_list), elapsed)
     _log_vram_snapshot("after local Florence captioning")
     write_scene_captions_md(
         out_md,
@@ -2281,7 +2283,7 @@ def step_scene_captioning(
     }
 
 
-# ── Gemma segment-boundary diff ──────────────────────────────────────────────
+# -- Gemma segment-boundary diff ----------------------------------------------
 
 _SEGMENT_DIFF_PROMPT = (
     "You are comparing two consecutive frames from a video mission. "
@@ -2486,7 +2488,7 @@ def step_gemma_segment_captions(
     elapsed = time.time() - t0
     described = sum(1 for b in boundary_diffs if b.get("diff_description"))
     _log.info(
-        "  ✓ Gemma segment diffs: %d/%d boundaries described in %.1fs",
+        "  [ok] Gemma segment diffs: %d/%d boundaries described in %.1fs",
         described,
         len(boundary_pairs),
         elapsed,
@@ -2508,7 +2510,7 @@ def step_gemma_segment_captions(
     return result
 
 
-# ── Gemma structured extraction (Qwen fallback) ──────────────────────────────
+# -- Gemma structured extraction (Qwen fallback) ------------------------------
 
 _GEMMA_QWEN_FALLBACK_PROMPT = (
     "Analyse this image and return ONLY a JSON object with these keys:\n"
@@ -2694,7 +2696,7 @@ def _step_qwen_captioning_gemma_fallback(
     )
     parse_errors = sum(1 for r in caption_results if r.get("parse_error"))
     _log.info(
-        "  ✓ Gemma fallback: %d/%d frames extracted in %.1fs (parse_errors=%d)",
+        "  [ok] Gemma fallback: %d/%d frames extracted in %.1fs (parse_errors=%d)",
         ok,
         len(sampled),
         elapsed,
@@ -2861,7 +2863,7 @@ def step_qwen_captioning(
     parse_errors = sum(1 for r in caption_results if r.get("parse_error"))
     subtitle_used = sum(1 for r in caption_results if r.get("subtitle_text"))
     _log.info(
-        "  ✓ Qwen: %d/%d sampled frames captioned in %.1fs (%d with ASR  parse_errors=%d  agentic=%s)",
+        "  [ok] Qwen: %d/%d sampled frames captioned in %.1fs (%d with ASR  parse_errors=%d  agentic=%s)",
         ok,
         len(sampled_frame_list),
         elapsed,
@@ -2961,8 +2963,19 @@ def step_unidrive_analysis(
         1 for r in batch_results if not r.get("service_unavailable") and not r.get("parse_error")
     )
     _log.info(
-        "  ✓ UniDriveVLA: %d/%d sampled frames analysed in %.1fs", ok, len(batch_results), elapsed
+        "  [ok] UniDriveVLA: %d/%d sampled frames analysed in %.1fs",
+        ok,
+        len(batch_results),
+        elapsed,
     )
+    if ok == 0 and batch_results:
+        first_reason = batch_results[0].get("reason", "unknown")
+        _log.warning(
+            "  UniDriveVLA: all %d frames failed (reason: %s). "
+            "Set --unidrive-api-url to point at an Ollama/vLLM endpoint.",
+            len(batch_results),
+            first_reason,
+        )
     _log_vram_snapshot("after UniDrive sidecar use")
     write_unidrive_analysis_md(out_md, video_name, batch_results, elapsed, settings.UNIDRIVE_MODEL)
     client.release()
@@ -3022,7 +3035,7 @@ def step_asr_transcription(
     )
     covered = sum(1 for t in frame_timestamps if t in subtitle_map)
     _log.info(
-        "  ✓ ASR: %d segments → %d/%d frames have subtitles (%.1fs, model=%s)",
+        "  [ok] ASR: %d segments → %d/%d frames have subtitles (%.1fs, model=%s)",
         len(segments),
         covered,
         len(frame_list),
@@ -3140,7 +3153,7 @@ def step_ocr_extraction(
             )
     elapsed = time.time() - t0
     non_empty = sum(1 for r in ocr_results if r.get("ocr_text"))
-    _log.info("  ✓ OCR: %d/%d frames have text in %.1fs", non_empty, len(frame_list), elapsed)
+    _log.info("  [ok] OCR: %d/%d frames have text in %.1fs", non_empty, len(frame_list), elapsed)
     result.update(
         {
             "skipped": False,
@@ -3202,7 +3215,7 @@ def step_depth_estimation(
         and not r.get("depth_unavailable")
         and not r.get("depth_disabled")
     )
-    _log.info("  ✓ Depth: %d/%d frames estimated in %.1fs", ok, len(frame_list), elapsed)
+    _log.info("  [ok] Depth: %d/%d frames estimated in %.1fs", ok, len(frame_list), elapsed)
     result.update(
         {"skipped": False, "depth_results": depth_results, "ok_count": ok, "elapsed_sec": elapsed}
     )
@@ -3249,7 +3262,7 @@ def step_object_detection(
         and not r.get("detection_disabled")
     )
     _log.info(
-        "  ✓ Detection: %d objects across %d/%d frames in %.1fs",
+        "  [ok] Detection: %d objects across %d/%d frames in %.1fs",
         total_objs,
         ok,
         len(frame_list),
@@ -3290,7 +3303,7 @@ def step_world_model_pass(
     """
     result: dict[str, Any] = {"skipped": True, "world_results": []}
 
-    # ── Q-A: VideoMAE world model clip embeddings ─────────────────────────────
+    # -- Q-A: VideoMAE world model clip embeddings -----------------------------
     try:
         from selfsuvis.pipeline.vision.world import WorldModel
     except ImportError as exc:
@@ -3329,7 +3342,7 @@ def step_world_model_pass(
                 and not r.get("world_model_unavailable")
                 and not r.get("world_model_disabled")
             )
-            _log.info("  ✓ World model: %d clips processed in %.1fs", ok, elapsed)
+            _log.info("  [ok] World model: %d clips processed in %.1fs", ok, elapsed)
             result.update(
                 {
                     "skipped": False,
@@ -3341,7 +3354,7 @@ def step_world_model_pass(
             wm.release()
             _log_vram_snapshot("after world model use")
 
-    # ── Q-B: RSSM temporal surprise ───────────────────────────────────────────
+    # -- Q-B: RSSM temporal surprise -------------------------------------------
     if models is not None and getattr(settings, "DREAMER_ENABLED", False):
         clip_model = models.get("clip")
         if clip_model is not None:
@@ -3404,7 +3417,7 @@ def step_world_model_pass(
                     write_json_artifact(rssm_path, rssm_json)
                     elapsed_rssm = time.time() - t_rssm
                     _log.info(
-                        "  ✓ RSSM: method=%s  mean_surprise=%.3f  elapsed=%.1fs → %s",
+                        "  [ok] RSSM: method=%s  mean_surprise=%.3f  elapsed=%.1fs → %s",
                         method,
                         float(np.mean(dense)),
                         elapsed_rssm,

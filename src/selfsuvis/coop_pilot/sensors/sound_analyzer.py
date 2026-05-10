@@ -87,7 +87,7 @@ class SoundAnalyzer:
     def stop(self) -> None:
         self._stop.set()
 
-    # ── Chunk processing ──────────────────────────────────────────────────────
+    # -- Chunk processing ------------------------------------------------------
 
     async def _process_chunk(self) -> None:
         audio = await asyncio.to_thread(self._capture_audio_chunk)

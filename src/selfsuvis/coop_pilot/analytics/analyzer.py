@@ -29,7 +29,7 @@ class LogAnalyzer:
             "proxy": OpenRemoteLogParser(),
         }
 
-    # ── Collection ────────────────────────────────────────────────────────────
+    # -- Collection ------------------------------------------------------------
 
     def collect_and_parse(
         self,
@@ -52,7 +52,7 @@ class LogAnalyzer:
             if line.strip()
         ]
 
-    # ── Summaries ─────────────────────────────────────────────────────────────
+    # -- Summaries -------------------------------------------------------------
 
     def get_error_summary(self, parsed_logs: dict[str, list[LogEntry]]) -> dict[str, Any]:
         summary: dict[str, Any] = {

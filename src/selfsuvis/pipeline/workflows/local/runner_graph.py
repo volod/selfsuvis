@@ -35,7 +35,7 @@ from selfsuvis.pipeline.core.logging import get_logger
 _log = get_logger(__name__)
 
 
-# ── Graph builder ─────────────────────────────────────────────────────────────
+# -- Graph builder -------------------------------------------------------------
 
 
 def build_graph(use_checkpoints: bool = True):
@@ -59,15 +59,15 @@ def build_graph(use_checkpoints: bool = True):
 
     sg = StateGraph(PipelineState)
 
-    # ── Phase 1 ──────────────────────────────────────────────────────────────
+    # -- Phase 1 --------------------------------------------------------------
     sg.add_node("init_state", phase1.node_init_state)
     sg.add_node("p1_extract_frames", phase1.node_p1_extract_frames)
     sg.add_node("p1_index_vectors", phase1.node_p1_index_vectors)
 
-    # ── Phase 2 serial prefix ────────────────────────────────────────────────
+    # -- Phase 2 serial prefix ------------------------------------------------
     sg.add_node("p2_gemma_analysis", phase2_serial.node_p2_gemma_analysis)
 
-    # ── Phase 2 parallel fan-out (steps 4–8) ─────────────────────────────────
+    # -- Phase 2 parallel fan-out (steps 4–8) ---------------------------------
     sg.add_node("p2_florence_caption", phase2_parallel.node_p2_florence_caption)
     sg.add_node("p2_asr", phase2_parallel.node_p2_asr)
     sg.add_node("p2_ocr", phase2_parallel.node_p2_ocr)
@@ -75,7 +75,7 @@ def build_graph(use_checkpoints: bool = True):
     sg.add_node("p2_detection", phase2_parallel.node_p2_detection)
     sg.add_node("p2_merge_parallel", phase2_serial.node_p2_merge_parallel)
 
-    # ── Phase 2 serial suffix ────────────────────────────────────────────────
+    # -- Phase 2 serial suffix ------------------------------------------------
     sg.add_node("p2_platform_fusion", phase2_serial.node_p2_platform_fusion)
     sg.add_node("p2_yolo_sam", phase2_tracking.node_p2_yolo_sam)
     sg.add_node("p2_gemma_tracking", phase2_tracking.node_p2_gemma_tracking)
@@ -88,26 +88,26 @@ def build_graph(use_checkpoints: bool = True):
     sg.add_node("p2_map_3d_join", phase2_map.node_p2_map_3d_join)
     sg.add_node("p2_full_fusion", phase2_serial.node_p2_full_fusion)
 
-    # ── Phase 3 ──────────────────────────────────────────────────────────────
+    # -- Phase 3 --------------------------------------------------------------
     sg.add_node("p3_ssl_finetune", phase3_ssl.node_p3_ssl_finetune)
     sg.add_node("p3_distill", phase3_ssl.node_p3_distill)
     sg.add_node("p3_onnx_export", phase3_ssl.node_p3_onnx_export)
     sg.add_node("p3_ft_search", phase3_ssl.node_p3_ft_search)
     sg.add_node("p3_compare", phase3_ssl.node_p3_compare)
 
-    # ── Phase 4 ──────────────────────────────────────────────────────────────
+    # -- Phase 4 --------------------------------------------------------------
     sg.add_node("p4_multi_model_compare", phase4.node_p4_multi_model_compare)
     sg.add_node("p4_synthesis", phase4.node_p4_synthesis)
     sg.add_node("p4_audit", phase4.node_p4_audit)
     sg.add_node("p4_emit_analytics", phase4.node_p4_emit_analytics)
 
-    # ── Edges: phase 1 ───────────────────────────────────────────────────────
+    # -- Edges: phase 1 -------------------------------------------------------
     sg.add_edge(START, "init_state")
     sg.add_edge("init_state", "p1_extract_frames")
     sg.add_edge("p1_extract_frames", "p1_index_vectors")
     sg.add_edge("p1_index_vectors", "p2_gemma_analysis")
 
-    # ── Edges: phase 2 parallel fan-out ──────────────────────────────────────
+    # -- Edges: phase 2 parallel fan-out --------------------------------------
     # LangGraph runs all successors of a node concurrently when there are
     # multiple outgoing edges; they converge at p2_merge_parallel.
     for parallel_node in [
@@ -120,7 +120,7 @@ def build_graph(use_checkpoints: bool = True):
         sg.add_edge("p2_gemma_analysis", parallel_node)
         sg.add_edge(parallel_node, "p2_merge_parallel")
 
-    # ── Edges: phase 2 serial suffix ─────────────────────────────────────────
+    # -- Edges: phase 2 serial suffix -----------------------------------------
     sg.add_edge("p2_merge_parallel", "p2_platform_fusion")
     sg.add_edge("p2_platform_fusion", "p2_yolo_sam")
     sg.add_edge("p2_yolo_sam", "p2_gemma_tracking")
@@ -133,7 +133,7 @@ def build_graph(use_checkpoints: bool = True):
     sg.add_edge("p2_base_search", "p2_map_3d_join")
     sg.add_edge("p2_map_3d_join", "p2_full_fusion")
 
-    # ── Edges: phase 3 ───────────────────────────────────────────────────────
+    # -- Edges: phase 3 -------------------------------------------------------
     sg.add_edge("p2_full_fusion", "p3_ssl_finetune")
     sg.add_conditional_edges(
         "p3_ssl_finetune",
@@ -148,13 +148,13 @@ def build_graph(use_checkpoints: bool = True):
     sg.add_edge("p3_ft_search", "p3_compare")
     sg.add_edge("p3_compare", "p4_multi_model_compare")
 
-    # ── Edges: phase 4 ───────────────────────────────────────────────────────
+    # -- Edges: phase 4 -------------------------------------------------------
     sg.add_edge("p4_multi_model_compare", "p4_synthesis")
     sg.add_edge("p4_synthesis", "p4_audit")
     sg.add_edge("p4_audit", "p4_emit_analytics")
     sg.add_edge("p4_emit_analytics", END)
 
-    # ── Checkpointer selection ────────────────────────────────────────────────
+    # -- Checkpointer selection ------------------------------------------------
     checkpointer = None
     if use_checkpoints:
         checkpoint_path = os.getenv("SELFSUVIS_CHECKPOINT_PATH")
@@ -175,7 +175,7 @@ def build_graph(use_checkpoints: bool = True):
     return sg.compile(checkpointer=checkpointer)
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# -- Entry point ---------------------------------------------------------------
 
 
 def run_graph_pipeline(

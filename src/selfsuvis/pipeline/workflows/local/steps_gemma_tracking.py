@@ -87,7 +87,7 @@ write_markdown_artifact = getattr(
     lambda path, lines: path.write_text("\n".join(lines) + "\n", encoding="utf-8"),
 )
 
-# ── Constants ──────────────────────────────────────────────────────────────────
+# -- Constants ------------------------------------------------------------------
 
 # Frames sent to Gemma for structured scene analysis (sparse sample)
 _GEMMA_STRUCTURED_SAMPLE_N = 12
@@ -147,7 +147,7 @@ _VALID_SCENE_TYPES = frozenset(
 )
 
 
-# ── Gemma structured scene analysis ───────────────────────────────────────────
+# -- Gemma structured scene analysis -------------------------------------------
 
 
 def _gemma_structured_scene_analysis(
@@ -332,7 +332,7 @@ def _gemma_vision_request(
     """
     import re as _re
 
-    # ── Strategy 1: OpenAI-compatible ──────────────────────────────────────────
+    # -- Strategy 1: OpenAI-compatible ------------------------------------------
     payload = {
         "model": model,
         "messages": [
@@ -359,7 +359,7 @@ def _gemma_vision_request(
     if content.strip():
         return content
 
-    # ── Strategy 2: Ollama native /api/chat ────────────────────────────────────
+    # -- Strategy 2: Ollama native /api/chat ------------------------------------
     # gemma4 and other thinking models route all output to reasoning tokens,
     # leaving content empty on the OpenAI path.  The native Ollama endpoint
     # uses the images[] array format which bypasses reasoning-only mode.
@@ -383,7 +383,7 @@ def _gemma_vision_request(
     except Exception:
         pass  # Native endpoint not available (non-Ollama provider) — fall through
 
-    # ── Last resort: extract JSON from reasoning tokens ─────────────────────────
+    # -- Last resort: extract JSON from reasoning tokens -------------------------
     reasoning = msg.get("reasoning") or msg.get("thinking") or ""
     if reasoning:
         # Find the outermost {...} block in the reasoning text
@@ -501,6 +501,11 @@ def _aggregate_scene_responses(responses: list[dict[str, Any]]) -> dict[str, Any
                 areas.append(a)
 
     dominant_scene = Counter(scene_types).most_common(1)[0][0] if scene_types else "other"
+    # If any frame classified the scene as aerial, that overrides urban/rural
+    # misclassifications that occur when Gemma sees road structure from above.
+    aerial_votes = scene_types.count("aerial")
+    if aerial_votes > 0 and dominant_scene in ("urban_street", "rural_terrain", "other"):
+        dominant_scene = "aerial"
     # Sort objects by observation frequency (most-seen first)
     sorted_objects = sorted(objects_by_cat.values(), key=lambda o: -o.get("_seen", 0))
     for o in sorted_objects:
@@ -581,7 +586,7 @@ def _track_length_stats(tracking_results: list[dict[str, Any]]) -> tuple[float, 
     return mean_len, median_len
 
 
-# ── SAM directed by Gemma ──────────────────────────────────────────────────────
+# -- SAM directed by Gemma ------------------------------------------------------
 
 
 def _get_sam_auto_masks(
@@ -683,7 +688,7 @@ def _clip_filter_sam_masks(
 
     w_img, h_img = image.size
 
-    # ── Pass 1: extract all valid crops and remember their mask indices ────────
+    # -- Pass 1: extract all valid crops and remember their mask indices --------
     valid_indices: list[int] = []
     crops: list[Any] = []  # PIL images
 
@@ -710,14 +715,14 @@ def _clip_filter_sam_masks(
     if not crops:
         return []
 
-    # ── Pass 2: batch-encode all crops in one forward pass ────────────────────
+    # -- Pass 2: batch-encode all crops in one forward pass --------------------
     try:
         img_embeds = clip_model.encode_images(crops)  # (N, dim)
     except Exception as exc:
         _log.debug("  [Step10/CLIP] batch image encoding failed: %s", exc)
         return []
 
-    # ── Pass 3: score and filter ───────────────────────────────────────────────
+    # -- Pass 3: score and filter -----------------------------------------------
     # scores_matrix[c, n] = cosine similarity of text[c] vs crop[n]
     scores_matrix = np.dot(text_embeds, img_embeds.T)  # (C, N)
     max_scores = scores_matrix.max(axis=0)  # (N,)
@@ -760,7 +765,7 @@ def _sam_directed_by_gemma(
     categories = [o.get("category", "") for o in gemma_objects if o.get("category")]
     results: list[dict[str, Any]] = []
 
-    # ── Path A: Gemma bbox prompts ────────────────────────────────────────────
+    # -- Path A: Gemma bbox prompts --------------------------------------------
     path_a_bboxes: list[tuple[float, float, float, float]] = []
     path_a_categories: list[str] = []
     for obj in gemma_objects:
@@ -801,7 +806,7 @@ def _sam_directed_by_gemma(
         except Exception as exc:
             _log.debug("  [Step10/SAM] Path A box-prompt failed: %s", exc)
 
-    # ── Path B: auto-mask + CLIP filtering ────────────────────────────────────
+    # -- Path B: auto-mask + CLIP filtering ------------------------------------
     # Pure fallback: only runs when Path A produced no masks at all.
     # NOT used as a supplement — previously, running AMG on every frame (because
     # abstract Gemma categories like "traffic_flow" always have fallback bboxes,
@@ -861,7 +866,7 @@ def _is_duplicate(
     return False
 
 
-# ── Annotation rendering ───────────────────────────────────────────────────────
+# -- Annotation rendering -------------------------------------------------------
 
 
 def _draw_tracking_frame(
@@ -927,7 +932,7 @@ def _draw_tracking_frame(
     return result.convert("RGB")
 
 
-# ── Main step function ─────────────────────────────────────────────────────────
+# -- Main step function ---------------------------------------------------------
 
 
 def step_gemma_directed_tracking(
@@ -971,7 +976,7 @@ def step_gemma_directed_tracking(
 
     t0 = time.time()
 
-    # ── Sub-step 1: Gemma structured scene analysis ───────────────────────────
+    # -- Sub-step 1: Gemma structured scene analysis ---------------------------
     _log.info(
         "Gemma structured scene analysis (up to %d sampled frames, model=%s) ...",
         _GEMMA_STRUCTURED_SAMPLE_N,
@@ -1006,7 +1011,7 @@ def step_gemma_directed_tracking(
         len(gemma_objects),
     )
 
-    # ── Sub-step 2: SAM directed segmentation (sampled frames) ───────────────
+    # -- Sub-step 2: SAM directed segmentation (sampled frames) ---------------
     sam_available = False
     sam_predictor = None
     if settings.SAM_ENABLED and gemma_objects:
@@ -1084,7 +1089,7 @@ def step_gemma_directed_tracking(
             path_b_frames_used,
         )
 
-    # ── Sub-step 3: RF-DETR tracking ──────────────────────────────────────────
+    # -- Sub-step 3: RF-DETR tracking ------------------------------------------
     # Release SAM before loading RF-DETR — SAM holds ~10 GiB which leaves no
     # room for RF-DETR on 12 GiB cards.  SAM is finished at this point.
     if sam_predictor is not None:
@@ -1183,7 +1188,7 @@ def step_gemma_directed_tracking(
         mean_track_len = 0.0
         median_track_len = 0.0
 
-    # ── Annotate frames ───────────────────────────────────────────────────────
+    # -- Annotate frames -------------------------------------------------------
     out_dir = video_dir / "gemma_tracking"
     out_dir.mkdir(parents=True, exist_ok=True)
     annotated_paths: list[str] = []
@@ -1204,7 +1209,7 @@ def step_gemma_directed_tracking(
         except Exception as exc:
             _log.debug("annotation failed for %s: %s", fp, exc)
 
-    # ── Save JSON results ─────────────────────────────────────────────────────
+    # -- Save JSON results -----------------------------------------------------
     elapsed = time.time() - t0
 
     results_json = {
@@ -1242,9 +1247,9 @@ def step_gemma_directed_tracking(
     }
     results_path = video_dir / "gemma_tracking_results.json"
     write_json_artifact(results_path, results_json, ensure_ascii=False)
-    _log.info("  ✓ Gemma tracking results → %s", results_path)
+    _log.info("  [ok] Gemma tracking results → %s", results_path)
 
-    # ── Write summary markdown ────────────────────────────────────────────────
+    # -- Write summary markdown ------------------------------------------------
     summary_path = _write_gemma_tracking_summary_md(
         video_dir,
         video_name,
@@ -1282,7 +1287,7 @@ def step_gemma_directed_tracking(
     return result
 
 
-# ── Summary markdown writer ────────────────────────────────────────────────────
+# -- Summary markdown writer ----------------------------------------------------
 
 
 def _write_gemma_tracking_summary_md(
@@ -1415,5 +1420,5 @@ def _write_gemma_tracking_summary_md(
 
     out_path = video_dir / "gemma_tracking_summary.md"
     write_markdown_artifact(out_path, lines)
-    _log.info("  ✓ Gemma tracking summary → %s", out_path)
+    _log.info("  [ok] Gemma tracking summary → %s", out_path)
     return str(out_path)

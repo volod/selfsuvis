@@ -131,6 +131,23 @@ def apply_local_env(args: Any) -> None:
     if getattr(args, "unidrive_api_url", ""):
         os.environ["UNIDRIVE_API_URL"] = args.unidrive_api_url
     os.environ.setdefault("UNIDRIVE_API_URL", "")
+    # When --unidrive is enabled without an explicit --unidrive-api-url,
+    # fall back to the Qwen API URL (same Ollama instance, compatible endpoint).
+    if (
+        args.unidrive
+        and not getattr(args, "unidrive_api_url", "")
+        and not os.environ.get("UNIDRIVE_API_URL")
+        and os.environ.get("QWEN_API_URL")
+    ):
+        os.environ["UNIDRIVE_API_URL"] = os.environ["QWEN_API_URL"]
+        if not os.environ.get("UNIDRIVE_BACKEND"):
+            os.environ["UNIDRIVE_BACKEND"] = os.environ.get("QWEN_BACKEND", "ollama")
+        import logging as _logging
+
+        _logging.getLogger("pipeline.local").info(
+            "UniDriveVLA: no --unidrive-api-url given, using Qwen endpoint %s",
+            os.environ["QWEN_API_URL"],
+        )
     if getattr(args, "unidrive_model", ""):
         os.environ["UNIDRIVE_MODEL"] = args.unidrive_model
     if getattr(args, "unidrive_backend", ""):

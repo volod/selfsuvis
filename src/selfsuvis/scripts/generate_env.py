@@ -484,7 +484,7 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
     if not sys.stdin.isatty():
         raise RuntimeError("--interactive requires a TTY")
 
-    # ── 1. Show detected hardware ────────────────────────────────────────────
+    # -- 1. Show detected hardware --------------------------------------------
     gpu_str = (
         f"{detected.vram_gb:.1f} GiB GPU ({detected.free_vram_gb:.1f} GiB free)"
         if detected.vram_gb > 0
@@ -495,7 +495,7 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
     rec_gemma, rec_reasoning = _recommend_ollama_gemma_models(detected)
     print(f"  Recommended models (Ollama): Gemma={rec_gemma}  Reasoning={rec_reasoning}\n")
 
-    # ── 2. Primary sidecar backend ───────────────────────────────────────────
+    # -- 2. Primary sidecar backend -------------------------------------------
     print("  Sidecar backends:")
     print("    ollama  — local server, models pulled automatically, easiest setup")
     print("    vllm    — higher throughput for batch inference, GPU recommended")
@@ -514,14 +514,14 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
         args.unidrive_backend = "none"  # UniDrive is off by default; enable explicitly
         args.reasoning_backend = "ollama"  # reasoning stays on Ollama regardless
 
-    # ── 3. Profile ───────────────────────────────────────────────────────────
+    # -- 3. Profile -----------------------------------------------------------
     print("\n  Profiles:")
     print("    minimal  — Gemma + Reasoning only (fastest, lowest resource use)")
     print("    balanced — Gemma + Qwen + Reasoning (good default)")
     print("    full     — all sidecars including UniDrive")
     args.profile = _prompt_choice("Profile", _PROFILE_NAMES, "balanced")
 
-    # ── 4. Reasoning model ───────────────────────────────────────────────────
+    # -- 4. Reasoning model ---------------------------------------------------
     if args.reasoning_backend != "none":
         _reasoning_options = {
             "qwen3:8b": "~5 GB  — fast fallback for tighter 8-12 GB systems",
@@ -538,7 +538,7 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
             print(f"    {tag:<26}  {note}{marker}")
         args.reasoning_model = _prompt_text("Ollama reasoning model tag", rec_reasoning)
 
-    # ── 5. Environment and output ────────────────────────────────────────────
+    # -- 5. Environment and output --------------------------------------------
     args.env_name = _prompt_choice("Environment", _ENV_NAMES, args.env_name)
     args.output = _prompt_text("Output path", args.output)
     return args
@@ -656,7 +656,7 @@ def _print_sidecar_next_steps(plan: EnvPlan, values: dict[str, str]) -> None:
     if not ollama_models and not vllm_cmds:
         return
 
-    print("\n─── Sidecar startup commands ──────────────────────────────────────")
+    print("\n--- Sidecar startup commands --------------------------------------")
     if ollama_models:
         print("\n  Ollama (run once, then keep running):")
         print("    ollama serve")
@@ -670,7 +670,7 @@ def _print_sidecar_next_steps(plan: EnvPlan, values: dict[str, str]) -> None:
 
     print("\n  Edit .env and set API_KEY, then drop videos into data/videos/ and run:")
     print("    make up  (Docker)  or  make venv && uvicorn selfsuvis.app.main:app  (local)")
-    print("──────────────────────────────────────────────────────────────────\n")
+    print("------------------------------------------------------------------\n")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

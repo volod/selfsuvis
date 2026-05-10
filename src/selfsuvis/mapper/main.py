@@ -28,7 +28,7 @@ load_layered_env(anchor_file=__file__)
 app = FastAPI(title="selfsuvis-mapper", version="1.0.0")
 
 
-# ── request / response models ─────────────────────────────────────────────────
+# -- request / response models -------------------------------------------------
 
 
 class FuseRequest(BaseModel):
@@ -69,7 +69,7 @@ class OverlapResponse(BaseModel):
     gps_distance_m: float
 
 
-# ── endpoints ─────────────────────────────────────────────────────────────────
+# -- endpoints -----------------------------------------------------------------
 
 
 @app.get("/health")

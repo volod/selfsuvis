@@ -58,7 +58,7 @@ _MIC_TYPES = ("measurement", "acoustic", "embedded", "headset", "phone", "unknow
 _PLAYER_TYPES = ("single-speaker", "stereo-speakers", "laptop", "phone", "headphones", "unknown")
 
 
-# ── Source audio ──────────────────────────────────────────────────────────────
+# -- Source audio --------------------------------------------------------------
 
 
 def _find_drone_wav(data_dir: Path) -> Path | None:
@@ -308,7 +308,7 @@ def _apply_distance_playback_gain(
     return out.astype(np.float32), float(received_db.max()), unclipped_peak
 
 
-# ── Physics ───────────────────────────────────────────────────────────────────
+# -- Physics -------------------------------------------------------------------
 
 
 def _simulate(
@@ -356,7 +356,7 @@ def _simulate(
     )
 
 
-# ── Scenario builders ─────────────────────────────────────────────────────────
+# -- Scenario builders ---------------------------------------------------------
 
 
 def _scenario_flyover(
@@ -497,7 +497,7 @@ def _scenario_circle(
     )
 
 
-# ── Output ────────────────────────────────────────────────────────────────────
+# -- Output --------------------------------------------------------------------
 
 
 def _play(audio: np.ndarray, sr: int) -> None:
@@ -570,7 +570,7 @@ def _print_playback_stats(max_received_db: float, unclipped_peak: float) -> None
     print()
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# -- Main ----------------------------------------------------------------------
 
 
 def main() -> None:

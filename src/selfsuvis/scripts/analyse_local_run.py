@@ -107,7 +107,7 @@ def run(args: argparse.Namespace) -> None:
             fig = fn(*fn_args)
             fig.savefig(str(out), dpi=150, bbox_inches="tight")
             plt.close(fig)
-            print(f"  ✓ {out.name}")
+            print(f"  [ok] {out.name}")
         except Exception as exc:
             print(f"  ✗ {name}: {exc}")
 
@@ -118,7 +118,7 @@ def run(args: argparse.Namespace) -> None:
             out_dir=run_dir,
             report_filename=args.report_filename,
         )
-        print(f"  ✓ {report_path}")
+        print(f"  [ok] {report_path}")
 
     if args.summary_json:
         payload = {
@@ -141,7 +141,7 @@ def run(args: argparse.Namespace) -> None:
         }
         out_path = Path(args.summary_json)
         out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(f"  ✓ {out_path}")
+        print(f"  [ok] {out_path}")
 
     print("\nDone.")
 

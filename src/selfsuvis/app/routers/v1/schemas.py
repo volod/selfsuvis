@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 VALID_MODALITIES = {"camera", "audio", "rf", "thermal", "vibration", "custom"}
 
 
-# ── Events ─────────────────────────────────────────────────────────────────────
+# -- Events ---------------------------------------------------------------------
 
 
 class EventEnvelope(BaseModel):
@@ -36,7 +36,7 @@ class SiteEventResponse(BaseModel):
     created_at: str
 
 
-# ── Zones ──────────────────────────────────────────────────────────────────────
+# -- Zones ----------------------------------------------------------------------
 
 
 class ZoneCreate(BaseModel):
@@ -69,7 +69,7 @@ class ZoneResponse(BaseModel):
     created_at: str
 
 
-# ── Incidents ──────────────────────────────────────────────────────────────────
+# -- Incidents ------------------------------------------------------------------
 
 
 class IncidentResponse(BaseModel):
@@ -104,7 +104,7 @@ class SiteStateSnapshot(BaseModel):
     zones: list[SiteStateZone]
 
 
-# ── Incident notes ─────────────────────────────────────────────────────────────
+# -- Incident notes -------------------------------------------------------------
 
 
 class NoteCreate(BaseModel):
@@ -120,7 +120,7 @@ class NoteResponse(BaseModel):
     created_at: str
 
 
-# ── Rules ──────────────────────────────────────────────────────────────────────
+# -- Rules ----------------------------------------------------------------------
 
 
 class RuleCreate(BaseModel):

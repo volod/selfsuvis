@@ -407,13 +407,13 @@ def write_model_run_advisor(
             else "- mAP@50: n/a (training skipped)"
         )
         lines.append(
-            f"- Cortex-A76 ONNX fp32: {'✓ generated' if ep.get('a76_onnx') else '✗ missing'}"
+            f"- Cortex-A76 ONNX fp32: {'[ok] generated' if ep.get('a76_onnx') else '✗ missing'}"
         )
         lines.append(
-            f"- RV1106G3 ONNX int8:   {'✓ generated' if ep.get('rv1106_int8') else '✗ missing'}"
+            f"- RV1106G3 ONNX int8:   {'[ok] generated' if ep.get('rv1106_int8') else '✗ missing'}"
         )
         lines.append(
-            f"- RV1106G3 RKNN:        {'✓ generated' if ep.get('rv1106_rknn') else '⚠ install rknn-toolkit2'}"
+            f"- RV1106G3 RKNN:        {'[ok] generated' if ep.get('rv1106_rknn') else '[warn] install rknn-toolkit2'}"
         )
 
     # Sequential VLLM graph profile

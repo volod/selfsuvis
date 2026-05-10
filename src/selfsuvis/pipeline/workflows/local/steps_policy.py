@@ -101,7 +101,7 @@ def step_policy(
     }
     _write_json(result, video_dir)
     _log.info(
-        "  ✓ Policy: action=%s  confidence=%.2f  degraded=%s",
+        "  [ok] Policy: action=%s  confidence=%.2f  degraded=%s",
         action,
         confidence,
         degraded,

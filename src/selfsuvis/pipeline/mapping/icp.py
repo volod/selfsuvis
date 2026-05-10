@@ -42,7 +42,7 @@ class IcpResult:
     message: str = ""
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
+# -- helpers -------------------------------------------------------------------
 
 
 def _initial_transform_from_gps(
@@ -95,7 +95,7 @@ def _voxel_size_for(n_points: int, target_points: int = 5_000) -> float:
     return max(0.05, round(raw, 2))
 
 
-# ── main API ──────────────────────────────────────────────────────────────────
+# -- main API ------------------------------------------------------------------
 
 
 def register_splats(

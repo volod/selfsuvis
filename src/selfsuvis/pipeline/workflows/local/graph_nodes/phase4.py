@@ -22,7 +22,7 @@ from .agentic_helpers import build_evidence_summary, critique_pass, llm_call_wit
 _log = get_logger(__name__)
 
 
-# ── Step 22: Multi-model comparison ──────────────────────────────────────────
+# -- Step 22: Multi-model comparison ------------------------------------------
 
 
 def node_p4_multi_model_compare(state: PipelineState) -> dict[str, Any]:
@@ -71,7 +71,7 @@ def node_p4_multi_model_compare(state: PipelineState) -> dict[str, Any]:
     }
 
 
-# ── Step 23: Video synthesis (agentic: draft → critique → conditional regen) ─
+# -- Step 23: Video synthesis (agentic: draft → critique → conditional regen) -
 
 
 def node_p4_synthesis(state: PipelineState) -> dict[str, Any]:
@@ -199,7 +199,7 @@ def _synthesis_critique(
     return synthesis_result
 
 
-# ── Agentic flow audit (with reflection loop) — runner step 30 ───────────────
+# -- Agentic flow audit (with reflection loop) — runner step 30 ---------------
 
 
 def node_p4_audit(state: PipelineState) -> dict[str, Any]:
@@ -352,7 +352,7 @@ def _audit_reflection(
     return audit_result
 
 
-# ── Emit analytics ────────────────────────────────────────────────────────────
+# -- Emit analytics ------------------------------------------------------------
 
 
 def node_p4_emit_analytics(state: PipelineState) -> dict[str, Any]:

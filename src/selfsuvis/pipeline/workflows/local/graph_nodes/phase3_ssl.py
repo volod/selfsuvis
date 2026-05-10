@@ -106,7 +106,9 @@ def node_p3_ssl_finetune(state: PipelineState) -> dict[str, Any]:
         and d["best_loss"] < _SSL_GATE_MAX_LOSS
     )
     if ssl_gate_passed:
-        _log.info("  ✓ SSL gate passed (best_loss=%.4f < %.1f)", d["best_loss"], _SSL_GATE_MAX_LOSS)
+        _log.info(
+            "  [ok] SSL gate passed (best_loss=%.4f < %.1f)", d["best_loss"], _SSL_GATE_MAX_LOSS
+        )
     else:
         _log.warning(
             "  ✗ SSL gate did not pass (checkpoint=%r, best_loss=%.4f, threshold=%.1f)",

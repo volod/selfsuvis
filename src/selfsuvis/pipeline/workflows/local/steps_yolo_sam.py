@@ -34,7 +34,7 @@ from ._common import _open_frame_image, write_json_artifact, write_markdown_arti
 
 _log = _logging_mod.getLogger("pipeline.local.yolo_sam")
 
-# ── Priority → display color (RGB) ───────────────────────────────────────────
+# -- Priority → display color (RGB) -------------------------------------------
 
 _PRIORITY_COLOR: dict[int, tuple[int, int, int]] = {
     PRIORITY_HUMAN: (229, 57, 53),  # red
@@ -292,7 +292,7 @@ def step_yolo_sam_detection(
     }
     results_path = video_dir / "yolo_sam_results.json"
     write_json_artifact(results_path, results_json, ensure_ascii=False)
-    _log.info("  ✓ YOLO+SAM results → %s", results_path)
+    _log.info("  [ok] YOLO+SAM results → %s", results_path)
 
     # Write comparison markdown
     comparison_md = _write_detection_comparison_md(
@@ -395,7 +395,7 @@ def _write_detection_comparison_md(
     lines += [
         "| Priority | Label | YOLO count | HF count |",
         "|----------|-------|-----------|---------|",
-        f"| 1 🔴 | **Human** | {by_p.get('human', 0)} | {hf_by_priority.get('human', '—') if hf_total else '—'} |",
+        f"| 1 [high] | **Human** | {by_p.get('human', 0)} | {hf_by_priority.get('human', '—') if hf_total else '—'} |",
         f"| 2 🔵 | **Vehicle** | {by_p.get('vehicle', 0)} | {hf_by_priority.get('vehicle', '—') if hf_total else '—'} |",
         f"| 3 🟢 | **Artificial** | {by_p.get('artificial', 0)} | {hf_by_priority.get('artificial', '—') if hf_total else '—'} |",
         f"| 4 ⚫ | **Other** | {by_p.get('other', 0)} | {hf_by_priority.get('other', '—') if hf_total else '—'} |",
@@ -419,7 +419,7 @@ def _write_detection_comparison_md(
     lines += [
         "| Priority | Color | Meaning |",
         "|----------|-------|---------|",
-        "| 1 | 🔴 Red | Human — highest safety priority |",
+        "| 1 | [high] Red | Human — highest safety priority |",
         "| 2 | 🔵 Blue | Vehicle — dynamic scene actor |",
         "| 3 | 🟢 Green | Artificial object — infrastructure/equipment |",
         "| 4 | ⚫ Grey | Other — natural / uncategorized |",
@@ -443,5 +443,5 @@ def _write_detection_comparison_md(
 
     out_path = video_dir / "detection_comparison.md"
     write_markdown_artifact(out_path, lines)
-    _log.info("  ✓ Detection comparison → %s", out_path)
+    _log.info("  [ok] Detection comparison → %s", out_path)
     return str(out_path)

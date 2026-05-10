@@ -67,7 +67,7 @@ def step_distill(
         result["skipped"] = True
         return result
 
-    # ── Choose teacher ────────────────────────────────────────────────────────
+    # -- Choose teacher --------------------------------------------------------
     teacher_bb = None
     teacher_label = "DINOv3 ViT-B/14 (SSL)"
 
@@ -99,7 +99,7 @@ def step_distill(
             result["skipped"] = True
             return result
 
-    # ── Caption anchor ────────────────────────────────────────────────────────
+    # -- Caption anchor --------------------------------------------------------
     lambda_cap = 0.0
     cap_embs = None
     if caption_embeddings is not None and len(caption_embeddings) > 0:
@@ -150,7 +150,7 @@ def step_distill(
     result["teacher_label"] = teacher_label
     result["caption_anchor_used"] = lambda_cap > 0
     _log.info(
-        "  ✓ Distillation complete in %.1fs | best_loss=%.4f | best_R@1=%.3f | "
+        "  [ok] Distillation complete in %.1fs | best_loss=%.4f | best_R@1=%.3f | "
         "compression=%.1f× | student=%s (dim=%d)",
         stats["elapsed"],
         stats["best_loss"],
@@ -247,7 +247,7 @@ def step_distill_stage2(
     result["student_backbone"] = distiller.student_backbone()
     result["ckpt_mb"] = os.path.getsize(best_path) / 1e6
     _log.info(
-        "  ✓ Stage 2 complete in %.1fs | best_loss=%.4f | best_R@1=%.3f | compression=%.1f×",
+        "  [ok] Stage 2 complete in %.1fs | best_loss=%.4f | best_R@1=%.3f | compression=%.1f×",
         stats["elapsed"],
         stats["best_loss"],
         stats.get("best_recall", float("nan")),
@@ -260,7 +260,7 @@ def step_distill_stage2(
         result["onnx_path"] = onnx_path
         result["onnx_mb"] = os.path.getsize(onnx_path) / 1e6
         result["onnx_exported"] = True
-        _log.info("  ✓ EfficientViT ONNX: %.1f MB → %s", result["onnx_mb"], onnx_path)
+        _log.info("  [ok] EfficientViT ONNX: %.1f MB → %s", result["onnx_mb"], onnx_path)
     except Exception as exc:
         _log.warning("  EfficientViT ONNX export failed (%s)", exc)
 
@@ -360,7 +360,7 @@ def step_export_model(
                 onnx_mb = os.path.getsize(onnx_path) / 1e6
                 result["onnx_mb"] = onnx_mb
                 result["exported"] = True
-                _log.info("  ✓ ONNX export complete: %.1f MB → %s", onnx_mb, onnx_path)
+                _log.info("  [ok] ONNX export complete: %.1f MB → %s", onnx_mb, onnx_path)
             else:
                 _log.warning("  ONNX export ran but file not found at %s", onnx_path)
             for _mod_name, _mod in sys.modules.items():
@@ -413,7 +413,7 @@ def step_export_model(
         if os.path.exists(gallery_path):
             result["gallery_saved"] = True
             _log.info(
-                "  ✓ Gallery saved: %d embeddings → %s (%.1f MB)",
+                "  [ok] Gallery saved: %d embeddings → %s (%.1f MB)",
                 len(sampled),
                 gallery_path,
                 os.path.getsize(gallery_path) / 1e6,

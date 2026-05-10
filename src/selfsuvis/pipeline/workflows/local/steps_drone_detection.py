@@ -46,7 +46,7 @@ _YOLOV8N_MODEL = "yolov8n.pt"
 _ULTRALYTICS_AUX_MODELS = ("yolov8n.pt", "yolo26n.pt")
 
 
-# ── Dataset helpers ───────────────────────────────────────────────────────────
+# -- Dataset helpers -----------------------------------------------------------
 
 
 def _download_batch_zip(
@@ -150,7 +150,19 @@ def _build_yolo_dataset(
     return yaml_path
 
 
-# ── Training ──────────────────────────────────────────────────────────────────
+# -- Training ------------------------------------------------------------------
+
+
+def _configure_ultralytics_cache() -> None:
+    """Point ultralytics weights_dir at ~/.cache/ultralytics so downloads never land in CWD."""
+    try:
+        from ultralytics.utils import SETTINGS
+
+        cache_dir = str(Path.home() / ".cache" / "ultralytics")
+        if SETTINGS.get("weights_dir") != cache_dir:
+            SETTINGS.update({"weights_dir": cache_dir})
+    except Exception:
+        pass
 
 
 def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> dict[str, Any]:
@@ -160,6 +172,7 @@ def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> dict[str, Any
     except ImportError:
         return {"error": "ultralytics not installed"}
 
+    _configure_ultralytics_cache()
     _relocate_repo_root_ultralytics_artifacts()
     model = YOLO(str(_ultralytics_cached_model_path(_YOLOV8N_MODEL)))
     torch_device = "0" if device == "cuda" else "cpu"
@@ -184,6 +197,7 @@ def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> dict[str, Any
         save=True,
         plots=False,
     )
+    _relocate_repo_root_ultralytics_artifacts()
     best_pt = run_dir / "train" / "weights" / "best.pt"
     metrics: dict[str, Any] = {"best_pt": str(best_pt) if best_pt.exists() else ""}
     try:
@@ -218,7 +232,7 @@ def _relocate_repo_root_ultralytics_artifacts() -> None:
         shutil.move(str(src), str(dst))
 
 
-# ── Export helpers ────────────────────────────────────────────────────────────
+# -- Export helpers ------------------------------------------------------------
 
 
 def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Path | None:
@@ -295,7 +309,7 @@ def _try_rknn_export(onnx_path: Path, export_dir: Path) -> Path | None:
         return None
 
 
-# ── Test-script generation ────────────────────────────────────────────────────
+# -- Test-script generation ----------------------------------------------------
 
 
 def _write_test_a76(dest: Path, onnx_path: Path) -> None:
@@ -417,7 +431,7 @@ def _write_test_rv1106(dest: Path, rknn_available: bool, onnx_int8_path: Path) -
     dest.write_text(script, encoding="utf-8")
 
 
-# ── Report ────────────────────────────────────────────────────────────────────
+# -- Report --------------------------------------------------------------------
 
 
 def _write_report(
@@ -497,7 +511,7 @@ def _write_report(
         "### Rockchip RV1106G3 (e.g. Luckfox Pico, IPC-AI modules)",
         "",
         f"- **int8 ONNX model**: `{onnx_int8.name if onnx_int8 else 'quantisation failed'}`",
-        f"- **RKNN model**: `{'generated ✓' if rknn_path and rknn_path.exists() else 'not generated — install rknn-toolkit2'}`",
+        f"- **RKNN model**: `{'generated [ok]' if rknn_path and rknn_path.exists() else 'not generated — install rknn-toolkit2'}`",
         "- **NPU**: Rockchip 0.5 TOPS NPU via rknn-toolkit-lite2 on device",
         "- **Estimated latency**: ~8-15 ms on RV1106G3 NPU @ int8",
         "- **Test script**: `test_rv1106.py`",
@@ -540,7 +554,7 @@ def _write_report(
     write_markdown_artifact(report_path, lines)
 
 
-# ── Public step function ──────────────────────────────────────────────────────
+# -- Public step function ------------------------------------------------------
 
 
 def step_drone_detection_training(
@@ -641,22 +655,22 @@ def step_drone_detection_training(
         onnx_fp32 = _export_onnx_fp32(best_pt, export_dir)
         if onnx_fp32:
             result["model_fp32"] = str(onnx_fp32)
-            _log.info("  ✓ %s (%.1f MB)", onnx_fp32.name, onnx_fp32.stat().st_size / 1e6)
+            _log.info("  [ok] %s (%.1f MB)", onnx_fp32.name, onnx_fp32.stat().st_size / 1e6)
 
             _log.info("Quantising ONNX to int8 for RV1106G3 …")
             onnx_int8 = _quantize_onnx_int8(onnx_fp32, export_dir)
             if onnx_int8:
                 result["model_int8"] = str(onnx_int8)
-                _log.info("  ✓ %s (%.1f MB)", onnx_int8.name, onnx_int8.stat().st_size / 1e6)
+                _log.info("  [ok] %s (%.1f MB)", onnx_int8.name, onnx_int8.stat().st_size / 1e6)
 
             _log.info("Attempting RKNN export (skips if rknn-toolkit2 absent) …")
             src_for_rknn = onnx_int8 or onnx_fp32
             rknn_path = _try_rknn_export(src_for_rknn, export_dir)
             if rknn_path:
                 result["model_rknn"] = str(rknn_path)
-                _log.info("  ✓ RKNN model: %s", rknn_path)
+                _log.info("  [ok] RKNN model: %s", rknn_path)
             else:
-                _log.info("  ℹ RKNN skipped (install rknn-toolkit2 for RV1106G3 NPU)")
+                _log.info("  [info] RKNN skipped (install rknn-toolkit2 for RV1106G3 NPU)")
 
     _log.info("Writing test scripts …")
     _write_test_a76(drone_dir / "test_a76.py", onnx_fp32 or export_dir / "drone_yolo8n_a76.onnx")
@@ -670,7 +684,7 @@ def step_drone_detection_training(
     _write_report(
         report_path, metrics, n_train, n_neg, onnx_fp32, onnx_int8, rknn_path, time.monotonic() - t0
     )
-    _log.info("  ✓ Written %s", report_path)
+    _log.info("  [ok] Written %s", report_path)
 
     result["elapsed_sec"] = time.monotonic() - t0
     return result

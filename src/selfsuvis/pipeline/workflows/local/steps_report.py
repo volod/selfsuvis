@@ -24,7 +24,7 @@ from ._threat_contradictions import (
     support_frame_names,
 )
 
-# ── Markdown helpers ──────────────────────────────────────────────────────────
+# -- Markdown helpers ----------------------------------------------------------
 
 
 def _md_image(rel_path: str, alt: str = "frame") -> str:
@@ -67,7 +67,7 @@ def write_search_md(
         lines.append(f"| {i} | {score:.4f} | {t:.2f}s | {_md_image(rel, f'match {i}')} |")
     lines += ["", "---", f"*Artifact produced by {_RUNNER_LABEL}.*"]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def _diff_structured_caption(prev: dict[str, Any], curr: dict[str, Any]) -> str:
@@ -186,7 +186,7 @@ def write_scene_captions_md(
 
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · Florence-2-large · phase1 captioning*"]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def _write_gemma_captions_md(
@@ -281,7 +281,7 @@ def write_gemma_analysis_md(
         if res.get("error"):
             status = f"✗ {res['error'][:60]}"
         else:
-            status = "✓"
+            status = "[ok]"
         lines.append(f"| {label} | {status} |")
     lines += [""]
 
@@ -422,7 +422,7 @@ def write_gemma_analysis_md(
             "",
         ]
 
-    # ── Analysis interpretation ───────────────────────────────────────────────
+    # -- Analysis interpretation -----------------------------------------------
     lines += ["## Findings & Interpretation", ""]
 
     # Embedding discrimination
@@ -556,7 +556,7 @@ def write_gemma_analysis_md(
 
     lines += ["---", f"*Produced by {_RUNNER_LABEL} — Gemma open-weight multimodal analysis.*"]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_finetune_stats_md(
@@ -695,7 +695,7 @@ def write_finetune_stats_md(
         "",
         "```",
         f"high │{sparkline}│",
-        f" low │{'─' * len(sparkline)}│",
+        f" low │{'-' * len(sparkline)}│",
         f"      epoch 1{'':>{max(0, len(sparkline) - 9)}}epoch {len(loss_history)}",
         "```",
         "",
@@ -734,7 +734,7 @@ def write_finetune_stats_md(
         f"*Artifact produced by {_RUNNER_LABEL}. See `edge_models/` for ONNX export.*",
     ]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_distill_stats_md(
@@ -832,7 +832,7 @@ def write_distill_stats_md(
         f"*Artifact produced by {_RUNNER_LABEL}. Student exported to `edge_models/dino_local.onnx`.*",
     ]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_comparison_md(
@@ -900,7 +900,7 @@ def write_comparison_md(
         f"*Artifact produced by {_RUNNER_LABEL}.*",
     ]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_description_md(
@@ -945,7 +945,7 @@ def write_description_md(
         lines.append(f"- `{Path(fp).name}` (t={t_sec:.1f}s)")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · model: OpenCLIP ViT-B/16 (openai)*"]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_final_stats_md(
@@ -1048,7 +1048,7 @@ def write_final_stats_md(
         "*Run `python main.py --mode local --help` for all options.*",
     ]
     write_markdown_artifact(output_path, lines)
-    _log.info("✓ Final stats written to %s", output_path)
+    _log.info("[ok] Final stats written to %s", output_path)
 
 
 def write_multimodal_md(
@@ -1072,21 +1072,21 @@ def write_multimodal_md(
         "",
         "| Step | Status | Detail |",
         "|------|--------|--------|",
-        f"| ASR (Whisper) | {'✓' if not asr_result.get('skipped') else '—'} | "
+        f"| ASR (Whisper) | {'[ok]' if not asr_result.get('skipped') else '—'} | "
         f"{asr_result.get('covered_frames', 0)} frames with subtitles |",
-        f"| OCR | {'✓' if not ocr_result.get('skipped') else '—'} | "
+        f"| OCR | {'[ok]' if not ocr_result.get('skipped') else '—'} | "
         f"{ocr_result.get('non_empty', 0)} frames with text |",
-        f"| Depth | {'✓' if not depth_result.get('skipped') else '—'} | "
+        f"| Depth | {'[ok]' if not depth_result.get('skipped') else '—'} | "
         f"{depth_result.get('ok_count', 0)} frames estimated |",
-        f"| Detection | {'✓' if not det_result.get('skipped') else '—'} | "
+        f"| Detection | {'[ok]' if not det_result.get('skipped') else '—'} | "
         f"{det_result.get('total_objects', 0)} objects detected |",
-        f"| World Model | {'✓' if not world_result.get('skipped') else '—'} | "
+        f"| World Model | {'[ok]' if not world_result.get('skipped') else '—'} | "
         f"{world_result.get('ok_count', 0)} clips processed |",
-        f"| Platform-state fusion | {'✓' if not state_fusion_result.get('skipped') else '—'} | "
+        f"| Platform-state fusion | {'[ok]' if not state_fusion_result.get('skipped') else '—'} | "
         f"{state_fusion_result.get('summary', {}).get('frame_count', 0)} posterior samples |",
-        f"| Qwen VLM captioning | {'✓' if not qwen_result.get('skipped') else '—'} | "
+        f"| Qwen VLM captioning | {'[ok]' if not qwen_result.get('skipped') else '—'} | "
         f"{qwen_result.get('ok_count', 0)} frames captioned |",
-        f"| UniDriveVLA expert analysis | {'✓' if not unidrive_result.get('skipped') else '—'} | "
+        f"| UniDriveVLA expert analysis | {'[ok]' if not unidrive_result.get('skipped') else '—'} | "
         f"{unidrive_result.get('ok_count', 0)} frames analysed |",
         "",
     ]
@@ -1141,7 +1141,7 @@ def write_multimodal_md(
         ]
     lines += ["---", f"*Produced by {_RUNNER_LABEL} · multimodal steps M–S*"]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_state_fusion_md(output_path: Path, video_name: str, fusion_result: Any) -> None:
@@ -1189,7 +1189,7 @@ def write_state_fusion_md(output_path: Path, video_name: str, fusion_result: Any
         lines.append("| — | — | — | — | — | — | — | — | — |")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · probabilistic platform-state fusion MVP*"]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_detailed_captions_md(
@@ -1346,7 +1346,7 @@ def write_detailed_captions_md(
         f"*Produced by {_RUNNER_LABEL} · Qwen VLM step 12 · ASR subtitle context injected where available*",
     ]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_unidrive_analysis_md(
@@ -1399,7 +1399,7 @@ def write_unidrive_analysis_md(
         )
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · UniDriveVLA step 13*"]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_multi_model_comparison_md(
@@ -1514,7 +1514,7 @@ def write_multi_model_comparison_md(
         f"*Produced by {_RUNNER_LABEL} · multi-model comparison step 21*",
     ]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
     return {
         "matched_frames": len(agreement_scores),
         "mean_qwen_unidrive_agreement": mean_agreement,
@@ -1678,7 +1678,7 @@ def write_video_synthesis_md(
         f"*Produced by {_RUNNER_LABEL} · synthesis step 28 · context from steps 01-27*",
     ]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
 def write_agentic_flow_md(
@@ -1764,10 +1764,10 @@ def write_agentic_flow_md(
         lines.append("Reasoning analysis unavailable.")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · final agentic audit step*"]
     write_markdown_artifact(output_path, lines)
-    _log.info("  ✓ Written %s", output_path)
+    _log.info("  [ok] Written %s", output_path)
 
 
-# ── Run statistics printer ────────────────────────────────────────────────────
+# -- Run statistics printer ----------------------------------------------------
 
 # (timing_key, step_label, computation_type)
 # Ordered by typical execution sequence.
@@ -1844,7 +1844,7 @@ def print_run_stats(
     )
     n_vids = len(per_video)
     W = LABEL_W + TYPE_W + DUR_W * (n_vids + 1) + 4
-    SEP = "─" * W
+    SEP = "-" * W
 
     def _fit_cell(value: str, width: int) -> str:
         value = str(value)
@@ -1927,10 +1927,10 @@ def print_run_stats(
     )
     _log.info(_row("WALL CLOCK TOTAL", "", *([""] * n_vids), _fmt_sec(total_elapsed)))
 
-    # ── Computation-type subtotals ─────────────────────────────────────────────
+    # -- Computation-type subtotals ---------------------------------------------
     _log.info("")
     _log.info("  COMPUTATION TYPE BREAKDOWN  (pipeline steps only)")
-    _log.info("  " + "─" * (TYPE_W + DUR_W + LABEL_W + 2))
+    _log.info("  " + "-" * (TYPE_W + DUR_W + LABEL_W + 2))
     TYPE_ORDER = [
         "I/O",
         "GPU embed",
@@ -2098,7 +2098,7 @@ def print_run_stats(
     for v in per_video:
         _log.info("  %-20s  %s", v.get("name", "?"), v.get("top_description", "—") or "—")
     _log.info("")
-    _log.info("  " + "═" * (W - 2))
+    _log.info("  " + "=" * (W - 2))
 
 
 def _fmt_analytics_coverage(summary: dict[str, Any]) -> str:

@@ -29,7 +29,7 @@ class ReportRenderer:
             lstrip_blocks=True,
         )
 
-    # ── Report generation ─────────────────────────────────────────────────────
+    # -- Report generation -----------------------------------------------------
 
     def generate_report(
         self,
@@ -45,7 +45,7 @@ class ReportRenderer:
     def get_stats(self) -> dict[str, Any]:
         return self.analyzer.collector.get_all_container_stats()
 
-    # ── Console output ────────────────────────────────────────────────────────
+    # -- Console output --------------------------------------------------------
 
     def print_health_only(self) -> None:
         self._print_health_table(self.get_health())
@@ -177,7 +177,7 @@ class ReportRenderer:
             self.console.print(f"\nActive Cameras: {', '.join(cameras)}")
         self.console.print()
 
-    # ── File export ───────────────────────────────────────────────────────────
+    # -- File export -----------------------------------------------------------
 
     def export_json(self, report: dict[str, Any], output_path: Path) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)

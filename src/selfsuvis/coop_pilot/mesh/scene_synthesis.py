@@ -3,9 +3,9 @@
 SceneSynthesizer fuses heterogeneous sensor observations into a unified,
 human-readable scene narrative and a structured scene snapshot:
 
-  LoRaWAN sensor readings     ─┐
-  Frigate camera detections    ├─► SceneSynthesizer ─► SceneSynthesis
-  RtspCaptioner scene_timeline ─┘     (LLM reasoning backend)
+  LoRaWAN sensor readings     -┐
+  Frigate camera detections    ├-► SceneSynthesizer -► SceneSynthesis
+  RtspCaptioner scene_timeline -┘     (LLM reasoning backend)
   Acoustic observations
 
 The LLM call goes to the existing REASONING_API_URL backend so no new
@@ -30,7 +30,7 @@ logger = get_logger(__name__)
 
 _DEFAULT_CACHE_SEC = 10.0
 
-# ── Public model ──────────────────────────────────────────────────────────────
+# -- Public model --------------------------------------------------------------
 
 
 class SceneSynthesis(BaseModel):
@@ -47,7 +47,7 @@ class SceneSynthesis(BaseModel):
     sources_used: list[str] = Field(default_factory=list)
 
 
-# ── Synthesizer ───────────────────────────────────────────────────────────────
+# -- Synthesizer ---------------------------------------------------------------
 
 
 class SceneSynthesizer:
@@ -95,7 +95,7 @@ class SceneSynthesizer:
             self._cache_ts = time.monotonic()
             return result
 
-    # ── DB caption fetch ──────────────────────────────────────────────────────
+    # -- DB caption fetch ------------------------------------------------------
 
     async def _fetch_recent_captions(self) -> list[dict[str, Any]]:
         if self._db_pool is None:
@@ -116,7 +116,7 @@ class SceneSynthesizer:
             logger.debug("SceneSynthesizer: scene_timeline query failed: %s", exc)
             return []
 
-    # ── LLM call ─────────────────────────────────────────────────────────────
+    # -- LLM call -------------------------------------------------------------
 
     async def _call_llm(self, state: SiteState, captions: list[dict[str, Any]]) -> SceneSynthesis:
         prompt = _build_prompt(state, captions)
@@ -166,7 +166,7 @@ class SceneSynthesizer:
             return data["choices"][0]["message"]["content"]
 
 
-# ── Prompt construction ───────────────────────────────────────────────────────
+# -- Prompt construction -------------------------------------------------------
 
 _SYSTEM_PROMPT = (
     "You are a site-awareness AI for an outdoor monitoring system. "

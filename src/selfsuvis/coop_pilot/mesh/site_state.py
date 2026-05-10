@@ -19,7 +19,7 @@ from ..config import settings
 from ..sensors.frigate_events import CameraEvent
 from ..sensors.lorawan_decoder import SensorReading
 
-# ── Public Pydantic models (used in API responses) ────────────────────────────
+# -- Public Pydantic models (used in API responses) ----------------------------
 
 
 class SensorSummary(BaseModel):
@@ -62,7 +62,7 @@ class SiteState(BaseModel):
     active_motion: bool = False
 
 
-# ── Aggregator ────────────────────────────────────────────────────────────────
+# -- Aggregator ----------------------------------------------------------------
 
 
 class SiteStateAggregator:

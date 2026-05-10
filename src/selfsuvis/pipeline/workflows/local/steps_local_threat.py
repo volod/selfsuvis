@@ -199,7 +199,7 @@ def step_local_threat(
     }
     _write_json(result, video_dir)
     _log.info(
-        "  ✓ Local threat: score=%.2f  confidence=%.2f  active=%s",
+        "  [ok] Local threat: score=%.2f  confidence=%.2f  active=%s",
         local_threat_score,
         automation_confidence,
         result["summary"]["active_types"] or "none",

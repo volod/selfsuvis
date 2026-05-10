@@ -39,7 +39,7 @@ def step_build_semantic_environment_graph(
         title=f"{video_name} — YOLO Semantic Environment Graph",
     )
     _log.info(
-        "  ✓ YOLO SSG → %s (%d nodes, %d edges)",
+        "  [ok] YOLO SSG → %s (%d nodes, %d edges)",
         graph_json,
         graph.get("summary", {}).get("node_count", 0),
         graph.get("summary", {}).get("edge_count", 0),

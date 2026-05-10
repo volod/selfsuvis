@@ -85,14 +85,14 @@ def step_scenetok(
         client.release()
         return result
 
-    # ── save tokens ──────────────────────────────────────────────────────────
+    # -- save tokens ----------------------------------------------------------
     tokens_b64 = out.get("tokens_b64_npz", "")
     if tokens_b64:
         tokens_path = video_dir / "scenetok_tokens.npz"
         tokens_path.write_bytes(base64.b64decode(tokens_b64))
         _log.info("  Saved scene tokens → %s", tokens_path.name)
 
-    # ── save per-frame outputs ────────────────────────────────────────────────
+    # -- save per-frame outputs ------------------------------------------------
     frame_results: list[dict[str, Any]] = out.get("results", [])
     if effective_mode == "masks":
         out_dir = video_dir / "scenetok_masks"
@@ -112,7 +112,7 @@ def step_scenetok(
 
     n_tokens = int(out.get("n_tokens", 0))
     _log.info(
-        "  ✓ SceneTok: %d frames → %d tokens → %d %s in %.1fs",
+        "  [ok] SceneTok: %d frames → %d tokens → %d %s in %.1fs",
         len(images),
         n_tokens,
         saved,

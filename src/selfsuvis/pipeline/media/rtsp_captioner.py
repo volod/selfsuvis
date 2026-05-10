@@ -76,7 +76,7 @@ class RtspCaptioner:
             self._caption_fps,
         )
 
-    # ── Model loading ─────────────────────────────────────────────────────────
+    # -- Model loading ---------------------------------------------------------
 
     def _get_gemma_model(self):
         if self._gemma_model is None:
@@ -92,7 +92,7 @@ class RtspCaptioner:
             self._florence_model = FlorenceModel()
         return self._florence_model
 
-    # ── Caption dispatch ──────────────────────────────────────────────────────
+    # -- Caption dispatch ------------------------------------------------------
 
     def _caption_frame(self, pil_image) -> dict[str, Any]:
         """Caption a single PIL image. Returns a dict with caption + facts."""
@@ -115,7 +115,7 @@ class RtspCaptioner:
 
         return {"caption": None, "facts_json": None, "model": "none"}
 
-    # ── DB write ──────────────────────────────────────────────────────────────
+    # -- DB write --------------------------------------------------------------
 
     async def _write_to_timeline(
         self,
@@ -149,7 +149,7 @@ class RtspCaptioner:
         except Exception as exc:
             logger.error("scene_timeline write failed: %s", exc)
 
-    # ── Frame reader ──────────────────────────────────────────────────────────
+    # -- Frame reader ----------------------------------------------------------
 
     async def run(self, stop_event: asyncio.Event | None = None) -> None:
         """Consume the RTSP stream and caption frames at the configured rate.

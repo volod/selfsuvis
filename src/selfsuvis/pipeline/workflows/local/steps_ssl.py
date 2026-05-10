@@ -905,7 +905,7 @@ def step_ssl_finetune(
         },
     )
     _log.info(
-        "  ✓ Fine-tuning complete in %.1fs | best loss=%.4f | checkpoint: %s",
+        "  [ok] Fine-tuning complete in %.1fs | best loss=%.4f | checkpoint: %s",
         elapsed,
         best_loss,
         best_path,

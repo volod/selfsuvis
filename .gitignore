@@ -18,6 +18,11 @@ __pycache__/
 /cache_test/
 /video_test/
 
+# model weight files (never commit; cache lives in ~/.cache/ultralytics)
+*.pt
+*.onnx
+*.rknn
+
 # OS
 .DS_Store
 Thumbs.db

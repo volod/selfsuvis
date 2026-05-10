@@ -21,7 +21,7 @@ from .agentic_helpers import (
 _log = get_logger(__name__)
 
 
-# ── Step 03: Gemma multimodal analysis (with claim verification) ──────────────
+# -- Step 03: Gemma multimodal analysis (with claim verification) --------------
 
 
 def node_p2_gemma_analysis(state: PipelineState) -> dict[str, Any]:
@@ -155,7 +155,7 @@ def _verify_gemma_claims(j: dict[str, Any], state: PipelineState) -> dict[str, A
     return j
 
 
-# ── Fan-in merge: commit all parallel results to knowledge & video_context ────
+# -- Fan-in merge: commit all parallel results to knowledge & video_context ----
 
 
 def node_p2_merge_parallel(state: PipelineState) -> dict[str, Any]:
@@ -257,7 +257,7 @@ def node_p2_merge_parallel(state: PipelineState) -> dict[str, Any]:
     }
 
 
-# ── Platform state fusion ─────────────────────────────────────────────────────
+# -- Platform state fusion -----------------------------------------------------
 
 
 def node_p2_platform_fusion(state: PipelineState) -> dict[str, Any]:
@@ -283,7 +283,7 @@ def node_p2_platform_fusion(state: PipelineState) -> dict[str, Any]:
     }
 
 
-# ── Step 11: World model ──────────────────────────────────────────────────────
+# -- Step 11: World model ------------------------------------------------------
 
 
 def node_p2_world_model(state: PipelineState) -> dict[str, Any]:
@@ -331,7 +331,7 @@ def node_p2_world_model(state: PipelineState) -> dict[str, Any]:
     }
 
 
-# ── Step 12: Qwen captioning (agentic: retry on parse_error) ─────────────────
+# -- Step 12: Qwen captioning (agentic: retry on parse_error) -----------------
 
 
 def node_p2_qwen_caption(state: PipelineState) -> dict[str, Any]:
@@ -446,7 +446,7 @@ def _qwen_retry_parse_errors(
     return qwen_result
 
 
-# ── Step 13: UniDriveVLA (agentic: MoE consensus scoring) ────────────────────
+# -- Step 13: UniDriveVLA (agentic: MoE consensus scoring) --------------------
 
 
 def node_p2_unidrive(state: PipelineState) -> dict[str, Any]:
@@ -536,7 +536,7 @@ def _score_unidrive_consensus(
     return unidrive_result
 
 
-# ── Step 14: SceneTok ─────────────────────────────────────────────────────────
+# -- Step 14: SceneTok ---------------------------------------------------------
 
 
 def node_p2_scenetok(state: PipelineState) -> dict[str, Any]:
@@ -586,7 +586,7 @@ def node_p2_scenetok(state: PipelineState) -> dict[str, Any]:
     }
 
 
-# ── Step 15: Base model search ────────────────────────────────────────────────
+# -- Step 15: Base model search ------------------------------------------------
 
 
 def node_p2_base_search(state: PipelineState) -> dict[str, Any]:
@@ -660,7 +660,7 @@ def node_p2_base_search(state: PipelineState) -> dict[str, Any]:
     }
 
 
-# ── Step 16 close + full state fusion ────────────────────────────────────────
+# -- Step 16 close + full state fusion ----------------------------------------
 
 
 def node_p2_full_fusion(state: PipelineState) -> dict[str, Any]:

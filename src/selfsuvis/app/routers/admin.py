@@ -224,7 +224,7 @@ async def admin_stats(request: Request) -> dict[str, Any]:
     }
 
 
-# ── Automation ROI endpoint ──────────────────────────────────────────────────
+# -- Automation ROI endpoint --------------------------------------------------
 #
 # Evidence-based answer to: "is the auto-trigger pipeline worth maintaining?"
 #
@@ -417,7 +417,7 @@ async def automation_roi() -> dict[str, Any]:
     }
 
 
-# ── Caption eval endpoint ────────────────────────────────────────────────────
+# -- Caption eval endpoint ----------------------------------------------------
 
 
 @router.get(
@@ -497,7 +497,7 @@ async def caption_eval(request: Request) -> dict[str, Any]:
     }
 
 
-# ── Hot-reload model endpoint ────────────────────────────────────────────────
+# -- Hot-reload model endpoint ------------------------------------------------
 
 
 class ReloadModelRequest(BaseModel):
@@ -558,7 +558,7 @@ async def reload_model(body: ReloadModelRequest = ReloadModelRequest()) -> dict[
     return {"status": "ok", "checkpoint": ckpt_path}
 
 
-# ── Re-embed all endpoint ────────────────────────────────────────────────────
+# -- Re-embed all endpoint ----------------------------------------------------
 
 
 @router.post("/reembed-all", summary="Enqueue full re-embedding sweep (dino vectors)")
@@ -590,7 +590,7 @@ async def reembed_all(request: Request) -> dict[str, Any]:
     return {"job_id": job_id}
 
 
-# ── Reembed status endpoint ───────────────────────────────────────────────────
+# -- Reembed status endpoint ---------------------------------------------------
 
 
 @router.get("/reembed-status", summary="Check whether a reembed sweep is active")

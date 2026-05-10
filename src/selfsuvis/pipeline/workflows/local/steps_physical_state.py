@@ -26,7 +26,7 @@ from selfsuvis.pipeline.fusion.object_state import summarize_object_frame_dicts
 
 from ._common import _log, write_json_artifact
 
-# ── Platform confidence ───────────────────────────────────────────────────────
+# -- Platform confidence -------------------------------------------------------
 
 
 def _platform_pose_confidence(
@@ -51,7 +51,7 @@ def _platform_pose_confidence(
     return 1.0 / (1.0 + mean_cov / 10.0)
 
 
-# ── Depth near-ratio ──────────────────────────────────────────────────────────
+# -- Depth near-ratio ----------------------------------------------------------
 
 
 def _mean_depth_near_ratio(depth_results: list[dict[str, Any]]) -> float:
@@ -66,7 +66,7 @@ def _mean_depth_near_ratio(depth_results: list[dict[str, Any]]) -> float:
     return float(sum(ratios) / len(ratios)) if ratios else 0.0
 
 
-# ── Free space estimate ───────────────────────────────────────────────────────
+# -- Free space estimate -------------------------------------------------------
 
 
 def _free_space_estimate(near_field_density: float, depth_near_ratio: float) -> float:
@@ -110,7 +110,7 @@ def _yolo_near_field_density(yolo_sam_result: dict[str, Any]) -> float:
     return float(sum(frame_areas) / len(frame_areas)) if frame_areas else 0.0
 
 
-# ── Main step ─────────────────────────────────────────────────────────────────
+# -- Main step -----------------------------------------------------------------
 
 
 def step_physical_state(
@@ -156,13 +156,13 @@ def step_physical_state(
         _write_json(result, video_dir)
         return result
 
-    # ── Object-state summary ──────────────────────────────────────────────────
+    # -- Object-state summary --------------------------------------------------
     per_frame_dicts: list[list[dict[str, Any]]] = (
         full_fusion_result.get("per_frame_object_states") or [] if not fusion_skipped else []
     )
     obj_summary = summarize_object_frame_dicts(per_frame_dicts)
 
-    # ── Platform pose confidence ──────────────────────────────────────────────
+    # -- Platform pose confidence ----------------------------------------------
     smoothed_traj = (
         full_fusion_result.get("smoothed_trajectory") or [] if not fusion_skipped else []
     )
@@ -171,21 +171,21 @@ def step_physical_state(
     )
     pose_confidence = _platform_pose_confidence(platform_status, smoothed_traj)
 
-    # ── Depth near-ratio ─────────────────────────────────────────────────────
+    # -- Depth near-ratio -----------------------------------------------------
     depth_near_ratio = (
         _mean_depth_near_ratio(depth_result.get("depth_results") or [])
         if not depth_skipped
         else 0.0
     )
 
-    # ── Detection occupancy fallback / complement ────────────────────────────
+    # -- Detection occupancy fallback / complement ----------------------------
     yolo_near_density = 0.0 if yolo_skipped else _yolo_near_field_density(yolo_sam_result)
     effective_occ = max(obj_summary["near_field_density"], yolo_near_density)
 
-    # ── Free space ───────────────────────────────────────────────────────────
+    # -- Free space -----------------------------------------------------------
     free_space = _free_space_estimate(effective_occ, depth_near_ratio)
 
-    # ── Assemble result ───────────────────────────────────────────────────────
+    # -- Assemble result -------------------------------------------------------
     n_frames = len(frame_list)
     result = {
         "skipped": False,
@@ -214,7 +214,7 @@ def step_physical_state(
     _write_json(result, video_dir)
 
     _log.info(
-        "  ✓ Physical state: pose_conf=%.2f  occ=%.2f  free=%.2f  tracks=%d  depth_near=%.2f",
+        "  [ok] Physical state: pose_conf=%.2f  occ=%.2f  free=%.2f  tracks=%d  depth_near=%.2f",
         pose_confidence,
         obj_summary["near_field_density"],
         free_space,

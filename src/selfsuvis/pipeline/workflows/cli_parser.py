@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--es-index", help="Elasticsearch index name")
 
-    # ── Local orchestration args (used when --mode local) ─────────────────────
+    # -- Local orchestration args (used when --mode local) ---------------------
     parser.add_argument(
         "--videos-dir",
         default="data/videos",

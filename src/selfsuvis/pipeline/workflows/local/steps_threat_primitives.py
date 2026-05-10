@@ -29,7 +29,7 @@ from ._threat_contradictions import contradiction_signals_for_threat, summarize_
 
 _log = get_logger("pipeline.local")
 
-# ── Evidence thresholds ───────────────────────────────────────────────────────
+# -- Evidence thresholds -------------------------------------------------------
 
 _COLL_OCC_THRESH = 0.15  # near-field occupancy fraction to flag
 _COLL_VEL_THRESH = 0.02  # mean normalised velocity/frame to flag
@@ -44,7 +44,7 @@ _POSE_KALMAN_THRESH = 0.40  # Kalman pose confidence below this
 _POSE_SFM_FAIL_THRESH = 0.30  # fraction of frames without an SfM pose
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# -- Helpers -------------------------------------------------------------------
 
 
 def _max_run_length(flags: list[bool]) -> int:
@@ -236,7 +236,7 @@ def _ssim_quality_stats(frame_list: list[tuple[str, float]]) -> tuple[float, lis
     return float(sum(diffs) / len(diffs)), low_paths, _max_run_length(low_flags)
 
 
-# ── Primitive builders ────────────────────────────────────────────────────────
+# -- Primitive builders --------------------------------------------------------
 
 
 def _build_collision_risk(
@@ -465,7 +465,7 @@ def _build_pose_uncertain(
     }
 
 
-# ── Overall threat level ──────────────────────────────────────────────────────
+# -- Overall threat level ------------------------------------------------------
 
 
 def _threat_level(primitives: list[dict[str, Any]]) -> str:
@@ -481,7 +481,7 @@ def _threat_level(primitives: list[dict[str, Any]]) -> str:
     return "none"
 
 
-# ── Main step ─────────────────────────────────────────────────────────────────
+# -- Main step -----------------------------------------------------------------
 
 
 def step_threat_primitives(
@@ -559,29 +559,29 @@ def step_threat_primitives(
 
     primitives: list[dict[str, Any]] = []
 
-    # ── Collision risk ────────────────────────────────────────────────────────
+    # -- Collision risk --------------------------------------------------------
     p = _build_collision_risk(physical_state, per_frame_occ, frame_list)
     if p:
         primitives.append(p)
 
-    # ── Visibility degradation ────────────────────────────────────────────────
+    # -- Visibility degradation ------------------------------------------------
     p = _build_visibility_degradation(
         depth_results_list, caption_results or [], frame_list, field_state
     )
     if p:
         primitives.append(p)
 
-    # ── RF anomaly ───────────────────────────────────────────────────────────
+    # -- RF anomaly -----------------------------------------------------------
     p = _build_rf_anomaly(field_state, frame_list)
     if p:
         primitives.append(p)
 
-    # ── Track anomaly ─────────────────────────────────────────────────────────
+    # -- Track anomaly ---------------------------------------------------------
     p = _build_track_anomaly(tracking_results, physical_state)
     if p:
         primitives.append(p)
 
-    # ── Pose uncertain ────────────────────────────────────────────────────────
+    # -- Pose uncertain --------------------------------------------------------
     p = _build_pose_uncertain(physical_state, sfm_poses, map_degraded, frame_list)
     if p:
         primitives.append(p)
@@ -657,7 +657,7 @@ def step_threat_primitives(
     _write_json(result, video_dir)
 
     _log.info(
-        "  ✓ Threat primitives: %d emitted  level=%s  types=%s",
+        "  [ok] Threat primitives: %d emitted  level=%s  types=%s",
         n,
         level,
         types or "none",

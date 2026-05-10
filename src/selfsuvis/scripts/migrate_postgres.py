@@ -355,7 +355,7 @@ _SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_scene_timeline_frame_id ON scene_timeline (frame_id)",
     "CREATE INDEX IF NOT EXISTS idx_scene_timeline_created_at ON scene_timeline (created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_scene_timeline_facts ON scene_timeline USING gin(facts_json) WHERE facts_json IS NOT NULL",
-    # ── Site State API v1 ────────────────────────────────────────────────────
+    # -- Site State API v1 ----------------------------------------------------
     # Phase 1 — sensor_keys
     """
     CREATE TABLE IF NOT EXISTS sensor_keys (

@@ -357,7 +357,7 @@ def _run_pass_a(
         logger.warning("Pass A: mapper/DB step failed mission=%s: %s", mission_id, exc)
 
 
-# ── GPU resource isolation ───────────────────────────────────────────────────
+# -- GPU resource isolation ---------------------------------------------------
 #
 # gpu_jobs table acts as a semaphore: workers check in before allocating GPU
 # memory and check out on completion.  Stale entries older than
@@ -428,7 +428,7 @@ class GPULock:
             self.logger.warning("GPU isolation: check-out failed (non-fatal): %s", exc)
 
 
-# ── Backward-compat wrappers (used by tests and legacy call sites) ────────────
+# -- Backward-compat wrappers (used by tests and legacy call sites) ------------
 
 
 def _gpu_checkin(job_id: str, job_type: str, conn_url: str, logger) -> bool:
@@ -450,7 +450,7 @@ def _gpu_checkout(job_id: str, conn_url: str, logger) -> None:
         logger.warning("GPU isolation: check-out failed (non-fatal): %s", exc)
 
 
-# ── Supervised finetune job handler ─────────────────────────────────────────
+# -- Supervised finetune job handler -----------------------------------------
 
 _UPSERT_SYSTEM_STATE_SQL = (
     "INSERT INTO system_state (key, value, updated_at) VALUES ($1, $2, $3) "
@@ -605,7 +605,7 @@ def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logg
         _pg_run(_mark_error())
 
 
-# ── Reembed job handler ──────────────────────────────────────────────────────
+# -- Reembed job handler ------------------------------------------------------
 
 
 async def _load_reembed_cursor(conn, job_id: str) -> tuple:
@@ -902,7 +902,7 @@ def handle_postflight_semantic_graph_job(job_id: str, payload: dict, pool, logge
         _run(_mark_error())
 
 
-# ── Main loop ────────────────────────────────────────────────────────────────
+# -- Main loop ----------------------------------------------------------------
 
 
 def _claim_next_job(pool) -> dict | None:

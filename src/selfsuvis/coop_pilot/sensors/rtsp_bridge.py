@@ -90,7 +90,7 @@ class FrigateRtspBridge:
             for s in self._active.values()
         ]
 
-    # ── Internal ──────────────────────────────────────────────────────────────
+    # -- Internal --------------------------------------------------------------
 
     async def _fetch_cameras(self) -> list[str]:
         """Return names of enabled cameras from the Frigate API."""

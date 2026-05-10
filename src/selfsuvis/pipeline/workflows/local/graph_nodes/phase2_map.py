@@ -37,7 +37,7 @@ def node_p2_map_3d_submit(state: PipelineState) -> dict[str, Any]:
         )
         run_sfm = False
 
-    _log.info("  ▷ Submitting 3D-map step 16 to background thread …")
+    _log.info("  -> Submitting 3D-map step 16 to background thread …")
     executor = _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="sfm-bg")
     future = executor.submit(
         step_create_3d_map,

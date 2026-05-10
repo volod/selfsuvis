@@ -51,7 +51,7 @@ _CHUNK_SAMPLES = _SR  # 1-second chunks
 _T_FRAMES = _CHUNK_SAMPLES // _HOP_LENGTH + 1  # ≈ 44
 
 
-# ── MFCC (scipy-only, no librosa) ─────────────────────────────────────────────
+# -- MFCC (scipy-only, no librosa) ---------------------------------------------
 
 
 def _hz_to_mel(hz: float) -> float:
@@ -124,7 +124,7 @@ def _compute_mfcc(wave: np.ndarray) -> np.ndarray:
     return mfcc.astype(np.float32)
 
 
-# ── Dataset helpers ───────────────────────────────────────────────────────────
+# -- Dataset helpers -----------------------------------------------------------
 
 
 def _load_wav_mono(path: Path) -> np.ndarray | None:
@@ -231,7 +231,7 @@ def _download_hf_dataset(cache_dir: Path) -> bool:
     return True
 
 
-# ── PyTorch model + dataset ───────────────────────────────────────────────────
+# -- PyTorch model + dataset ---------------------------------------------------
 
 
 def _build_model() -> Any:
@@ -290,7 +290,7 @@ class _AudioDataset:
         return x, label
 
 
-# ── Training ──────────────────────────────────────────────────────────────────
+# -- Training ------------------------------------------------------------------
 
 
 def _train(
@@ -381,7 +381,7 @@ def _train(
     return model, {"history": history, "best": best}
 
 
-# ── ONNX export ───────────────────────────────────────────────────────────────
+# -- ONNX export ---------------------------------------------------------------
 
 
 def _export_onnx(model: Any, out_path: Path, device: str) -> bool:
@@ -400,14 +400,14 @@ def _export_onnx(model: Any, out_path: Path, device: str) -> bool:
             dynamic_axes={"mfcc": {0: "batch"}},
             opset_version=14,
         )
-        _log.info("  ✓ ONNX export: %s (%.1f kB)", out_path.name, out_path.stat().st_size / 1024)
+        _log.info("  [ok] ONNX export: %s (%.1f kB)", out_path.name, out_path.stat().st_size / 1024)
         return True
     except Exception as exc:
         _log.warning("ONNX export failed: %s", exc)
         return False
 
 
-# ── Report ────────────────────────────────────────────────────────────────────
+# -- Report --------------------------------------------------------------------
 
 
 def _write_report(
@@ -521,7 +521,7 @@ def _write_report(
     write_markdown_artifact(path, lines)
 
 
-# ── Public step function ──────────────────────────────────────────────────────
+# -- Public step function ------------------------------------------------------
 
 
 def step_drone_audio_training(
@@ -622,7 +622,7 @@ def step_drone_audio_training(
 
     pt_path = audio_dir / "drone_audio_cnn.pt"
     torch.save(model.state_dict(), pt_path)
-    _log.info("  ✓ Checkpoint: %s", pt_path)
+    _log.info("  [ok] Checkpoint: %s", pt_path)
 
     best = metrics.get("best", {})
     result["val_acc"] = best.get("val_acc", float("nan"))
@@ -652,7 +652,7 @@ def step_drone_audio_training(
         "  Drone audio: val_acc=%.3f  val_f1=%.3f  onnx=%s  elapsed=%.1fs",
         result["val_acc"],
         result["val_f1"],
-        "✓" if ok else "✗",
+        "[ok]" if ok else "✗",
         elapsed,
     )
     return result

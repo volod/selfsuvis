@@ -55,7 +55,7 @@ def step_advise_3d_map_quality(
         output_dir=video_dir / "3d_map",
     )
     _log.info(
-        "  ✓ Map quality advisor → %s (%s, %.1f/100)",
+        "  [ok] Map quality advisor → %s (%s, %.1f/100)",
         advisor.get("markdown_path", video_dir / "3d_map" / "map_quality_advisor.md"),
         ((advisor.get("summary", {}) or {}).get("overall") or "unknown"),
         float(advisor.get("readiness_score", 0.0) or 0.0),

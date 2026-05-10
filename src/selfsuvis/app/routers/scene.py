@@ -33,7 +33,7 @@ router = APIRouter(
 )
 
 
-# ── Request / Response models ─────────────────────────────────────────────────
+# -- Request / Response models -------------------------------------------------
 
 
 class GpsBbox(BaseModel):
@@ -132,7 +132,7 @@ class SceneQueryResponse(BaseModel):
     filters_applied: list[str]
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# -- Helpers -------------------------------------------------------------------
 
 
 def _count_vehicles(frame_facts: dict[str, Any] | None) -> int | None:
@@ -201,7 +201,7 @@ def _build_sql_filters(body: SceneQuery) -> tuple[str, list]:
     return where, params
 
 
-# ── Endpoint ──────────────────────────────────────────────────────────────────
+# -- Endpoint ------------------------------------------------------------------
 
 
 @router.post(
@@ -224,7 +224,7 @@ async def query_scene(body: SceneQuery, request: Request) -> SceneQueryResponse:
     """
     db_pool = get_db_pool(request)
 
-    # ── Build SQL ─────────────────────────────────────────────────────────────
+    # -- Build SQL -------------------------------------------------------------
     where, params = _build_sql_filters(body)
 
     # Fetch more rows than top_k when a text query will re-rank
@@ -256,7 +256,7 @@ async def query_scene(body: SceneQuery, request: Request) -> SceneQueryResponse:
 
     total_matched = len(rows)
 
-    # ── Optional CLIP re-ranking ───────────────────────────────────────────────
+    # -- Optional CLIP re-ranking -----------------------------------------------
     frame_id_to_score: dict[str, float] = {}
 
     if body.text and rows:
@@ -306,7 +306,7 @@ async def query_scene(body: SceneQuery, request: Request) -> SceneQueryResponse:
                 reverse=True,
             )
 
-    # ── Build response ────────────────────────────────────────────────────────
+    # -- Build response --------------------------------------------------------
     results: list[SceneMatch] = []
     for i, row in enumerate(rows[: body.top_k]):
         facts: dict = row["frame_facts_json"] or {}

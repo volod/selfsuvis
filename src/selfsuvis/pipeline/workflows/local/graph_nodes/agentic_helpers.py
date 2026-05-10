@@ -24,7 +24,7 @@ GEMMA_CLAIM_MIN_SIM: float = 0.25
 MOE_CONSENSUS_THRESHOLD: float = 0.5
 
 
-# ── JSON guard ────────────────────────────────────────────────────────────────
+# -- JSON guard ----------------------------------------------------------------
 
 
 def json_guard(raw: str, required_keys: list[str]) -> dict[str, Any] | None:
@@ -45,7 +45,7 @@ def json_guard(raw: str, required_keys: list[str]) -> dict[str, Any] | None:
     return None
 
 
-# ── LLM call with exponential back-off ───────────────────────────────────────
+# -- LLM call with exponential back-off ---------------------------------------
 
 
 def llm_call_with_retry(
@@ -82,7 +82,7 @@ def llm_call_with_retry(
     ) from last_exc
 
 
-# ── Critique pass ─────────────────────────────────────────────────────────────
+# -- Critique pass -------------------------------------------------------------
 
 
 def critique_pass(
@@ -128,7 +128,7 @@ def critique_pass(
         return "CRITIQUE_FAILED"
 
 
-# ── MoE consensus scoring ─────────────────────────────────────────────────────
+# -- MoE consensus scoring -----------------------------------------------------
 
 
 def _jaccard(a: str, b: str) -> float:
@@ -175,7 +175,7 @@ def low_agreement_frames(
     return low
 
 
-# ── Evidence summary builder ──────────────────────────────────────────────────
+# -- Evidence summary builder --------------------------------------------------
 
 
 def build_evidence_summary(state: dict[str, Any]) -> str:

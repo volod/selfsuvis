@@ -44,7 +44,7 @@ def step_extract_frames(
     }
     meta_path = video_dir / "frames_metadata.json"
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    _log.info("  ✓ %d frames extracted in %.1fs → %s", len(frame_list), elapsed, meta_path)
+    _log.info("  [ok] %d frames extracted in %.1fs → %s", len(frame_list), elapsed, meta_path)
     return {"frame_list": frame_list, "elapsed_sec": elapsed, "meta": meta}
 
 
@@ -119,7 +119,7 @@ def step_index_to_store(
         batch_pil, batch_meta, video_id, clip_model, dino_model, store, is_qdrant
     )
     elapsed = time.time() - t0
-    _log.info("  ✓ %d frames indexed into %s in %.1fs", indexed, dest, elapsed)
+    _log.info("  [ok] %d frames indexed into %s in %.1fs", indexed, dest, elapsed)
     return {"indexed": indexed, "elapsed_sec": elapsed}
 
 
@@ -248,7 +248,7 @@ def step_base_model_search_test(
     results = result["results"]
     elapsed = float(result["elapsed_sec"])
     _log.info(
-        "  ✓ Search in %.2fs → top score %.4f", elapsed, results[0]["score"] if results else 0
+        "  [ok] Search in %.2fs → top score %.4f", elapsed, results[0]["score"] if results else 0
     )
     return {"results": results, "query_frame": qfp, "query_t_sec": qt}
 
