@@ -12,8 +12,18 @@ from selfsuvis.pipeline.storage.realtime import fetch_realtime_state, summarize_
 @pytest.mark.parametrize(
     ("backend", "fixture_name", "expected_pose_source", "expected_packet_counts"),
     [
-        ("mavlink", "mavlink_trace.jsonl", "fused_gps_imu_barometer", {"barometer": 1, "gps": 1, "imu": 1, "magnetometer": 1}),
-        ("ros", "ros_trace.jsonl", "fused_gps_imu_barometer", {"barometer": 1, "camera": 1, "gps": 1, "imu": 1, "magnetometer": 1}),
+        (
+            "mavlink",
+            "mavlink_trace.jsonl",
+            "fused_gps_imu_barometer",
+            {"barometer": 1, "gps": 1, "imu": 1, "magnetometer": 1},
+        ),
+        (
+            "ros",
+            "ros_trace.jsonl",
+            "fused_gps_imu_barometer",
+            {"barometer": 1, "camera": 1, "gps": 1, "imu": 1, "magnetometer": 1},
+        ),
     ],
 )
 async def test_replay_bridge_trace_end_to_end_ingests_recorded_samples(

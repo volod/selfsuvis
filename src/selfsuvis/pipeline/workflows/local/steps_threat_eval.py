@@ -92,11 +92,21 @@ def _collect_video_records(per_video_stats: Sequence[dict[str, Any]]) -> list[di
                 "video_id": video_dir.name,
                 "video_dir": str(video_dir),
                 "local_threat_score": float(local_threat.get("local_threat_score", 0.0) or 0.0),
-                "automation_confidence": float(local_threat.get("automation_confidence", 1.0) or 1.0),
+                "automation_confidence": float(
+                    local_threat.get("automation_confidence", 1.0) or 1.0
+                ),
                 "disagreement_rate": float(local_threat.get("disagreement_rate", 0.0) or 0.0),
                 "top_threats": list(local_threat.get("top_threats") or []),
-                "predicted_threat_types": [str(item.get("type", "")) for item in (local_threat.get("top_threats") or []) if item.get("type")],
-                "recommended_action": str(policy.get("recommended_action", local_threat.get("recommended_action", "continue"))),
+                "predicted_threat_types": [
+                    str(item.get("type", ""))
+                    for item in (local_threat.get("top_threats") or [])
+                    if item.get("type")
+                ],
+                "recommended_action": str(
+                    policy.get(
+                        "recommended_action", local_threat.get("recommended_action", "continue")
+                    )
+                ),
                 "primitives": list(primitives.get("primitives") or []),
             }
         )
@@ -117,21 +127,41 @@ def _histogram(values: Sequence[float], *, n_bins: int = 5) -> list[dict[str, An
     return out
 
 
-def _reliability_diagram(records: Sequence[dict[str, Any]], labels: dict[str, dict[str, Any]], *, n_bins: int = 5) -> dict[str, Any]:
+def _reliability_diagram(
+    records: Sequence[dict[str, Any]], labels: dict[str, dict[str, Any]], *, n_bins: int = 5
+) -> dict[str, Any]:
     rows = []
     for idx in range(n_bins):
         start = idx / n_bins
         end = (idx + 1) / n_bins
         bucket = [
-            record for record in records
-            if start <= float(record.get("automation_confidence", 0.0) or 0.0) < end or (idx == n_bins - 1 and float(record.get("automation_confidence", 0.0) or 0.0) == 1.0)
+            record
+            for record in records
+            if start <= float(record.get("automation_confidence", 0.0) or 0.0) < end
+            or (idx == n_bins - 1 and float(record.get("automation_confidence", 0.0) or 0.0) == 1.0)
         ]
         if not bucket:
-            rows.append({"bin_start": round(start, 2), "bin_end": round(end, 2), "count": 0, "mean_confidence": None, "observed_accuracy": None})
+            rows.append(
+                {
+                    "bin_start": round(start, 2),
+                    "bin_end": round(end, 2),
+                    "count": 0,
+                    "mean_confidence": None,
+                    "observed_accuracy": None,
+                }
+            )
             continue
-        matched = [labels.get(str(record.get("video_id", ""))) for record in bucket if labels.get(str(record.get("video_id", "")))]
+        matched = [
+            labels.get(str(record.get("video_id", "")))
+            for record in bucket
+            if labels.get(str(record.get("video_id", "")))
+        ]
         if matched:
-            accuracy = sum(1 for record in bucket if _action_matches_label(record, labels.get(str(record.get("video_id", "")), {}))) / len(bucket)
+            accuracy = sum(
+                1
+                for record in bucket
+                if _action_matches_label(record, labels.get(str(record.get("video_id", "")), {}))
+            ) / len(bucket)
             label_source = "human_or_outcome_labels"
         else:
             accuracy = None
@@ -141,7 +171,11 @@ def _reliability_diagram(records: Sequence[dict[str, Any]], labels: dict[str, di
                 "bin_start": round(start, 2),
                 "bin_end": round(end, 2),
                 "count": len(bucket),
-                "mean_confidence": round(sum(float(r.get("automation_confidence", 0.0) or 0.0) for r in bucket) / len(bucket), 4),
+                "mean_confidence": round(
+                    sum(float(r.get("automation_confidence", 0.0) or 0.0) for r in bucket)
+                    / len(bucket),
+                    4,
+                ),
                 "observed_accuracy": round(float(accuracy), 4) if accuracy is not None else None,
                 "label_source": label_source,
             }
@@ -164,7 +198,7 @@ def _persistence_threshold_sweeps(records: Sequence[dict[str, Any]]) -> list[dic
                     active.append(float(primitive.get("score", 0.0) or 0.0))
             remaining = 1.0
             for score in active:
-                remaining *= (1.0 - max(0.0, min(1.0, score)))
+                remaining *= 1.0 - max(0.0, min(1.0, score))
             scores.append(1.0 - remaining if active else 0.0)
         sweeps.append(
             {
@@ -176,7 +210,9 @@ def _persistence_threshold_sweeps(records: Sequence[dict[str, Any]]) -> list[dic
     return sweeps
 
 
-def _threat_detection_metrics(matched: Sequence[tuple[dict[str, Any], dict[str, Any]]]) -> dict[str, Any]:
+def _threat_detection_metrics(
+    matched: Sequence[tuple[dict[str, Any], dict[str, Any]]],
+) -> dict[str, Any]:
     tp = fp = fn = 0
     for record, label in matched:
         predicted = set(record.get("predicted_threat_types") or [])
@@ -195,7 +231,9 @@ def _threat_detection_metrics(matched: Sequence[tuple[dict[str, Any], dict[str, 
     }
 
 
-def _action_policy_metrics(matched: Sequence[tuple[dict[str, Any], dict[str, Any]]]) -> dict[str, Any]:
+def _action_policy_metrics(
+    matched: Sequence[tuple[dict[str, Any], dict[str, Any]]],
+) -> dict[str, Any]:
     if not matched:
         return {"accuracy": None, "count": 0}
     correct = sum(1 for record, label in matched if _action_matches_label(record, label))
@@ -203,10 +241,14 @@ def _action_policy_metrics(matched: Sequence[tuple[dict[str, Any], dict[str, Any
 
 
 def _action_matches_label(record: dict[str, Any], label: dict[str, Any]) -> bool:
-    return str(record.get("recommended_action", "") or "") == str(label.get("recommended_action", "") or "")
+    return str(record.get("recommended_action", "") or "") == str(
+        label.get("recommended_action", "") or ""
+    )
 
 
-def _load_eval_labels(output_dir: Path, *, label_path: Path | None = None) -> dict[str, dict[str, Any]]:
+def _load_eval_labels(
+    output_dir: Path, *, label_path: Path | None = None
+) -> dict[str, dict[str, Any]]:
     path = label_path or (output_dir / "threat_eval_labels.json")
     if not path.exists():
         return {}

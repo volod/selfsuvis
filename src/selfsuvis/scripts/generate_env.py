@@ -1,6 +1,5 @@
 """Generate a project-root .env from environment presets plus resource-aware overrides."""
 
-
 import argparse
 import os
 import sys
@@ -172,13 +171,17 @@ def _recommend_qwen_model(resources: ResourceProfile, backend: str) -> str:
 
 def _recommend_unidrive_model(resources: ResourceProfile, backend: str) -> str:
     if backend == "ollama":
-        return "qwen2.5vl:7b" if resources.ram_gb >= 32 or resources.vram_gb >= 10 else "qwen2.5vl:3b"
+        return (
+            "qwen2.5vl:7b" if resources.ram_gb >= 32 or resources.vram_gb >= 10 else "qwen2.5vl:3b"
+        )
     if resources.vram_gb < 8 and resources.ram_gb < 32:
         return "Qwen/Qwen2.5-VL-3B-Instruct"
     return "owl10/UniDriveVLA_Nusc_Base_Stage3"
 
 
-def build_env_plan(options: EnvGenerationOptions, existing: Mapping[str, str] | None = None) -> EnvPlan:
+def build_env_plan(
+    options: EnvGenerationOptions, existing: Mapping[str, str] | None = None
+) -> EnvPlan:
     base = load_env_template(options.env_name)
     existing_values = dict(existing or {})
     gemma_backend = _resolve_backend("gemma", options.gemma_backend, options.profile)
@@ -201,13 +204,17 @@ def build_env_plan(options: EnvGenerationOptions, existing: Mapping[str, str] | 
         _recommend_qwen_model(options.resources, qwen_backend) if qwen_backend != "none" else ""
     )
     unidrive_model = options.unidrive_model or (
-        _recommend_unidrive_model(options.resources, unidrive_backend) if unidrive_backend != "none" else ""
+        _recommend_unidrive_model(options.resources, unidrive_backend)
+        if unidrive_backend != "none"
+        else ""
     )
 
     values: dict[str, str] = dict(base)
     values["APP_ENV"] = options.env_name
     values["DEVICE"] = "cpu" if options.resources.vram_gb <= 0 else values.get("DEVICE", "auto")
-    values["USE_FP16"] = "false" if options.resources.vram_gb <= 0 else values.get("USE_FP16", "true")
+    values["USE_FP16"] = (
+        "false" if options.resources.vram_gb <= 0 else values.get("USE_FP16", "true")
+    )
     values["GPU_TOTAL_GB_HINT"] = _format_float(options.resources.vram_gb)
     values["GPU_FREE_GB_HINT"] = _format_float(options.resources.free_vram_gb)
     values.setdefault("HF_TOKEN", "")
@@ -221,7 +228,9 @@ def build_env_plan(options: EnvGenerationOptions, existing: Mapping[str, str] | 
     values.setdefault("YOLO_SSG_ENABLED", "true")
     values.setdefault("SAM_ENABLED", "true")
     values.setdefault("RFDETR_ENABLED", "true")
-    values["SELFSUVIS_USE_GRAPH"] = "1" if options.profile == "full" else values.get("SELFSUVIS_USE_GRAPH", "")
+    values["SELFSUVIS_USE_GRAPH"] = (
+        "1" if options.profile == "full" else values.get("SELFSUVIS_USE_GRAPH", "")
+    )
 
     _apply_sidecar(values, "GEMMA", gemma_backend, gemma_model, default_port=11434)
     _apply_sidecar(values, "QWEN", qwen_backend, qwen_model, default_port=8010)
@@ -251,11 +260,18 @@ def build_env_plan(options: EnvGenerationOptions, existing: Mapping[str, str] | 
         "unidrive": unidrive_backend,
         "reasoning": reasoning_backend,
     }
-    return EnvPlan(values=values, resources=options.resources, profile=options.profile,
-                   env_name=options.env_name, selected_backends=selected_backends)
+    return EnvPlan(
+        values=values,
+        resources=options.resources,
+        profile=options.profile,
+        env_name=options.env_name,
+        selected_backends=selected_backends,
+    )
 
 
-def _apply_sidecar(values: MutableMapping[str, str], prefix: str, backend: str, model: str, *, default_port: int) -> None:
+def _apply_sidecar(
+    values: MutableMapping[str, str], prefix: str, backend: str, model: str, *, default_port: int
+) -> None:
     model_key = f"{prefix}_MODEL"
     backend_key = f"{prefix}_BACKEND"
     if prefix == "GEMMA":
@@ -327,40 +343,97 @@ def render_env(plan: EnvPlan) -> str:
     ]
 
     ordered_groups: Sequence[tuple[str, Sequence[str]]] = (
-        ("core", (
-            "APP_ENV", "DATA_DIR", "FRAMES_DIR", "TILES_DIR", "VIDEOS_DIR",
-            "REPORTS_DIR", "MAPS_DIR", "DATABASE_URL",
-            "QDRANT_HOST", "QDRANT_PORT", "QDRANT_COLLECTION",
-            "DEVICE", "USE_FP16", "GPU_TOTAL_GB_HINT", "GPU_FREE_GB_HINT",
-            "ALLOWED_INDEX_PATHS", "LOG_LEVEL",
-        )),
-        ("models", (
-            "MODEL_NAME", "OPENCLIP_MODEL", "OPENCLIP_PRETRAINED", "GEMMA_MODEL_ID",
-        )),
-        ("sidecars", (
-            "GEMMA_API_URL", "GEMMA_API_BACKEND", "GEMMA_API_MODEL",
-            "QWEN_API_URL", "QWEN_BACKEND", "QWEN_MODEL",
-            "REASONING_API_URL", "REASONING_BACKEND", "REASONING_MODEL",
-            "UNIDRIVE_ENABLED", "UNIDRIVE_API_URL", "UNIDRIVE_BACKEND", "UNIDRIVE_MODEL",
-            "FLORENCE_API_URL", "FLORENCE_MODEL",
-        )),
-        ("pipeline", (
-            "YOLO_ENABLED", "YOLO_MODEL", "YOLO_SSG_ENABLED",
-            "SAM_ENABLED", "SAM_MODEL", "RFDETR_ENABLED", "RFDETR_MODEL",
-            "SELFSUVIS_USE_GRAPH",
-            "SAMPLE_FPS_BASE", "SAMPLE_FPS_MIN", "SAMPLE_FPS_MAX",
-            "HIST_THRESH", "EMBED_DRIFT_THRESH", "MAX_GAP_SEC",
-            "TILE_SIZE", "STRIDE", "MAX_TILES_PER_SEGMENT", "DEDUP_COS_SIM_THRESH",
-        )),
-        ("services", (
-            "STATIC_SERVER_URL", "SUPERSPLAT_SERVER_URL", "NERFSTUDIO_API_URL", "MAPPER_API_URL",
-        )),
+        (
+            "core",
+            (
+                "APP_ENV",
+                "DATA_DIR",
+                "FRAMES_DIR",
+                "TILES_DIR",
+                "VIDEOS_DIR",
+                "REPORTS_DIR",
+                "MAPS_DIR",
+                "DATABASE_URL",
+                "QDRANT_HOST",
+                "QDRANT_PORT",
+                "QDRANT_COLLECTION",
+                "DEVICE",
+                "USE_FP16",
+                "GPU_TOTAL_GB_HINT",
+                "GPU_FREE_GB_HINT",
+                "ALLOWED_INDEX_PATHS",
+                "LOG_LEVEL",
+            ),
+        ),
+        (
+            "models",
+            (
+                "MODEL_NAME",
+                "OPENCLIP_MODEL",
+                "OPENCLIP_PRETRAINED",
+                "GEMMA_MODEL_ID",
+            ),
+        ),
+        (
+            "sidecars",
+            (
+                "GEMMA_API_URL",
+                "GEMMA_API_BACKEND",
+                "GEMMA_API_MODEL",
+                "QWEN_API_URL",
+                "QWEN_BACKEND",
+                "QWEN_MODEL",
+                "REASONING_API_URL",
+                "REASONING_BACKEND",
+                "REASONING_MODEL",
+                "UNIDRIVE_ENABLED",
+                "UNIDRIVE_API_URL",
+                "UNIDRIVE_BACKEND",
+                "UNIDRIVE_MODEL",
+                "FLORENCE_API_URL",
+                "FLORENCE_MODEL",
+            ),
+        ),
+        (
+            "pipeline",
+            (
+                "YOLO_ENABLED",
+                "YOLO_MODEL",
+                "YOLO_SSG_ENABLED",
+                "SAM_ENABLED",
+                "SAM_MODEL",
+                "RFDETR_ENABLED",
+                "RFDETR_MODEL",
+                "SELFSUVIS_USE_GRAPH",
+                "SAMPLE_FPS_BASE",
+                "SAMPLE_FPS_MIN",
+                "SAMPLE_FPS_MAX",
+                "HIST_THRESH",
+                "EMBED_DRIFT_THRESH",
+                "MAX_GAP_SEC",
+                "TILE_SIZE",
+                "STRIDE",
+                "MAX_TILES_PER_SEGMENT",
+                "DEDUP_COS_SIM_THRESH",
+            ),
+        ),
+        (
+            "services",
+            (
+                "STATIC_SERVER_URL",
+                "SUPERSPLAT_SERVER_URL",
+                "NERFSTUDIO_API_URL",
+                "MAPPER_API_URL",
+            ),
+        ),
     )
 
     for index, (_group_name, keys) in enumerate(ordered_groups):
         if index > 0:
             lines.append("")
-            lines.append(f"# {['Core configuration', 'Model selection', 'Inference sidecars', 'Pipeline flags', 'Service endpoints'][index]}")
+            lines.append(
+                f"# {['Core configuration', 'Model selection', 'Inference sidecars', 'Pipeline flags', 'Service endpoints'][index]}"
+            )
         for key in keys:
             if key in values:
                 lines.append(f"{key}={values.pop(key)}")
@@ -412,8 +485,11 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
         raise RuntimeError("--interactive requires a TTY")
 
     # ── 1. Show detected hardware ────────────────────────────────────────────
-    gpu_str = f"{detected.vram_gb:.1f} GiB GPU ({detected.free_vram_gb:.1f} GiB free)" \
-              if detected.vram_gb > 0 else "CPU only (no GPU detected)"
+    gpu_str = (
+        f"{detected.vram_gb:.1f} GiB GPU ({detected.free_vram_gb:.1f} GiB free)"
+        if detected.vram_gb > 0
+        else "CPU only (no GPU detected)"
+    )
     print(f"\n  Hardware: {gpu_str},  {detected.ram_gb:.1f} GiB RAM")
 
     rec_gemma, rec_reasoning = _recommend_ollama_gemma_models(detected)
@@ -429,12 +505,14 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
     # Apply primary to generative sidecars.  Reasoning always uses Ollama
     # (it runs small reasoning models that vLLM adds little benefit for).
     if primary == "none":
-        args.gemma_backend = args.qwen_backend = args.unidrive_backend = args.reasoning_backend = "none"
+        args.gemma_backend = args.qwen_backend = args.unidrive_backend = args.reasoning_backend = (
+            "none"
+        )
     else:
         args.gemma_backend = primary
         args.qwen_backend = primary
-        args.unidrive_backend = "none"          # UniDrive is off by default; enable explicitly
-        args.reasoning_backend = "ollama"       # reasoning stays on Ollama regardless
+        args.unidrive_backend = "none"  # UniDrive is off by default; enable explicitly
+        args.reasoning_backend = "ollama"  # reasoning stays on Ollama regardless
 
     # ── 3. Profile ───────────────────────────────────────────────────────────
     print("\n  Profiles:")
@@ -446,11 +524,11 @@ def _interactive_options(args: argparse.Namespace, detected: ResourceProfile) ->
     # ── 4. Reasoning model ───────────────────────────────────────────────────
     if args.reasoning_backend != "none":
         _reasoning_options = {
-            "qwen3:8b":          "~5 GB  — fast fallback for tighter 8-12 GB systems",
-            "qwen3:14b":         "~8 GB  — recommended for 12 GB+ cards when Ollama keeps one model loaded",
-            "deepseek-r1:14b":   "~9 GB  — R1-distilled reasoning specialist, similar size",
-            "qwen3:30b":         "~18 GB — high quality, needs 24+ GB free VRAM",
-            "deepseek-r1:32b":   "~19 GB — best reasoning quality, needs 32+ GB free VRAM",
+            "qwen3:8b": "~5 GB  — fast fallback for tighter 8-12 GB systems",
+            "qwen3:14b": "~8 GB  — recommended for 12 GB+ cards when Ollama keeps one model loaded",
+            "deepseek-r1:14b": "~9 GB  — R1-distilled reasoning specialist, similar size",
+            "qwen3:30b": "~18 GB — high quality, needs 24+ GB free VRAM",
+            "deepseek-r1:32b": "~19 GB — best reasoning quality, needs 32+ GB free VRAM",
         }
         print("\n  Reasoning model (step 24 — agentic flow audit):")
         print(f"  Detected hardware recommendation: {rec_reasoning}")
@@ -473,7 +551,11 @@ def _resource_profile_from_args(args: argparse.Namespace) -> ResourceProfile:
     os.environ.pop("GPU_FREE_GB_HINT", None)
     detected = detect_resources()
     vram = args.vram_gb if args.vram_gb is not None else float(detected.get("vram_gb", 0.0))
-    free_vram = args.free_vram_gb if args.free_vram_gb is not None else float(detected.get("free_vram_gb", vram))
+    free_vram = (
+        args.free_vram_gb
+        if args.free_vram_gb is not None
+        else float(detected.get("free_vram_gb", vram))
+    )
     ram = args.ram_gb if args.ram_gb is not None else float(detected.get("ram_gb", 8.0))
     return ResourceProfile(vram_gb=vram, free_vram_gb=free_vram, ram_gb=ram)
 
@@ -482,28 +564,56 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate a project-root .env from packaged env presets and resource-aware defaults.",
     )
-    parser.add_argument("--env", dest="env_name", choices=_ENV_NAMES, default="dev",
-                        help="Base environment preset to start from.")
-    parser.add_argument("--profile", choices=_PROFILE_NAMES, default="balanced",
-                        help="High-level sidecar profile.")
-    parser.add_argument("--output", default=".env",
-                        help="Output path for the generated env file.")
-    parser.add_argument("--interactive", action="store_true",
-                        help="Prompt for environment, resources, and sidecar choices.")
-    parser.add_argument("--vram-gb", type=float, default=None,
-                        help="Target total GPU VRAM in GiB. Defaults to detected resources.")
-    parser.add_argument("--free-vram-gb", type=float, default=None,
-                        help="Target free GPU VRAM in GiB. Defaults to detected resources.")
-    parser.add_argument("--ram-gb", type=float, default=None,
-                        help="Target system RAM in GiB. Defaults to detected resources.")
+    parser.add_argument(
+        "--env",
+        dest="env_name",
+        choices=_ENV_NAMES,
+        default="dev",
+        help="Base environment preset to start from.",
+    )
+    parser.add_argument(
+        "--profile", choices=_PROFILE_NAMES, default="balanced", help="High-level sidecar profile."
+    )
+    parser.add_argument("--output", default=".env", help="Output path for the generated env file.")
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Prompt for environment, resources, and sidecar choices.",
+    )
+    parser.add_argument(
+        "--vram-gb",
+        type=float,
+        default=None,
+        help="Target total GPU VRAM in GiB. Defaults to detected resources.",
+    )
+    parser.add_argument(
+        "--free-vram-gb",
+        type=float,
+        default=None,
+        help="Target free GPU VRAM in GiB. Defaults to detected resources.",
+    )
+    parser.add_argument(
+        "--ram-gb",
+        type=float,
+        default=None,
+        help="Target system RAM in GiB. Defaults to detected resources.",
+    )
     parser.add_argument("--gemma-backend", choices=_SIDECAR_BACKENDS, default="auto")
     parser.add_argument("--qwen-backend", choices=_SIDECAR_BACKENDS, default="auto")
     parser.add_argument("--unidrive-backend", choices=_SIDECAR_BACKENDS, default="auto")
     parser.add_argument("--reasoning-backend", choices=_REASONING_BACKENDS, default="auto")
-    parser.add_argument("--gemma-model", default="", help="Override the generated Gemma sidecar model.")
-    parser.add_argument("--qwen-model", default="", help="Override the generated Qwen sidecar model.")
-    parser.add_argument("--unidrive-model", default="", help="Override the generated UniDrive sidecar model.")
-    parser.add_argument("--reasoning-model", default="", help="Override the generated reasoning model.")
+    parser.add_argument(
+        "--gemma-model", default="", help="Override the generated Gemma sidecar model."
+    )
+    parser.add_argument(
+        "--qwen-model", default="", help="Override the generated Qwen sidecar model."
+    )
+    parser.add_argument(
+        "--unidrive-model", default="", help="Override the generated UniDrive sidecar model."
+    )
+    parser.add_argument(
+        "--reasoning-model", default="", help="Override the generated reasoning model."
+    )
     return parser
 
 
@@ -550,7 +660,7 @@ def _print_sidecar_next_steps(plan: EnvPlan, values: dict[str, str]) -> None:
     if ollama_models:
         print("\n  Ollama (run once, then keep running):")
         print("    ollama serve")
-        for m in dict.fromkeys(ollama_models):   # deduplicate, preserve order
+        for m in dict.fromkeys(ollama_models):  # deduplicate, preserve order
             print(f"    ollama pull {m}")
 
     if vllm_cmds:

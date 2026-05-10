@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from selfsuvis.pipeline.fusion.utils import probability_union
+
 from .degraded_mode import apply_degraded_mode_to_threat, evaluate_degraded_mode
 from .event_access import (
     event_freshness_sec,
@@ -51,7 +53,9 @@ class RealtimeThreatAggregator:
             self._node_health_events,
             base_automation_confidence=self._base_automation_confidence(),
         )
-        route_rows = self._route_rows(sector_rows, automation_confidence=float(health["automation_confidence"]))
+        route_rows = self._route_rows(
+            sector_rows, automation_confidence=float(health["automation_confidence"])
+        )
         return {
             "global_threat_map": [
                 {
@@ -108,10 +112,7 @@ class RealtimeThreatAggregator:
                 if threat_type and threat_type not in primitive_types:
                     primitive_types.append(threat_type)
 
-            remaining = 1.0
-            for score in score_terms:
-                remaining *= (1.0 - max(0.0, min(1.0, score)))
-            aggregated = 1.0 - remaining if score_terms else 0.0
+            aggregated = probability_union([max(0.0, min(1.0, s)) for s in score_terms])
             support_bonus = min(0.15, 0.05 * max(0, len(nodes) - 1))
             threat_score = min(1.0, aggregated + support_bonus)
             rows.append(
@@ -127,7 +128,9 @@ class RealtimeThreatAggregator:
             )
         return rows
 
-    def _route_rows(self, sector_rows: Sequence[dict[str, Any]], *, automation_confidence: float) -> list[dict[str, Any]]:
+    def _route_rows(
+        self, sector_rows: Sequence[dict[str, Any]], *, automation_confidence: float
+    ) -> list[dict[str, Any]]:
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for row in sector_rows:
             for route_id in row.get("route_ids") or []:
@@ -197,7 +200,9 @@ class RealtimeThreatAggregator:
                 edge_weights[(left, right)] += 1.0
         return [
             {"from_sector": left, "to_sector": right, "weight": weight}
-            for (left, right), weight in sorted(edge_weights.items(), key=lambda item: (-item[1], item[0][0], item[0][1]))
+            for (left, right), weight in sorted(
+                edge_weights.items(), key=lambda item: (-item[1], item[0][0], item[0][1])
+            )
         ]
 
     def _base_automation_confidence(self) -> float:
@@ -207,7 +212,10 @@ class RealtimeThreatAggregator:
             0.0,
             min(
                 1.0,
-                sum(payload_float(event_payload(event), "automation_confidence", 1.0) for event in self._node_health_events)
+                sum(
+                    payload_float(event_payload(event), "automation_confidence", 1.0)
+                    for event in self._node_health_events
+                )
                 / len(self._node_health_events),
             ),
         )

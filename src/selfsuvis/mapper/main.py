@@ -12,6 +12,7 @@ Environment:
   DATA_DIR  — base data directory (default ./data).
   PORT      — listen port (default 8000).
 """
+
 from typing import Any
 
 import uvicorn
@@ -29,13 +30,14 @@ app = FastAPI(title="selfsuvis-mapper", version="1.0.0")
 
 # ── request / response models ─────────────────────────────────────────────────
 
+
 class FuseRequest(BaseModel):
     source_path: str = Field(..., description="Path to source splat.ply (new mission)")
     target_path: str = Field(..., description="Path to target splat.ply (reference)")
     source_meta: dict[str, Any] | None = Field(
         default=None,
         description="GPS origin dict {origin_lat, origin_lon, origin_alt}. "
-                    "Auto-loaded from <source>_meta.json if omitted.",
+        "Auto-loaded from <source>_meta.json if omitted.",
     )
     target_meta: dict[str, Any] | None = Field(
         default=None,
@@ -47,7 +49,7 @@ class FuseRequest(BaseModel):
 
 
 class FuseResponse(BaseModel):
-    status: str                         # "ok" | "no_overlap" | "error"
+    status: str  # "ok" | "no_overlap" | "error"
     transform_4x4: list[list[float]] | None
     rmse: float | None
     fitness: float | None
@@ -69,6 +71,7 @@ class OverlapResponse(BaseModel):
 
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "mapper"}
@@ -78,8 +81,10 @@ def health() -> dict[str, str]:
 def api_check_overlap(req: OverlapRequest) -> OverlapResponse:
     """GPS-based overlap pre-check. Call before /fuse to skip obviously disjoint scenes."""
     overlaps, dist = check_overlap(
-        req.source_meta, req.target_meta,
-        req.radius_a_m, req.radius_b_m,
+        req.source_meta,
+        req.target_meta,
+        req.radius_a_m,
+        req.radius_b_m,
     )
     return OverlapResponse(overlaps=overlaps, gps_distance_m=round(dist, 2))
 

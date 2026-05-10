@@ -33,21 +33,21 @@ def _merge_stats(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
 
 class PipelineState(TypedDict, total=False):
     # ── Runtime config (injected once at graph entry, never mutated) ─────────
-    args: Any                             # parsed CLI args namespace
-    video_path: str                       # absolute path
+    args: Any  # parsed CLI args namespace
+    video_path: str  # absolute path
     video_name: str
     video_id: str
-    video_dir: str                        # absolute path of per-video output dir
+    video_dir: str  # absolute path of per-video output dir
     output_dir: str
     device: str
-    models: dict[str, Any]               # {clip, dino, uses_api_embedder, …}
-    store: Any                            # Qdrant client or InMemoryStore
+    models: dict[str, Any]  # {clip, dino, uses_api_embedder, …}
+    store: Any  # Qdrant client or InMemoryStore
     is_qdrant: bool
 
     # ── Phase 1 outputs ───────────────────────────────────────────────────────
     frame_list: list[tuple[str, float]]  # [(frame_path, t_sec), …]
     frames_meta: dict[str, Any]
-    knowledge: Any                        # VideoKnowledge instance
+    knowledge: Any  # VideoKnowledge instance
     clip_dino_on_gpu: bool
 
     # ── Phase 2 outputs — one key per step ───────────────────────────────────
@@ -94,7 +94,7 @@ class PipelineState(TypedDict, total=False):
 
     # ── Cross-cutting accumulation ────────────────────────────────────────────
     stats: Annotated[dict[str, Any], _merge_stats]  # timing dict T + numeric summaries
-    video_context: dict[str, Any]       # rich context fed to LLM synthesis/audit
+    video_context: dict[str, Any]  # rich context fed to LLM synthesis/audit
     agentic_trace: list[dict[str, Any]]
 
     # ── Resume support ───────────────────────────────────────────────────────

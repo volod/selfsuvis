@@ -28,6 +28,7 @@ from ._common import _log, write_json_artifact
 
 # ── Platform confidence ───────────────────────────────────────────────────────
 
+
 def _platform_pose_confidence(
     platform_status: str,
     smoothed_trajectory: list[dict[str, Any]],
@@ -52,6 +53,7 @@ def _platform_pose_confidence(
 
 # ── Depth near-ratio ──────────────────────────────────────────────────────────
 
+
 def _mean_depth_near_ratio(depth_results: list[dict[str, Any]]) -> float:
     """Average fraction of near pixels across all valid depth frames."""
     ratios = []
@@ -65,6 +67,7 @@ def _mean_depth_near_ratio(depth_results: list[dict[str, Any]]) -> float:
 
 
 # ── Free space estimate ───────────────────────────────────────────────────────
+
 
 def _free_space_estimate(near_field_density: float, depth_near_ratio: float) -> float:
     """Conservative free-space lower bound combining object occupancy and depth.
@@ -109,6 +112,7 @@ def _yolo_near_field_density(yolo_sam_result: dict[str, Any]) -> float:
 
 # ── Main step ─────────────────────────────────────────────────────────────────
 
+
 def step_physical_state(
     full_fusion_result: dict[str, Any],
     depth_result: dict[str, Any],
@@ -141,7 +145,7 @@ def step_physical_state(
     # Graceful degradation: if full fusion was skipped we still produce a
     # skeleton result so downstream steps do not need to gate on this.
     fusion_skipped = full_fusion_result.get("skipped", True)
-    depth_skipped  = depth_result.get("skipped", True)
+    depth_skipped = depth_result.get("skipped", True)
     tracking_skipped = gemma_tracking_result.get("skipped", True)
     yolo_skipped = yolo_sam_result.get("skipped", True)
 
@@ -154,26 +158,24 @@ def step_physical_state(
 
     # ── Object-state summary ──────────────────────────────────────────────────
     per_frame_dicts: list[list[dict[str, Any]]] = (
-        full_fusion_result.get("per_frame_object_states") or []
-        if not fusion_skipped else []
+        full_fusion_result.get("per_frame_object_states") or [] if not fusion_skipped else []
     )
     obj_summary = summarize_object_frame_dicts(per_frame_dicts)
 
     # ── Platform pose confidence ──────────────────────────────────────────────
     smoothed_traj = (
-        full_fusion_result.get("smoothed_trajectory") or []
-        if not fusion_skipped else []
+        full_fusion_result.get("smoothed_trajectory") or [] if not fusion_skipped else []
     )
     platform_status = (
-        full_fusion_result.get("platform_status", "skipped")
-        if not fusion_skipped else "skipped"
+        full_fusion_result.get("platform_status", "skipped") if not fusion_skipped else "skipped"
     )
     pose_confidence = _platform_pose_confidence(platform_status, smoothed_traj)
 
     # ── Depth near-ratio ─────────────────────────────────────────────────────
     depth_near_ratio = (
         _mean_depth_near_ratio(depth_result.get("depth_results") or [])
-        if not depth_skipped else 0.0
+        if not depth_skipped
+        else 0.0
     )
 
     # ── Detection occupancy fallback / complement ────────────────────────────
@@ -187,36 +189,32 @@ def step_physical_state(
     n_frames = len(frame_list)
     result = {
         "skipped": False,
-        "platform_pose_confidence":     round(pose_confidence, 4),
+        "platform_pose_confidence": round(pose_confidence, 4),
         "near_field_occupancy_density": round(effective_occ, 4),
         "tracked_object_velocities": {
-            "mean":     round(obj_summary["mean_velocity_norm"], 6),
-            "max":      round(obj_summary["max_velocity_norm"], 6),
-            "by_label": {
-                lbl: round(v, 6)
-                for lbl, v in obj_summary["velocity_by_label"].items()
-            },
+            "mean": round(obj_summary["mean_velocity_norm"], 6),
+            "max": round(obj_summary["max_velocity_norm"], 6),
+            "by_label": {lbl: round(v, 6) for lbl, v in obj_summary["velocity_by_label"].items()},
         },
-        "free_space_estimate":    round(free_space, 4),
-        "confirmed_tracks":       obj_summary["confirmed_track_count"],
-        "mean_bbox_uncertainty":  round(obj_summary["mean_bbox_uncertainty"], 6),
-        "depth_near_ratio_mean":  round(depth_near_ratio, 4),
+        "free_space_estimate": round(free_space, 4),
+        "confirmed_tracks": obj_summary["confirmed_track_count"],
+        "mean_bbox_uncertainty": round(obj_summary["mean_bbox_uncertainty"], 6),
+        "depth_near_ratio_mean": round(depth_near_ratio, 4),
         "yolo_near_field_density": round(yolo_near_density, 4),
-        "platform_status":        platform_status,
-        "n_frames":               n_frames,
-        "elapsed_sec":            round(time.time() - t0, 3),
+        "platform_status": platform_status,
+        "n_frames": n_frames,
+        "elapsed_sec": round(time.time() - t0, 3),
         # provenance flags for the audit step
-        "fusion_used":    not fusion_skipped,
-        "depth_used":     not depth_skipped,
-        "tracking_used":  not tracking_skipped,
-        "yolo_used":      not yolo_skipped,
+        "fusion_used": not fusion_skipped,
+        "depth_used": not depth_skipped,
+        "tracking_used": not tracking_skipped,
+        "yolo_used": not yolo_skipped,
     }
 
     _write_json(result, video_dir)
 
     _log.info(
-        "  ✓ Physical state: pose_conf=%.2f  occ=%.2f  free=%.2f  "
-        "tracks=%d  depth_near=%.2f",
+        "  ✓ Physical state: pose_conf=%.2f  occ=%.2f  free=%.2f  tracks=%d  depth_near=%.2f",
         pose_confidence,
         obj_summary["near_field_density"],
         free_space,
@@ -228,21 +226,21 @@ def step_physical_state(
 
 def _empty_summary() -> dict[str, Any]:
     return {
-        "platform_pose_confidence":     0.0,
+        "platform_pose_confidence": 0.0,
         "near_field_occupancy_density": 0.0,
-        "tracked_object_velocities":    {"mean": 0.0, "max": 0.0, "by_label": {}},
-        "free_space_estimate":          1.0,
-        "confirmed_tracks":             0,
-        "mean_bbox_uncertainty":        0.0,
-        "depth_near_ratio_mean":        0.0,
-        "yolo_near_field_density":      0.0,
-        "platform_status":              "skipped",
-        "n_frames":                     0,
-        "elapsed_sec":                  0.0,
-        "fusion_used":                  False,
-        "depth_used":                   False,
-        "tracking_used":                False,
-        "yolo_used":                    False,
+        "tracked_object_velocities": {"mean": 0.0, "max": 0.0, "by_label": {}},
+        "free_space_estimate": 1.0,
+        "confirmed_tracks": 0,
+        "mean_bbox_uncertainty": 0.0,
+        "depth_near_ratio_mean": 0.0,
+        "yolo_near_field_density": 0.0,
+        "platform_status": "skipped",
+        "n_frames": 0,
+        "elapsed_sec": 0.0,
+        "fusion_used": False,
+        "depth_used": False,
+        "tracking_used": False,
+        "yolo_used": False,
     }
 
 

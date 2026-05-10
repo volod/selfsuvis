@@ -25,10 +25,10 @@ logger = get_logger(__name__)
 # Acoustic event labels and their simple spectral signatures.
 # Each entry: (label, min_freq_hz, max_freq_hz, energy_ratio_threshold)
 _ACOUSTIC_SIGNATURES: list[tuple[str, float, float, float]] = [
-    ("alarm",  2000.0, 4000.0, 0.40),   # sharp tonal alarm bursts
-    ("engine",  80.0,   400.0, 0.35),   # low-frequency motor rumble
-    ("impact",  200.0, 2000.0, 0.50),   # broadband transient spike
-    ("glass",  3000.0, 8000.0, 0.30),   # high-frequency glass break
+    ("alarm", 2000.0, 4000.0, 0.40),  # sharp tonal alarm bursts
+    ("engine", 80.0, 400.0, 0.35),  # low-frequency motor rumble
+    ("impact", 200.0, 2000.0, 0.50),  # broadband transient spike
+    ("glass", 3000.0, 8000.0, 0.30),  # high-frequency glass break
 ]
 
 _SAMPLE_RATE = 16_000
@@ -128,15 +128,25 @@ class SoundAnalyzer:
         """Extract one chunk of raw PCM audio from the RTSP stream via ffmpeg."""
         try:
             cmd = [
-                "ffmpeg", "-nostdin", "-loglevel", "error",
-                "-rtsp_transport", "tcp",
-                "-i", self._rtsp_url,
-                "-t", str(self._chunk_sec),
+                "ffmpeg",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-rtsp_transport",
+                "tcp",
+                "-i",
+                self._rtsp_url,
+                "-t",
+                str(self._chunk_sec),
                 "-vn",
-                "-acodec", "pcm_s16le",
-                "-ar", str(_SAMPLE_RATE),
-                "-ac", "1",
-                "-f", "s16le",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                str(_SAMPLE_RATE),
+                "-ac",
+                "1",
+                "-f",
+                "s16le",
                 "pipe:1",
             ]
             result = subprocess.run(cmd, capture_output=True, timeout=self._chunk_sec + 10)
@@ -178,7 +188,7 @@ class SoundAnalyzer:
             float_audio = audio.astype(np.float64) / 32768.0
             spectrum = np.abs(np.fft.rfft(float_audio))
             freqs = np.fft.rfftfreq(len(float_audio), d=1.0 / _SAMPLE_RATE)
-            total_energy = float(np.sum(spectrum ** 2)) or 1.0
+            total_energy = float(np.sum(spectrum**2)) or 1.0
 
             for label, f_lo, f_hi, threshold in _ACOUSTIC_SIGNATURES:
                 mask = (freqs >= f_lo) & (freqs <= f_hi)

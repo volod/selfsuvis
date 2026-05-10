@@ -1,4 +1,5 @@
 """Unit tests for app.routers.cvat — webhook receiver and admin endpoints."""
+
 import asyncio
 import hashlib
 import hmac
@@ -49,6 +50,7 @@ def run(coro):
 
 # ── _verify_cvat_signature unit tests ─────────────────────────────────────────
 
+
 def test_verify_signature_no_secret_rejects():
     """Fail-closed: when CVAT_WEBHOOK_SECRET is empty, reject all requests."""
     with patch("selfsuvis.app.routers.cvat.settings") as m:
@@ -75,12 +77,15 @@ def test_verify_signature_wrong():
 
 # ── cvat_webhook integration tests ────────────────────────────────────────────
 
+
 @patch("selfsuvis.app.routers.cvat._fetch_cvat_labels", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._mark_frames_annotated", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._frames_for_cvat_task", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._maybe_trigger_finetune", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat.settings")
-def test_webhook_job_completed_marks_frames(mock_settings, mock_trigger, mock_frames, mock_mark, mock_fetch):
+def test_webhook_job_completed_marks_frames(
+    mock_settings, mock_trigger, mock_frames, mock_mark, mock_fetch
+):
     mock_settings.CVAT_WEBHOOK_SECRET = _TEST_SECRET
     mock_frames.return_value = ["f1", "f2", "f3"]
     mock_mark.return_value = 3
@@ -102,7 +107,9 @@ def test_webhook_job_completed_marks_frames(mock_settings, mock_trigger, mock_fr
 @patch("selfsuvis.app.routers.cvat._frames_for_cvat_task", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._maybe_trigger_finetune", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat.settings")
-def test_webhook_task_completed_marks_frames(mock_settings, mock_trigger, mock_frames, mock_mark, mock_fetch):
+def test_webhook_task_completed_marks_frames(
+    mock_settings, mock_trigger, mock_frames, mock_mark, mock_fetch
+):
     mock_settings.CVAT_WEBHOOK_SECRET = _TEST_SECRET
     mock_frames.return_value = ["fa", "fb"]
     mock_mark.return_value = 2
@@ -162,7 +169,9 @@ def test_webhook_no_secret_configured_returns_400(mock_settings):
 @patch("selfsuvis.app.routers.cvat._frames_for_cvat_task", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat._maybe_trigger_finetune", new_callable=AsyncMock)
 @patch("selfsuvis.app.routers.cvat.settings")
-def test_webhook_valid_signature_passes(mock_settings, mock_trigger, mock_frames, mock_mark, mock_fetch):
+def test_webhook_valid_signature_passes(
+    mock_settings, mock_trigger, mock_frames, mock_mark, mock_fetch
+):
     secret = "supersecret"
     mock_settings.CVAT_WEBHOOK_SECRET = secret
     mock_frames.return_value = ["f1"]
@@ -211,7 +220,12 @@ def test_register_task_empty_frame_ids_returns_422(mock_settings):
 def test_register_task_too_many_frames_returns_422(mock_settings):
     mock_settings.CVAT_WEBHOOK_SECRET = _TEST_SECRET
     with pytest.raises(HTTPException) as exc:
-        run(register_cvat_task(CvatTaskRegistration(cvat_task_id=1, frame_ids=[f"f{i}" for i in range(5001)]), _Request()))
+        run(
+            register_cvat_task(
+                CvatTaskRegistration(cvat_task_id=1, frame_ids=[f"f{i}" for i in range(5001)]),
+                _Request(),
+            )
+        )
     assert exc.value.status_code == 422
 
 
@@ -221,7 +235,11 @@ def test_register_task_no_db_returns_503(mock_settings):
     mock_settings.API_KEY = ""
     mock_settings.DATABASE_URL = ""
     with pytest.raises(HTTPException) as exc:
-        run(register_cvat_task(CvatTaskRegistration(cvat_task_id=1, frame_ids=["f1", "f2"]), _Request()))
+        run(
+            register_cvat_task(
+                CvatTaskRegistration(cvat_task_id=1, frame_ids=["f1", "f2"]), _Request()
+            )
+        )
     assert exc.value.status_code == 503
 
 

@@ -10,6 +10,7 @@ import pytest
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 def _make_fake_db_pool():
     pool = MagicMock()
     pool.execute = AsyncMock(return_value=None)
@@ -18,9 +19,11 @@ def _make_fake_db_pool():
 
 # ── RtspCaptioner construction ────────────────────────────────────────────────
 
+
 def test_rtsp_captioner_uses_config_fps(monkeypatch):
     """RtspCaptioner reads RTSP_CAPTION_FPS from settings when not overridden."""
     import selfsuvis.pipeline.media.rtsp_captioner as rc
+
     monkeypatch.setattr(rc.settings, "RTSP_CAPTION_FPS", 1.0)
 
     captioner = rc.RtspCaptioner(
@@ -47,6 +50,7 @@ def test_rtsp_captioner_override_fps():
 
 
 # ── caption dispatch ──────────────────────────────────────────────────────────
+
 
 def test_caption_frame_uses_gemma_when_enabled():
     """_caption_frame returns Gemma facts when QwenModel is enabled and healthy."""
@@ -146,6 +150,7 @@ def test_caption_frame_returns_none_when_both_fail():
 
 # ── write_to_timeline ─────────────────────────────────────────────────────────
 
+
 @pytest.mark.anyio
 async def test_write_to_timeline_calls_db_execute():
     """_write_to_timeline calls pool.execute with the correct SQL parameters."""
@@ -167,7 +172,7 @@ async def test_write_to_timeline_calls_db_execute():
     pool.execute.assert_awaited_once()
     call_args = pool.execute.call_args[0]
     assert "scene_timeline" in call_args[0]
-    assert "m1" in call_args    # mission_id
+    assert "m1" in call_args  # mission_id
     assert "frame_001" in call_args
 
 
@@ -182,12 +187,18 @@ async def test_write_to_timeline_is_non_fatal_on_error():
 
     # Should not raise
     await captioner._write_to_timeline(
-        frame_id="f1", caption=None, facts_json=None,
-        gps_lat=None, gps_lon=None, gps_alt=None, t_sec=0.0,
+        frame_id="f1",
+        caption=None,
+        facts_json=None,
+        gps_lat=None,
+        gps_lon=None,
+        gps_alt=None,
+        t_sec=0.0,
     )
 
 
 # ── run() — stream consumer ───────────────────────────────────────────────────
+
 
 @pytest.mark.anyio
 async def test_run_stops_on_stop_event():
@@ -205,8 +216,10 @@ async def test_run_stops_on_stop_event():
     fake_cap.read.return_value = (False, None)  # stream ends immediately
     fake_cap.get.return_value = 25.0
 
-    with patch("cv2.VideoCapture", return_value=fake_cap, create=True), \
-         patch("cv2.CAP_PROP_FPS", 1, create=True):
+    with (
+        patch("cv2.VideoCapture", return_value=fake_cap, create=True),
+        patch("cv2.CAP_PROP_FPS", 1, create=True),
+    ):
         # Should return without hanging
         await asyncio.wait_for(captioner.run(stop_event=stop), timeout=2.0)
 
@@ -237,8 +250,10 @@ async def test_run_logs_warning_on_stream_open_failure():
     fake_cap.isOpened.return_value = False
     fake_cap.get.return_value = 25.0
 
-    with patch("cv2.VideoCapture", return_value=fake_cap, create=True), \
-         patch("cv2.CAP_PROP_FPS", 1, create=True):
+    with (
+        patch("cv2.VideoCapture", return_value=fake_cap, create=True),
+        patch("cv2.CAP_PROP_FPS", 1, create=True),
+    ):
         await captioner.run()  # should return without exception
 
     fake_cap.release.assert_not_called()  # never opened, so release not called

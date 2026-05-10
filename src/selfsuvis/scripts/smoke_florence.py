@@ -1,6 +1,5 @@
 """One-frame smoke test for local Florence captioning."""
 
-
 import argparse
 from pathlib import Path
 

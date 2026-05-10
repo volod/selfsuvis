@@ -80,8 +80,14 @@ class VideoIndexer:
             self.dino_model = DINOEmbedder(model_name=name)
         self._florence_model: FlorenceModel | None = None
         self.store = QdrantStore(clip_dim=self.clip_model.image_dim(), dino_dim=self._dino_dim())
-        self.qwen_model = QwenModel(clip_prescreen_fn=self._make_vehicle_prescreen()) if settings.QWEN_API_URL else None
-        self.unidrive_model = UniDriveVLAModel() if settings.UNIDRIVE_ENABLED and settings.UNIDRIVE_API_URL else None
+        self.qwen_model = (
+            QwenModel(clip_prescreen_fn=self._make_vehicle_prescreen())
+            if settings.QWEN_API_URL
+            else None
+        )
+        self.unidrive_model = (
+            UniDriveVLAModel() if settings.UNIDRIVE_ENABLED and settings.UNIDRIVE_API_URL else None
+        )
         # Optional enrichment models — lazily loaded on first use (enabled via env vars).
         self.asr_model = ASRModel() if settings.ASR_ENABLED else None
         self.ocr_model = OCRModel() if settings.OCR_ENABLED else None
@@ -95,17 +101,22 @@ class VideoIndexer:
                 enabled=True,
                 model_name=settings.SEGMENTATION_MODEL,
             )
-            if settings.SEGMENTATION_ENABLED else None
+            if settings.SEGMENTATION_ENABLED
+            else None
         )
         self.rf_analyzer = RFSignalAnalyzer() if settings.RF_ENABLED else None
         # RF-DETR tracker is initialised lazily inside _run_gemma_directed_tracking_pass
         self.rfdetr_tracker = None
         # RSSM temporal world model (DreamerV3-inspired, CPU-friendly)
-        self.rssm_embedder = RSSMEmbedder(
-            hidden_dim=settings.DREAMER_HIDDEN_DIM,
-            latent_dim=settings.DREAMER_LATENT_DIM,
-            train_steps=settings.DREAMER_TRAIN_STEPS,
-        ) if settings.DREAMER_ENABLED else None
+        self.rssm_embedder = (
+            RSSMEmbedder(
+                hidden_dim=settings.DREAMER_HIDDEN_DIM,
+                latent_dim=settings.DREAMER_LATENT_DIM,
+                train_steps=settings.DREAMER_TRAIN_STEPS,
+            )
+            if settings.DREAMER_ENABLED
+            else None
+        )
         self.phash_lru = PhashLRU(settings.PHASH_LRU_SIZE, settings.PHASH_HAMMING_MAX)
         self.recent_index = RecentEmbeddingIndex(
             dim=self.clip_model.image_dim(),
@@ -231,7 +242,10 @@ class VideoIndexer:
         enu: dict[str, float] | None = None,
         robot_id: str | None = None,
         global_map_id: int | None = None,
-    ) -> tuple[tuple[dict[str, Any], dict[str, Any], list[qmodels.PointStruct], int] | None, "_IndexFrameState"]:
+    ) -> tuple[
+        tuple[dict[str, Any], dict[str, Any], list[qmodels.PointStruct], int] | None,
+        "_IndexFrameState",
+    ]:
         """Process one frame. Returns (result, new_state); result is None if frame is skipped."""
         small = downsample_gray(frame, settings.STAB_SIZE)
         prev_small = state.prev_small if state.prev_small is not None else small
@@ -239,7 +253,9 @@ class VideoIndexer:
 
         motion = mean_abs_diff(prev_small, small_for_diff)
         eff_fps, skip_step = self._update_adaptive_fps(state.eff_fps, motion)
-        new_state = dataclasses.replace(state, prev_small=small, eff_fps=eff_fps, skip_step=skip_step)
+        new_state = dataclasses.replace(
+            state, prev_small=small, eff_fps=eff_fps, skip_step=skip_step
+        )
 
         if not frame_quality_ok(frame):
             return None, new_state
@@ -247,7 +263,11 @@ class VideoIndexer:
         hist_d, ssim_d = self._visual_diffs(state.last_kept_small, small_for_diff)
         frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         embed = self.clip_model.encode_images([frame_pil], batch_size=1)[0]
-        drift = float(1.0 - np.dot(state.last_kept_embed, embed)) if state.last_kept_embed is not None else 1.0
+        drift = (
+            float(1.0 - np.dot(state.last_kept_embed, embed))
+            if state.last_kept_embed is not None
+            else 1.0
+        )
         time_gap = t_sec - state.last_kept_time
 
         if not self._should_keep(hist_d, ssim_d, drift, time_gap):
@@ -263,8 +283,17 @@ class VideoIndexer:
         }
         qdrant_id = stable_point_id(video_id, segment_id, int(t_sec * 1000), "frame")
         frame_point = self._build_frame_point(
-            video_id, segment_id, t_sec, frame_path, frame_pil, embed,
-            mission_id=mission_id, gps=gps, enu=enu, robot_id=robot_id, global_map_id=global_map_id,
+            video_id,
+            segment_id,
+            t_sec,
+            frame_path,
+            frame_pil,
+            embed,
+            mission_id=mission_id,
+            gps=gps,
+            enu=enu,
+            robot_id=robot_id,
+            global_map_id=global_map_id,
         )
         frame_record = {
             "id": f"{mission_id}:{segment_id}:{int(t_sec * 1000)}",
@@ -274,11 +303,11 @@ class VideoIndexer:
             "caption": None,
             "caption_confidence": None,
             "caption_model": None,
-            "subtitle_text": None,   # filled by ASR pass
-            "ocr_text": None,        # filled by OCR pass
+            "subtitle_text": None,  # filled by ASR pass
+            "ocr_text": None,  # filled by OCR pass
             "al_score": None,
             "al_tag": "none",
-            "_clip_embed": embed,    # temporary — used by RSSM/AL pass, stripped before DB write
+            "_clip_embed": embed,  # temporary — used by RSSM/AL pass, stripped before DB write
             "cvat_label": None,
             "pose_status": "pending",
             "pose_json": None,
@@ -291,8 +320,16 @@ class VideoIndexer:
         tile_count = 0
         if self.enable_tiles or drift > settings.TILE_INDEX_IF_EMBED_DRIFT_GT:
             tile_points, tile_count = self._index_tiles(
-                frame, frame_path, video_id, segment_id, t_sec, embed, cell_state,
-                mission_id=mission_id, robot_id=robot_id, global_map_id=global_map_id,
+                frame,
+                frame_path,
+                video_id,
+                segment_id,
+                t_sec,
+                embed,
+                cell_state,
+                mission_id=mission_id,
+                robot_id=robot_id,
+                global_map_id=global_map_id,
             )
 
         new_state = dataclasses.replace(
@@ -334,6 +371,7 @@ class VideoIndexer:
         try:
             from selfsuvis.pipeline.mapping.gps_registration import gps_to_enu
             from selfsuvis.pipeline.media.gps import extract_gps
+
             timestamps_ms = [t * 1000.0 for _, t in frames]
             gps_list = extract_gps(dst_path, timestamps_ms)
             # Use the site's canonical ENU origin when provided (multi-site ENU support).
@@ -378,7 +416,12 @@ class VideoIndexer:
             frame_timer.tick()
 
             result, state = self._process_frame(
-                video_id, frame_path, t_sec, frame, state, cell_state,
+                video_id,
+                frame_path,
+                t_sec,
+                frame,
+                state,
+                cell_state,
                 mission_id=effective_mission_id,
                 gps=gps_lookup.get(t_sec),
                 enu=enu_lookup.get(t_sec),
@@ -402,14 +445,16 @@ class VideoIndexer:
                 points = []
 
             if progress_cb:
-                progress_cb({
-                    "frames_processed": frame_timer.count,
-                    "segments_found": len(segments),
-                    "frames_indexed": frames_indexed,
-                    "tiles_indexed": tiles_indexed,
-                    "frame_fps": frame_timer.rate(),
-                    "embed_fps": embed_timer.rate(),
-                })
+                progress_cb(
+                    {
+                        "frames_processed": frame_timer.count,
+                        "segments_found": len(segments),
+                        "frames_indexed": frames_indexed,
+                        "tiles_indexed": tiles_indexed,
+                        "frame_fps": frame_timer.rate(),
+                        "embed_fps": embed_timer.rate(),
+                    }
+                )
 
         if points:
             self.store.upsert_points(points)
@@ -446,7 +491,11 @@ class VideoIndexer:
             self._run_detection_pass(frame_records)
 
         # ── Automatic segmentation summary pass ──────────────────────────────
-        if frame_records and self.segmentation_predictor and self.segmentation_predictor.is_available():
+        if (
+            frame_records
+            and self.segmentation_predictor
+            and self.segmentation_predictor.is_available()
+        ):
             self._run_segmentation_pass(frame_records)
 
         # ── RF signal analysis pass (TorchSig) ───────────────────────────────
@@ -490,8 +539,7 @@ class VideoIndexer:
             )
             state_fusion_summary = state_fusion.summary()
             samples_by_t = {
-                round(sample.t_sec, 3): sample
-                for sample in state_fusion.posterior_samples
+                round(sample.t_sec, 3): sample for sample in state_fusion.posterior_samples
             }
             for record in frame_records:
                 sample = samples_by_t.get(round(record["t_sec"], 3))
@@ -516,10 +564,15 @@ class VideoIndexer:
 
         self.logger.info(
             "Indexing complete video_id=%s segments=%s frames=%s tiles=%s",
-            video_id, len(segments), frames_indexed, tiles_indexed,
+            video_id,
+            len(segments),
+            frames_indexed,
+            tiles_indexed,
         )
         duration_sec = max((record["t_sec"] for record in frame_records), default=0.0)
-        gps_origin = next((record["gps_json"] for record in frame_records if record.get("gps_json")), None)
+        gps_origin = next(
+            (record["gps_json"] for record in frame_records if record.get("gps_json")), None
+        )
         return {
             "segments": len(segments),
             "tiles": tiles_indexed,
@@ -537,6 +590,7 @@ class VideoIndexer:
         import numpy as np
 
         from selfsuvis.pipeline.vision.qwen import _VEHICLE_LABELS
+
         threshold = settings.QWEN_CLIP_THRESHOLD
         labels = list(_VEHICLE_LABELS)
         prompts = [f"a photo of {label}" for label in labels]
@@ -549,13 +603,12 @@ class VideoIndexer:
 
         return prescreen
 
-    def _run_asr_pass(
-        self, video_path: str, frame_records: list[dict[str, Any]]
-    ) -> None:
+    def _run_asr_pass(self, video_path: str, frame_records: list[dict[str, Any]]) -> None:
         """Transcribe video audio and map subtitle segments to frame timestamps."""
         self.logger.info("ASR pass: transcribing audio from %s", video_path)
         audio_dir = settings.ASR_AUDIO_DIR
         from selfsuvis.pipeline.core.utils import ensure_dir
+
         ensure_dir(audio_dir)
         wav_path = extract_audio(video_path, audio_dir)
         if not wav_path:
@@ -574,13 +627,15 @@ class VideoIndexer:
             if text:
                 rec["subtitle_text"] = text
         subtitled = sum(1 for r in frame_records if r.get("subtitle_text"))
-        self.logger.info("ASR pass complete: %d/%d frames have subtitle text", subtitled, len(frame_records))
+        self.logger.info(
+            "ASR pass complete: %d/%d frames have subtitle text", subtitled, len(frame_records)
+        )
 
     def _run_ocr_pass(self, frame_records: list[dict[str, Any]]) -> None:
         """Run OCR on kept frames and store text in frame_facts_json + ocr_text."""
         self.logger.info("OCR pass: %d frames", len(frame_records))
         for batch_start in range(0, len(frame_records), settings.OCR_BATCH_SIZE):
-            batch = frame_records[batch_start: batch_start + settings.OCR_BATCH_SIZE]
+            batch = frame_records[batch_start : batch_start + settings.OCR_BATCH_SIZE]
             images = []
             for rec in batch:
                 try:
@@ -598,7 +653,9 @@ class VideoIndexer:
                         fj["ocr_text"] = text
                         rec["frame_facts_json"] = fj
         ocr_found = sum(1 for r in frame_records if r.get("ocr_text"))
-        self.logger.info("OCR pass complete: %d/%d frames contain text", ocr_found, len(frame_records))
+        self.logger.info(
+            "OCR pass complete: %d/%d frames contain text", ocr_found, len(frame_records)
+        )
 
     def _run_qwen_pass(self, frame_records: list[dict[str, Any]]) -> None:
         """Run Qwen2.5-VL structured extraction, enriched with subtitle+OCR context."""
@@ -615,7 +672,9 @@ class VideoIndexer:
                 continue
             subtitle = rec.get("subtitle_text")
             ocr = rec.get("ocr_text")
-            qwen_result = self.qwen_model.extract_frame_facts(img, subtitle_text=subtitle, ocr_text=ocr)
+            qwen_result = self.qwen_model.extract_frame_facts(
+                img, subtitle_text=subtitle, ocr_text=ocr
+            )
             # Merge Qwen result with any existing keys (e.g. ocr_text from OCR pass)
             existing = rec.get("frame_facts_json")
             if isinstance(existing, dict) and isinstance(qwen_result, dict):
@@ -674,10 +733,10 @@ class VideoIndexer:
             if not isinstance(uv, dict) or uv.get("service_unavailable") or uv.get("parse_error"):
                 continue
             analysed += 1
-            risk = ((uv.get("understanding") or {}).get("risk_level", "unknown"))
+            risk = (uv.get("understanding") or {}).get("risk_level", "unknown")
             if risk == "high":
                 high_risk += 1
-            agreement = ((uv.get("mixture_of_experts") or {}).get("expert_agreement", "unknown"))
+            agreement = (uv.get("mixture_of_experts") or {}).get("expert_agreement", "unknown")
             agreement_counts[agreement] = agreement_counts.get(agreement, 0) + 1
         return {
             "analysed_frames": analysed,
@@ -704,7 +763,7 @@ class VideoIndexer:
         """Run object detection and store bounding boxes in frame_facts_json."""
         self.logger.info("Detection pass: %d frames", len(frame_records))
         for batch_start in range(0, len(frame_records), settings.DETECTION_BATCH_SIZE):
-            batch = frame_records[batch_start: batch_start + settings.DETECTION_BATCH_SIZE]
+            batch = frame_records[batch_start : batch_start + settings.DETECTION_BATCH_SIZE]
             images = []
             for rec in batch:
                 try:
@@ -780,10 +839,7 @@ class VideoIndexer:
                 image,
                 points_per_side=points_per_side,
             )
-            masks = [
-                m for m in masks
-                if float(m.get("area_norm", 0.0) or 0.0) >= min_area_norm
-            ]
+            masks = [m for m in masks if float(m.get("area_norm", 0.0) or 0.0) >= min_area_norm]
             masks.sort(
                 key=lambda m: (
                     float(m.get("score", 0.0) or 0.0),
@@ -816,7 +872,9 @@ class VideoIndexer:
                 "count": len(masks),
                 "labels": sorted(label_counts.keys()),
                 "label_counts": dict(sorted(label_counts.items())),
-                "mean_area_norm": round(sum(area_norms) / len(area_norms), 6) if area_norms else 0.0,
+                "mean_area_norm": round(sum(area_norms) / len(area_norms), 6)
+                if area_norms
+                else 0.0,
                 "max_area_norm": round(max(area_norms), 6) if area_norms else 0.0,
                 "model": settings.SEGMENTATION_MODEL,
                 "points_per_side": points_per_side,
@@ -825,9 +883,7 @@ class VideoIndexer:
 
         self.logger.info("Segmentation pass complete")
 
-    def _run_rf_analysis_pass(
-        self, video_path: str, frame_records: list[dict[str, Any]]
-    ) -> None:
+    def _run_rf_analysis_pass(self, video_path: str, frame_records: list[dict[str, Any]]) -> None:
         """Analyze IQ sidecar (or audio proxy) and write RF metrics to frame_facts_json.
 
         Stores ``frame_facts_json["rf_signal"]`` with SNR, spectral flatness,
@@ -836,6 +892,7 @@ class VideoIndexer:
         extracted by the ASR pass (reuses the WAV in ASR_AUDIO_DIR if present).
         """
         import os
+
         base = os.path.splitext(os.path.basename(video_path))[0]
         audio_dir = settings.ASR_AUDIO_DIR
         audio_wav = os.path.join(audio_dir, f"{base}.wav")
@@ -872,7 +929,7 @@ class VideoIndexer:
         batch_size = getattr(settings, "DETECTION_BATCH_SIZE", 8)
         total_dets = 0
         for batch_start in range(0, len(frame_records), batch_size):
-            batch = frame_records[batch_start: batch_start + batch_size]
+            batch = frame_records[batch_start : batch_start + batch_size]
             images: list[Image.Image] = []
             for rec in batch:
                 try:
@@ -891,7 +948,9 @@ class VideoIndexer:
                         for det, mask_info in zip(detections, sam_masks):
                             det["mask_area_norm"] = mask_info.get("area_norm")
                     except Exception as exc:
-                        self.logger.debug("SAM prediction failed for frame %s: %s", rec.get("frame_id"), exc)
+                        self.logger.debug(
+                            "SAM prediction failed for frame %s: %s", rec.get("frame_id"), exc
+                        )
 
                 fj = rec.get("frame_facts_json") or {}
                 if isinstance(fj, dict):
@@ -901,7 +960,8 @@ class VideoIndexer:
 
         self.logger.info(
             "YOLO+SAM pass complete: %d detections across %d frames",
-            total_dets, len(frame_records),
+            total_dets,
+            len(frame_records),
         )
 
     def _run_gemma_directed_tracking_pass(
@@ -946,7 +1006,9 @@ class VideoIndexer:
         scene_type = gemma_scene.get("scene_type", "other")
         self.logger.info(
             "Gemma directed tracking: scene_type=%s priority=%s objects=%d",
-            scene_type, tracking_priority, len(gemma_objects),
+            scene_type,
+            tracking_priority,
+            len(gemma_objects),
         )
 
         # RF-DETR tracking pass across all frame records
@@ -977,35 +1039,40 @@ class VideoIndexer:
                 try:
                     img = Image.open(fp).convert("RGB")
                     masks = _sam_directed_by_gemma(
-                        img, gemma_objects, self.sam_predictor, self.clip_model,
+                        img,
+                        gemma_objects,
+                        self.sam_predictor,
+                        self.clip_model,
                     )
                     w_img, h_img = img.size
                     sam_masks_summary = [
                         {
-                            "category":  m.get("category", "unknown"),
-                            "area_norm": round(
-                                float(m["mask"].sum()) / (w_img * h_img), 6
-                            ) if m.get("mask") is not None else 0.0,
-                            "source":    m.get("source", "unknown"),
+                            "category": m.get("category", "unknown"),
+                            "area_norm": round(float(m["mask"].sum()) / (w_img * h_img), 6)
+                            if m.get("mask") is not None
+                            else 0.0,
+                            "source": m.get("source", "unknown"),
                         }
                         for m in masks
                     ]
                 except Exception as exc:
                     self.logger.debug(
                         "Gemma directed tracking SAM pass failed for %s: %s",
-                        rec.get("frame_id", fp), exc,
+                        rec.get("frame_id", fp),
+                        exc,
                     )
             fj["gemma_tracking"] = {
-                "scene_type":        scene_type,
+                "scene_type": scene_type,
                 "tracking_priority": tracking_priority,
-                "detections":        tracking_dets,
-                "sam_masks":         sam_masks_summary,
+                "detections": tracking_dets,
+                "sam_masks": sam_masks_summary,
             }
             rec["frame_facts_json"] = fj
 
         self.logger.info(
             "Gemma directed tracking pass complete: %d frames, scene=%s",
-            len(frame_records), scene_type,
+            len(frame_records),
+            scene_type,
         )
 
     def _run_yolo_ssg_pass(
@@ -1053,10 +1120,12 @@ class VideoIndexer:
         """Run world model on sliding windows of consecutive kept frames."""
         clip_size = settings.WORLD_MODEL_CLIP_FRAMES
         self.logger.info(
-            "World model pass: %d frames, clip_size=%d", len(frame_records), clip_size,
+            "World model pass: %d frames, clip_size=%d",
+            len(frame_records),
+            clip_size,
         )
         for batch_start in range(0, len(frame_records), clip_size):
-            batch = frame_records[batch_start: batch_start + clip_size]
+            batch = frame_records[batch_start : batch_start + clip_size]
             images = []
             for rec in batch:
                 try:
@@ -1115,10 +1184,7 @@ class VideoIndexer:
                 clip_embeds_list.append(emb.astype(np.float32))
                 valid_indices.append(i)
 
-        caption_confidences = [
-            float(rec.get("caption_confidence") or 0.5)
-            for rec in frame_records
-        ]
+        caption_confidences = [float(rec.get("caption_confidence") or 0.5) for rec in frame_records]
 
         # ── Compute dino-proxy distance via CLIP k-means centroid distance ──
         # Uses CLIP embeddings as proxy when DINOv3 is not separately embedded.
@@ -1140,6 +1206,7 @@ class VideoIndexer:
         if self.rssm_embedder is not None and clip_embeds_list:
             try:
                 import time
+
                 t0 = time.time()
                 all_embeds = np.stack(clip_embeds_list)
                 rssm_result = self.rssm_embedder.encode_sequence(all_embeds)
@@ -1148,7 +1215,10 @@ class VideoIndexer:
                 elapsed = time.time() - t0
                 self.logger.info(
                     "RSSM pass complete: method=%s hidden=%d latent=%d elapsed=%.2fs",
-                    method, rssm_result["hidden_dim"], rssm_result["latent_dim"], elapsed,
+                    method,
+                    rssm_result["hidden_dim"],
+                    rssm_result["latent_dim"],
+                    elapsed,
                 )
                 # Map back from valid_indices to full frame_records
                 rssm_surprises = [0.5] * n
@@ -1166,7 +1236,9 @@ class VideoIndexer:
                         "model": rssm_result.get("model", "RSSMEmbedder"),
                     }
                     if settings.DREAMER_STORE_TEMPORAL and "recurrent_states" in rssm_result:
-                        rssm_entry["recurrent_state"] = rssm_result["recurrent_states"][rank].tolist()
+                        rssm_entry["recurrent_state"] = rssm_result["recurrent_states"][
+                            rank
+                        ].tolist()
                     fj["rssm"] = rssm_entry
                     rec["frame_facts_json"] = fj
             except Exception as exc:
@@ -1187,7 +1259,10 @@ class VideoIndexer:
         formula = "rssm+dino+caption" if rssm_surprises is not None else "dino+caption"
         self.logger.info(
             "AL tagging complete: needs_annotation=%d novel=%d none=%d formula=%s",
-            needs, novel, n - needs - novel, formula,
+            needs,
+            novel,
+            n - needs - novel,
+            formula,
         )
 
     def _run_florence_pass(self, frame_records: list[dict[str, Any]]) -> None:
@@ -1278,18 +1353,22 @@ class VideoIndexer:
             key=lambda iv: float(iv[1].get("hist_diff", 0.0) or 0.0),
             reverse=True,
         )
-        gemma_indices = {idx for idx, _ in scored[:max_gemma]} if max_gemma > 0 else set(range(total))
+        gemma_indices = (
+            {idx for idx, _ in scored[:max_gemma]} if max_gemma > 0 else set(range(total))
+        )
         gemma_recs = [r for i, r in enumerate(frame_records) if i in gemma_indices]
         florence_recs = [r for i, r in enumerate(frame_records) if i not in gemma_indices]
 
         self.logger.info(
             "Gemma captioning pass: %d frames via Gemma API, %d via Florence fallback",
-            len(gemma_recs), len(florence_recs),
+            len(gemma_recs),
+            len(florence_recs),
         )
 
         def _caption_image_gemma(frame_path: str) -> tuple:
             """Return (caption, confidence) for one frame via Gemma API, or raise."""
             import base64 as _b64
+
             try:
                 with open(frame_path, "rb") as _f:
                     img_b64 = _b64.b64encode(_f.read()).decode()
@@ -1307,7 +1386,10 @@ class VideoIndexer:
                         "role": "user",
                         "content": [
                             {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
+                            },
                         ],
                     }
                 ],
@@ -1333,12 +1415,14 @@ class VideoIndexer:
                     if attempt < retries:
                         self.logger.debug(
                             "Gemma caption chunk attempt %d failed (%s) — retrying",
-                            attempt + 1, exc,
+                            attempt + 1,
+                            exc,
                         )
                     else:
                         self.logger.warning(
                             "Gemma caption chunk failed after %d attempt(s) (%s) — falling back to Florence",
-                            retries + 1, exc,
+                            retries + 1,
+                            exc,
                         )
                         self._caption_records_with_florence(chunk, florence_tag)
 
@@ -1353,9 +1437,7 @@ class VideoIndexer:
 
         self._set_caption_payload(frame_records)
 
-    def _caption_records_with_florence(
-        self, records: list[dict[str, Any]], model_tag: str
-    ) -> None:
+    def _caption_records_with_florence(self, records: list[dict[str, Any]], model_tag: str) -> None:
         """Caption the given records in-place using the Florence model."""
         for batch_start in range(0, len(records), settings.FLORENCE_BATCH_SIZE):
             batch = records[batch_start : batch_start + settings.FLORENCE_BATCH_SIZE]
@@ -1372,7 +1454,8 @@ class VideoIndexer:
             except Exception:
                 self.logger.warning(
                     "Florence fallback batch failed for %d frames; using empty captions",
-                    len(batch), exc_info=True,
+                    len(batch),
+                    exc_info=True,
                 )
                 captions_and_confs = [("", 0.5)] * len(batch)
             for rec, (caption, confidence) in zip(batch, captions_and_confs):
@@ -1460,14 +1543,19 @@ class VideoIndexer:
             self.recent_index.add(np.expand_dims(clip_vec, axis=0))
 
             tile_path = os.path.join(
-                settings.TILES_DIR, video_id, str(segment_id), f"tile_{int(t_sec*1000)}_{x}_{y}.jpg"
+                settings.TILES_DIR,
+                video_id,
+                str(segment_id),
+                f"tile_{int(t_sec * 1000)}_{x}_{y}.jpg",
             )
             ensure_dir(os.path.dirname(tile_path))
             cv2.imwrite(tile_path, tile)
 
             vectors: dict[str, Any] = {"clip": clip_vec.tolist()}
             if self.dino_model:
-                vectors["dino"] = self.dino_model.encode_images([tile_pil], batch_size=1)[0].tolist()
+                vectors["dino"] = self.dino_model.encode_images([tile_pil], batch_size=1)[
+                    0
+                ].tolist()
 
             tile_payload: dict[str, Any] = {
                 "type": "tile",
@@ -1476,7 +1564,8 @@ class VideoIndexer:
                 "t_sec": t_sec,
                 "frame_path": frame_path,
                 "tile_path": tile_path,
-                "x": x, "y": y,
+                "x": x,
+                "y": y,
                 "w": settings.TILE_SIZE,
                 "h": settings.TILE_SIZE,
             }
@@ -1486,11 +1575,13 @@ class VideoIndexer:
                 tile_payload["robot_id"] = robot_id
             if global_map_id is not None:
                 tile_payload["global_map_id"] = global_map_id
-            tile_points.append(qmodels.PointStruct(
-                id=stable_point_id(video_id, segment_id, int(t_sec * 1000), "tile", x, y),
-                vector=vectors,
-                payload=tile_payload,
-            ))
+            tile_points.append(
+                qmodels.PointStruct(
+                    id=stable_point_id(video_id, segment_id, int(t_sec * 1000), "tile", x, y),
+                    vector=vectors,
+                    payload=tile_payload,
+                )
+            )
             count += 1
 
         return tile_points, count

@@ -1,6 +1,5 @@
 """All write_*_md functions, print_run_stats, and markdown helpers."""
 
-
 import json
 import math
 import os
@@ -26,6 +25,7 @@ from ._threat_contradictions import (
 )
 
 # ── Markdown helpers ──────────────────────────────────────────────────────────
+
 
 def _md_image(rel_path: str, alt: str = "frame") -> str:
     return f"![{alt}]({rel_path})"
@@ -61,7 +61,7 @@ def write_search_md(
     for i, r in enumerate(results, 1):
         payload = r.get("payload", r)
         fp = payload.get("frame_path", "")
-        t  = payload.get("t_sec", 0.0)
+        t = payload.get("t_sec", 0.0)
         score = r.get("score", 0.0)
         rel = os.path.relpath(fp, output_path.parent) if fp else ""
         lines.append(f"| {i} | {score:.4f} | {t:.2f}s | {_md_image(rel, f'match {i}')} |")
@@ -86,7 +86,7 @@ def _diff_structured_caption(prev: dict[str, Any], curr: dict[str, Any]) -> str:
 
     def _vehicle_signature(groups: list) -> dict[str, int]:
         sig: dict[str, int] = {}
-        for g in (groups or []):
+        for g in groups or []:
             vtype = g.get("type", "other")
             sig[vtype] = sig.get(vtype, 0) + int(g.get("count") or 1)
         return sig
@@ -124,13 +124,15 @@ def write_scene_captions_md(
     segments: list[dict[str, Any]] = []
     for r in enriched:
         if r["is_new_segment"]:
-            segments.append({
-                "segment_id": r["segment_id"],
-                "start_t": r["t_sec"],
-                "end_t": r["t_sec"],
-                "caption": r.get("caption") or "",
-                "frame_count": 1,
-            })
+            segments.append(
+                {
+                    "segment_id": r["segment_id"],
+                    "start_t": r["t_sec"],
+                    "end_t": r["t_sec"],
+                    "caption": r.get("caption") or "",
+                    "frame_count": 1,
+                }
+            )
         elif segments:
             segments[-1]["end_t"] = r["t_sec"]
             segments[-1]["frame_count"] += 1
@@ -170,13 +172,13 @@ def write_scene_captions_md(
         "|-------|-------|-----|-----|------------|---------|",
     ]
     for r in enriched:
-        fp   = r.get("frame_path", "")
+        fp = r.get("frame_path", "")
         name = Path(fp).name if fp else "—"
-        t    = r.get("t_sec", 0.0)
+        t = r.get("t_sec", 0.0)
         conf = r.get("caption_confidence", 0.0) or 0.0
-        cap  = (r.get("caption") or "").replace("|", "\\|")
-        seg  = r["segment_id"] + 1
-        sim  = r["similarity"]
+        cap = (r.get("caption") or "").replace("|", "\\|")
+        seg = r["segment_id"] + 1
+        sim = r["similarity"]
         sim_str = f"{sim:.2f}" if sim is not None else "—"
         if not r["is_new_segment"]:
             cap = f"*same scene* {cap}"
@@ -204,8 +206,8 @@ def _write_gemma_captions_md(
         "|---|-------|-------|-------------|",
     ]
     for i, c in enumerate(captions, 1):
-        fp   = Path(c.get("frame_path", "")).name
-        t    = c.get("t_sec", 0.0)
+        fp = Path(c.get("frame_path", "")).name
+        t = c.get("t_sec", 0.0)
         desc = c.get("description", "").replace("|", "\\|").replace("\n", " ")
         lines.append(f"| {i} | {t:.1f} | `{fp}` | {desc} |")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL}*"]
@@ -236,10 +238,16 @@ def write_gemma_segment_captions_md(
     ]
     for b in boundary_diffs:
         seg_label = f"{b.get('prev_segment_id', '?')}→{b.get('next_segment_id', '?')}"
-        t_before  = f"{b.get('prev_t_sec', 0.0):.1f}s"
-        t_after   = f"{b.get('next_t_sec', 0.0):.1f}s"
-        desc      = (b.get("diff_description") or "*(no description)*").replace("|", "\\|").replace("\n", " ")
-        lines.append(f"| {b.get('boundary_idx', 0) + 1} | {seg_label} | {t_before} | {t_after} | {desc} |")
+        t_before = f"{b.get('prev_t_sec', 0.0):.1f}s"
+        t_after = f"{b.get('next_t_sec', 0.0):.1f}s"
+        desc = (
+            (b.get("diff_description") or "*(no description)*")
+            .replace("|", "\\|")
+            .replace("\n", " ")
+        )
+        lines.append(
+            f"| {b.get('boundary_idx', 0) + 1} | {seg_label} | {t_before} | {t_after} | {desc} |"
+        )
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL}*"]
     write_markdown_artifact(output_path, lines)
     _log.info("  Written %s", output_path)
@@ -280,9 +288,9 @@ def write_gemma_analysis_md(
     # DINOv3 comparison
     if dino_comparison.get("available"):
         mnn = dino_comparison.get("mnn_rate", 0.0)
-        k   = dino_comparison.get("k", 5)
-        cg  = dino_comparison.get("mean_cossim_gemma", 0.0)
-        cd  = dino_comparison.get("mean_cossim_dino", 0.0)
+        k = dino_comparison.get("k", 5)
+        cg = dino_comparison.get("mean_cossim_gemma", 0.0)
+        cd = dino_comparison.get("mean_cossim_dino", 0.0)
         lines += [
             "## Gemma vs DINOv3 Embedding Comparison",
             "",
@@ -312,9 +320,9 @@ def write_gemma_analysis_md(
     cc = clip_comparison or {}
     if cc.get("available"):
         mnn_c = cc.get("mnn_rate", 0.0)
-        k_c   = cc.get("k", 5)
-        cg_c  = cc.get("mean_cossim_gemma", 0.0)
-        cl_c  = cc.get("mean_cossim_clip", 0.0)
+        k_c = cc.get("k", 5)
+        cg_c = cc.get("mean_cossim_gemma", 0.0)
+        cl_c = cc.get("mean_cossim_clip", 0.0)
         lines += [
             "## Gemma vs CLIP Embedding Comparison",
             "",
@@ -381,11 +389,11 @@ def write_gemma_analysis_md(
             "|-------|---------------|-------|",
         ]
         for qr in text_query_results:
-            q   = qr.get("query", "—")
+            q = qr.get("query", "—")
             top = qr.get("top_results", [])
             if top:
-                fp    = Path(top[0].get("frame_path", "")).name
-                t_s   = top[0].get("t_sec", 0.0)
+                fp = Path(top[0].get("frame_path", "")).name
+                t_s = top[0].get("t_sec", 0.0)
                 score = top[0].get("score", 0.0)
                 lines.append(f"| {q} | `{fp}` ({t_s:.1f}s) | {score:.4f} |")
             else:
@@ -562,12 +570,12 @@ def write_finetune_stats_md(
 ) -> None:
     from .steps_ssl import _analyze_loss_curve, _interpret_finetune_results, _loss_sparkline
 
-    ckpt_mb    = os.path.getsize(checkpoint_path) / 1e6 if os.path.exists(checkpoint_path) else 0
+    ckpt_mb = os.path.getsize(checkpoint_path) / 1e6 if os.path.exists(checkpoint_path) else 0
     best_epoch = int(np.argmin(loss_history)) + 1 if loss_history else 0
-    stats      = _analyze_loss_curve(loss_history)
-    sparkline  = _loss_sparkline(loss_history)
-    deltas     = stats.get("deltas", [])
-    bullets    = _interpret_finetune_results(cfg, stats, elapsed_sec)
+    stats = _analyze_loss_curve(loss_history)
+    sparkline = _loss_sparkline(loss_history)
+    deltas = stats.get("deltas", [])
+    bullets = _interpret_finetune_results(cfg, stats, elapsed_sec)
 
     lines = [
         f"# SSL Fine-Tuning Statistics — {video_name}",
@@ -734,13 +742,13 @@ def write_distill_stats_md(
     video_name: str,
     stats: dict[str, Any],
 ) -> None:
-    loss_history    = stats.get("loss_history", [])
-    recall_history  = stats.get("recall_history", [])
+    loss_history = stats.get("loss_history", [])
+    recall_history = stats.get("recall_history", [])
     loss_components = stats.get("loss_components", {})
-    compression     = stats.get("compression_ratio", 0.0)
-    t_params        = stats.get("teacher_params", 0)
-    s_params        = stats.get("student_params", 0)
-    best_recall     = stats.get("best_recall", float("nan"))
+    compression = stats.get("compression_ratio", 0.0)
+    t_params = stats.get("teacher_params", 0)
+    s_params = stats.get("student_params", 0)
+    best_recall = stats.get("best_recall", float("nan"))
 
     lines = [
         f"# Knowledge Distillation — {video_name}",
@@ -775,12 +783,30 @@ def write_distill_stats_md(
     ]
     n = len(loss_history)
     for i in range(n):
-        r1  = recall_history[i] if i < len(recall_history) else float("nan")
-        rd  = loss_components.get("rkd_d", [])[i]   if i < len(loss_components.get("rkd_d",   [])) else float("nan")
-        ra  = loss_components.get("rkd_a", [])[i]   if i < len(loss_components.get("rkd_a",   [])) else float("nan")
-        cos = loss_components.get("cosine", [])[i]  if i < len(loss_components.get("cosine",  [])) else float("nan")
-        kol = loss_components.get("koleo", [])[i]   if i < len(loss_components.get("koleo",   [])) else float("nan")
-        lines.append(f"| {i+1} | {loss_history[i]:.4f} | {rd:.4f} | {ra:.4f} | {cos:.4f} | {kol:.4f} | {r1:.3f} |")
+        r1 = recall_history[i] if i < len(recall_history) else float("nan")
+        rd = (
+            loss_components.get("rkd_d", [])[i]
+            if i < len(loss_components.get("rkd_d", []))
+            else float("nan")
+        )
+        ra = (
+            loss_components.get("rkd_a", [])[i]
+            if i < len(loss_components.get("rkd_a", []))
+            else float("nan")
+        )
+        cos = (
+            loss_components.get("cosine", [])[i]
+            if i < len(loss_components.get("cosine", []))
+            else float("nan")
+        )
+        kol = (
+            loss_components.get("koleo", [])[i]
+            if i < len(loss_components.get("koleo", []))
+            else float("nan")
+        )
+        lines.append(
+            f"| {i + 1} | {loss_history[i]:.4f} | {rd:.4f} | {ra:.4f} | {cos:.4f} | {kol:.4f} | {r1:.3f} |"
+        )
 
     lines += [
         "",
@@ -821,12 +847,12 @@ def write_comparison_md(
     text_descriptions: list[tuple[str, float]],
 ) -> None:
     base_paths = {r.get("payload", r).get("frame_path", "") for r in base_results}
-    ft_paths   = {r.get("payload", r).get("frame_path", "") for r in ft_results}
-    overlap    = len(base_paths & ft_paths)
+    ft_paths = {r.get("payload", r).get("frame_path", "") for r in ft_results}
+    overlap = len(base_paths & ft_paths)
     base_scores = [r.get("score", 0) for r in base_results]
-    ft_scores   = [r.get("score", 0) for r in ft_results]
+    ft_scores = [r.get("score", 0) for r in ft_results]
     avg_base = float(np.mean(base_scores)) if base_scores else 0.0
-    avg_ft   = float(np.mean(ft_scores))   if ft_scores   else 0.0
+    avg_ft = float(np.mean(ft_scores)) if ft_scores else 0.0
     lines = [
         f"# Model Comparison — {video_name}",
         "",
@@ -907,7 +933,13 @@ def write_description_md(
     ]
     for desc, score in all_scored:
         lines.append(f"| {desc} | {score:.4f} |")
-    lines += ["", "## Sample Frames", "", "Frames used for description (evenly spaced, up to 32):", ""]
+    lines += [
+        "",
+        "## Sample Frames",
+        "",
+        "Frames used for description (evenly spaced, up to 32):",
+        "",
+    ]
     step = max(1, len(frame_list) // 8)
     for fp, t_sec in frame_list[::step][:8]:
         lines.append(f"- `{Path(fp).name}` (t={t_sec:.1f}s)")
@@ -939,7 +971,7 @@ def write_final_stats_md(
     ]
     names = [v.get("name", f"video{i}") for i, v in enumerate(per_video)]
     header = "| Step | Type | " + " | ".join(names) + " | Total |"
-    sep    = "|------|------|" + "|".join(["-------"] * len(names)) + "|-------|"
+    sep = "|------|------|" + "|".join(["-------"] * len(names)) + "|-------|"
     lines += [header, sep]
     for key, label, comp_type in _STEP_LABELS:
         vals = [v.get("timings", {}).get(key, 0.0) for v in per_video]
@@ -957,7 +989,7 @@ def write_final_stats_md(
     ]
     for i, v in enumerate(per_video):
         distill_loss = v.get("distill_loss", float("nan"))
-        distill_str  = f"{distill_loss:.4f}" if not math.isnan(distill_loss) else "skipped"
+        distill_str = f"{distill_loss:.4f}" if not math.isnan(distill_loss) else "skipped"
         lines.append(
             f"| {v.get('name', f'video{i}')} | {v.get('frames', 0)} | "
             f"{v.get('index_sec', 0):.1f} | "
@@ -1082,12 +1114,16 @@ def write_multimodal_md(
         lines += ["## Depth — Percentile Summary (sample)", ""]
         depth_rows = [r for r in depth_result.get("depth_results", []) if r.get("depth")][:5]
         if depth_rows:
-            lines += ["| t (s) | p10 | p25 | p50 | p75 | p90 |",
-                      "|-------|-----|-----|-----|-----|-----|"]
+            lines += [
+                "| t (s) | p10 | p25 | p50 | p75 | p90 |",
+                "|-------|-----|-----|-----|-----|-----|",
+            ]
             for r in depth_rows:
-                p = r["depth"].get("percentiles", [0]*5)
-                lines.append(f"| {r['t_sec']:.1f} | "
-                              f"{p[0]:.3f} | {p[1]:.3f} | {p[2]:.3f} | {p[3]:.3f} | {p[4]:.3f} |")
+                p = r["depth"].get("percentiles", [0] * 5)
+                lines.append(
+                    f"| {r['t_sec']:.1f} | "
+                    f"{p[0]:.3f} | {p[1]:.3f} | {p[2]:.3f} | {p[3]:.3f} | {p[4]:.3f} |"
+                )
         lines.append("")
     if not state_fusion_result.get("skipped"):
         lines += ["## Platform-State Fusion — Posterior Summary", ""]
@@ -1163,7 +1199,11 @@ def write_detailed_captions_md(
     elapsed_sec: float,
     model_id: str,
 ) -> None:
-    ok = sum(1 for r in results if not r.get("service_unavailable") and not r.get("skipped") and not r.get("parse_error"))
+    ok = sum(
+        1
+        for r in results
+        if not r.get("service_unavailable") and not r.get("skipped") and not r.get("parse_error")
+    )
     parse_errors = sum(1 for r in results if r.get("parse_error"))
     unavailable = sum(1 for r in results if r.get("service_unavailable"))
 
@@ -1176,24 +1216,25 @@ def write_detailed_captions_md(
         text_results.append({**r, "caption": summary})
     enriched_valid = _analyze_caption_sequence(text_results) if text_results else []
     enriched_index = {
-        (str(r.get("frame_path", "")), float(r.get("t_sec", 0.0))): r
-        for r in enriched_valid
+        (str(r.get("frame_path", "")), float(r.get("t_sec", 0.0))): r for r in enriched_valid
     }
 
     # Segment-level summary
     segments: list[dict[str, Any]] = []
     for r in enriched_valid:
         if r["is_new_segment"]:
-            segments.append({
-                "segment_id": r["segment_id"],
-                "start_t": r["t_sec"],
-                "end_t": r["t_sec"],
-                "frame_count": 1,
-                "scene_summary": r.get("scene_summary") or r.get("caption") or "",
-                "road_surface": r.get("road_surface", ""),
-                "road_condition": r.get("road_condition", ""),
-                "vehicle_groups": r.get("vehicle_groups", []),
-            })
+            segments.append(
+                {
+                    "segment_id": r["segment_id"],
+                    "start_t": r["t_sec"],
+                    "end_t": r["t_sec"],
+                    "frame_count": 1,
+                    "scene_summary": r.get("scene_summary") or r.get("caption") or "",
+                    "road_surface": r.get("road_surface", ""),
+                    "road_condition": r.get("road_condition", ""),
+                    "vehicle_groups": r.get("vehicle_groups", []),
+                }
+            )
         elif segments:
             segments[-1]["end_t"] = r["t_sec"]
             segments[-1]["frame_count"] += 1
@@ -1222,9 +1263,7 @@ def write_detailed_captions_md(
         ]
     for seg in segments:
         vg = seg.get("vehicle_groups") or []
-        v_str = "; ".join(
-            f"{g.get('count', 1)}×{g.get('type', '?')}" for g in vg
-        ) if vg else "none"
+        v_str = "; ".join(f"{g.get('count', 1)}×{g.get('type', '?')}" for g in vg) if vg else "none"
         summary = (seg.get("scene_summary") or "").replace("|", "\\|")[:120]
         lines.append(
             f"| {seg['segment_id'] + 1} | {seg['start_t']:.1f} | {seg['end_t']:.1f}"
@@ -1245,25 +1284,25 @@ def write_detailed_captions_md(
 
     prev_structured: dict[str, Any] = {}
     for r in results:
-        fp       = r.get("frame_path", "")
-        name     = Path(fp).name if fp else "—"
-        t        = r.get("t_sec", 0.0)
+        fp = r.get("frame_path", "")
+        name = Path(fp).name if fp else "—"
+        t = r.get("t_sec", 0.0)
         subtitle = (r.get("subtitle_text") or "").replace("|", "\\|")[:60]
         enriched_row = enriched_index.get((str(fp), float(t)))
-        seg      = str(enriched_row["segment_id"] + 1) if enriched_row else "—"
+        seg = str(enriched_row["segment_id"] + 1) if enriched_row else "—"
 
         if r.get("service_unavailable"):
-            caption  = "*sidecar unavailable*"
-            delta    = "—"
+            caption = "*sidecar unavailable*"
+            delta = "—"
         elif r.get("parse_error"):
-            caption  = "*parse error*"
+            caption = "*parse error*"
             raw = str(r.get("raw", "") or "").replace("|", "\\|").strip()
             if raw:
                 caption += f" {raw[:160]}"
-            delta    = "—"
+            delta = "—"
         elif r.get("skipped"):
-            caption  = "*skipped*"
-            delta    = "—"
+            caption = "*skipped*"
+            delta = "—"
         else:
             # Structured diff against previous frame
             delta = _diff_structured_caption(prev_structured, r) if prev_structured else ""
@@ -1274,11 +1313,21 @@ def write_detailed_captions_md(
             if not facts:
                 parts = []
                 for k, v in r.items():
-                    if k not in (
-                        "frame_path", "t_sec", "subtitle_text", "ocr_text",
-                        "segment_id", "is_new_segment", "similarity", "segment_start_t",
-                        "caption",
-                    ) and v:
+                    if (
+                        k
+                        not in (
+                            "frame_path",
+                            "t_sec",
+                            "subtitle_text",
+                            "ocr_text",
+                            "segment_id",
+                            "is_new_segment",
+                            "similarity",
+                            "segment_start_t",
+                            "caption",
+                        )
+                        and v
+                    ):
                         parts.append(f"{k}: {v}")
                 facts = "; ".join(parts[:4])
             caption = str(facts).replace("|", "\\|")[:200]
@@ -1361,11 +1410,13 @@ def write_multi_model_comparison_md(
     unidrive_result: dict[str, Any],
 ) -> dict[str, Any]:
     qwen_rows = [
-        r for r in qwen_result.get("results", [])
+        r
+        for r in qwen_result.get("results", [])
         if not r.get("service_unavailable") and not r.get("parse_error")
     ]
     uni_rows = [
-        r for r in unidrive_result.get("results", [])
+        r
+        for r in unidrive_result.get("results", [])
         if not r.get("service_unavailable") and not r.get("parse_error")
     ]
 
@@ -1391,13 +1442,15 @@ def write_multi_model_comparison_md(
         u_summary = str(u_under.get("scene_summary", "") or "")
         moe_summary = str(u_moe.get("consensus_summary", "") or "")
         agreement_scores.append(_jaccard(q_summary, u_summary or moe_summary))
-        example_rows.append((
-            float(u.get("t_sec", 0.0)),
-            q_summary,
-            u_summary,
-            moe_summary,
-            str(u_moe.get("expert_agreement", "unknown") or "unknown"),
-        ))
+        example_rows.append(
+            (
+                float(u.get("t_sec", 0.0)),
+                q_summary,
+                u_summary,
+                moe_summary,
+                str(u_moe.get("expert_agreement", "unknown") or "unknown"),
+            )
+        )
 
     mean_agreement = float(np.mean(agreement_scores)) if agreement_scores else 0.0
     gemma_scene = ""
@@ -1408,7 +1461,9 @@ def write_multi_model_comparison_md(
         gemma_scene = next(iter(cat_dist))
 
     risk_levels = [((r.get("understanding") or {}).get("risk_level", "unknown")) for r in uni_rows]
-    agreement_levels = [((r.get("mixture_of_experts") or {}).get("expert_agreement", "unknown")) for r in uni_rows]
+    agreement_levels = [
+        ((r.get("mixture_of_experts") or {}).get("expert_agreement", "unknown")) for r in uni_rows
+    ]
     lines = [
         f"# Multi-Model Comparison — {video_name}",
         "",
@@ -1449,8 +1504,8 @@ def write_multi_model_comparison_md(
         "",
         (
             "- Qwen is the structured scene-facts baseline."
-            if qwen_rows else
-            "- Qwen produced no valid structured rows in this run; treat UniDrive as the only usable structured VLM output."
+            if qwen_rows
+            else "- Qwen produced no valid structured rows in this run; treat UniDrive as the only usable structured VLM output."
         ),
         "- UniDrive adds explicit understanding, perception, and planning experts.",
         "- The UniDrive MoE consensus field is the best single input for downstream synthesis because it preserves both consensus and disagreement.",
@@ -1486,11 +1541,13 @@ def _normalise_threat_rows(
         if p.get("type")
     }
     rows: list[dict[str, Any]] = []
-    for threat in (local_threat.get("top_threats") or []):
+    for threat in local_threat.get("top_threats") or []:
         threat_type = str(threat.get("type", "unknown"))
         primitive = primitive_by_type.get(threat_type, {})
         evidence = dict(threat.get("evidence") or {})
-        evidence_sources = list(evidence.get("evidence_sources") or primitive.get("evidence_sources") or [])
+        evidence_sources = list(
+            evidence.get("evidence_sources") or primitive.get("evidence_sources") or []
+        )
         contradiction_signals = contradiction_signals_for_threat(
             threat_type,
             primitive,
@@ -1503,21 +1560,30 @@ def _normalise_threat_rows(
             for signal in contradiction_signals
             if signal.get("description")
         ]
-        rows.append({
-            "threat_type": threat_type,
-            "score": float(threat.get("score", 0.0) or 0.0),
-            "uncertainty": float(evidence.get("uncertainty", primitive.get("uncertainty", 0.0)) or 0.0),
-            "sensor_sources": sensor_sources,
-            "disagreeing_sources": disagreeing_sources,
-            "contradiction_signals": contradiction_signals,
-            "recommended_action": str(policy_decision.get("recommended_action", local_threat.get("recommended_action", "continue"))),
-            "support_frames": support_frame_names(primitive.get("spatial_support") or []),
-            "confidence": max(
-                0.0,
-                1.0 - float(evidence.get("uncertainty", primitive.get("uncertainty", 0.0)) or 0.0),
-            ),
-            "evidence_sources": evidence_sources,
-        })
+        rows.append(
+            {
+                "threat_type": threat_type,
+                "score": float(threat.get("score", 0.0) or 0.0),
+                "uncertainty": float(
+                    evidence.get("uncertainty", primitive.get("uncertainty", 0.0)) or 0.0
+                ),
+                "sensor_sources": sensor_sources,
+                "disagreeing_sources": disagreeing_sources,
+                "contradiction_signals": contradiction_signals,
+                "recommended_action": str(
+                    policy_decision.get(
+                        "recommended_action", local_threat.get("recommended_action", "continue")
+                    )
+                ),
+                "support_frames": support_frame_names(primitive.get("spatial_support") or []),
+                "confidence": max(
+                    0.0,
+                    1.0
+                    - float(evidence.get("uncertainty", primitive.get("uncertainty", 0.0)) or 0.0),
+                ),
+                "evidence_sources": evidence_sources,
+            }
+        )
     return rows
 
 
@@ -1607,7 +1673,10 @@ def write_video_synthesis_md(
             f"- source_pair_conflicts: {', '.join(conflict_patterns) if conflict_patterns else 'none'}",
         ]
         lines.append("")
-    lines += ["---", f"*Produced by {_RUNNER_LABEL} · synthesis step 28 · context from steps 01-27*"]
+    lines += [
+        "---",
+        f"*Produced by {_RUNNER_LABEL} · synthesis step 28 · context from steps 01-27*",
+    ]
     write_markdown_artifact(output_path, lines)
     _log.info("  ✓ Written %s", output_path)
 
@@ -1703,39 +1772,39 @@ def write_agentic_flow_md(
 # (timing_key, step_label, computation_type)
 # Ordered by typical execution sequence.
 _STEP_LABELS: list[tuple[str, str, str]] = [
-    ("A_extract",         "01 Ingest: Frame extraction",           "I/O"           ),
-    ("B_index",           "02 Ingest: Vector indexing",            "GPU embed"     ),
-    ("J_gemma",           "03 Analyze: Gemma multimodal",          "LLM API"       ),
-    ("L_caption",         "04 Analyze: Florence captions",         "GPU vision"    ),
-    ("L_seg_caps",        "04b Analyze: Gemma segment diffs",      "LLM API"       ),
-    ("M_asr",             "05 Analyze: ASR transcription",         "GPU speech"    ),
-    ("N_ocr",             "06 Analyze: OCR text extraction",       "LLM API"       ),
-    ("O_depth",           "07 Analyze: Depth estimation",          "GPU vision"    ),
-    ("P_detection",       "08 Analyze: Object detection",          "GPU vision"    ),
-    ("P2_yolo_sam",       "09 Analyze: YOLO+SAM detection",        "GPU vision"    ),
-    ("P3_gemma_tracking", "10 Analyze: Gemma directed tracking",   "LLM API+GPU"  ),
-    ("Q_world",           "11 Analyze: World model embeddings",    "GPU vision"    ),
-    ("R_qwen",            "12 Analyze: Qwen detailed captions",    "LLM API"       ),
-    ("S_unidrive",        "13 Analyze: UniDriveVLA expert",        "LLM API"       ),
-    ("S_scenetok",        "14 Analyze: SceneTok encoder+seg",      "GPU vision"    ),
-    ("C_base_search",     "15 Eval: Base search test",             "GPU embed"     ),
-    ("I_3dmap",           "16 Map: SfM + Gaussian Splat",          "GPU 3D"        ),
-    ("PS_physical_state",    "17 Analyze: Physical scene state",      "CPU fusion"    ),
-    ("PS_field_state",       "18 Analyze: Environmental field state", "CPU fusion"    ),
-    ("PS_threat_primitives", "19 Analyze: Threat primitives",         "CPU fusion"    ),
-    ("D_finetune",           "20 Adapt: SSL DINOv3 fine-tune",        "GPU train"     ),
-    ("E_distill",            "21 Adapt: Knowledge distillation",      "GPU train"     ),
-    ("E_distill_stage2",     "21b Adapt: Stage 2 distillation",       "GPU train"     ),
-    ("F_export",             "22 Export: ONNX + gallery",             "CPU"           ),
-    ("G_ft_search",          "23 Eval: Fine-tuned search test",       "GPU embed"     ),
-    ("H_compare",            "24 Eval: Model comparison",             "GPU embed"     ),
-    ("T_multimodel",         "25 Audit: Multi-model comparison",      "GPU vision"    ),
-    ("PS_local_threat",      "26 Analyze: Local threat inference",    "CPU fusion"    ),
-    ("PS_policy",            "27 Decide: Action policy",              "CPU policy"    ),
-    ("Z_synthesis",          "28 Synthesize: Ontology+narrative",     "LLM API"       ),
-    ("AA_agentic",           "29 Audit: Agentic flow",                "LLM API"       ),
-    ("AC_drone_detection",   "31 Train: Drone detection",             "GPU train"     ),
-    ("AB_model_advisor",     "32 Optimize: Model/run advisor",        "CPU analysis"  ),
+    ("A_extract", "01 Ingest: Frame extraction", "I/O"),
+    ("B_index", "02 Ingest: Vector indexing", "GPU embed"),
+    ("J_gemma", "03 Analyze: Gemma multimodal", "LLM API"),
+    ("L_caption", "04 Analyze: Florence captions", "GPU vision"),
+    ("L_seg_caps", "04b Analyze: Gemma segment diffs", "LLM API"),
+    ("M_asr", "05 Analyze: ASR transcription", "GPU speech"),
+    ("N_ocr", "06 Analyze: OCR text extraction", "LLM API"),
+    ("O_depth", "07 Analyze: Depth estimation", "GPU vision"),
+    ("P_detection", "08 Analyze: Object detection", "GPU vision"),
+    ("P2_yolo_sam", "09 Analyze: YOLO+SAM detection", "GPU vision"),
+    ("P3_gemma_tracking", "10 Analyze: Gemma directed tracking", "LLM API+GPU"),
+    ("Q_world", "11 Analyze: World model embeddings", "GPU vision"),
+    ("R_qwen", "12 Analyze: Qwen detailed captions", "LLM API"),
+    ("S_unidrive", "13 Analyze: UniDriveVLA expert", "LLM API"),
+    ("S_scenetok", "14 Analyze: SceneTok encoder+seg", "GPU vision"),
+    ("C_base_search", "15 Eval: Base search test", "GPU embed"),
+    ("I_3dmap", "16 Map: SfM + Gaussian Splat", "GPU 3D"),
+    ("PS_physical_state", "17 Analyze: Physical scene state", "CPU fusion"),
+    ("PS_field_state", "18 Analyze: Environmental field state", "CPU fusion"),
+    ("PS_threat_primitives", "19 Analyze: Threat primitives", "CPU fusion"),
+    ("D_finetune", "20 Adapt: SSL DINOv3 fine-tune", "GPU train"),
+    ("E_distill", "21 Adapt: Knowledge distillation", "GPU train"),
+    ("E_distill_stage2", "21b Adapt: Stage 2 distillation", "GPU train"),
+    ("F_export", "22 Export: ONNX + gallery", "CPU"),
+    ("G_ft_search", "23 Eval: Fine-tuned search test", "GPU embed"),
+    ("H_compare", "24 Eval: Model comparison", "GPU embed"),
+    ("T_multimodel", "25 Audit: Multi-model comparison", "GPU vision"),
+    ("PS_local_threat", "26 Analyze: Local threat inference", "CPU fusion"),
+    ("PS_policy", "27 Decide: Action policy", "CPU policy"),
+    ("Z_synthesis", "28 Synthesize: Ontology+narrative", "LLM API"),
+    ("AA_agentic", "29 Audit: Agentic flow", "LLM API"),
+    ("AC_drone_detection", "31 Train: Drone detection", "GPU train"),
+    ("AB_model_advisor", "32 Optimize: Model/run advisor", "CPU analysis"),
 ]
 
 
@@ -1767,13 +1836,13 @@ def print_run_stats(
     label_candidates = [label for _, label, _ in _STEP_LABELS]
     type_candidates = [comp_type for _, _, comp_type in _STEP_LABELS]
     LABEL_W = max(34, max((len(label) for label in label_candidates), default=34) + 1)
-    TYPE_W  = max(14, max((len(comp) for comp in type_candidates), default=14) + 1)
-    DUR_W   = max(
+    TYPE_W = max(14, max((len(comp) for comp in type_candidates), default=14) + 1)
+    DUR_W = max(
         9,
         max((len(name) for name in names), default=9) + 1,
         len(_fmt_sec(total_elapsed)) + 1,
     )
-    n_vids  = len(per_video)
+    n_vids = len(per_video)
     W = LABEL_W + TYPE_W + DUR_W * (n_vids + 1) + 4
     SEP = "─" * W
 
@@ -1794,7 +1863,7 @@ def print_run_stats(
     _banner("RUN STATISTICS")
     _log.info("  Device       : %s", device.upper())
     _log.info("  Videos       : %d", len(per_video))
-    total_frames   = sum(v.get("frames", 0) for v in per_video)
+    total_frames = sum(v.get("frames", 0) for v in per_video)
     total_duration = sum(v.get("duration_sec", 0.0) for v in per_video)
     _log.info("  Total frames : %d  (%.1f min of video)", total_frames, total_duration / 60)
     _log.info("  Total runtime: %s", _fmt_sec(total_elapsed))
@@ -1820,7 +1889,9 @@ def print_run_stats(
             if total_step == 0 and key in _always_show:
                 _log.info(_row(label + " (skipped)", comp_type, *["—"] * n_vids, "—"))
             else:
-                _log.info(_row(label, comp_type, *[_fmt_sec(s) for s in vals], _fmt_sec(total_step)))
+                _log.info(
+                    _row(label, comp_type, *[_fmt_sec(s) for s in vals], _fmt_sec(total_step))
+                )
             for i, s in enumerate(vals):
                 col_totals[i] += s
             grand_total += total_step
@@ -1830,23 +1901,47 @@ def print_run_stats(
 
     _log.info("  " + SEP)
     pipeline_per_video = [v.get("pipeline_sec", 0.0) for v in per_video]
-    _log.info(_row("Pipeline (steps sum)", "", *[_fmt_sec(s) for s in pipeline_per_video],
-                   _fmt_sec(sum(pipeline_per_video))))
+    _log.info(
+        _row(
+            "Pipeline (steps sum)",
+            "",
+            *[_fmt_sec(s) for s in pipeline_per_video],
+            _fmt_sec(sum(pipeline_per_video)),
+        )
+    )
     pipeline_sum = sum(pipeline_per_video)
     overlap_adjustment = max(0.0, pipeline_sum + init_elapsed - total_elapsed)
     overhead = total_elapsed - pipeline_sum - init_elapsed + overlap_adjustment
     _log.info(_row("Model initialisation", "", _fmt_sec(init_elapsed), *([""] * (n_vids - 1)), ""))
     if overlap_adjustment > 0:
-        _log.info(_row("Concurrent overlap adjustment", "", *([""] * n_vids), f"-{_fmt_sec(overlap_adjustment)}"))
-    _log.info(_row("Overhead (I/O, viewer, etc.)", "", *([""] * n_vids), _fmt_sec(max(0.0, overhead))))
+        _log.info(
+            _row(
+                "Concurrent overlap adjustment",
+                "",
+                *([""] * n_vids),
+                f"-{_fmt_sec(overlap_adjustment)}",
+            )
+        )
+    _log.info(
+        _row("Overhead (I/O, viewer, etc.)", "", *([""] * n_vids), _fmt_sec(max(0.0, overhead)))
+    )
     _log.info(_row("WALL CLOCK TOTAL", "", *([""] * n_vids), _fmt_sec(total_elapsed)))
 
     # ── Computation-type subtotals ─────────────────────────────────────────────
     _log.info("")
     _log.info("  COMPUTATION TYPE BREAKDOWN  (pipeline steps only)")
     _log.info("  " + "─" * (TYPE_W + DUR_W + LABEL_W + 2))
-    TYPE_ORDER = ["I/O", "GPU embed", "GPU vision", "GPU speech", "GPU 3D",
-                  "GPU train", "CPU", "LLM API", "LLM API+GPU"]
+    TYPE_ORDER = [
+        "I/O",
+        "GPU embed",
+        "GPU vision",
+        "GPU speech",
+        "GPU 3D",
+        "GPU train",
+        "CPU",
+        "LLM API",
+        "LLM API+GPU",
+    ]
     for ct in TYPE_ORDER:
         t = by_type.get(ct, 0.0)
         if t > 0:
@@ -1854,102 +1949,156 @@ def print_run_stats(
             _log.info("  %-14s  %s  (%4.1f%%)", ct, _fmt_sec(t), pct)
     _log.info("")
     _log.info("  THROUGHPUT")
-    _log.info("  " + SEP[:W-2])
+    _log.info("  " + SEP[: W - 2])
     for v in per_video:
         t_extract = v.get("timings", {}).get("A_extract", 0.0) or 1e-9
-        t_index   = v.get("timings", {}).get("B_index",   0.0) or 1e-9
-        frames    = v.get("frames", 0)
-        _log.info("  %-26s  extract: %5.1f fr/s   index: %5.1f fr/s",
-                  v.get("name", "?"), frames / t_extract, frames / t_index)
+        t_index = v.get("timings", {}).get("B_index", 0.0) or 1e-9
+        frames = v.get("frames", 0)
+        _log.info(
+            "  %-26s  extract: %5.1f fr/s   index: %5.1f fr/s",
+            v.get("name", "?"),
+            frames / t_extract,
+            frames / t_index,
+        )
     _log.info("")
     _log.info("  MODEL METRICS")
-    _log.info("  " + SEP[:W-2])
+    _log.info("  " + SEP[: W - 2])
     _log.info(_row("Metric", *names))
-    _log.info("  " + SEP[:W-2])
-    _log.info(_row("SSL finetune loss",
-                   *[f"{v.get('best_loss', float('nan')):.4f}" for v in per_video]))
-    _log.info(_row("Distill loss",
-                   *[f"{v.get('distill_loss', float('nan')):.4f}"
-                     if not math.isnan(v.get("distill_loss", float("nan"))) else "skipped"
-                     for v in per_video]))
-    _log.info(_row("Teacher ckpt (MB)",
-                   *[f"{v.get('ckpt_mb', 0.0):.1f}" for v in per_video]))
-    _log.info(_row("Student ckpt (MB)",
-                   *[f"{v.get('student_ckpt_mb', 0.0):.1f}" if v.get("student_ckpt_mb") else "—"
-                     for v in per_video]))
-    _log.info(_row("ONNX size (MB)",
-                   *[f"{v.get('onnx_mb', 0.0):.1f}" if v.get("onnx_exported") else "—"
-                     for v in per_video]))
-    _log.info(_row("Compression ratio",
-                   *[f"{v['distill_compression_ratio']:.1f}×"
-                     if v.get("distill_compression_ratio") else (
-                         f"{v['teacher_dim']/v['student_dim']:.1f}×"
-                         if v.get("student_dim") and v.get("teacher_dim") else "—"
-                     )
-                     for v in per_video]))
-    _log.info(_row("Base infer (ms/fr)",
-                   *[f"{v.get('base_infer_ms', 0.0):.1f}" for v in per_video]))
-    _log.info(_row("Fine-tuned infer (ms/fr)",
-                   *[f"{v.get('ft_infer_ms', 0.0):.1f}" for v in per_video]))
+    _log.info("  " + SEP[: W - 2])
+    _log.info(
+        _row("SSL finetune loss", *[f"{v.get('best_loss', float('nan')):.4f}" for v in per_video])
+    )
+    _log.info(
+        _row(
+            "Distill loss",
+            *[
+                f"{v.get('distill_loss', float('nan')):.4f}"
+                if not math.isnan(v.get("distill_loss", float("nan")))
+                else "skipped"
+                for v in per_video
+            ],
+        )
+    )
+    _log.info(_row("Teacher ckpt (MB)", *[f"{v.get('ckpt_mb', 0.0):.1f}" for v in per_video]))
+    _log.info(
+        _row(
+            "Student ckpt (MB)",
+            *[
+                f"{v.get('student_ckpt_mb', 0.0):.1f}" if v.get("student_ckpt_mb") else "—"
+                for v in per_video
+            ],
+        )
+    )
+    _log.info(
+        _row(
+            "ONNX size (MB)",
+            *[f"{v.get('onnx_mb', 0.0):.1f}" if v.get("onnx_exported") else "—" for v in per_video],
+        )
+    )
+    _log.info(
+        _row(
+            "Compression ratio",
+            *[
+                f"{v['distill_compression_ratio']:.1f}×"
+                if v.get("distill_compression_ratio")
+                else (
+                    f"{v['teacher_dim'] / v['student_dim']:.1f}×"
+                    if v.get("student_dim") and v.get("teacher_dim")
+                    else "—"
+                )
+                for v in per_video
+            ],
+        )
+    )
+    _log.info(
+        _row("Base infer (ms/fr)", *[f"{v.get('base_infer_ms', 0.0):.1f}" for v in per_video])
+    )
+    _log.info(
+        _row("Fine-tuned infer (ms/fr)", *[f"{v.get('ft_infer_ms', 0.0):.1f}" for v in per_video])
+    )
     _log.info("")
     _log.info("  SEARCH QUALITY  (top-1 cosine score, self/near-temporal matches excluded)")
-    _log.info("  " + SEP[:W-2])
-    _log.info(_row("Base model (pretrained)",
-                   *[f"{v.get('base_top_score', 0.0):.4f}" for v in per_video]))
-    _log.info(_row("Fine-tuned model",
-                   *[f"{v.get('ft_top_score', 0.0):.4f}" for v in per_video]))
+    _log.info("  " + SEP[: W - 2])
+    _log.info(
+        _row("Base model (pretrained)", *[f"{v.get('base_top_score', 0.0):.4f}" for v in per_video])
+    )
+    _log.info(_row("Fine-tuned model", *[f"{v.get('ft_top_score', 0.0):.4f}" for v in per_video]))
     _log.info("")
     _log.info("  3D MAP")
-    _log.info("  " + SEP[:W-2])
-    _log.info(_row("Method",    *[v.get("map_method", "—") for v in per_video]))
-    _log.info(_row("Points",    *[str(v.get("map_points", 0)) for v in per_video]))
+    _log.info("  " + SEP[: W - 2])
+    _log.info(_row("Method", *[v.get("map_method", "—") for v in per_video]))
+    _log.info(_row("Points", *[str(v.get("map_points", 0)) for v in per_video]))
     _log.info(_row("SfM poses", *[str(v.get("sfm_poses", 0)) for v in per_video]))
     _log.info("")
     _log.info("  ANALYTICS SUMMARY")
-    _log.info("  " + SEP[:W-2])
-    _log.info(_row("Domain", *[
-        (v.get("analysis_summary", {}) or {}).get("domain") or "—"
-        for v in per_video
-    ]))
-    _log.info(_row("Top category", *[
-        (v.get("analysis_summary", {}) or {}).get("top_category") or "—"
-        for v in per_video
-    ]))
-    _log.info(_row("Artifacts", *[
-        str((v.get("analysis_summary", {}) or {}).get("artifact_count", "—"))
-        for v in per_video
-    ]))
-    _log.info(_row("Coverage F/Q/A/O", *[
-        _fmt_analytics_coverage(v.get("analysis_summary", {}) or {})
-        for v in per_video
-    ]))
-    _log.info(_row("Detections", *[
-        _fmt_analytics_detections(v.get("analysis_summary", {}) or {})
-        for v in per_video
-    ]))
-    _log.info(_row("Temporal", *[
-        _fmt_analytics_temporal(v.get("analysis_summary", {}) or {})
-        for v in per_video
-    ]))
-    _log.info(_row("World/Tracking", *[
-        _fmt_analytics_world_tracking(v.get("analysis_summary", {}) or {})
-        for v in per_video
-    ]))
-    _log.info(_row("Map quality", *[
-        _fmt_analytics_map(v.get("analysis_summary", {}) or {})
-        for v in per_video
-    ]))
-    _log.info(_row("Warnings", *[
-        _fmt_analytics_warnings(v.get("analysis_summary", {}) or {})
-        for v in per_video
-    ]))
+    _log.info("  " + SEP[: W - 2])
+    _log.info(
+        _row(
+            "Domain",
+            *[(v.get("analysis_summary", {}) or {}).get("domain") or "—" for v in per_video],
+        )
+    )
+    _log.info(
+        _row(
+            "Top category",
+            *[(v.get("analysis_summary", {}) or {}).get("top_category") or "—" for v in per_video],
+        )
+    )
+    _log.info(
+        _row(
+            "Artifacts",
+            *[
+                str((v.get("analysis_summary", {}) or {}).get("artifact_count", "—"))
+                for v in per_video
+            ],
+        )
+    )
+    _log.info(
+        _row(
+            "Coverage F/Q/A/O",
+            *[_fmt_analytics_coverage(v.get("analysis_summary", {}) or {}) for v in per_video],
+        )
+    )
+    _log.info(
+        _row(
+            "Detections",
+            *[_fmt_analytics_detections(v.get("analysis_summary", {}) or {}) for v in per_video],
+        )
+    )
+    _log.info(
+        _row(
+            "Temporal",
+            *[_fmt_analytics_temporal(v.get("analysis_summary", {}) or {}) for v in per_video],
+        )
+    )
+    _log.info(
+        _row(
+            "World/Tracking",
+            *[
+                _fmt_analytics_world_tracking(v.get("analysis_summary", {}) or {})
+                for v in per_video
+            ],
+        )
+    )
+    _log.info(
+        _row(
+            "Map quality",
+            *[_fmt_analytics_map(v.get("analysis_summary", {}) or {}) for v in per_video],
+        )
+    )
+    _log.info(
+        _row(
+            "Warnings",
+            *[_fmt_analytics_warnings(v.get("analysis_summary", {}) or {}) for v in per_video],
+        )
+    )
     _log.info("")
     _log.info("  TOP VIDEO DESCRIPTION  (CLIP text similarity)")
-    _log.info("  " + SEP[:W-2])
+    _log.info("  " + SEP[: W - 2])
     for v in per_video:
         _log.info("  %-20s  %s", v.get("name", "?"), v.get("top_description", "—") or "—")
     _log.info("")
-    _log.info("  " + "═" * (W-2))
+    _log.info("  " + "═" * (W - 2))
 
 
 def _fmt_analytics_coverage(summary: dict[str, Any]) -> str:
@@ -2011,7 +2160,7 @@ def _fmt_analytics_map(summary: dict[str, Any]) -> str:
 
 
 def _fmt_analytics_warnings(summary: dict[str, Any]) -> str:
-    warnings = ((summary.get("run_health", {}) or {}).get("warnings", []) or [])
+    warnings = (summary.get("run_health", {}) or {}).get("warnings", []) or []
     if not warnings:
         return "—"
     text = ", ".join(str(item) for item in warnings[:2])

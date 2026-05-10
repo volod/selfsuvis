@@ -42,7 +42,9 @@ def _risk_level(score: float) -> str:
     return "none"
 
 
-def _video_dirs_from_stats(output_dir: Path, per_video_stats: Sequence[dict[str, Any]]) -> list[Path]:
+def _video_dirs_from_stats(
+    output_dir: Path, per_video_stats: Sequence[dict[str, Any]]
+) -> list[Path]:
     out: list[Path] = []
     for stats in per_video_stats:
         vdir = stats.get("video_dir")
@@ -55,12 +57,16 @@ def _video_dirs_from_stats(output_dir: Path, per_video_stats: Sequence[dict[str,
     return [p for p in out if p.exists()]
 
 
-def _extract_sector_sequence(full_fusion_payload: dict[str, Any], video_name: str) -> tuple[list[str], list[dict[str, Any]]]:
+def _extract_sector_sequence(
+    full_fusion_payload: dict[str, Any], video_name: str
+) -> tuple[list[str], list[dict[str, Any]]]:
     platform = full_fusion_payload.get("platform") or {}
     origin = platform.get("origin_lla") or {}
     map_state = full_fusion_payload.get("map_state") or {}
     smoothed = map_state.get("smoothed_samples") or []
-    positions = [dict(row.get("position_enu_m") or {}) for row in smoothed if row.get("position_enu_m")]
+    positions = [
+        dict(row.get("position_enu_m") or {}) for row in smoothed if row.get("position_enu_m")
+    ]
     if not origin or not positions:
         return [], []
     sector_samples = sectorize_global_positions(origin, positions, tile_size_m=50.0)
@@ -88,13 +94,15 @@ def _collect_video_record(video_dir: Path) -> dict[str, Any] | None:
         "sector_sequence": sector_sequence,
         "sector_samples": sector_samples,
         "route_id": route_id,
-        "recommended_action": str(policy.get("recommended_action", local_threat.get("recommended_action", "continue"))),
+        "recommended_action": str(
+            policy.get("recommended_action", local_threat.get("recommended_action", "continue"))
+        ),
         "time_range_sec": _time_range_from_fusion(full_fusion),
     }
 
 
 def _time_range_from_fusion(full_fusion_payload: dict[str, Any]) -> list[float]:
-    smoothed = ((full_fusion_payload.get("map_state") or {}).get("smoothed_samples") or [])
+    smoothed = (full_fusion_payload.get("map_state") or {}).get("smoothed_samples") or []
     if not smoothed:
         return [0.0, 0.0]
     first = float(smoothed[0].get("t_sec", 0.0) or 0.0)
@@ -110,7 +118,10 @@ def _aggregate_sector_states(records: Sequence[dict[str, Any]]) -> list[SectorTh
 
     out: list[SectorThreatState] = []
     for sector_id, sector_records in sorted(grouped.items()):
-        scores = [float((r.get("local_threat") or {}).get("local_threat_score", 0.0) or 0.0) for r in sector_records]
+        scores = [
+            float((r.get("local_threat") or {}).get("local_threat_score", 0.0) or 0.0)
+            for r in sector_records
+        ]
         uncertainties: list[float] = []
         primitive_types: list[str] = []
         evidence_sources: list[str] = []
@@ -132,7 +143,7 @@ def _aggregate_sector_states(records: Sequence[dict[str, Any]]) -> list[SectorTh
         independent_support = len(supporting_videos)
         remaining = 1.0
         for score in scores:
-            remaining *= (1.0 - max(0.0, min(1.0, score)))
+            remaining *= 1.0 - max(0.0, min(1.0, score))
         base_score = 1.0 - remaining
         support_bonus = min(0.15, 0.05 * max(0, independent_support - 1))
         threat_score = min(1.0, base_score + support_bonus)
@@ -145,7 +156,9 @@ def _aggregate_sector_states(records: Sequence[dict[str, Any]]) -> list[SectorTh
                 route_ids=route_ids,
                 primitive_types=primitive_types,
                 observation_count=len(scores),
-                mean_uncertainty=round(sum(uncertainties) / len(uncertainties), 4) if uncertainties else 0.0,
+                mean_uncertainty=round(sum(uncertainties) / len(uncertainties), 4)
+                if uncertainties
+                else 0.0,
                 evidence_sources=evidence_sources,
                 metadata={"independent_support_count": independent_support},
             )
@@ -159,7 +172,10 @@ def _aggregate_route_advisories(records: Sequence[dict[str, Any]]) -> list[Route
         grouped[str(record["route_id"])].append(record)
     out: list[RouteAdvisory] = []
     for route_id, route_records in sorted(grouped.items()):
-        scores = [float((r.get("local_threat") or {}).get("local_threat_score", 0.0) or 0.0) for r in route_records]
+        scores = [
+            float((r.get("local_threat") or {}).get("local_threat_score", 0.0) or 0.0)
+            for r in route_records
+        ]
         sector_ids: list[str] = []
         evidence_sources: list[str] = []
         actions: list[str] = []
@@ -261,7 +277,10 @@ def _aggregate_corridor_graph(records: Sequence[dict[str, Any]]) -> list[dict[st
             current["max_threat_score"] = max(float(current["max_threat_score"]), score)
             if record["video_name"] not in current["supporting_videos"]:
                 current["supporting_videos"].append(record["video_name"])
-    return sorted(edge_map.values(), key=lambda row: (-float(row["weight"]), row["from_sector"], row["to_sector"]))
+    return sorted(
+        edge_map.values(),
+        key=lambda row: (-float(row["weight"]), row["from_sector"], row["to_sector"]),
+    )
 
 
 def step_global_threat(

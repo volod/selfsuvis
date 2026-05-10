@@ -1,4 +1,5 @@
 import os
+import time
 
 import requests
 import streamlit as st
@@ -33,11 +34,11 @@ def _render_results(results):
             if r.get("tile_path"):
                 st.caption(r.get("tile_path"))
             if r.get("video_id"):
-                st.code(f"mpv \"./data/videos/{r['video_id']}.mp4\" --start={r['t_sec']:.2f}")
+                st.code(f'mpv "./data/videos/{r["video_id"]}.mp4" --start={r["t_sec"]:.2f}')
 
 
-tab_index, tab_image, tab_text, tab_admin = st.tabs(
-    ["Index Video", "Image Query", "Text Query", "Admin"]
+tab_index, tab_image, tab_text, tab_admin, tab_site = st.tabs(
+    ["Index Video", "Image Query", "Text Query", "Admin", "Site Monitor"]
 )
 
 with tab_index:
@@ -157,6 +158,7 @@ with tab_admin:
         else:
             # Use st.bar_chart with a simple dict
             import pandas as pd
+
             chart_data = pd.DataFrame(
                 {"count": [na, novel, none_count]},
                 index=["needs_annotation", "novel", "none"],
@@ -164,9 +166,9 @@ with tab_admin:
             st.bar_chart(chart_data)
             st.caption(
                 f"Total frames: {total} — "
-                f"ANNOTATE: {na} ({100*na//total}%) · "
-                f"NOVEL: {novel} ({100*novel//total}%) · "
-                f"none: {none_count} ({100*none_count//total}%)"
+                f"ANNOTATE: {na} ({100 * na // total}%) · "
+                f"NOVEL: {novel} ({100 * novel // total}%) · "
+                f"none: {none_count} ({100 * none_count // total}%)"
             )
 
     # ── 3DGS Scene Viewer ────────────────────────────────────────────────────
@@ -175,9 +177,7 @@ with tab_admin:
     static_url = env_str("STATIC_SERVER_URL", "http://localhost:8080")
 
     try:
-        missions_resp = requests.get(
-            f"{API_URL}/admin/missions", headers=_HEADERS, timeout=5
-        )
+        missions_resp = requests.get(f"{API_URL}/admin/missions", headers=_HEADERS, timeout=5)
         missions_list = missions_resp.json() if missions_resp.ok else []
     except requests.exceptions.RequestException:
         missions_list = []
@@ -187,20 +187,15 @@ with tab_admin:
         st.caption("No missions with 3DGS maps yet.")
     else:
         mission_options = {
-            f"{m['id']} ({m.get('scene_count', 1)} scene(s))": m
-            for m in done_missions
+            f"{m['id']} ({m.get('scene_count', 1)} scene(s))": m for m in done_missions
         }
-        selected_label = st.selectbox(
-            "Mission", list(mission_options.keys()), key="viewer_mission"
-        )
+        selected_label = st.selectbox("Mission", list(mission_options.keys()), key="viewer_mission")
         selected_mission = mission_options[selected_label]
         splat_paths = selected_mission.get("splat_paths", [])
 
         if len(splat_paths) > 1:
             scene_labels = [os.path.basename(os.path.dirname(p)) for p in splat_paths]
-            chosen_label = st.selectbox(
-                "Scene", scene_labels, key="viewer_scene"
-            )
+            chosen_label = st.selectbox("Scene", scene_labels, key="viewer_scene")
             scene_idx = scene_labels.index(chosen_label)
             chosen_splat = splat_paths[scene_idx]
         else:
@@ -221,7 +216,9 @@ with tab_admin:
 with tab_text:
     st.header("Text Query")
     text = st.text_input("Query", value="green field", max_chars=1000)
-    search_type_text = st.selectbox("Search type", ["both", "frame", "tile"], index=0, key="text_type")
+    search_type_text = st.selectbox(
+        "Search type", ["both", "frame", "tile"], index=0, key="text_type"
+    )
     enable_rerank_text = st.checkbox("Enable rerank", value=True, key="text_rerank")
     top_k_text = st.slider("Top-K", min_value=5, max_value=50, value=20, key="text_topk")
     if st.button("Search", key="text_search"):
@@ -237,3 +234,154 @@ with tab_text:
             _render_results(results)
         else:
             st.error(resp.text)
+
+# ── Site Monitor (Phase 5) ────────────────────────────────────────────────────
+
+_V1_HEADERS = {"X-Api-Key": _API_KEY} if _API_KEY else {}
+_RISK_COLORS = {"low": "🟡", "medium": "🟠", "high": "🔴", "critical": "💀"}
+
+
+def _v1_get(path: str, params: dict | None = None):
+    try:
+        resp = requests.get(
+            f"{API_URL}/api/v1{path}", headers=_V1_HEADERS, params=params, timeout=5
+        )
+        if resp.ok:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
+def _v1_post(path: str, json_body: dict | None = None):
+    try:
+        resp = requests.post(
+            f"{API_URL}/api/v1{path}", headers=_V1_HEADERS, json=json_body or {}, timeout=5
+        )
+        return resp.ok, resp
+    except Exception as exc:
+        return False, str(exc)
+
+
+with tab_site:
+    st.header("Site Monitor")
+
+    col_refresh, col_auto, _ = st.columns([1, 2, 5])
+    with col_refresh:
+        if st.button("Refresh now", key="site_refresh"):
+            st.rerun()
+    with col_auto:
+        auto_refresh = st.toggle("Auto-refresh (10s)", key="site_autorefresh", value=False)
+
+    site_state = _v1_get("/site/state")
+
+    if site_state is None:
+        st.error("Could not reach /api/v1/site/state — is the API running?")
+    elif not site_state.get("zones"):
+        st.info(
+            "No zones configured. "
+            "POST to /api/v1/zones or set COOP_FRIGATE_API_URL to auto-seed from Frigate."
+        )
+    else:
+        # Zone risk table
+        st.subheader("Zone Risk Overview")
+        zone_data = []
+        for z in site_state["zones"]:
+            active = z.get("active_incidents", [])
+            last_inc = active[0]["ts"][:19] if active else "—"
+            zone_data.append(
+                {
+                    "Zone": z["zone_id"],
+                    "Label": z["label"],
+                    "Risk": f"{_RISK_COLORS.get(z['risk_level'], '⚪')} {z['risk_level']}"
+                    if z["risk_level"]
+                    else "— none",
+                    "Active Incidents": len(active),
+                    "Last Incident": last_inc,
+                }
+            )
+        st.table(zone_data)
+
+        # Zone drill-down
+        zone_ids = [z["zone_id"] for z in site_state["zones"]]
+        selected_zone = st.selectbox("Drill into zone", ["(none)"] + zone_ids, key="site_zone_sel")
+
+        if selected_zone != "(none)":
+            status_filter = st.selectbox(
+                "Incident status",
+                ["active", "acknowledged", "dismissed", "all"],
+                key="site_inc_status",
+            )
+            incidents_data = _v1_get(
+                "/incidents", params={"zone": selected_zone, "status": status_filter, "limit": 50}
+            )
+            incidents = incidents_data.get("incidents", []) if incidents_data else []
+
+            if not incidents:
+                st.info(f"No {status_filter} incidents in {selected_zone}.")
+            else:
+                st.markdown(
+                    f"**{len(incidents)} incident(s)** in `{selected_zone}` ({status_filter})"
+                )
+                for inc in incidents:
+                    with st.expander(
+                        f"{_RISK_COLORS.get(inc['risk_level'], '⚪')} "
+                        f"{inc['risk_level'].upper()} | {inc['ts'][:19]} | {inc['incident_id'][:8]}…"
+                    ):
+                        st.json(inc)
+
+                        col_ack, col_dis = st.columns(2)
+                        with col_ack:
+                            if st.button("Acknowledge", key=f"ack_{inc['incident_id']}"):
+                                ok, _ = _v1_post(f"/incidents/{inc['incident_id']}/acknowledge")
+                                st.success("Acknowledged") if ok else st.error("Failed")
+                                st.rerun()
+                        with col_dis:
+                            reason = st.text_input(
+                                "Dismiss reason", key=f"dis_reason_{inc['incident_id']}"
+                            )
+                            if st.button("Dismiss", key=f"dis_{inc['incident_id']}"):
+                                ok, _ = _v1_post(
+                                    f"/incidents/{inc['incident_id']}/dismiss",
+                                    {"reason": reason or None},
+                                )
+                                st.success("Dismissed") if ok else st.error("Failed")
+                                st.rerun()
+
+                        # Notes
+                        notes_data = _v1_get(f"/incidents/{inc['incident_id']}/notes")
+                        notes = notes_data.get("notes", []) if notes_data else []
+                        if notes:
+                            st.markdown("**Notes:**")
+                            for n in notes:
+                                st.markdown(f"- `{n['created_at'][:19]}` {n['body']}")
+
+                        note_body = st.text_area(
+                            "Add note", key=f"note_{inc['incident_id']}", height=60
+                        )
+                        if st.button("Save note", key=f"note_save_{inc['incident_id']}"):
+                            if note_body.strip():
+                                ok, _ = _v1_post(
+                                    f"/incidents/{inc['incident_id']}/notes",
+                                    {"body": note_body},
+                                )
+                                st.success("Note saved") if ok else st.error("Failed")
+                                st.rerun()
+
+    # Text search
+    st.divider()
+    st.subheader("Search Incidents")
+    search_q = st.text_input("Search query", key="site_search_q")
+    if search_q:
+        results = _v1_get("/incidents/search", params={"q": search_q, "limit": 20})
+        hits = results.get("incidents", []) if results else []
+        st.markdown(f"**{len(hits)} result(s)** for `{search_q}`")
+        for inc in hits:
+            st.markdown(
+                f"- `{inc['risk_level']}` | `{inc['zone_id']}` | `{inc['ts'][:19]}` — "
+                f"{inc.get('summary_text', '—')}"
+            )
+
+    if auto_refresh:
+        time.sleep(10)
+        st.rerun()

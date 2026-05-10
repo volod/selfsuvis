@@ -41,6 +41,7 @@ labels-file YAML format (requires PyYAML):
     barrier:
       - path/to/frame3.jpg
 """
+
 import argparse
 import json
 import os
@@ -65,9 +66,7 @@ def _parse_labels_arg(labels_args: list[str]) -> dict[str, list[str]]:
             if not token:
                 continue
             if ":" not in token:
-                raise ValueError(
-                    f"Invalid --labels token {token!r}. Expected format: label:path"
-                )
+                raise ValueError(f"Invalid --labels token {token!r}. Expected format: label:path")
             label, path = token.split(":", 1)
             result[label.strip()].append(path.strip())
     return dict(result)
@@ -86,8 +85,7 @@ def _load_labels_file(path: str) -> dict[str, list[str]]:
             import yaml
         except ImportError as exc:
             raise ImportError(
-                "PyYAML is required to load YAML labels files. "
-                "Install it with: pip install pyyaml"
+                "PyYAML is required to load YAML labels files. Install it with: pip install pyyaml"
             ) from exc
         data = yaml.safe_load(content)
     else:
@@ -97,12 +95,15 @@ def _load_labels_file(path: str) -> dict[str, list[str]]:
         except json.JSONDecodeError:
             try:
                 import yaml
+
                 data = yaml.safe_load(content)
             except Exception:
                 raise ValueError(f"Could not parse labels file {path!r} as JSON or YAML.")
 
     if not isinstance(data, dict):
-        raise ValueError(f"Labels file must be a dict mapping label → list of paths, got {type(data).__name__}")
+        raise ValueError(
+            f"Labels file must be a dict mapping label → list of paths, got {type(data).__name__}"
+        )
     return {k: list(v) for k, v in data.items()}
 
 
@@ -171,7 +172,9 @@ def main() -> None:
     # Print summary
     total_frames = sum(len(v) for v in labels_map.values())
     print("\nBuild gallery NPZ")
-    print(f"  source         : {'ONNX: ' + args.onnx if args.onnx else 'PyTorch checkpoint: ' + args.checkpoint}")
+    print(
+        f"  source         : {'ONNX: ' + args.onnx if args.onnx else 'PyTorch checkpoint: ' + args.checkpoint}"
+    )
     if args.checkpoint and not args.onnx:
         print(f"  model_name     : {args.model_name}")
     print(f"  output         : {args.output}")
@@ -195,9 +198,9 @@ def main() -> None:
         # Load PyTorch backbone
         import torch
 
-
         device = "cuda" if torch.cuda.is_available() else "cpu"
         from selfsuvis.models.dino_model import hub_load_dino
+
         logger.info("Loading backbone %s on %s ...", args.model_name, device)
         backbone = hub_load_dino(args.model_name, pretrained=True)
         backbone = backbone.to(device)

@@ -135,7 +135,11 @@ class FakeRealtimeConn:
             self.realtime_frames.append(row)
             return "INSERT 0 1"
         if "INSERT INTO jobs" in query:
-            self.jobs[args[0]] = {"id": args[0], "type": args[2], "payload_json": json.loads(args[4])}
+            self.jobs[args[0]] = {
+                "id": args[0],
+                "type": args[2],
+                "payload_json": json.loads(args[4]),
+            }
             return "INSERT 0 1"
         if "INSERT INTO missions" in query:
             self.missions[args[0]] = {
@@ -196,7 +200,11 @@ class FakeRealtimeConn:
             if len(args) == 3:
                 map_type = args[1]
                 limit = args[2]
-                rows = [row for row in self.tiles if row["session_id"] == session_id and row["map_type"] == map_type]
+                rows = [
+                    row
+                    for row in self.tiles
+                    if row["session_id"] == session_id and row["map_type"] == map_type
+                ]
             else:
                 limit = args[1]
                 rows = [row for row in self.tiles if row["session_id"] == session_id]
@@ -206,7 +214,11 @@ class FakeRealtimeConn:
             if len(args) == 3:
                 class_name = args[1]
                 limit = args[2]
-                rows = [row for row in self.semantic if row["session_id"] == session_id and row["class_name"] == class_name]
+                rows = [
+                    row
+                    for row in self.semantic
+                    if row["session_id"] == session_id and row["class_name"] == class_name
+                ]
             else:
                 limit = args[1]
                 rows = [row for row in self.semantic if row["session_id"] == session_id]

@@ -23,6 +23,7 @@ _log = get_logger(__name__)
 
 # ── Step 03: Gemma multimodal analysis (with claim verification) ──────────────
 
+
 def node_p2_gemma_analysis(state: PipelineState) -> dict[str, Any]:
     from ..steps_caption import _unload_ollama_model, step_gemma_analysis
 
@@ -80,7 +81,9 @@ def node_p2_gemma_analysis(state: PipelineState) -> dict[str, Any]:
         context_outputs=[
             f"scene type {knowledge.scene_type if knowledge else 'unknown'}",
             f"unverified_claims={j.get('unverified_claims', 0)}",
-        ] if not j.get("skipped") else ["no persistent Gemma context"],
+        ]
+        if not j.get("skipped")
+        else ["no persistent Gemma context"],
         risks=[
             "scene classification can over-generalize from sparse samples",
             "wrong domain hint can bias Florence and Qwen toward the wrong narrative",
@@ -109,17 +112,12 @@ def _verify_gemma_claims(j: dict[str, Any], state: PipelineState) -> dict[str, A
     in-memory store — no new model load.
     """
     try:
-
         clip_model = state["models"].get("clip")
         store = state.get("store")
         if clip_model is None or store is None:
             return j
 
-        claims = (
-            j.get("task_results", {})
-            .get("fact_verification", {})
-            .get("claims", [])
-        )
+        claims = j.get("task_results", {}).get("fact_verification", {}).get("claims", [])
         if not claims:
             return j
 
@@ -137,21 +135,28 @@ def _verify_gemma_claims(j: dict[str, Any], state: PipelineState) -> dict[str, A
             passed = float(top_score) >= GEMMA_CLAIM_MIN_SIM
             if not passed:
                 unverified += 1
-            verified_claims.append({**claim, "clip_verified": passed, "clip_score": float(top_score)})
+            verified_claims.append(
+                {**claim, "clip_verified": passed, "clip_score": float(top_score)}
+            )
 
         j = {**j}
         j.setdefault("task_results", {}).setdefault("fact_verification", {})
         j["task_results"]["fact_verification"]["claims"] = verified_claims
         j["unverified_claims"] = unverified
         if unverified:
-            _log.info("  Gemma claim verification: %d/%d claims not frame-supported (score < %.2f)",
-                      unverified, len(claims), GEMMA_CLAIM_MIN_SIM)
+            _log.info(
+                "  Gemma claim verification: %d/%d claims not frame-supported (score < %.2f)",
+                unverified,
+                len(claims),
+                GEMMA_CLAIM_MIN_SIM,
+            )
     except Exception as exc:
         _log.debug("Gemma claim verification skipped: %s", exc)
     return j
 
 
 # ── Fan-in merge: commit all parallel results to knowledge & video_context ────
+
 
 def node_p2_merge_parallel(state: PipelineState) -> dict[str, Any]:
     knowledge = state.get("knowledge")
@@ -187,36 +192,51 @@ def node_p2_merge_parallel(state: PipelineState) -> dict[str, Any]:
 
     agentic_trace = list(state.get("agentic_trace", []))
     for step_id, title, description, skipped, outputs, risks, artifacts in [
-        ("04", "Scene captioning",
-         "Generate per-frame scene captions and coarse temporal segments.",
-         not caption_results,
-         [f"{len(caption_results)} scene captions"],
-         ["caption hallucinations can create false scene priors"],
-         ["scene_captions.md"] if caption_results else []),
-        ("05", "ASR transcription",
-         "Transcribe audio and align subtitles to frames.",
-         asr_result.get("skipped", True),
-         [f"{len(asr_result.get('segments', []))} ASR segments"],
-         ["transcription errors can inject false entities"],
-         ["asr_subtitles.md"] if not asr_result.get("skipped") else []),
-        ("06", "OCR extraction",
-         "Extract visible text from frames.",
-         ocr_result.get("skipped", True),
-         [f"{ocr_result.get('non_empty', 0)} frames with OCR text"],
-         ["false OCR tokens can create wrong named-entity context"],
-         []),
-        ("07", "Depth estimation",
-         "Estimate relative scene geometry.",
-         depth_result.get("skipped", True),
-         [f"{depth_result.get('ok_count', 0)} depth-estimated frames"],
-         ["monocular depth can confuse scale and elevation"],
-         []),
-        ("08", "Object detection",
-         "Detect frame-level entities.",
-         det_result.get("skipped", True),
-         [f"{det_result.get('total_objects', 0)} detected objects"],
-         ["class confusion can misidentify critical objects"],
-         []),
+        (
+            "04",
+            "Scene captioning",
+            "Generate per-frame scene captions and coarse temporal segments.",
+            not caption_results,
+            [f"{len(caption_results)} scene captions"],
+            ["caption hallucinations can create false scene priors"],
+            ["scene_captions.md"] if caption_results else [],
+        ),
+        (
+            "05",
+            "ASR transcription",
+            "Transcribe audio and align subtitles to frames.",
+            asr_result.get("skipped", True),
+            [f"{len(asr_result.get('segments', []))} ASR segments"],
+            ["transcription errors can inject false entities"],
+            ["asr_subtitles.md"] if not asr_result.get("skipped") else [],
+        ),
+        (
+            "06",
+            "OCR extraction",
+            "Extract visible text from frames.",
+            ocr_result.get("skipped", True),
+            [f"{ocr_result.get('non_empty', 0)} frames with OCR text"],
+            ["false OCR tokens can create wrong named-entity context"],
+            [],
+        ),
+        (
+            "07",
+            "Depth estimation",
+            "Estimate relative scene geometry.",
+            depth_result.get("skipped", True),
+            [f"{depth_result.get('ok_count', 0)} depth-estimated frames"],
+            ["monocular depth can confuse scale and elevation"],
+            [],
+        ),
+        (
+            "08",
+            "Object detection",
+            "Detect frame-level entities.",
+            det_result.get("skipped", True),
+            [f"{det_result.get('total_objects', 0)} detected objects"],
+            ["class confusion can misidentify critical objects"],
+            [],
+        ),
     ]:
         _append_agentic_step(
             agentic_trace,
@@ -238,6 +258,7 @@ def node_p2_merge_parallel(state: PipelineState) -> dict[str, Any]:
 
 
 # ── Platform state fusion ─────────────────────────────────────────────────────
+
 
 def node_p2_platform_fusion(state: PipelineState) -> dict[str, Any]:
     from ..steps_fusion import step_platform_state_fusion
@@ -263,6 +284,7 @@ def node_p2_platform_fusion(state: PipelineState) -> dict[str, Any]:
 
 
 # ── Step 11: World model ──────────────────────────────────────────────────────
+
 
 def node_p2_world_model(state: PipelineState) -> dict[str, Any]:
     from ..steps_caption import _prep_vram_for_step, step_world_model_pass
@@ -293,7 +315,8 @@ def node_p2_world_model(state: PipelineState) -> dict[str, Any]:
         status="skipped" if world_result.get("skipped") else "ok",
         context_inputs=["ordered frame clips"],
         context_outputs=[f"{world_result.get('ok_count', 0)} temporal clip embeddings"]
-        if not world_result.get("skipped") else ["no temporal clip context"],
+        if not world_result.get("skipped")
+        else ["no temporal clip context"],
         risks=["temporal embeddings are hard to interpret and easy to overtrust"],
         artifacts=[],
     )
@@ -309,6 +332,7 @@ def node_p2_world_model(state: PipelineState) -> dict[str, Any]:
 
 
 # ── Step 12: Qwen captioning (agentic: retry on parse_error) ─────────────────
+
 
 def node_p2_qwen_caption(state: PipelineState) -> dict[str, Any]:
     from ..steps_caption import step_qwen_captioning
@@ -345,11 +369,18 @@ def node_p2_qwen_caption(state: PipelineState) -> dict[str, Any]:
         title="Qwen detailed captioning",
         description="Fuse visual frames with accumulated context for structured per-frame reasoning.",
         status="skipped" if qwen_result.get("skipped") else "ok",
-        context_inputs=["frame image", "Florence priors", "ASR/OCR/depth/detection cues", "prior Qwen state"],
+        context_inputs=[
+            "frame image",
+            "Florence priors",
+            "ASR/OCR/depth/detection cues",
+            "prior Qwen state",
+        ],
         context_outputs=[
             f"{qwen_result.get('ok_count', 0)} detailed captions",
             f"retry_successes={qwen_result.get('retry_success_count', 0)}",
-        ] if not qwen_result.get("skipped") else ["no detailed reasoning context"],
+        ]
+        if not qwen_result.get("skipped")
+        else ["no detailed reasoning context"],
         risks=[
             "upstream misidentification compounds inside one prompt",
             "previous-frame state can anchor model to stale context",
@@ -382,7 +413,9 @@ def _qwen_retry_parse_errors(
         return qwen_result
 
     retry_successes = 0
-    retry_frame_list = [state["frame_list"][i] for i in error_indices if i < len(state["frame_list"])]
+    retry_frame_list = [
+        state["frame_list"][i] for i in error_indices if i < len(state["frame_list"])
+    ]
     if not retry_frame_list:
         return qwen_result
 
@@ -414,6 +447,7 @@ def _qwen_retry_parse_errors(
 
 
 # ── Step 13: UniDriveVLA (agentic: MoE consensus scoring) ────────────────────
+
 
 def node_p2_unidrive(state: PipelineState) -> dict[str, Any]:
     from ..steps_caption import step_unidrive_analysis
@@ -454,7 +488,9 @@ def node_p2_unidrive(state: PipelineState) -> dict[str, Any]:
             f"{unidrive_result.get('ok_count', 0)} UniDrive analyses",
             f"mean_moe_agreement={unidrive_result.get('mean_moe_agreement', 1.0):.3f}",
             f"low_agreement_frames={unidrive_result.get('low_agreement_frame_count', 0)}",
-        ] if not unidrive_result.get("skipped") else ["no UniDrive context"],
+        ]
+        if not unidrive_result.get("skipped")
+        else ["no UniDrive context"],
         risks=[
             "planning advice may be overconfident for non-driving footage",
             "expert consensus can hide meaningful disagreement if prompts are too generic",
@@ -472,7 +508,9 @@ def node_p2_unidrive(state: PipelineState) -> dict[str, Any]:
     }
 
 
-def _score_unidrive_consensus(unidrive_result: dict[str, Any], state: PipelineState) -> dict[str, Any]:
+def _score_unidrive_consensus(
+    unidrive_result: dict[str, Any], state: PipelineState
+) -> dict[str, Any]:
     results = unidrive_result.get("results", [])
     if not results:
         return unidrive_result
@@ -486,7 +524,9 @@ def _score_unidrive_consensus(unidrive_result: dict[str, Any], state: PipelineSt
         if idx in low_idxs:
             results[idx] = {**frame_result, "low_moe_agreement": True, "moe_score": score}
             t_sec = frame_result.get("t_sec", 0.0)
-            _log.warning("  UniDrive step 13: low MoE agreement at t=%.1fs (score=%.3f)", t_sec, score)
+            _log.warning(
+                "  UniDrive step 13: low MoE agreement at t=%.1fs (score=%.3f)", t_sec, score
+            )
 
     mean_score = sum(scores) / len(scores) if scores else 1.0
     unidrive_result = dict(unidrive_result)
@@ -498,6 +538,7 @@ def _score_unidrive_consensus(unidrive_result: dict[str, Any], state: PipelineSt
 
 # ── Step 14: SceneTok ─────────────────────────────────────────────────────────
 
+
 def node_p2_scenetok(state: PipelineState) -> dict[str, Any]:
     from ..steps_scenetok import step_scenetok
 
@@ -507,6 +548,7 @@ def node_p2_scenetok(state: PipelineState) -> dict[str, Any]:
 
     if getattr(args, "scenetok", False):
         import os
+
         _api_url = getattr(args, "scenetok_api_url", "") or settings.SCENETOK_API_URL
         _checkpoint = getattr(args, "scenetok_checkpoint", "") or settings.SCENETOK_CHECKPOINT
         if _api_url:
@@ -529,7 +571,8 @@ def node_p2_scenetok(state: PipelineState) -> dict[str, Any]:
         status="skipped" if scenetok_result.get("skipped") else "ok",
         context_inputs=["sampled keyframes"],
         context_outputs=[f"{scenetok_result.get('n_tokens', 0)} scene tokens"]
-        if not scenetok_result.get("skipped") else ["no SceneTok context"],
+        if not scenetok_result.get("skipped")
+        else ["no SceneTok context"],
         risks=["~24 GB VRAM required for local inference"],
         artifacts=["scenetok_tokens.npz"] if not scenetok_result.get("skipped") else [],
     )
@@ -544,6 +587,7 @@ def node_p2_scenetok(state: PipelineState) -> dict[str, Any]:
 
 
 # ── Step 15: Base model search ────────────────────────────────────────────────
+
 
 def node_p2_base_search(state: PipelineState) -> dict[str, Any]:
     from ..steps_caption import (
@@ -562,7 +606,8 @@ def node_p2_base_search(state: PipelineState) -> dict[str, Any]:
         _qwen_url = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
         _qwen_model_name = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
         _prep_vram_for_step(
-            models, device,
+            models,
+            device,
             extra_sidecars=[(_qwen_url, _qwen_model_name)],
             label="base-search restore",
         )
@@ -597,7 +642,10 @@ def node_p2_base_search(state: PipelineState) -> dict[str, Any]:
         description="Measure retrieval behavior of the base model as the control reference for adaptation steps.",
         status="ok",
         context_inputs=["retrieval index", "query frame"],
-        context_outputs=[f"top-{len(base_results)} baseline matches", f"query at {query_t_sec:.1f}s"],
+        context_outputs=[
+            f"top-{len(base_results)} baseline matches",
+            f"query at {query_t_sec:.1f}s",
+        ],
         risks=["one query frame can underrepresent broader retrieval behavior"],
         artifacts=["base_search.md"],
     )
@@ -614,6 +662,7 @@ def node_p2_base_search(state: PipelineState) -> dict[str, Any]:
 
 # ── Step 16 close + full state fusion ────────────────────────────────────────
 
+
 def node_p2_full_fusion(state: PipelineState) -> dict[str, Any]:
     from ..steps_fusion import step_full_state_fusion
 
@@ -629,15 +678,21 @@ def node_p2_full_fusion(state: PipelineState) -> dict[str, Any]:
         if rssm_scores:
             _rssm_mean = float(sum(rssm_scores) / len(rssm_scores))
 
-    _qwen_captions = qwen_result.get("structured_captions") or [] if not qwen_result.get("skipped") else []
+    _qwen_captions = (
+        qwen_result.get("structured_captions") or [] if not qwen_result.get("skipped") else []
+    )
 
     video_context = state.get("video_context", {})
     _gemma_info = gemma_result if not gemma_result.get("skipped") else None
     _structured_scene = (
-        video_context.get("gemma_structured_scene")
-        or (gemma_result.get("task_results", {}) or {}).get("structured_scene_summary")
-        or gemma_result.get("structured_scene_summary")
-    ) if not gemma_result.get("skipped") else None
+        (
+            video_context.get("gemma_structured_scene")
+            or (gemma_result.get("task_results", {}) or {}).get("structured_scene_summary")
+            or gemma_result.get("structured_scene_summary")
+        )
+        if not gemma_result.get("skipped")
+        else None
+    )
 
     if isinstance(_structured_scene, dict):
         _gemma_info = {**(_gemma_info or {}), **_structured_scene}
@@ -657,7 +712,8 @@ def node_p2_full_fusion(state: PipelineState) -> dict[str, Any]:
         sfm_frame_positions=h.get("frame_positions") or [],
         tracking_results=(
             gemma_tracking_result.get("tracking_results") or []
-            if not gemma_tracking_result.get("skipped") else []
+            if not gemma_tracking_result.get("skipped")
+            else []
         ),
         gemma_analysis=_gemma_info,
         qwen_captions=_qwen_captions or None,

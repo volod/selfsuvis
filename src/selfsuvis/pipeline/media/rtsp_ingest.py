@@ -16,6 +16,7 @@ Usage (in worker):
     validate_rtsp_url(url)           # raises ValueError on bad URL
     record_rtsp(url, output_path, duration_sec=300)
 """
+
 import ipaddress
 import socket
 from urllib.parse import urlparse
@@ -61,7 +62,13 @@ def validate_rtsp_url(url: str) -> None:
                 ip = ipaddress.ip_address(ip_str)
             except ValueError:
                 continue
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_unspecified
+            ):
                 raise ValueError(
                     f"RTSP host '{parsed.hostname}' resolves to a private/loopback IP "
                     f"({ip_str}). Set ALLOW_PRIVATE_URLS=true to allow local streams."
@@ -102,9 +109,12 @@ def record_rtsp(
     cmd = [
         "ffmpeg",
         "-y",
-        "-rtsp_transport", "tcp",   # prefer TCP for reliability
-        "-i", url,
-        "-c", "copy",               # stream copy, no re-encoding
+        "-rtsp_transport",
+        "tcp",  # prefer TCP for reliability
+        "-i",
+        url,
+        "-c",
+        "copy",  # stream copy, no re-encoding
     ]
     if effective_duration is not None:
         cmd += ["-t", str(effective_duration)]
@@ -112,7 +122,9 @@ def record_rtsp(
 
     logger.info(
         "RTSP ingest: recording url=%s duration=%s output=%s",
-        url, effective_duration, output_path,
+        url,
+        effective_duration,
+        output_path,
     )
     run_checked(cmd, timeout=timeout_sec)
     logger.info("RTSP ingest: recording complete output=%s", output_path)

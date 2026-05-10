@@ -11,6 +11,7 @@ Covers:
 External deps that are not installed in the unit-test venv are injected as stubs
 into sys.modules BEFORE any project module is imported.
 """
+
 import sys
 import types
 import unittest
@@ -28,6 +29,7 @@ def _query_response(hits: list) -> MagicMock:
 # Inject stub modules for optional deps (asyncpg, cv2, etc.)
 # Must happen BEFORE importing any pipeline or worker module.
 # ---------------------------------------------------------------------------
+
 
 def _make_stub(name: str, **attrs) -> types.ModuleType:
     mod = types.ModuleType(name)
@@ -57,12 +59,20 @@ _indexer_stub = _make_stub("selfsuvis.pipeline.indexer")
 _indexer_stub.VideoIndexer = MagicMock()  # type: ignore[attr-defined]
 
 # Stub pipeline.job_db
-_make_stub("selfsuvis.pipeline.job_db",
-    init_db=MagicMock(), fetch_and_claim_next_pending=MagicMock(), update_job=MagicMock())
+_make_stub(
+    "selfsuvis.pipeline.job_db",
+    init_db=MagicMock(),
+    fetch_and_claim_next_pending=MagicMock(),
+    update_job=MagicMock(),
+)
 
 # Stub pipeline.processed_db
-_make_stub("selfsuvis.pipeline.processed_db",
-    init_db=MagicMock(), get_by_hash=MagicMock(), upsert=MagicMock())
+_make_stub(
+    "selfsuvis.pipeline.processed_db",
+    init_db=MagicMock(),
+    get_by_hash=MagicMock(),
+    upsert=MagicMock(),
+)
 
 # Stub pipeline.utils
 _ensure_stub("selfsuvis.pipeline.utils", file_sha256=MagicMock(), resolve_allowed_path=MagicMock())
@@ -71,19 +81,22 @@ _ensure_stub("selfsuvis.pipeline.utils", file_sha256=MagicMock(), resolve_allowe
 _ensure_stub("selfsuvis.pipeline.downloader", download_url=MagicMock())
 
 # Stub pipeline.gps_registration
-_ensure_stub("selfsuvis.pipeline.gps_registration",
-    register_mission_gps=MagicMock(), gps_to_enu=MagicMock())
+_ensure_stub(
+    "selfsuvis.pipeline.gps_registration", register_mission_gps=MagicMock(), gps_to_enu=MagicMock()
+)
 
 # NOTE: pipeline.global_map_db is already in sys.modules (real module imported above).
 # _ensure_stub will NOT overwrite it, so worker.main will use the real module too.
-_ensure_stub("selfsuvis.pipeline.global_map_db",
+_ensure_stub(
+    "selfsuvis.pipeline.global_map_db",
     get_or_create_global_map=AsyncMock(),
     get_global_map_splats=AsyncMock(),
     register_mission=AsyncMock(),
     get_global_map_origin=AsyncMock(),
     list_global_maps=AsyncMock(),
     update_mission_splat_path=AsyncMock(),
-    update_global_map_splat=AsyncMock())
+    update_global_map_splat=AsyncMock(),
+)
 
 # Stub pipeline.sfm
 _ensure_stub("selfsuvis.pipeline.sfm", run_sfm=MagicMock())
@@ -106,16 +119,18 @@ sys.modules.setdefault("selfsuvis.app.state", _state_stub)
 # Group A: get_global_map_origin
 # ---------------------------------------------------------------------------
 
-class TestGetGlobalMapOrigin(unittest.IsolatedAsyncioTestCase):
 
+class TestGetGlobalMapOrigin(unittest.IsolatedAsyncioTestCase):
     async def test_returns_tuple_when_row_exists(self):
         fn = _real_global_map_db.get_global_map_origin
         conn = AsyncMock()
-        conn.fetchrow = AsyncMock(return_value={
-            "origin_lat": 48.123,
-            "origin_lon": 11.456,
-            "origin_alt": 500.0,
-        })
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "origin_lat": 48.123,
+                "origin_lon": 11.456,
+                "origin_alt": 500.0,
+            }
+        )
         result = await fn(conn, 1)
         self.assertEqual(result, (48.123, 11.456, 500.0))
         conn.fetchrow.assert_awaited_once()
@@ -130,11 +145,13 @@ class TestGetGlobalMapOrigin(unittest.IsolatedAsyncioTestCase):
     async def test_query_uses_correct_id(self):
         fn = _real_global_map_db.get_global_map_origin
         conn = AsyncMock()
-        conn.fetchrow = AsyncMock(return_value={
-            "origin_lat": 1.0,
-            "origin_lon": 2.0,
-            "origin_alt": 3.0,
-        })
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "origin_lat": 1.0,
+                "origin_lon": 2.0,
+                "origin_alt": 3.0,
+            }
+        )
         await fn(conn, 42)
         call_args = conn.fetchrow.call_args
         self.assertIn(42, call_args.args)
@@ -144,8 +161,8 @@ class TestGetGlobalMapOrigin(unittest.IsolatedAsyncioTestCase):
 # Group B: list_global_maps
 # ---------------------------------------------------------------------------
 
-class TestListGlobalMaps(unittest.IsolatedAsyncioTestCase):
 
+class TestListGlobalMaps(unittest.IsolatedAsyncioTestCase):
     async def test_returns_empty_list_when_no_rows(self):
         fn = _real_global_map_db.list_global_maps
         conn = AsyncMock()
@@ -157,10 +174,22 @@ class TestListGlobalMaps(unittest.IsolatedAsyncioTestCase):
         fn = _real_global_map_db.list_global_maps
         conn = AsyncMock()
         rows = [
-            {"id": 1, "origin_lat": 48.0, "origin_lon": 11.0, "origin_alt": 0.0,
-             "splat_path": None, "created_at": 1000.0},
-            {"id": 2, "origin_lat": 52.0, "origin_lon": 13.0, "origin_alt": 10.0,
-             "splat_path": "/tmp/splat.ply", "created_at": 2000.0},
+            {
+                "id": 1,
+                "origin_lat": 48.0,
+                "origin_lon": 11.0,
+                "origin_alt": 0.0,
+                "splat_path": None,
+                "created_at": 1000.0,
+            },
+            {
+                "id": 2,
+                "origin_lat": 52.0,
+                "origin_lon": 13.0,
+                "origin_alt": 10.0,
+                "splat_path": "/tmp/splat.ply",
+                "created_at": 2000.0,
+            },
         ]
         conn.fetch = AsyncMock(return_value=rows)
         result = await fn(conn)
@@ -172,8 +201,14 @@ class TestListGlobalMaps(unittest.IsolatedAsyncioTestCase):
         fn = _real_global_map_db.list_global_maps
         conn = AsyncMock()
         rows = [
-            {"id": 1, "origin_lat": 48.0, "origin_lon": 11.0, "origin_alt": 0.0,
-             "splat_path": None, "created_at": 1000.0},
+            {
+                "id": 1,
+                "origin_lat": 48.0,
+                "origin_lon": 11.0,
+                "origin_alt": 0.0,
+                "splat_path": None,
+                "created_at": 1000.0,
+            },
         ]
         conn.fetch = AsyncMock(return_value=rows)
         result = await fn(conn)
@@ -184,10 +219,22 @@ class TestListGlobalMaps(unittest.IsolatedAsyncioTestCase):
         fn = _real_global_map_db.list_global_maps
         conn = AsyncMock()
         rows = [
-            {"id": 1, "origin_lat": 48.0, "origin_lon": 11.0, "origin_alt": 0.0,
-             "splat_path": None, "created_at": 1000.0},
-            {"id": 2, "origin_lat": 52.0, "origin_lon": 13.0, "origin_alt": 0.0,
-             "splat_path": None, "created_at": 2000.0},
+            {
+                "id": 1,
+                "origin_lat": 48.0,
+                "origin_lon": 11.0,
+                "origin_alt": 0.0,
+                "splat_path": None,
+                "created_at": 1000.0,
+            },
+            {
+                "id": 2,
+                "origin_lat": 52.0,
+                "origin_lon": 13.0,
+                "origin_alt": 0.0,
+                "splat_path": None,
+                "created_at": 2000.0,
+            },
         ]
         conn.fetch = AsyncMock(return_value=rows)
         result = await fn(conn)
@@ -201,6 +248,7 @@ class TestListGlobalMaps(unittest.IsolatedAsyncioTestCase):
 # ---------------------------------------------------------------------------
 # Group C: get_or_create_global_map proximity fix (cos(lat) applied correctly)
 # ---------------------------------------------------------------------------
+
 
 class TestGetOrCreateGlobalMapProximity(unittest.IsolatedAsyncioTestCase):
     """Test proximity check uses math.cos(lat) instead of hardcoded 0.7."""
@@ -289,7 +337,6 @@ _client = TestClient(_app)
 
 
 class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
-
     @patch("selfsuvis.app.routers.robot.qdrant_store")
     @patch("selfsuvis.app.routers.robot.clip_model")
     def test_global_map_id_present_adds_field_condition(self, mock_clip, mock_qdrant_store):
@@ -400,6 +447,7 @@ class TestRobotApiGlobalMapIdFilter(unittest.TestCase):
 # Group E: index_video site_enu_origin parameter
 # ---------------------------------------------------------------------------
 
+
 class TestIndexVideoSiteEnuOrigin(unittest.TestCase):
     """Test that index_video respects site_enu_origin and global_map_id.
 
@@ -463,8 +511,13 @@ class TestIndexVideoSiteEnuOrigin(unittest.TestCase):
     def test_global_map_id_stored_in_frame_payload(self):
         """global_map_id passed to _build_frame_point ends up in payload."""
         global_map_id = 7
-        payload = {"type": "frame", "video_id": "v1", "segment_id": 0, "t_sec": 1.0,
-                   "frame_path": "/tmp/f.jpg"}
+        payload = {
+            "type": "frame",
+            "video_id": "v1",
+            "segment_id": 0,
+            "t_sec": 1.0,
+            "frame_path": "/tmp/f.jpg",
+        }
 
         if global_map_id is not None:
             payload["global_map_id"] = global_map_id
@@ -474,8 +527,13 @@ class TestIndexVideoSiteEnuOrigin(unittest.TestCase):
     def test_global_map_id_none_not_in_frame_payload(self):
         """When global_map_id is None, it is not stored in payload."""
         global_map_id = None
-        payload = {"type": "frame", "video_id": "v1", "segment_id": 0, "t_sec": 1.0,
-                   "frame_path": "/tmp/f.jpg"}
+        payload = {
+            "type": "frame",
+            "video_id": "v1",
+            "segment_id": 0,
+            "t_sec": 1.0,
+            "frame_path": "/tmp/f.jpg",
+        }
 
         if global_map_id is not None:
             payload["global_map_id"] = global_map_id
@@ -485,9 +543,18 @@ class TestIndexVideoSiteEnuOrigin(unittest.TestCase):
     def test_global_map_id_stored_in_tile_payload(self):
         """global_map_id passed to _index_tiles ends up in tile payload."""
         global_map_id = 42
-        tile_payload = {"type": "tile", "video_id": "v1", "segment_id": 0,
-                        "t_sec": 1.0, "frame_path": "/tmp/f.jpg",
-                        "tile_path": "/tmp/t.jpg", "x": 0, "y": 0, "w": 64, "h": 64}
+        tile_payload = {
+            "type": "tile",
+            "video_id": "v1",
+            "segment_id": 0,
+            "t_sec": 1.0,
+            "frame_path": "/tmp/f.jpg",
+            "tile_path": "/tmp/t.jpg",
+            "x": 0,
+            "y": 0,
+            "w": 64,
+            "h": 64,
+        }
 
         if global_map_id is not None:
             tile_payload["global_map_id"] = global_map_id
@@ -499,10 +566,11 @@ class TestIndexVideoSiteEnuOrigin(unittest.TestCase):
 # Group F: _resolve_site_origin in worker.main
 # ---------------------------------------------------------------------------
 
-class TestResolveSiteOrigin(unittest.TestCase):
 
+class TestResolveSiteOrigin(unittest.TestCase):
     def _get_fn(self):
         import selfsuvis.worker.main as wm
+
         return wm._resolve_site_origin
 
     def _make_logger(self):
@@ -525,7 +593,9 @@ class TestResolveSiteOrigin(unittest.TestCase):
         """GPS extraction raising an exception → (None, None), no crash."""
         fn = self._get_fn()
         logger = self._make_logger()
-        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", side_effect=RuntimeError("ffprobe fail")):
+        with patch(
+            "selfsuvis.pipeline.gps_extractor.extract_gps", side_effect=RuntimeError("ffprobe fail")
+        ):
             result = fn("/tmp/vid.mp4", logger)
         self.assertEqual(result, (None, None))
 
@@ -549,10 +619,16 @@ class TestResolveSiteOrigin(unittest.TestCase):
 
         with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
-                with patch("selfsuvis.pipeline.global_map_db.get_or_create_global_map",
-                           new_callable=AsyncMock, return_value=7):
-                    with patch("selfsuvis.pipeline.global_map_db.get_global_map_origin",
-                               new_callable=AsyncMock, return_value=(48.0, 11.0, 100.0)):
+                with patch(
+                    "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                    new_callable=AsyncMock,
+                    return_value=7,
+                ):
+                    with patch(
+                        "selfsuvis.pipeline.global_map_db.get_global_map_origin",
+                        new_callable=AsyncMock,
+                        return_value=(48.0, 11.0, 100.0),
+                    ):
                         result = fn("/tmp/vid.mp4", logger)
 
         self.assertEqual(result[0], 7)
@@ -569,10 +645,16 @@ class TestResolveSiteOrigin(unittest.TestCase):
 
         with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
-                with patch("selfsuvis.pipeline.global_map_db.get_or_create_global_map",
-                           new_callable=AsyncMock, return_value=99):
-                    with patch("selfsuvis.pipeline.global_map_db.get_global_map_origin",
-                               new_callable=AsyncMock, return_value=(48.0, 11.0, 0.0)):
+                with patch(
+                    "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                    new_callable=AsyncMock,
+                    return_value=99,
+                ):
+                    with patch(
+                        "selfsuvis.pipeline.global_map_db.get_global_map_origin",
+                        new_callable=AsyncMock,
+                        return_value=(48.0, 11.0, 0.0),
+                    ):
                         fn("/tmp/vid.mp4", logger)
 
         info_msgs = [c.args[0] for c in logger.info.call_args_list]
@@ -588,10 +670,16 @@ class TestResolveSiteOrigin(unittest.TestCase):
 
         with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
-                with patch("selfsuvis.pipeline.global_map_db.get_or_create_global_map",
-                           new_callable=AsyncMock, return_value=5):
-                    with patch("selfsuvis.pipeline.global_map_db.get_global_map_origin",
-                               new_callable=AsyncMock, return_value=None):
+                with patch(
+                    "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                    new_callable=AsyncMock,
+                    return_value=5,
+                ):
+                    with patch(
+                        "selfsuvis.pipeline.global_map_db.get_global_map_origin",
+                        new_callable=AsyncMock,
+                        return_value=None,
+                    ):
                         gmap_id, origin = fn("/tmp/vid.mp4", logger)
 
         self.assertEqual(gmap_id, 5)
@@ -607,10 +695,16 @@ class TestResolveSiteOrigin(unittest.TestCase):
 
         with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
-                with patch("selfsuvis.pipeline.global_map_db.get_or_create_global_map",
-                           new_callable=AsyncMock, return_value=1):
-                    with patch("selfsuvis.pipeline.global_map_db.get_global_map_origin",
-                               new_callable=AsyncMock, return_value=(1.0, 2.0, 3.0)):
+                with patch(
+                    "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                    new_callable=AsyncMock,
+                    return_value=1,
+                ):
+                    with patch(
+                        "selfsuvis.pipeline.global_map_db.get_global_map_origin",
+                        new_callable=AsyncMock,
+                        return_value=(1.0, 2.0, 3.0),
+                    ):
                         fn("/tmp/vid.mp4", logger)
 
         fake_conn.close.assert_awaited_once()

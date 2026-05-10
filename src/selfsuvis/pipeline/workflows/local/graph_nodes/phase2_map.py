@@ -32,7 +32,8 @@ def node_p2_map_3d_submit(state: PipelineState) -> dict[str, Any]:
     if run_sfm and _sfm_min_dur > 0 and _clip_dur < _sfm_min_dur:
         _log.info(
             "  SfM skipped: clip %.1fs < SFM_MIN_DURATION_SEC=%.0fs — using pseudo-3D fallback",
-            _clip_dur, _sfm_min_dur,
+            _clip_dur,
+            _sfm_min_dur,
         )
         run_sfm = False
 
@@ -71,18 +72,24 @@ def node_p2_map_3d_join(state: PipelineState) -> dict[str, Any]:
         except Exception as exc:
             _log.warning("  3D-map background thread raised: %s", exc, exc_info=True)
             h = {
-                "sfm_poses": 0, "method": "failed",
-                "points": None, "gsplat_method": "failed",
-                "splat_ply": None, "viewer_html": "",
+                "sfm_poses": 0,
+                "method": "failed",
+                "points": None,
+                "gsplat_method": "failed",
+                "splat_ply": None,
+                "viewer_html": "",
             }
         finally:
             if executor:
                 executor.shutdown(wait=False)
     else:
         h = {
-            "sfm_poses": 0, "method": "skipped",
-            "points": None, "gsplat_method": "skipped",
-            "splat_ply": None, "viewer_html": "",
+            "sfm_poses": 0,
+            "method": "skipped",
+            "points": None,
+            "gsplat_method": "skipped",
+            "splat_ply": None,
+            "viewer_html": "",
         }
 
     args = state["args"]
@@ -116,18 +123,25 @@ def node_p2_map_3d_join(state: PipelineState) -> dict[str, Any]:
     stats["splat_ply"] = h.get("splat_ply")
     stats["semantic_graph_nodes"] = (
         semantic_graph_result.get("graph", {}).get("summary", {}).get("node_count", 0)
-        if not semantic_graph_result.get("skipped") else 0
+        if not semantic_graph_result.get("skipped")
+        else 0
     )
     stats["semantic_graph_edges"] = (
         semantic_graph_result.get("graph", {}).get("summary", {}).get("edge_count", 0)
-        if not semantic_graph_result.get("skipped") else 0
+        if not semantic_graph_result.get("skipped")
+        else 0
     )
     stats["map_quality_advisor"] = map_quality_advisor
-    stats.setdefault("timings", {})["I_3dmap"] = float(h.get("elapsed_sec", time.monotonic() - t0) or 0.0)
+    stats.setdefault("timings", {})["I_3dmap"] = float(
+        h.get("elapsed_sec", time.monotonic() - t0) or 0.0
+    )
 
     if stats["map_degraded"]:
-        _log.warning("3D map quality is degraded: %d points, %d SfM poses",
-                     stats["map_points"], stats["sfm_poses"])
+        _log.warning(
+            "3D map quality is degraded: %d points, %d SfM poses",
+            stats["map_points"],
+            stats["sfm_poses"],
+        )
 
     video_context = dict(state.get("video_context", {}))
     video_context["map"] = {

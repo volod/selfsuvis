@@ -50,7 +50,13 @@ def step_policy(
     degraded = bool(sensor_health.get("degraded", False))
 
     policy_reason = "nominal"
-    if degraded or health_warnings or confidence < 0.45 or trust_penalty >= 0.30 or disagreement_rate >= 0.34:
+    if (
+        degraded
+        or health_warnings
+        or confidence < 0.45
+        or trust_penalty >= 0.30
+        or disagreement_rate >= 0.34
+    ):
         action = "inspect_sensor"
         policy_reason = "automation confidence reduced by contradiction or sensor health"
     elif score >= 0.80:
@@ -70,7 +76,12 @@ def step_policy(
             action = "reduce_speed"
         elif action == "reduce_speed" and score >= 0.60:
             action = "reroute"
-    elif risk_tolerance == "aggressive" and action == "reduce_speed" and score < 0.45 and not degraded:
+    elif (
+        risk_tolerance == "aggressive"
+        and action == "reduce_speed"
+        and score < 0.45
+        and not degraded
+    ):
         action = "continue"
 
     result = {

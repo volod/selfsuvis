@@ -25,6 +25,7 @@ After training, point the worker/API at the fine-tuned weights:
 The fine-tuned backbone will be loaded by DINOEmbedder automatically when
 DINO_CHECKPOINT is set and the file exists.
 """
+
 import argparse
 
 from selfsuvis.pipeline.core.logging import configure_logging
@@ -51,29 +52,53 @@ def main() -> None:
         choices=["temporal", "augment"],
         default=None,
         help="Positive-pair strategy: 'temporal' (consecutive frames from same video dir) "
-             "or 'augment' (two augmented views of the same frame). Default: SSL_FINETUNE_APPROACH",
+        "or 'augment' (two augmented views of the same frame). Default: SSL_FINETUNE_APPROACH",
     )
-    parser.add_argument("--model-name", default=None,
-                        help="DINOv3 hub model name, e.g. dinov3_vitb14 (default: derived from MODEL_NAME)")
-    parser.add_argument("--epochs", type=int, default=None,
-                        help="Number of training epochs (default: SSL_FINETUNE_EPOCHS)")
-    parser.add_argument("--batch-size", type=int, default=None,
-                        help="Mini-batch size (default: SSL_FINETUNE_BATCH_SIZE)")
-    parser.add_argument("--lr", type=float, default=None,
-                        help="Learning rate (default: SSL_FINETUNE_LR)")
-    parser.add_argument("--freeze-blocks", type=int, default=None,
-                        help="Number of transformer blocks to freeze from the start "
-                             "(default: SSL_FINETUNE_FREEZE_BLOCKS)")
-    parser.add_argument("--temperature", type=float, default=None,
-                        help="NT-Xent softmax temperature (default: SSL_FINETUNE_TEMPERATURE)")
-    parser.add_argument("--device", default=None,
-                        help="Compute device: cpu | cuda | cuda:N (default: auto)")
-    parser.add_argument("--num-workers", type=int, default=4,
-                        help="DataLoader worker processes (default: 4)")
-    parser.add_argument("--max-gap", type=int, default=3,
-                        help="Maximum frame gap for temporal pairs (default: 3)")
-    parser.add_argument("--save-every", type=int, default=1,
-                        help="Save checkpoint every N epochs (default: 1)")
+    parser.add_argument(
+        "--model-name",
+        default=None,
+        help="DINOv3 hub model name, e.g. dinov3_vitb14 (default: derived from MODEL_NAME)",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Number of training epochs (default: SSL_FINETUNE_EPOCHS)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Mini-batch size (default: SSL_FINETUNE_BATCH_SIZE)",
+    )
+    parser.add_argument(
+        "--lr", type=float, default=None, help="Learning rate (default: SSL_FINETUNE_LR)"
+    )
+    parser.add_argument(
+        "--freeze-blocks",
+        type=int,
+        default=None,
+        help="Number of transformer blocks to freeze from the start "
+        "(default: SSL_FINETUNE_FREEZE_BLOCKS)",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="NT-Xent softmax temperature (default: SSL_FINETUNE_TEMPERATURE)",
+    )
+    parser.add_argument(
+        "--device", default=None, help="Compute device: cpu | cuda | cuda:N (default: auto)"
+    )
+    parser.add_argument(
+        "--num-workers", type=int, default=4, help="DataLoader worker processes (default: 4)"
+    )
+    parser.add_argument(
+        "--max-gap", type=int, default=3, help="Maximum frame gap for temporal pairs (default: 3)"
+    )
+    parser.add_argument(
+        "--save-every", type=int, default=1, help="Save checkpoint every N epochs (default: 1)"
+    )
     parser.add_argument("--seed", type=int, default=42)
 
     args = parser.parse_args()
@@ -110,6 +135,7 @@ def main() -> None:
 
     # Resolve "auto" device
     import torch
+
     if cfg.device == "auto":
         cfg.device = "cuda" if torch.cuda.is_available() else "cpu"
 

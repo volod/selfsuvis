@@ -21,6 +21,7 @@ from ..sensors.lorawan_decoder import SensorReading
 
 # ── Public Pydantic models (used in API responses) ────────────────────────────
 
+
 class SensorSummary(BaseModel):
     """Aggregated summary of recent readings from one LoRaWAN device."""
 
@@ -62,6 +63,7 @@ class SiteState(BaseModel):
 
 
 # ── Aggregator ────────────────────────────────────────────────────────────────
+
 
 class SiteStateAggregator:
     """Rolling-window collector for sensor readings and camera events.
@@ -106,8 +108,12 @@ class SiteStateAggregator:
 
     async def get_state(self) -> SiteState:
         async with self._lock:
-            sensors = [self._summarize_sensor(dev_eui, q) for dev_eui, q in self._sensors.items() if q]
-            cameras = [self._summarize_camera(camera, q) for camera, q in self._cameras.items() if q]
+            sensors = [
+                self._summarize_sensor(dev_eui, q) for dev_eui, q in self._sensors.items() if q
+            ]
+            cameras = [
+                self._summarize_camera(camera, q) for camera, q in self._cameras.items() if q
+            ]
 
         active_motion = any(s.motion for s in sensors if s.motion)
         return SiteState(

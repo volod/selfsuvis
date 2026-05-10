@@ -45,7 +45,9 @@ class MosquittoLogParser(BaseLogParser):
         if metadata.get("event") == "auth_failure":
             level = "WARNING"
 
-        return LogEntry(timestamp=timestamp, level=level, message=message, raw=line, metadata=metadata)
+        return LogEntry(
+            timestamp=timestamp, level=level, message=message, raw=line, metadata=metadata
+        )
 
     def _infer_level(self, message: str) -> str:
         msg_lower = message.lower()

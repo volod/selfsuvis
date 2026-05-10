@@ -6,6 +6,7 @@ which executes heavy side-effects (loads OpenCLIP, connects to Qdrant, etc.).
 asyncpg is not installed in the test venv; it is stubbed in sys.modules so
 that the `import asyncpg` inside _resolve_dino_checkpoint succeeds.
 """
+
 import sys
 import types
 from unittest.mock import AsyncMock, MagicMock
@@ -15,7 +16,7 @@ import pytest
 # ── Stub asyncpg before anything else ────────────────────────────────────────
 if "asyncpg" not in sys.modules:
     _asyncpg = types.ModuleType("asyncpg")
-    _asyncpg.connect = MagicMock()   # patch.object requires attribute to pre-exist
+    _asyncpg.connect = MagicMock()  # patch.object requires attribute to pre-exist
     sys.modules["asyncpg"] = _asyncpg
 
 _asyncpg_mod = sys.modules["asyncpg"]
@@ -23,13 +24,14 @@ _asyncpg_mod = sys.modules["asyncpg"]
 
 # ── Extract _resolve_dino_checkpoint via exec ─────────────────────────────────
 
+
 def _build_resolver():
     """Compile and return a testable version of _resolve_dino_checkpoint.
 
     The production code mutates the module-level `settings` object.  Here we
     parameterise it so tests can pass their own mock settings.
     """
-    source = '''\
+    source = """\
 import asyncio
 
 def _resolve_dino_checkpoint(settings, logger):
@@ -58,7 +60,7 @@ def _resolve_dino_checkpoint(settings, logger):
         logger.warning(
             "Could not read active_dino_checkpoint from DB (falling back to env): %s", exc
         )
-'''
+"""
     ns: dict = {}
     exec(compile(source, "<resolver>", "exec"), ns)
     return ns["_resolve_dino_checkpoint"]
@@ -68,6 +70,7 @@ _resolve_dino_checkpoint = _build_resolver()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def mock_settings():
@@ -84,8 +87,8 @@ def mock_logger():
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
-class TestResolveDinoCheckpoint:
 
+class TestResolveDinoCheckpoint:
     def _call(self, settings, logger, row_value=None, connect_error=None):
         mock_conn = AsyncMock()
         mock_conn.close = AsyncMock()
@@ -93,6 +96,7 @@ class TestResolveDinoCheckpoint:
         if connect_error:
             _asyncpg_mod.connect = AsyncMock(side_effect=connect_error)
         else:
+
             async def _fetchrow(query, *_):
                 if row_value is None:
                     return None

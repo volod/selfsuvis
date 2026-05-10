@@ -71,9 +71,13 @@ def test_handle_postflight_mapping_job_marks_mission_done_without_followup():
         patch.object(worker_main.os.path, "exists", return_value=True),
         patch.object(worker_main, "_resolve_site_origin", return_value=(7, (0.0, 0.0, 0.0))),
         patch.object(worker_main, "_run_pass_a") as run_pass_a,
-        patch.object(worker_main, "list_mission_frames", new_callable=AsyncMock, return_value=[{"id": "f1"}]),
+        patch.object(
+            worker_main, "list_mission_frames", new_callable=AsyncMock, return_value=[{"id": "f1"}]
+        ),
         patch.object(worker_main, "update_job", new_callable=AsyncMock),
-        patch.object(worker_main, "_enqueue_postflight_jobs", new_callable=AsyncMock, return_value=[]),
+        patch.object(
+            worker_main, "_enqueue_postflight_jobs", new_callable=AsyncMock, return_value=[]
+        ),
         patch.object(worker_main, "mark_mission_finished", new_callable=AsyncMock) as mark_finished,
     ):
         worker_main.handle_postflight_mapping_job(
@@ -108,11 +112,20 @@ def test_handle_postflight_semantic_graph_job_builds_graph_and_marks_done():
 
     with (
         patch.object(worker_main, "fetch_mission", new_callable=AsyncMock, return_value=mission),
-        patch.object(worker_main, "list_mission_frames", new_callable=AsyncMock, return_value=frames),
-        patch("selfsuvis.pipeline.mapping.build_semantic_environment_graph", return_value={"summary": {"node_count": 1, "edge_count": 0}}),
-        patch("selfsuvis.pipeline.mapping.write_semantic_graph_markdown", return_value="/tmp/graph.md"),
+        patch.object(
+            worker_main, "list_mission_frames", new_callable=AsyncMock, return_value=frames
+        ),
+        patch(
+            "selfsuvis.pipeline.mapping.build_semantic_environment_graph",
+            return_value={"summary": {"node_count": 1, "edge_count": 0}},
+        ),
+        patch(
+            "selfsuvis.pipeline.mapping.write_semantic_graph_markdown", return_value="/tmp/graph.md"
+        ),
         patch.object(worker_main, "update_job", new_callable=AsyncMock),
-        patch.object(worker_main, "_enqueue_postflight_jobs", new_callable=AsyncMock, return_value=[]),
+        patch.object(
+            worker_main, "_enqueue_postflight_jobs", new_callable=AsyncMock, return_value=[]
+        ),
         patch.object(worker_main, "mark_mission_finished", new_callable=AsyncMock) as mark_finished,
     ):
         worker_main.handle_postflight_semantic_graph_job(

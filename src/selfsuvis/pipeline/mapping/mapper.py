@@ -27,6 +27,7 @@ Environment variables:
     MAPPER_API_URL       Base URL of the ICP mapper service (default: http://mapper:8000)
     MAPS_DIR             Root for splat.ply output (default: data/maps)
 """
+
 import os
 import time
 from typing import Any
@@ -105,7 +106,10 @@ def _train_scene(
 
     logger.info(
         "Mapper: starting splatfacto mission=%s %s frames=%d output=%s",
-        mission_id, scene_label, len(frame_list), output_dir,
+        mission_id,
+        scene_label,
+        len(frame_list),
+        output_dir,
     )
 
     resp = _post(
@@ -130,16 +134,16 @@ def _train_scene(
             if os.path.isfile(splat_path):
                 logger.info(
                     "Mapper: 3DGS complete mission=%s %s splat=%s",
-                    mission_id, scene_label, splat_path,
+                    mission_id,
+                    scene_label,
+                    splat_path,
                 )
                 return _map_result(
                     map_status="success",
                     splat_path=splat_path,
                     message=f"splatfacto training complete ({scene_label})",
                 )
-            logger.error(
-                "Mapper: nerfstudio reported done but splat.ply missing at %s", splat_path
-            )
+            logger.error("Mapper: nerfstudio reported done but splat.ply missing at %s", splat_path)
             return _map_result(
                 map_status="failed",
                 message=f"nerfstudio done but splat.ply not found ({scene_label})",
@@ -147,14 +151,10 @@ def _train_scene(
 
         if status == "error":
             err = status_resp.get("error", "unknown error")
-            logger.error(
-                "Mapper: nerfstudio error mission=%s %s: %s", mission_id, scene_label, err
-            )
+            logger.error("Mapper: nerfstudio error mission=%s %s: %s", mission_id, scene_label, err)
             return _map_result(map_status="failed", message=err)
 
-        logger.debug(
-            "Mapper: waiting mission=%s %s status=%s", mission_id, scene_label, status
-        )
+        logger.debug("Mapper: waiting mission=%s %s status=%s", mission_id, scene_label, status)
         time.sleep(_POLL_INTERVAL_SEC)
 
     msg = f"nerfstudio timed out after {_TRAIN_TIMEOUT_SEC}s ({scene_label})"
@@ -223,13 +223,18 @@ def _fuse_splat_files(
         n_total = merge_splats([target_path, aligned_path], fused_path)
         logger.info(
             "Mapper: fused splat written mission=%s scene=%s gaussians=%d path=%s",
-            mission_id, scene_label, n_total, fused_path,
+            mission_id,
+            scene_label,
+            n_total,
+            fused_path,
         )
         return fused_path
     except Exception as exc:
         logger.warning(
             "Mapper: splat fusion failed mission=%s scene=%s: %s",
-            mission_id, scene_label, exc,
+            mission_id,
+            scene_label,
+            exc,
         )
         return None
     finally:
@@ -296,8 +301,7 @@ def run_mapper(
 
     # Filter scenes that have enough frames on their own
     valid_scenes = {
-        idx: frames for idx, frames in scenes.items()
-        if len(frames) >= MIN_FRAMES_FOR_3DGS
+        idx: frames for idx, frames in scenes.items() if len(frames) >= MIN_FRAMES_FOR_3DGS
     }
 
     if not valid_scenes:
@@ -336,7 +340,9 @@ def run_mapper(
                     for target_path in target_splat_paths:
                         logger.info(
                             "Mapper: ICP fusion mission=%s scene=%s target=%s",
-                            mission_id, scene_label, target_path,
+                            mission_id,
+                            scene_label,
+                            target_path,
                         )
                         fuse_resp = _call_icp_fuse(new_splat, target_path)
                         if fuse_resp is None:
@@ -345,22 +351,26 @@ def run_mapper(
                         fused_path: str | None = None
                         if fuse_resp.get("converged") and fuse_resp.get("transform_4x4"):
                             fused_path = _fuse_splat_files(
-                                new_splat, target_path,
+                                new_splat,
+                                target_path,
                                 fuse_resp["transform_4x4"],
-                                mission_id, scene_label,
+                                mission_id,
+                                scene_label,
                             )
 
-                        icp_results.append({
-                            "source_splat": new_splat,
-                            "target_splat": target_path,
-                            "status": fuse_resp.get("status"),
-                            "converged": fuse_resp.get("converged", False),
-                            "transform_4x4": fuse_resp.get("transform_4x4"),
-                            "rmse": fuse_resp.get("rmse"),
-                            "fitness": fuse_resp.get("fitness"),
-                            "message": fuse_resp.get("message", ""),
-                            "fused_splat": fused_path,
-                        })
+                        icp_results.append(
+                            {
+                                "source_splat": new_splat,
+                                "target_splat": target_path,
+                                "status": fuse_resp.get("status"),
+                                "converged": fuse_resp.get("converged", False),
+                                "transform_4x4": fuse_resp.get("transform_4x4"),
+                                "rmse": fuse_resp.get("rmse"),
+                                "fitness": fuse_resp.get("fitness"),
+                                "message": fuse_resp.get("message", ""),
+                                "fused_splat": fused_path,
+                            }
+                        )
             else:
                 failed_scenes.append(scene_label)
 

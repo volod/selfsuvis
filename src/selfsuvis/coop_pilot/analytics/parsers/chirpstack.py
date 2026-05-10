@@ -14,9 +14,7 @@ class ChirpStackLogParser(BaseLogParser):
     events from ChirpStack Docker log output.
     """
 
-    DOCKER_TS_PATTERN = re.compile(
-        r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(.+)$"
-    )
+    DOCKER_TS_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(.+)$")
     LEVEL_PATTERN = re.compile(r"\b(DEBUG|INFO|WARN|ERROR|FATAL)\b", re.IGNORECASE)
     DEVICE_PATTERN = re.compile(r"dev_eui=([a-fA-F0-9]{16})")
     GATEWAY_PATTERN = re.compile(r"gateway_id=([a-fA-F0-9]{16})")
@@ -35,7 +33,9 @@ class ChirpStackLogParser(BaseLogParser):
         level = self._extract_level(message)
         metadata = self._extract_lorawan_metadata(message)
 
-        return LogEntry(timestamp=timestamp, level=level, message=message, raw=line, metadata=metadata)
+        return LogEntry(
+            timestamp=timestamp, level=level, message=message, raw=line, metadata=metadata
+        )
 
     def _parse_timestamp(self, match: re.Match | None) -> datetime | None:
         if not match:

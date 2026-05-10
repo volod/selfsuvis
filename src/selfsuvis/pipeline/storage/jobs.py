@@ -7,6 +7,7 @@ polling — no external lock manager required.
 All functions accept an asyncpg Connection (or pool) as their first argument
 so callers control connection lifecycle and transaction boundaries.
 """
+
 from typing import Any
 
 from selfsuvis.pipeline.core import datetime_to_ts, get_logger, to_utc_datetime, utcnow
@@ -39,7 +40,9 @@ async def init_db(conn) -> None:
     await conn.execute(_CREATE_TABLE_SQL)
 
 
-async def create_job(conn, job_id: str, payload: dict[str, Any], job_type: str | None = None) -> None:
+async def create_job(
+    conn, job_id: str, payload: dict[str, Any], job_type: str | None = None
+) -> None:
     """Insert a new job in 'pending' state."""
     now = utcnow()
     await conn.execute(

@@ -3,6 +3,7 @@
 All filesystem I/O and app.state references are mocked — no GPU or real
 checkpoint files required.
 """
+
 import sys
 import types
 from contextlib import contextmanager
@@ -22,6 +23,7 @@ if "selfsuvis.app.state" not in sys.modules:
 
 # ── Test client factory ───────────────────────────────────────────────────────
 
+
 def _make_client():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -34,6 +36,7 @@ def _make_client():
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _state_with_dino(dino_model=None, lock_locked=False):
     """Return a mock app.state with configurable dino_model and lock."""
@@ -50,16 +53,18 @@ def _state_with_dino(dino_model=None, lock_locked=False):
 @contextmanager
 def _patch_state_and_settings(state, tmp_path):
     """Patch sys.modules['selfsuvis.app.state'] and settings.SUP_CHECKPOINT_DIR together."""
-    with patch.dict(sys.modules, {"selfsuvis.app.state": state}), \
-         patch("selfsuvis.app.routers.admin.settings") as mock_settings:
+    with (
+        patch.dict(sys.modules, {"selfsuvis.app.state": state}),
+        patch("selfsuvis.app.routers.admin.settings") as mock_settings,
+    ):
         mock_settings.SUP_CHECKPOINT_DIR = str(tmp_path)
         yield mock_settings
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
-class TestReloadModel:
 
+class TestReloadModel:
     def test_dino_not_loaded_returns_400(self, tmp_path):
         """400 when MODEL_NAME is not dinov2/dinov3 (dino_model is None)."""
         state = _state_with_dino(dino_model=None)

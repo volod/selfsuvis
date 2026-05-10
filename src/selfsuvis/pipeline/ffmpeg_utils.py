@@ -3,6 +3,7 @@
 ``os``, ``subprocess``, and ``settings`` are imported here so that existing
 ``patch("pipeline.ffmpeg_utils.*")`` test targets keep working.
 """
+
 import os  # noqa: F401
 import subprocess  # noqa: F401
 

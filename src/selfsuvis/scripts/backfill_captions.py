@@ -46,7 +46,9 @@ _SKIP_FILE_MISSING = "file_missing"
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Backfill Florence-2 captions for uncaptioned frames.")
+    parser = argparse.ArgumentParser(
+        description="Backfill Florence-2 captions for uncaptioned frames."
+    )
     parser.add_argument(
         "--skip-qdrant",
         action="store_true",
@@ -76,9 +78,7 @@ async def _count_pending(conn) -> int:
 
 async def _count_skipped(conn) -> int:
     """Count frames permanently skipped (e.g. file_missing)."""
-    row = await conn.fetchrow(
-        "SELECT COUNT(*) FROM frames WHERE caption_skip_reason IS NOT NULL"
-    )
+    row = await conn.fetchrow("SELECT COUNT(*) FROM frames WHERE caption_skip_reason IS NOT NULL")
     return row[0]
 
 
@@ -119,7 +119,10 @@ async def _update_frames(conn, updates: list[tuple[str, str, float, str]]) -> No
             updated_at = NOW()
         WHERE id = $4
         """,
-        [(caption, confidence, model_tag, frame_id) for frame_id, caption, confidence, model_tag in updates],
+        [
+            (caption, confidence, model_tag, frame_id)
+            for frame_id, caption, confidence, model_tag in updates
+        ],
     )
 
 
@@ -151,6 +154,7 @@ def _set_qdrant_payload(
 
     try:
         from qdrant_client import QdrantClient
+
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         collection = settings.QDRANT_COLLECTION
 
@@ -174,9 +178,7 @@ def _set_qdrant_payload(
                 len(updates),
             )
     except Exception:
-        logger.warning(
-            "Qdrant update failed; DB captions are intact.", exc_info=True
-        )
+        logger.warning("Qdrant update failed; DB captions are intact.", exc_info=True)
 
 
 async def run_backfill(args: argparse.Namespace) -> None:
@@ -193,7 +195,9 @@ async def run_backfill(args: argparse.Namespace) -> None:
         )
 
         if args.dry_run:
-            print(f"Dry run: {pending} frames need captioning, {already_skipped} permanently skipped.")
+            print(
+                f"Dry run: {pending} frames need captioning, {already_skipped} permanently skipped."
+            )
             return
 
         if pending == 0:
@@ -223,7 +227,9 @@ async def run_backfill(args: argparse.Namespace) -> None:
                 if not os.path.exists(fp):
                     logger.warning(
                         "Frame file missing — marking caption_skip_reason='file_missing': "
-                        "%s (id=%s)", fp, row["id"]
+                        "%s (id=%s)",
+                        fp,
+                        row["id"],
                     )
                     missing_ids.append(row["id"])
                     continue
@@ -233,7 +239,9 @@ async def run_backfill(args: argparse.Namespace) -> None:
                 except Exception:
                     logger.warning(
                         "Could not open frame %s (id=%s) — marking as file_missing.",
-                        fp, row["id"], exc_info=True,
+                        fp,
+                        row["id"],
+                        exc_info=True,
                     )
                     missing_ids.append(row["id"])
 

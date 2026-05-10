@@ -1,6 +1,5 @@
 """Shared sensor registry helpers for realtime ingest."""
 
-
 from collections.abc import Iterable
 from typing import Any
 

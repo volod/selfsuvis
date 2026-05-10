@@ -48,10 +48,10 @@ from pathlib import Path
 import numpy as np
 
 _SR = 22050
-_SOURCE_DB_DEFAULT = 85.0   # dBSPL at 1 m — typical multirotor
-_C_DEFAULT = 343.0          # m/s — speed of sound at 20 °C
-_ATM_DB_DEFAULT = 0.5       # dB / 100 m
-_REF_DIST = 1.0             # m — reference distance for source_db
+_SOURCE_DB_DEFAULT = 85.0  # dBSPL at 1 m — typical multirotor
+_C_DEFAULT = 343.0  # m/s — speed of sound at 20 °C
+_ATM_DB_DEFAULT = 0.5  # dB / 100 m
+_REF_DIST = 1.0  # m — reference distance for source_db
 _SPEAKER_REF_DB_DEFAULT = 85.0
 _PLAYBACK_HEADROOM = 0.95
 _MIC_TYPES = ("measurement", "acoustic", "embedded", "headset", "phone", "unknown")
@@ -59,6 +59,7 @@ _PLAYER_TYPES = ("single-speaker", "stereo-speakers", "laptop", "phone", "headph
 
 
 # ── Source audio ──────────────────────────────────────────────────────────────
+
 
 def _find_drone_wav(data_dir: Path) -> Path | None:
     """Return the first available drone WAV from the dataset cache."""
@@ -74,6 +75,7 @@ def _find_drone_wav(data_dir: Path) -> Path | None:
 def _load_wav_mono(path: Path, target_sr: int) -> np.ndarray | None:
     try:
         from scipy.io import wavfile
+
         sr, data = wavfile.read(str(path))
         if data.dtype.kind == "i":
             data = data.astype(np.float32) / np.iinfo(data.dtype).max
@@ -295,9 +297,7 @@ def _apply_distance_playback_gain(
     """
     distance_m = np.maximum(distance_m.astype(np.float32), 0.1)
     received_db = (
-        source_db
-        - 20.0 * np.log10(distance_m / _REF_DIST)
-        - atm_db_per_100m * distance_m / 100.0
+        source_db - 20.0 * np.log10(distance_m / _REF_DIST) - atm_db_per_100m * distance_m / 100.0
     )
     effective_volume = max(system_volume, 0.05)
     gain = (10.0 ** ((received_db - speaker_ref_db) / 20.0)) / effective_volume
@@ -310,12 +310,13 @@ def _apply_distance_playback_gain(
 
 # ── Physics ───────────────────────────────────────────────────────────────────
 
+
 def _simulate(
     source_audio: np.ndarray,
     sr: int,
-    x_traj: np.ndarray,   # drone x position at each output sample (m)
-    y_offset: float,      # lateral / height offset — closest approach distance (m)
-    z_offset: float,      # altitude offset (m) — adds to dist but not to x_traj
+    x_traj: np.ndarray,  # drone x position at each output sample (m)
+    y_offset: float,  # lateral / height offset — closest approach distance (m)
+    z_offset: float,  # altitude offset (m) — adds to dist but not to x_traj
     source_db: float,
     c: float,
     atm_db_per_100m: float,
@@ -357,9 +358,18 @@ def _simulate(
 
 # ── Scenario builders ─────────────────────────────────────────────────────────
 
+
 def _scenario_flyover(
-    source_audio: np.ndarray, sr: int, source_db: float, c: float, atm: float,
-    distance: float, speed: float, duration: float, speaker_ref_db: float, system_volume: float,
+    source_audio: np.ndarray,
+    sr: int,
+    source_db: float,
+    c: float,
+    atm: float,
+    distance: float,
+    speed: float,
+    duration: float,
+    speaker_ref_db: float,
+    system_volume: float,
 ) -> tuple[np.ndarray, float, float]:
     """Drone flies in a straight line; closest approach = distance (lateral offset)."""
     n = int(duration * sr)
@@ -367,14 +377,31 @@ def _scenario_flyover(
     x_start = -0.5 * speed * duration
     t = np.arange(n, dtype=np.float64) / sr
     x_traj = (x_start + speed * t).astype(np.float32)
-    return _simulate(audio, sr, x_traj, y_offset=distance, z_offset=0.0,
-                     source_db=source_db, c=c, atm_db_per_100m=atm,
-                     speaker_ref_db=speaker_ref_db, system_volume=system_volume)
+    return _simulate(
+        audio,
+        sr,
+        x_traj,
+        y_offset=distance,
+        z_offset=0.0,
+        source_db=source_db,
+        c=c,
+        atm_db_per_100m=atm,
+        speaker_ref_db=speaker_ref_db,
+        system_volume=system_volume,
+    )
 
 
 def _scenario_approach(
-    source_audio: np.ndarray, sr: int, source_db: float, c: float, atm: float,
-    distance: float, speed: float, duration: float, speaker_ref_db: float, system_volume: float,
+    source_audio: np.ndarray,
+    sr: int,
+    source_db: float,
+    c: float,
+    atm: float,
+    distance: float,
+    speed: float,
+    duration: float,
+    speaker_ref_db: float,
+    system_volume: float,
 ) -> tuple[np.ndarray, float, float]:
     """Drone approaches from distance, passes mic at d_min=5m, flies away."""
     n = int(duration * sr)
@@ -383,33 +410,66 @@ def _scenario_approach(
     # Start at x=-distance, pass x=0 at mid-point
     x_start = -distance
     x_traj = (x_start + speed * t).astype(np.float32)
-    return _simulate(audio, sr, x_traj, y_offset=5.0, z_offset=0.0,
-                     source_db=source_db, c=c, atm_db_per_100m=atm,
-                     speaker_ref_db=speaker_ref_db, system_volume=system_volume)
+    return _simulate(
+        audio,
+        sr,
+        x_traj,
+        y_offset=5.0,
+        z_offset=0.0,
+        source_db=source_db,
+        c=c,
+        atm_db_per_100m=atm,
+        speaker_ref_db=speaker_ref_db,
+        system_volume=system_volume,
+    )
 
 
 def _scenario_hover(
-    source_audio: np.ndarray, sr: int, source_db: float, c: float, atm: float,
-    distance: float, duration: float, speaker_ref_db: float, system_volume: float,
+    source_audio: np.ndarray,
+    sr: int,
+    source_db: float,
+    c: float,
+    atm: float,
+    distance: float,
+    duration: float,
+    speaker_ref_db: float,
+    system_volume: float,
 ) -> tuple[np.ndarray, float, float]:
     """Drone hovers at fixed distance directly above the microphone."""
     n = int(duration * sr)
     audio = _loop_audio(source_audio, n)
     x_traj = np.zeros(n, dtype=np.float32)
-    return _simulate(audio, sr, x_traj, y_offset=0.0, z_offset=distance,
-                     source_db=source_db, c=c, atm_db_per_100m=atm,
-                     speaker_ref_db=speaker_ref_db, system_volume=system_volume)
+    return _simulate(
+        audio,
+        sr,
+        x_traj,
+        y_offset=0.0,
+        z_offset=distance,
+        source_db=source_db,
+        c=c,
+        atm_db_per_100m=atm,
+        speaker_ref_db=speaker_ref_db,
+        system_volume=system_volume,
+    )
 
 
 def _scenario_circle(
-    source_audio: np.ndarray, sr: int, source_db: float, c: float, atm: float,
-    distance: float, speed: float, duration: float, speaker_ref_db: float, system_volume: float,
+    source_audio: np.ndarray,
+    sr: int,
+    source_db: float,
+    c: float,
+    atm: float,
+    distance: float,
+    speed: float,
+    duration: float,
+    speaker_ref_db: float,
+    system_volume: float,
 ) -> tuple[np.ndarray, float, float]:
     """Drone circles at constant radius (= distance) around the microphone."""
     n = int(duration * sr)
     audio = _loop_audio(source_audio, n)
     t = np.arange(n, dtype=np.float64) / sr
-    omega = speed / distance   # angular velocity rad/s
+    omega = speed / distance  # angular velocity rad/s
     x_traj = (distance * np.cos(omega * t)).astype(np.float32)
     y_offset_arr = (distance * np.abs(np.sin(omega * t))).astype(np.float32)
     # For circle, lateral offset changes: treat as a loop of flyovers
@@ -439,10 +499,12 @@ def _scenario_circle(
 
 # ── Output ────────────────────────────────────────────────────────────────────
 
+
 def _play(audio: np.ndarray, sr: int) -> None:
     try:
         import sounddevice as sd  # type: ignore[import]
-        print(f"Playing {len(audio)/sr:.1f} s …  (press Ctrl-C to stop)")
+
+        print(f"Playing {len(audio) / sr:.1f} s …  (press Ctrl-C to stop)")
         sd.play(audio, samplerate=sr)
         sd.wait()
     except ImportError:
@@ -456,16 +518,28 @@ def _play(audio: np.ndarray, sr: int) -> None:
 
 def _save_wav(path: Path, audio: np.ndarray, sr: int) -> None:
     from scipy.io import wavfile
+
     pcm = (audio * 32767).astype(np.int16)
     wavfile.write(str(path), sr, pcm)
-    print(f"Saved: {path}  ({len(audio)/sr:.1f} s)")
+    print(f"Saved: {path}  ({len(audio) / sr:.1f} s)")
 
 
-def _print_summary(scenario: str, distance: float, speed: float,
-                   source_db: float, c: float, atm: float, duration: float,
-                   speaker_ref_db: float, effective_speaker_ref_db: float,
-                   system_volume: float, volume_backend: str,
-                   mic_type: str, player_type: str, probe_distance_m: float) -> None:
+def _print_summary(
+    scenario: str,
+    distance: float,
+    speed: float,
+    source_db: float,
+    c: float,
+    atm: float,
+    duration: float,
+    speaker_ref_db: float,
+    effective_speaker_ref_db: float,
+    system_volume: float,
+    volume_backend: str,
+    mic_type: str,
+    player_type: str,
+    probe_distance_m: float,
+) -> None:
     print("\nDrone audio simulation")
     print(f"  scenario   : {scenario}")
     print(f"  distance   : {distance} m  (closest approach / hover / orbit radius)")
@@ -498,6 +572,7 @@ def _print_playback_stats(max_received_db: float, unclipped_peak: float) -> None
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     from selfsuvis.pipeline.core.config import settings
 
@@ -509,27 +584,39 @@ def main() -> None:
         help="Flight scenario (default: flyover)",
     )
     parser.add_argument(
-        "--distance", type=float, default=200.0,
+        "--distance",
+        type=float,
+        default=200.0,
         help="Initial / closest-approach / hover / orbit distance in m (default: 200)",
     )
     parser.add_argument(
-        "--speed", type=float, default=10.0,
+        "--speed",
+        type=float,
+        default=10.0,
         help="Drone speed in m/s (default: 10; ignored for hover)",
     )
     parser.add_argument(
-        "--duration", type=float, default=30.0,
+        "--duration",
+        type=float,
+        default=30.0,
         help="Simulation duration in seconds (default: 30)",
     )
     parser.add_argument(
-        "--source-db", type=float, default=_SOURCE_DB_DEFAULT,
+        "--source-db",
+        type=float,
+        default=_SOURCE_DB_DEFAULT,
         help=f"Drone source level dBSPL at 1 m (default: {_SOURCE_DB_DEFAULT})",
     )
     parser.add_argument(
-        "--c", type=float, default=_C_DEFAULT,
+        "--c",
+        type=float,
+        default=_C_DEFAULT,
         help=f"Speed of sound m/s (default: {_C_DEFAULT})",
     )
     parser.add_argument(
-        "--atm-db", type=float, default=_ATM_DB_DEFAULT,
+        "--atm-db",
+        type=float,
+        default=_ATM_DB_DEFAULT,
         help=f"Atmospheric absorption dB per 100 m (default: {_ATM_DB_DEFAULT})",
     )
     parser.add_argument(
@@ -617,37 +704,73 @@ def main() -> None:
     source = _normalise_source(source)
 
     _print_summary(
-        args.scenario, args.distance, args.speed,
-        args.source_db, args.c, args.atm_db, args.duration,
-        args.speaker_ref_db, effective_speaker_ref_db,
-        system_volume, volume_backend,
-        args.mic_type, args.player_type, args.probe_distance_m,
+        args.scenario,
+        args.distance,
+        args.speed,
+        args.source_db,
+        args.c,
+        args.atm_db,
+        args.duration,
+        args.speaker_ref_db,
+        effective_speaker_ref_db,
+        system_volume,
+        volume_backend,
+        args.mic_type,
+        args.player_type,
+        args.probe_distance_m,
     )
     _print_placement_guidance(args.mic_type, args.player_type, args.probe_distance_m)
 
     if args.scenario == "flyover":
         out, max_received_db, unclipped_peak = _scenario_flyover(
-            source, _SR, args.source_db, args.c, args.atm_db,
-            args.distance, args.speed, args.duration,
-            effective_speaker_ref_db, system_volume,
+            source,
+            _SR,
+            args.source_db,
+            args.c,
+            args.atm_db,
+            args.distance,
+            args.speed,
+            args.duration,
+            effective_speaker_ref_db,
+            system_volume,
         )
     elif args.scenario == "approach":
         out, max_received_db, unclipped_peak = _scenario_approach(
-            source, _SR, args.source_db, args.c, args.atm_db,
-            args.distance, args.speed, args.duration,
-            effective_speaker_ref_db, system_volume,
+            source,
+            _SR,
+            args.source_db,
+            args.c,
+            args.atm_db,
+            args.distance,
+            args.speed,
+            args.duration,
+            effective_speaker_ref_db,
+            system_volume,
         )
     elif args.scenario == "hover":
         out, max_received_db, unclipped_peak = _scenario_hover(
-            source, _SR, args.source_db, args.c, args.atm_db,
-            args.distance, args.duration,
-            effective_speaker_ref_db, system_volume,
+            source,
+            _SR,
+            args.source_db,
+            args.c,
+            args.atm_db,
+            args.distance,
+            args.duration,
+            effective_speaker_ref_db,
+            system_volume,
         )
     else:  # circle
         out, max_received_db, unclipped_peak = _scenario_circle(
-            source, _SR, args.source_db, args.c, args.atm_db,
-            args.distance, args.speed, args.duration,
-            effective_speaker_ref_db, system_volume,
+            source,
+            _SR,
+            args.source_db,
+            args.c,
+            args.atm_db,
+            args.distance,
+            args.speed,
+            args.duration,
+            effective_speaker_ref_db,
+            system_volume,
         )
 
     _print_playback_stats(max_received_db, unclipped_peak)

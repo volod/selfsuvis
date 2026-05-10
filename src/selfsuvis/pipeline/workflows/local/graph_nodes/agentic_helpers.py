@@ -26,6 +26,7 @@ MOE_CONSENSUS_THRESHOLD: float = 0.5
 
 # ── JSON guard ────────────────────────────────────────────────────────────────
 
+
 def json_guard(raw: str, required_keys: list[str]) -> dict[str, Any] | None:
     """Parse *raw* as JSON and return the dict only if all *required_keys* present."""
     try:
@@ -46,6 +47,7 @@ def json_guard(raw: str, required_keys: list[str]) -> dict[str, Any] | None:
 
 # ── LLM call with exponential back-off ───────────────────────────────────────
 
+
 def llm_call_with_retry(
     endpoint: str,
     payload: dict[str, Any],
@@ -65,22 +67,23 @@ def llm_call_with_retry(
             resp = httpx.post(endpoint, json=payload, timeout=timeout_sec)
             resp.raise_for_status()
             data = resp.json()
-            text = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
+            text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             return text, attempt
         except Exception as exc:
             last_exc = exc
             if attempt < max_attempts:
                 sleep_sec = backoff_base ** (attempt - 1)
-                _log.debug("LLM call attempt %d failed (%s) — retrying in %.1fs", attempt, exc, sleep_sec)
+                _log.debug(
+                    "LLM call attempt %d failed (%s) — retrying in %.1fs", attempt, exc, sleep_sec
+                )
                 time.sleep(sleep_sec)
-    raise RuntimeError(f"LLM endpoint {endpoint!r} failed after {max_attempts} attempts") from last_exc
+    raise RuntimeError(
+        f"LLM endpoint {endpoint!r} failed after {max_attempts} attempts"
+    ) from last_exc
 
 
 # ── Critique pass ─────────────────────────────────────────────────────────────
+
 
 def critique_pass(
     endpoint: str,
@@ -105,8 +108,12 @@ def critique_pass(
     try:
         raw, _ = llm_call_with_retry(
             endpoint,
-            {"model": model, "messages": [{"role": "user", "content": prompt}],
-             "max_tokens": 120, "temperature": 0.0},
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 120,
+                "temperature": 0.0,
+            },
             max_attempts=2,
             timeout_sec=timeout_sec,
         )
@@ -123,6 +130,7 @@ def critique_pass(
 
 # ── MoE consensus scoring ─────────────────────────────────────────────────────
 
+
 def _jaccard(a: str, b: str) -> float:
     """Token-overlap Jaccard similarity between two strings."""
     sa = set(a.lower().split())
@@ -134,7 +142,9 @@ def _jaccard(a: str, b: str) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
-def moe_consensus_score(expert_outputs: list[dict[str, Any]], field: str = "recommended_action") -> float:
+def moe_consensus_score(
+    expert_outputs: list[dict[str, Any]], field: str = "recommended_action"
+) -> float:
     """Mean pairwise Jaccard similarity of *field* across expert outputs."""
     texts = [str(e.get(field, "")) for e in expert_outputs if field in e]
     if len(texts) < 2:
@@ -167,18 +177,21 @@ def low_agreement_frames(
 
 # ── Evidence summary builder ──────────────────────────────────────────────────
 
+
 def build_evidence_summary(state: dict[str, Any]) -> str:
     """Build a concise factual evidence string from accumulated state for critique prompts."""
     vc = state.get("video_context", {})
     parts: list[str] = []
     if vc.get("gemma_analysis"):
         ga = vc["gemma_analysis"]
-        parts.append(f"Gemma: scene_type={ga.get('task_results', {}).get('scene_type', '?')}, "
-                     f"n_frames={ga.get('n_frames', 0)}")
+        parts.append(
+            f"Gemma: scene_type={ga.get('task_results', {}).get('scene_type', '?')}, "
+            f"n_frames={ga.get('n_frames', 0)}"
+        )
     captions = vc.get("captions", [])
     if captions:
         sample = captions[0].get("caption", "")[:120] if captions else ""
-        parts.append(f"Florence captions ({len(captions)}): \"{sample}…\"")
+        parts.append(f'Florence captions ({len(captions)}): "{sample}…"')
     detections = vc.get("detections", {})
     if detections:
         top = sorted(detections.items(), key=lambda x: -x[1])[:5]
@@ -186,5 +199,5 @@ def build_evidence_summary(state: dict[str, Any]) -> str:
     asr = vc.get("asr_segments", [])
     if asr:
         first_text = asr[0].get("text", "")[:80] if asr else ""
-        parts.append(f"ASR ({len(asr)} segments): \"{first_text}…\"")
+        parts.append(f'ASR ({len(asr)} segments): "{first_text}…"')
     return "\n".join(parts) or "No structured evidence available."

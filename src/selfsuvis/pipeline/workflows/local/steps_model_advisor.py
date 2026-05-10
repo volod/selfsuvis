@@ -78,8 +78,7 @@ def build_model_run_advisor(
     ram_gb = _as_float(resources.get("ram_gb"))
 
     qwen_parse_errors = sum(
-        _as_int((s.get("run_health", {}) or {}).get("qwen_parse_error_count"))
-        for s in summaries
+        _as_int((s.get("run_health", {}) or {}).get("qwen_parse_error_count")) for s in summaries
     )
     qwen_coverages = [
         _as_float((s.get("run_health", {}) or {}).get("qwen_caption_coverage"))
@@ -88,15 +87,13 @@ def build_model_run_advisor(
     ]
     min_qwen_coverage = min(qwen_coverages) if qwen_coverages else 0.0
     degraded_maps = [
-        s for s in summaries
+        s
+        for s in summaries
         if bool((s.get("map_stats", {}) or {}).get("degraded"))
         or _as_float((s.get("diagnostics", {}) or {}).get("map_pose_coverage")) <= 0.0
     ]
     artifact_mb_per_min = max(
-        [
-            _as_float((s.get("diagnostics", {}) or {}).get("artifact_mb_per_min"))
-            for s in summaries
-        ]
+        [_as_float((s.get("diagnostics", {}) or {}).get("artifact_mb_per_min")) for s in summaries]
         or [0.0]
     )
 
@@ -205,55 +202,74 @@ def build_model_run_advisor(
     if drone_summaries:
         dd = drone_summaries[-1]
         map50 = _as_float(dd.get("map50"), float("nan"))
-        has_fp32   = bool(dd.get("model_fp32"))
-        has_int8   = bool(dd.get("model_int8"))
-        has_rknn   = bool(dd.get("model_rknn"))
+        has_fp32 = bool(dd.get("model_fp32"))
+        has_int8 = bool(dd.get("model_int8"))
+        has_rknn = bool(dd.get("model_rknn"))
         edge_profile = {
             "map50": map50,
-            "a76_onnx":   has_fp32,
+            "a76_onnx": has_fp32,
             "rv1106_int8": has_int8,
             "rv1106_rknn": has_rknn,
         }
         import math as _math
+
         if not _math.isnan(map50) and map50 < 0.50:
-            findings.append({
-                "severity": "medium",
-                "code": "drone_detection_low_map50",
-                "detail": (
-                    f"YOLOv8n drone detector reached mAP@50={map50:.3f} on the demo subset. "
-                    "Download the full dataset (batch_001–004) and retrain with --drone-detection."
-                ),
-            })
-            recommendations.append({
-                "area": "edge_drone_detection",
-                "action": "Expand training data and retrain drone detector.",
-                "env": {},
-                "why": (
-                    f"mAP@50={map50:.3f} is below the 0.50 threshold suitable for deployment. "
-                    "The demo run used only batch_001 (~400 images). "
-                    "Use the full seraphim dataset for production-quality weights."
-                ),
-            })
+            findings.append(
+                {
+                    "severity": "medium",
+                    "code": "drone_detection_low_map50",
+                    "detail": (
+                        f"YOLOv8n drone detector reached mAP@50={map50:.3f} on the demo subset. "
+                        "Download the full dataset (batch_001–004) and retrain with --drone-detection."
+                    ),
+                }
+            )
+            recommendations.append(
+                {
+                    "area": "edge_drone_detection",
+                    "action": "Expand training data and retrain drone detector.",
+                    "env": {},
+                    "why": (
+                        f"mAP@50={map50:.3f} is below the 0.50 threshold suitable for deployment. "
+                        "The demo run used only batch_001 (~400 images). "
+                        "Use the full seraphim dataset for production-quality weights."
+                    ),
+                }
+            )
         if not has_rknn:
-            recommendations.append({
-                "area": "edge_drone_detection",
-                "action": "Install rknn-toolkit2 to generate the RV1106G3 NPU model.",
-                "env": {},
-                "why": (
-                    "The RKNN model was not generated because rknn-toolkit2 is not installed. "
-                    "Without it, the int8 ONNX fallback runs on the RV1106G3 Cortex-A7 core "
-                    "at ~3-5× lower throughput than the NPU path."
-                ),
-            })
+            recommendations.append(
+                {
+                    "area": "edge_drone_detection",
+                    "action": "Install rknn-toolkit2 to generate the RV1106G3 NPU model.",
+                    "env": {},
+                    "why": (
+                        "The RKNN model was not generated because rknn-toolkit2 is not installed. "
+                        "Without it, the int8 ONNX fallback runs on the RV1106G3 Cortex-A7 core "
+                        "at ~3-5× lower throughput than the NPU path."
+                    ),
+                }
+            )
 
     # Sequential VLLM quality-graph profile for model orchestration
     seq_vllm_profile = {
         "graph_mode": "sequential",
         "recommended_order": [
-            {"step": "gemma_analysis",   "model": env_updates["GEMMA_API_MODEL"], "when": "scene_understanding"},
-            {"step": "qwen_captioning",  "model": env_updates["QWEN_MODEL"],       "when": "detailed_captioning"},
-            {"step": "unidrive",         "model": env_updates["UNIDRIVE_MODEL"],   "when": "vla_planning"},
-            {"step": "reasoning_audit",  "model": env_updates["REASONING_MODEL"],  "when": "final_audit"},
+            {
+                "step": "gemma_analysis",
+                "model": env_updates["GEMMA_API_MODEL"],
+                "when": "scene_understanding",
+            },
+            {
+                "step": "qwen_captioning",
+                "model": env_updates["QWEN_MODEL"],
+                "when": "detailed_captioning",
+            },
+            {"step": "unidrive", "model": env_updates["UNIDRIVE_MODEL"], "when": "vla_planning"},
+            {
+                "step": "reasoning_audit",
+                "model": env_updates["REASONING_MODEL"],
+                "when": "final_audit",
+            },
         ],
         "vllm_env": {
             "OLLAMA_MAX_LOADED_MODELS": "1",
@@ -361,7 +377,9 @@ def write_model_run_advisor(
     for key, value in advisor["recommended_env_updates"].items():
         lines.append(f"{key}={value}")
     lines += ["```", "", "## Pull / Serve Models", "", "```bash"]
-    lines.append("OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_NUM_PARALLEL=1 OLLAMA_KEEP_ALIVE=0 ollama serve")
+    lines.append(
+        "OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_NUM_PARALLEL=1 OLLAMA_KEEP_ALIVE=0 ollama serve"
+    )
     for model in advisor["recommended_ollama_pulls"]:
         lines.append(f"ollama pull {model}")
     lines += ["```", "", "## Recommended Rerun", "", "```bash"]
@@ -370,7 +388,9 @@ def write_model_run_advisor(
     lines.append(advisor["recommended_rerun"]["command"])
     lines += ["```", "", "## Rationale", ""]
     for recommendation in advisor["recommendations"]:
-        lines.append(f"- **{recommendation['area']}**: {recommendation['action']} {recommendation['why']}")
+        lines.append(
+            f"- **{recommendation['area']}**: {recommendation['action']} {recommendation['why']}"
+        )
         for item in recommendation.get("capture_guidance", []):
             lines.append(f"  - {item}")
 
@@ -378,14 +398,23 @@ def write_model_run_advisor(
     ep = advisor.get("edge_deployment", {})
     if ep:
         import math as _math
+
         lines += ["", "## Edge Deployment — Drone Detection", ""]
         map50 = ep.get("map50", float("nan"))
         lines.append(
-            f"- mAP@50: **{map50:.3f}**" if not _math.isnan(map50) else "- mAP@50: n/a (training skipped)"
+            f"- mAP@50: **{map50:.3f}**"
+            if not _math.isnan(map50)
+            else "- mAP@50: n/a (training skipped)"
         )
-        lines.append(f"- Cortex-A76 ONNX fp32: {'✓ generated' if ep.get('a76_onnx') else '✗ missing'}")
-        lines.append(f"- RV1106G3 ONNX int8:   {'✓ generated' if ep.get('rv1106_int8') else '✗ missing'}")
-        lines.append(f"- RV1106G3 RKNN:        {'✓ generated' if ep.get('rv1106_rknn') else '⚠ install rknn-toolkit2'}")
+        lines.append(
+            f"- Cortex-A76 ONNX fp32: {'✓ generated' if ep.get('a76_onnx') else '✗ missing'}"
+        )
+        lines.append(
+            f"- RV1106G3 ONNX int8:   {'✓ generated' if ep.get('rv1106_int8') else '✗ missing'}"
+        )
+        lines.append(
+            f"- RV1106G3 RKNN:        {'✓ generated' if ep.get('rv1106_rknn') else '⚠ install rknn-toolkit2'}"
+        )
 
     # Sequential VLLM graph profile
     sq = advisor.get("sequential_vllm_graph_profile", {})

@@ -15,6 +15,7 @@ Schema (created by scripts/migrate_postgres.py):
         UNIQUE (global_map_id, mission_id)
     )
 """
+
 import math
 from typing import Any
 
@@ -81,7 +82,7 @@ async def get_or_create_global_map(
         for candidate in rows:
             dlat = abs(candidate["origin_lat"] - origin_lat) * 111_000
             dlon = abs(candidate["origin_lon"] - origin_lon) * 111_000 * lon_scale
-            if (dlat ** 2 + dlon ** 2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
+            if (dlat**2 + dlon**2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
                 row = candidate
                 break
     if row is not None:
@@ -92,7 +93,7 @@ async def get_or_create_global_map(
                 raise TypeError("non-numeric row from mock fetchrow")
             dlat = abs(float(row_lat) - origin_lat) * 111_000
             dlon = abs(float(row_lon) - origin_lon) * 111_000 * lon_scale
-            if (dlat ** 2 + dlon ** 2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
+            if (dlat**2 + dlon**2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
                 return row["id"]
         except Exception:
             rows = await conn.fetch(
@@ -101,7 +102,7 @@ async def get_or_create_global_map(
             for candidate in rows:
                 dlat = abs(candidate["origin_lat"] - origin_lat) * 111_000
                 dlon = abs(candidate["origin_lon"] - origin_lon) * 111_000 * lon_scale
-                if (dlat ** 2 + dlon ** 2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
+                if (dlat**2 + dlon**2) ** 0.5 < _SAME_ORIGIN_RADIUS_M:
                     return candidate["id"]
 
     now = utcnow()
@@ -119,7 +120,10 @@ async def get_or_create_global_map(
     )
     logger.info(
         "global_map: created new entry id=%d origin=(%.6f, %.6f, %.1f)",
-        row_id, origin_lat, origin_lon, origin_alt,
+        row_id,
+        origin_lat,
+        origin_lon,
+        origin_alt,
     )
     return row_id
 
@@ -181,7 +185,8 @@ async def register_mission(
     )
     logger.info(
         "global_map_missions: registered mission=%s global_map_id=%d error=%s",
-        mission_id, global_map_id,
+        mission_id,
+        global_map_id,
         f"{registration_error:.4f}" if registration_error is not None else "None",
     )
 
@@ -204,9 +209,7 @@ async def update_mission_splat_path(
         now,
         mission_id,
     )
-    logger.info(
-        "missions: splat_path set mission_id=%s path=%s", mission_id, splat_path
-    )
+    logger.info("missions: splat_path set mission_id=%s path=%s", mission_id, splat_path)
 
 
 async def update_global_map_splat(
@@ -225,14 +228,10 @@ async def update_global_map_splat(
         now,
         global_map_id,
     )
-    logger.info(
-        "global_map: updated splat_path=%s for id=%d", splat_path, global_map_id
-    )
+    logger.info("global_map: updated splat_path=%s for id=%d", splat_path, global_map_id)
 
 
-async def get_global_map_origin(
-    conn, global_map_id: int
-) -> tuple | None:
+async def get_global_map_origin(conn, global_map_id: int) -> tuple | None:
     """Return (origin_lat, origin_lon, origin_alt) for a global_map id, or None."""
     row = await conn.fetchrow(
         "SELECT origin_lat, origin_lon, origin_alt FROM global_map WHERE id = $1",
@@ -254,15 +253,11 @@ async def list_global_maps(conn) -> list[dict[str, Any]]:
 
 async def get_global_map_by_id(conn, global_map_id: int) -> dict[str, Any] | None:
     """Fetch a global_map row by id. Returns None if not found."""
-    row = await conn.fetchrow(
-        "SELECT * FROM global_map WHERE id = $1", global_map_id
-    )
+    row = await conn.fetchrow("SELECT * FROM global_map WHERE id = $1", global_map_id)
     return row_dict(row)
 
 
-async def list_mission_registrations(
-    conn, global_map_id: int
-) -> list[dict[str, Any]]:
+async def list_mission_registrations(conn, global_map_id: int) -> list[dict[str, Any]]:
     """Return all global_map_missions rows for a global map, newest first."""
     rows = await conn.fetch(
         """

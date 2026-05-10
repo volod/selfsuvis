@@ -13,9 +13,7 @@ class FrigateLogParser(BaseLogParser):
     Log format: "2026-03-09 11:28:52.577  [INFO] message"
     """
 
-    LOG_PATTERN = re.compile(
-        r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)\s+\[(\w+)\]\s+(.+)$"
-    )
+    LOG_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)\s+\[(\w+)\]\s+(.+)$")
     DETECTION_PATTERN = re.compile(r"detected (?P<object>\w+) in (?P<camera>\w+)")
     MOTION_PATTERN = re.compile(r"motion detected")
 
@@ -38,7 +36,9 @@ class FrigateLogParser(BaseLogParser):
 
         metadata = self._extract_event_metadata(message)
 
-        return LogEntry(timestamp=timestamp, level=level, message=message, raw=line, metadata=metadata)
+        return LogEntry(
+            timestamp=timestamp, level=level, message=message, raw=line, metadata=metadata
+        )
 
     def _extract_event_metadata(self, message: str) -> dict[str, Any]:
         metadata: dict[str, Any] = {}

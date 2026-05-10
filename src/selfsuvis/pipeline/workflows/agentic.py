@@ -151,7 +151,9 @@ def ontology_agent(
 ) -> dict[str, Any]:
     entities = ontology.setdefault("entities", {})
     for seg in segments:
-        ent = entities.setdefault(seg.label, {"count": 0, "first_seen": frame_index, "last_seen": frame_index})
+        ent = entities.setdefault(
+            seg.label, {"count": 0, "first_seen": frame_index, "last_seen": frame_index}
+        )
         ent["count"] += 1
         ent["last_seen"] = frame_index
         ent.setdefault("colors", {})
@@ -204,13 +206,15 @@ def _build_ontology_entities(ontology: dict[str, Any]) -> list[dict[str, Any]]:
     for name, ent in ontology.get("entities", {}).items():
         colors = ent.get("colors", {})
         dominant_color = max(colors, key=colors.get) if colors else None
-        result.append({
-            "name": name,
-            "count": ent.get("count", 0),
-            "first_seen": ent.get("first_seen"),
-            "last_seen": ent.get("last_seen"),
-            "dominant_color": dominant_color,
-        })
+        result.append(
+            {
+                "name": name,
+                "count": ent.get("count", 0),
+                "first_seen": ent.get("first_seen"),
+                "last_seen": ent.get("last_seen"),
+                "dominant_color": dominant_color,
+            }
+        )
     return result
 
 
@@ -234,7 +238,9 @@ def _process_frame_to_record(
     description, segments = image_to_text_agent(frame, tagger=tagger, segmenter=segmenter)
     warnings = recognition_correctness_agent(description, segments)
     ontology = ontology_agent(ontology, segments, rec.index, rec.t_sec)
-    tracks, prev_tracks, next_track_id = matching_agent(segments, prev_segments, prev_tracks, next_track_id)
+    tracks, prev_tracks, next_track_id = matching_agent(
+        segments, prev_segments, prev_tracks, next_track_id
+    )
 
     entities = [
         {

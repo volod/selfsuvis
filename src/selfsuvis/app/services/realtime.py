@@ -1,6 +1,5 @@
 """Service layer for realtime session, pose, tile, and semantic workflows."""
 
-
 import uuid
 from typing import Any
 
@@ -59,7 +58,9 @@ async def _store_session_payload(
     await store_fn(conn, session_id=session_id, **normalized)
 
 
-async def _list_session_payloads(conn, *, session_id: str, list_fn, **kwargs: Any) -> list[dict[str, Any]]:
+async def _list_session_payloads(
+    conn, *, session_id: str, list_fn, **kwargs: Any
+) -> list[dict[str, Any]]:
     await _require_realtime_state(conn, session_id)
     return await list_fn(conn, session_id, **kwargs)
 
@@ -81,7 +82,9 @@ def _row_to_pose_payload(row: dict[str, Any]) -> dict[str, Any]:
         "source": row["source"],
         "t_sec": float(row["t_sec"]),
         "position_enu": dict(row["position_enu_json"]),
-        "orientation_quat": dict(row["orientation_quat_json"]) if row.get("orientation_quat_json") else None,
+        "orientation_quat": dict(row["orientation_quat_json"])
+        if row.get("orientation_quat_json")
+        else None,
         "velocity_enu": dict(row["velocity_enu_json"]) if row.get("velocity_enu_json") else None,
         "covariance": dict(row["covariance_json"]) if row.get("covariance_json") else None,
         "tracking_status": row["tracking_status"],
@@ -149,7 +152,9 @@ async def start_realtime_session(
     }
 
 
-async def ingest_realtime_packets(conn, *, session_id: str, packets: list[dict[str, Any]]) -> dict[str, Any]:
+async def ingest_realtime_packets(
+    conn, *, session_id: str, packets: list[dict[str, Any]]
+) -> dict[str, Any]:
     normalized = normalize_packets(packets)
     if len(normalized) > settings.REALTIME_PACKET_BATCH_SIZE:
         raise ValueError(f"too many packets: max {settings.REALTIME_PACKET_BATCH_SIZE}")
@@ -310,7 +315,11 @@ async def integrate_realtime_frame(
 
     published_semantics = 0
     for observation in semantic_observations or []:
-        if pose_payload is not None and not observation.get("position_enu") and observation.get("bbox"):
+        if (
+            pose_payload is not None
+            and not observation.get("position_enu")
+            and observation.get("bbox")
+        ):
             projected = project_detection_to_enu(
                 pose=pose_payload,
                 bbox=observation["bbox"],
@@ -371,7 +380,9 @@ async def fetch_map_tiles(
     )
 
 
-async def publish_semantic_observation(conn, *, session_id: str, observation: dict[str, Any]) -> None:
+async def publish_semantic_observation(
+    conn, *, session_id: str, observation: dict[str, Any]
+) -> None:
     await _store_session_payload(
         conn,
         session_id=session_id,

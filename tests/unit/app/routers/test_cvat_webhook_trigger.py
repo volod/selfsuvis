@@ -1,4 +1,5 @@
 """Unit tests for CVAT webhook finetune trigger and label fetch-back logic."""
+
 import asyncio
 import sys
 import types
@@ -17,6 +18,7 @@ def run(coro):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_pool(fetchval_returns=None, fetchrow_returns=None, execute_side_effect=None):
     """Build a minimal asyncpg pool mock for _maybe_trigger_finetune."""
@@ -41,6 +43,7 @@ class _AsyncCtx:
 
 
 # ── _maybe_trigger_finetune tests ────────────────────────────────────────────
+
 
 @patch("selfsuvis.pipeline.core.config.settings")
 def test_finetune_not_triggered_when_disabled(mock_settings):
@@ -83,10 +86,12 @@ def test_finetune_triggered_when_threshold_met(mock_settings, mock_create_job):
 
     conn = AsyncMock()
     conn.fetchval = AsyncMock(return_value=20)
-    conn.fetchrow = AsyncMock(side_effect=[
-        {"value": "10"},  # last_retrain_watermark=10 → delta=10 >= 5
-        None,             # no existing finetune job
-    ])
+    conn.fetchrow = AsyncMock(
+        side_effect=[
+            {"value": "10"},  # last_retrain_watermark=10 → delta=10 >= 5
+            None,  # no existing finetune job
+        ]
+    )
     pool = MagicMock()
     pool.acquire = MagicMock(return_value=_AsyncCtx(conn))
 
@@ -108,10 +113,12 @@ def test_finetune_not_triggered_when_job_already_active(mock_settings, mock_crea
 
     conn = AsyncMock()
     conn.fetchval = AsyncMock(return_value=20)
-    conn.fetchrow = AsyncMock(side_effect=[
-        {"value": "10"},
-        {"id": "existing-job-id"},  # existing job found → skip
-    ])
+    conn.fetchrow = AsyncMock(
+        side_effect=[
+            {"value": "10"},
+            {"id": "existing-job-id"},  # existing job found → skip
+        ]
+    )
     pool = MagicMock()
     pool.acquire = MagicMock(return_value=_AsyncCtx(conn))
 
@@ -144,6 +151,7 @@ def test_finetune_lock_prevents_duplicate_enqueue(mock_settings, mock_create_job
 
 # ── _fetch_cvat_labels tests ─────────────────────────────────────────────────
 
+
 @patch("selfsuvis.app.routers.cvat.settings")
 def test_fetch_labels_no_token_returns_empty_with_warning(mock_settings, caplog):
     from selfsuvis.app.routers.cvat import _fetch_cvat_labels
@@ -151,6 +159,7 @@ def test_fetch_labels_no_token_returns_empty_with_warning(mock_settings, caplog)
     mock_settings.CVAT_API_TOKEN = ""
 
     import logging
+
     with caplog.at_level(logging.WARNING, logger="selfsuvis.app.routers.cvat"):
         result = run(_fetch_cvat_labels(42))
 
@@ -223,16 +232,19 @@ def test_fetch_labels_http_200_stores_labels(mock_settings):
 
 # ── _mark_frames_annotated label-storage tests ───────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_mark_frames_stores_cvat_labels():
     from selfsuvis.app.routers.cvat import _mark_frames_annotated
 
     conn = AsyncMock()
     conn.execute = AsyncMock(return_value="UPDATE 2")
-    conn.fetch = AsyncMock(return_value=[
-        {"id": "f1", "frame_path": "/data/frames/frame_0001.jpg"},
-        {"id": "f2", "frame_path": "/data/frames/frame_0002.jpg"},
-    ])
+    conn.fetch = AsyncMock(
+        return_value=[
+            {"id": "f1", "frame_path": "/data/frames/frame_0001.jpg"},
+            {"id": "f2", "frame_path": "/data/frames/frame_0002.jpg"},
+        ]
+    )
     conn.executemany = AsyncMock()
 
     pool = MagicMock()

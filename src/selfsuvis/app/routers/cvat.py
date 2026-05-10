@@ -18,7 +18,6 @@ Annotation workflow:
   5. CVAT fires POST /webhook/cvat  → frames updated to al_tag='annotated'.
 """
 
-
 import hashlib
 import hmac
 import json
@@ -39,6 +38,7 @@ logger = get_logger(__name__)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _verify_cvat_signature(body: bytes, signature: str) -> bool:
     """Verify HMAC-SHA256 from CVAT's X-Hook-Secret header.
@@ -139,14 +139,13 @@ async def _fetch_cvat_labels(task_id: int) -> dict[str, str]:
     if resp.status_code != 200:
         logger.warning(
             "_fetch_cvat_labels: unexpected status %d for task_id=%s",
-            resp.status_code, task_id,
+            resp.status_code,
+            task_id,
         )
         return {}
 
     try:
-        with tempfile.NamedTemporaryFile(
-            suffix=".xml", mode="wb", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".xml", mode="wb", delete=False) as tmp:
             tmp.write(resp.content)
             tmp_path = tmp.name
 
@@ -186,6 +185,7 @@ async def _maybe_trigger_finetune(pool: asyncpg.Pool) -> None:
     try:
         # Acquire in-process lock to prevent duplicate enqueue from concurrent webhooks
         from selfsuvis.app.state import _finetune_lock
+
         if _finetune_lock.locked():
             logger.debug("_maybe_trigger_finetune: finetune lock held, skipping")
             return
@@ -199,7 +199,8 @@ async def _maybe_trigger_finetune(pool: asyncpg.Pool) -> None:
                 if total_annotated < settings.MIN_ANNOTATED_FRAMES:
                     logger.debug(
                         "_maybe_trigger_finetune: %d annotated < threshold %d",
-                        total_annotated, settings.MIN_ANNOTATED_FRAMES,
+                        total_annotated,
+                        settings.MIN_ANNOTATED_FRAMES,
                     )
                     return
 
@@ -212,7 +213,9 @@ async def _maybe_trigger_finetune(pool: asyncpg.Pool) -> None:
                 if delta < settings.MIN_NEW_ANNOTATED_SINCE_RETRAIN:
                     logger.debug(
                         "_maybe_trigger_finetune: delta=%d < min_new=%d (watermark=%d)",
-                        delta, settings.MIN_NEW_ANNOTATED_SINCE_RETRAIN, last_watermark,
+                        delta,
+                        settings.MIN_NEW_ANNOTATED_SINCE_RETRAIN,
+                        last_watermark,
                     )
                     return
 
@@ -234,7 +237,10 @@ async def _maybe_trigger_finetune(pool: asyncpg.Pool) -> None:
                 logger.info(
                     "_maybe_trigger_finetune: enqueued job_id=%s "
                     "(total_annotated=%d watermark=%d delta=%d)",
-                    job_id, total_annotated, last_watermark, delta,
+                    job_id,
+                    total_annotated,
+                    last_watermark,
+                    delta,
                 )
 
     except Exception as exc:
@@ -292,7 +298,9 @@ async def cvat_webhook(
                     count = await _mark_frames_annotated(frame_ids, pool, basename_to_label)
                     logger.info(
                         "CVAT webhook: task_id=%s completed → %d frames annotated, %d labels stored",
-                        task_id, count, len(basename_to_label),
+                        task_id,
+                        count,
+                        len(basename_to_label),
                     )
                     # Attempt to trigger supervised fine-tuning (non-fatal on error)
                     await _maybe_trigger_finetune(pool)
@@ -376,11 +384,10 @@ async def cvat_annotation_frames(
                 "SELECT id, mission_id, frame_path, al_score, al_tag "
                 "FROM frames WHERE al_tag = $1 "
                 "ORDER BY al_score DESC NULLS LAST LIMIT $2",
-                al_tag, limit,
+                al_tag,
+                limit,
             )
-            total = await conn.fetchval(
-                "SELECT COUNT(*) FROM frames WHERE al_tag = $1", al_tag
-            )
+            total = await conn.fetchval("SELECT COUNT(*) FROM frames WHERE al_tag = $1", al_tag)
 
     frames = [
         CvatFrameItem(
@@ -399,9 +406,7 @@ async def cvat_annotation_frames(
     "/task",
     summary="Register a CVAT task → frame mapping (enables webhook resolution)",
 )
-async def register_cvat_task(
-    body: CvatTaskRegistration, request: Request
-) -> dict[str, Any]:
+async def register_cvat_task(body: CvatTaskRegistration, request: Request) -> dict[str, Any]:
     """Store the mapping from a CVAT task ID to selfsuvis frame IDs.
 
     Call this after creating a CVAT task with frames from GET /admin/cvat/frames.
@@ -425,7 +430,8 @@ async def register_cvat_task(
 
     logger.info(
         "CVAT task registered: cvat_task_id=%d frame_count=%d",
-        body.cvat_task_id, len(body.frame_ids),
+        body.cvat_task_id,
+        len(body.frame_ids),
     )
     return {
         "status": "ok",

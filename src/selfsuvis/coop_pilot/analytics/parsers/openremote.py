@@ -34,7 +34,9 @@ class OpenRemoteLogParser(BaseLogParser):
             metadata["logger"] = match.group(3)
             message = match.group(4)
 
-        return LogEntry(timestamp=timestamp, level=level, message=message, raw=line, metadata=metadata)
+        return LogEntry(
+            timestamp=timestamp, level=level, message=message, raw=line, metadata=metadata
+        )
 
     def _parse_timestamp(self, ts_str: str) -> datetime | None:
         try:

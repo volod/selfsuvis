@@ -24,6 +24,7 @@ _log = get_logger(__name__)
 
 # ── Step 22: Multi-model comparison ──────────────────────────────────────────
 
+
 def node_p4_multi_model_compare(state: PipelineState) -> dict[str, Any]:
     qwen_result = state.get("qwen_result", {"skipped": True})
     unidrive_result = state.get("unidrive_result", {"skipped": True})
@@ -36,8 +37,11 @@ def node_p4_multi_model_compare(state: PipelineState) -> dict[str, Any]:
     t0 = time.monotonic()
     if not qwen_result.get("skipped") and not unidrive_result.get("skipped"):
         mm = step_multi_model_compare(
-            state["video_name"], Path(state["video_dir"]),
-            gemma_result, qwen_result, unidrive_result,
+            state["video_name"],
+            Path(state["video_dir"]),
+            gemma_result,
+            qwen_result,
+            unidrive_result,
         )
         video_context["multi_model_comparison"] = mm
     stats.setdefault("timings", {})["T_multimodel"] = time.monotonic() - t0
@@ -52,7 +56,9 @@ def node_p4_multi_model_compare(state: PipelineState) -> dict[str, Any]:
         context_outputs=[
             f"{mm.get('matched_frames', 0)} matched frames",
             f"mean_moe_agreement={mm.get('mean_moe_agreement', 0.0):.3f}",
-        ] if mm else ["no cross-model comparison artifact"],
+        ]
+        if mm
+        else ["no cross-model comparison artifact"],
         risks=["timestamp-nearest matching can compare slightly different moments"],
         artifacts=["multi_model_comparison.md"] if mm else [],
     )
@@ -66,6 +72,7 @@ def node_p4_multi_model_compare(state: PipelineState) -> dict[str, Any]:
 
 
 # ── Step 23: Video synthesis (agentic: draft → critique → conditional regen) ─
+
 
 def node_p4_synthesis(state: PipelineState) -> dict[str, Any]:
     """Video synthesis with a critique pass.
@@ -91,8 +98,11 @@ def node_p4_synthesis(state: PipelineState) -> dict[str, Any]:
 
     t0 = time.monotonic()
     step_video_synthesis(
-        state["video_name"], Path(state["video_dir"]), video_context,
-        api_url=_qwen_url, model=_qwen_model,
+        state["video_name"],
+        Path(state["video_dir"]),
+        video_context,
+        api_url=_qwen_url,
+        model=_qwen_model,
     )
 
     synthesis_result: dict[str, Any] = {
@@ -103,7 +113,11 @@ def node_p4_synthesis(state: PipelineState) -> dict[str, Any]:
     # Critique pass — only if synthesis actually ran.
     if _qwen_url:
         synthesis_result = _synthesis_critique(
-            synthesis_result, state, _qwen_url, _qwen_model, video_context,
+            synthesis_result,
+            state,
+            _qwen_url,
+            _qwen_model,
+            video_context,
         )
 
     stats.setdefault("timings", {})["Z_synthesis"] = time.monotonic() - t0
@@ -119,7 +133,9 @@ def node_p4_synthesis(state: PipelineState) -> dict[str, Any]:
             "video ontology",
             f"critique_verdict={synthesis_result.get('critique_verdict', 'n/a')}",
             f"regenerated={synthesis_result.get('regenerated', False)}",
-        ] if _qwen_url else ["no synthesis output"],
+        ]
+        if _qwen_url
+        else ["no synthesis output"],
         risks=[
             "final narrative can collapse uncertain evidence into a single confident story",
             "MAJOR_CONTRADICTION trigger may regenerate unnecessarily on edge cases",
@@ -169,8 +185,11 @@ def _synthesis_critique(
         }
         try:
             step_video_synthesis(
-                state["video_name"], video_dir, corrected_ctx,
-                api_url=api_url, model=model,
+                state["video_name"],
+                video_dir,
+                corrected_ctx,
+                api_url=api_url,
+                model=model,
             )
             synthesis_result = {**synthesis_result, "regenerated": True}
             _log.info("  Synthesis regenerated successfully.")
@@ -181,6 +200,7 @@ def _synthesis_critique(
 
 
 # ── Agentic flow audit (with reflection loop) — runner step 30 ───────────────
+
 
 def node_p4_audit(state: PipelineState) -> dict[str, Any]:
     """Agentic flow audit with a reflection sub-loop.
@@ -214,8 +234,11 @@ def node_p4_audit(state: PipelineState) -> dict[str, Any]:
 
     t0 = time.monotonic()
     step_agentic_flow_artifact(
-        state["video_name"], Path(state["video_dir"]), video_context,
-        api_url=_agentic_url, model=_agentic_model,
+        state["video_name"],
+        Path(state["video_dir"]),
+        video_context,
+        api_url=_agentic_url,
+        model=_agentic_model,
     )
     audit_result: dict[str, Any] = {
         "api_url": _agentic_url,
@@ -224,21 +247,28 @@ def node_p4_audit(state: PipelineState) -> dict[str, Any]:
 
     # Reflection pass.
     if _agentic_url:
-        audit_result = _audit_reflection(audit_result, state, agentic_trace, _agentic_url, _agentic_model)
+        audit_result = _audit_reflection(
+            audit_result, state, agentic_trace, _agentic_url, _agentic_model
+        )
 
     stats.setdefault("timings", {})["AA_agentic"] = time.monotonic() - t0
 
     # Evict all sidecars from VRAM now that the pipeline is complete.
     if state["device"] == "cuda":
         from ..steps_caption import _unload_known_sidecars
+
         _qwen_url = getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL
         _qwen_model = getattr(args, "qwen_model", "") or settings.QWEN_MODEL
-        _unload_known_sidecars([
-            (_agentic_url, _agentic_model),
-            (_qwen_url, _qwen_model),
-            (getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL,
-             getattr(args, "gemma_api_model", "") or settings.GEMMA_API_MODEL),
-        ])
+        _unload_known_sidecars(
+            [
+                (_agentic_url, _agentic_model),
+                (_qwen_url, _qwen_model),
+                (
+                    getattr(args, "gemma_api_url", "") or settings.GEMMA_API_URL,
+                    getattr(args, "gemma_api_model", "") or settings.GEMMA_API_MODEL,
+                ),
+            ]
+        )
 
     _append_agentic_step(
         agentic_trace,
@@ -296,8 +326,12 @@ def _audit_reflection(
     try:
         reflection_raw, _ = llm_call_with_retry(
             endpoint,
-            {"model": model, "messages": [{"role": "user", "content": reflection_prompt}],
-             "max_tokens": 300, "temperature": 0.0},
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": reflection_prompt}],
+                "max_tokens": 300,
+                "temperature": 0.0,
+            },
             max_attempts=2,
             timeout_sec=90.0,
         )
@@ -319,6 +353,7 @@ def _audit_reflection(
 
 
 # ── Emit analytics ────────────────────────────────────────────────────────────
+
 
 def node_p4_emit_analytics(state: PipelineState) -> dict[str, Any]:
     from ..runner import _emit_local_run_analytics

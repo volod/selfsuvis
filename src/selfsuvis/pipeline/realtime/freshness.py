@@ -60,8 +60,15 @@ def downweight_score(
     soft_limit_sec: float = 10.0,
     hard_expiry_sec: float = 60.0,
 ) -> float:
-    return max(0.0, min(1.0, float(score or 0.0) * staleness_weight(
-        freshness_sec,
-        soft_limit_sec=soft_limit_sec,
-        hard_expiry_sec=hard_expiry_sec,
-    )))
+    return max(
+        0.0,
+        min(
+            1.0,
+            float(score or 0.0)
+            * staleness_weight(
+                freshness_sec,
+                soft_limit_sec=soft_limit_sec,
+                hard_expiry_sec=hard_expiry_sec,
+            ),
+        ),
+    )

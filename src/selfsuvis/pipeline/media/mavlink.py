@@ -31,7 +31,11 @@ def mavlink_message_to_packets(message: dict[str, Any]) -> list[dict[str, Any]]:
     if kind in {"GLOBAL_POSITION_INT", "GPS_RAW_INT"}:
         lat = _f(message.get("lat"))
         lon = _f(message.get("lon"))
-        alt = _f(message.get("relative_alt") if message.get("relative_alt") is not None else message.get("alt"))
+        alt = _f(
+            message.get("relative_alt")
+            if message.get("relative_alt") is not None
+            else message.get("alt")
+        )
         east = _f(message.get("east"))
         north = _f(message.get("north"))
         packet = build_packet(
@@ -45,9 +49,15 @@ def mavlink_message_to_packets(message: dict[str, Any]) -> list[dict[str, Any]]:
                 "east": east,
                 "north": north,
                 "up": _f(message.get("up")),
-                "vx": (_f(message.get("vx")) or 0.0) / 100.0 if message.get("vx") is not None else None,
-                "vy": (_f(message.get("vy")) or 0.0) / 100.0 if message.get("vy") is not None else None,
-                "vz": (_f(message.get("vz")) or 0.0) / 100.0 if message.get("vz") is not None else None,
+                "vx": (_f(message.get("vx")) or 0.0) / 100.0
+                if message.get("vx") is not None
+                else None,
+                "vy": (_f(message.get("vy")) or 0.0) / 100.0
+                if message.get("vy") is not None
+                else None,
+                "vz": (_f(message.get("vz")) or 0.0) / 100.0
+                if message.get("vz") is not None
+                else None,
                 "global_map_id": message.get("global_map_id"),
             },
         )
@@ -78,25 +88,33 @@ def mavlink_message_to_packets(message: dict[str, Any]) -> list[dict[str, Any]]:
         return [packet]
 
     if kind in {"SCALED_PRESSURE", "ALTITUDE"}:
-        return [build_packet(
-            sensor_type="barometer",
-            t_device=t_device,
-            seq=message.get("seq"),
-            payload={
-                "altitude": _f(message.get("altitude") if message.get("altitude") is not None else message.get("press_abs")),
-                "global_map_id": message.get("global_map_id"),
-            },
-        )]
+        return [
+            build_packet(
+                sensor_type="barometer",
+                t_device=t_device,
+                seq=message.get("seq"),
+                payload={
+                    "altitude": _f(
+                        message.get("altitude")
+                        if message.get("altitude") is not None
+                        else message.get("press_abs")
+                    ),
+                    "global_map_id": message.get("global_map_id"),
+                },
+            )
+        ]
 
     if kind in {"VFR_HUD", "COMPASSMOT_STATUS"} and message.get("heading") is not None:
-        return [build_packet(
-            sensor_type="magnetometer",
-            t_device=t_device,
-            seq=message.get("seq"),
-            payload={
-                "heading": _f(message.get("heading")),
-                "global_map_id": message.get("global_map_id"),
-            },
-        )]
+        return [
+            build_packet(
+                sensor_type="magnetometer",
+                t_device=t_device,
+                seq=message.get("seq"),
+                payload={
+                    "heading": _f(message.get("heading")),
+                    "global_map_id": message.get("global_map_id"),
+                },
+            )
+        ]
 
     return []

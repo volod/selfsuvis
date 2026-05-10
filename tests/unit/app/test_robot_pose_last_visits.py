@@ -20,6 +20,7 @@ sys.modules.setdefault("selfsuvis.app.state", _state_stub)
 
 # ── _get_last_visits ──────────────────────────────────────────────────────────
 
+
 @pytest.mark.anyio
 async def test_get_last_visits_returns_matching_rows():
     from selfsuvis.app.routers.robot import _get_last_visits
@@ -131,6 +132,7 @@ async def test_get_last_visits_null_facts_json():
 
 
 # ── PoseQueryResponse includes last_visits ────────────────────────────────────
+
 
 def test_pose_query_response_has_last_visits_field():
     """PoseQueryResponse accepts last_visits=None (default) and a list."""

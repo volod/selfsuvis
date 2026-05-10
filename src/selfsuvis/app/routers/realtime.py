@@ -1,6 +1,5 @@
 """Realtime session and pose endpoints for autonomous-drone integration."""
 
-
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -254,7 +253,9 @@ def _pose_response(session_id: str, row: dict[str, Any]) -> PoseResponse:
         source=row["source"],
         t_sec=float(row["t_sec"]),
         position_enu=dict(row["position_enu_json"]),
-        orientation_quat=dict(row["orientation_quat_json"]) if row.get("orientation_quat_json") else None,
+        orientation_quat=dict(row["orientation_quat_json"])
+        if row.get("orientation_quat_json")
+        else None,
         velocity_enu=dict(row["velocity_enu_json"]) if row.get("velocity_enu_json") else None,
         tracking_status=row["tracking_status"],
         global_map_id=row.get("global_map_id"),
@@ -305,7 +306,9 @@ async def start_session(body: SessionStartRequest, request: Request) -> SessionS
 
 
 @router.post("/streams", response_model=LiveStreamStartResponse)
-async def start_live_stream(body: LiveStreamStartRequest, request: Request) -> LiveStreamStartResponse:
+async def start_live_stream(
+    body: LiveStreamStartRequest, request: Request
+) -> LiveStreamStartResponse:
     db_pool = get_db_pool(request)
     manager = _get_stream_manager(request)
     mediamtx = _get_mediamtx_client(request)
@@ -504,7 +507,9 @@ async def publish_tile(session_id: str, body: MapTileIn, request: Request) -> Ma
     async with db_pool.acquire() as conn:
         try:
             await publish_map_tile(conn, session_id=session_id, tile=body.model_dump())
-            rows = await fetch_map_tiles(conn, session_id=session_id, map_type=body.map_type, limit=50)
+            rows = await fetch_map_tiles(
+                conn, session_id=session_id, map_type=body.map_type, limit=50
+            )
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     return MapTilesResponse(
@@ -578,7 +583,9 @@ async def get_latest_map(
     db_pool = get_db_pool(request)
     async with db_pool.acquire() as conn:
         try:
-            rows = await fetch_map_tiles(conn, session_id=session_id, map_type=map_type, limit=limit)
+            rows = await fetch_map_tiles(
+                conn, session_id=session_id, map_type=map_type, limit=limit
+            )
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     return MapTilesResponse(
@@ -607,7 +614,9 @@ async def publish_semantic(
     db_pool = get_db_pool(request)
     async with db_pool.acquire() as conn:
         try:
-            await publish_semantic_observation(conn, session_id=session_id, observation=body.model_dump())
+            await publish_semantic_observation(
+                conn, session_id=session_id, observation=body.model_dump()
+            )
             rows = await fetch_semantic_observations(
                 conn,
                 session_id=session_id,
@@ -625,7 +634,9 @@ async def publish_semantic(
                 frame_id=row.get("frame_id"),
                 class_name=row["class_name"],
                 confidence=float(row["confidence"]),
-                position_enu=dict(row["position_enu_json"]) if row.get("position_enu_json") else None,
+                position_enu=dict(row["position_enu_json"])
+                if row.get("position_enu_json")
+                else None,
                 bbox=dict(row["bbox_json"]) if row.get("bbox_json") else None,
                 mask_ref=row.get("mask_ref"),
                 track_id=row.get("track_id"),
@@ -661,7 +672,9 @@ async def get_semantic_nearby(
                 frame_id=row.get("frame_id"),
                 class_name=row["class_name"],
                 confidence=float(row["confidence"]),
-                position_enu=dict(row["position_enu_json"]) if row.get("position_enu_json") else None,
+                position_enu=dict(row["position_enu_json"])
+                if row.get("position_enu_json")
+                else None,
                 bbox=dict(row["bbox_json"]) if row.get("bbox_json") else None,
                 mask_ref=row.get("mask_ref"),
                 track_id=row.get("track_id"),

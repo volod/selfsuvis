@@ -1,4 +1,5 @@
 """Unit tests for the reembed worker and admin /reembed-all endpoint."""
+
 import asyncio
 import json
 import logging
@@ -13,6 +14,7 @@ def run(coro):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 class _AsyncCtx:
     def __init__(self, obj):
@@ -33,11 +35,13 @@ def _make_request(pool=None):
 
 # ── _load_batch_images: unreadable file → WARNING + continue ─────────────────
 
+
 def test_load_batch_images_skips_unreadable_with_warning(caplog, tmp_path):
     from selfsuvis.worker.main import _load_batch_images
 
     good_path = tmp_path / "good.jpg"
     from PIL import Image
+
     Image.new("RGB", (4, 4)).save(str(good_path))
 
     batch = [
@@ -75,11 +79,14 @@ def test_load_batch_images_all_unreadable(caplog, tmp_path):
 
 # ── _load_reembed_cursor: restores cursor on restart ─────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_load_reembed_cursor_restores_from_progress():
     from selfsuvis.worker.main import _load_reembed_cursor
 
-    stored_progress = json.dumps({"last_cursor": [1234567890.0, "abc123"], "frames_reembedded": 512})
+    stored_progress = json.dumps(
+        {"last_cursor": [1234567890.0, "abc123"], "frames_reembedded": 512}
+    )
     conn = AsyncMock()
     conn.fetchrow = AsyncMock(return_value={"progress_json": stored_progress})
 
@@ -117,6 +124,7 @@ async def test_load_reembed_cursor_empty_job_row():
 
 # ── _run_reembed: progress checkpoint written per batch ──────────────────────
 
+
 @pytest.mark.asyncio
 async def test_run_reembed_checkpoints_after_each_batch(tmp_path):
     """After each batch, update_job is called with updated cursor and frame count."""
@@ -126,12 +134,18 @@ async def test_run_reembed_checkpoints_after_each_batch(tmp_path):
 
     ts = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
     frame_rows = [
-        {"id": f"f{i}", "mission_id": "m1", "frame_path": str(tmp_path / f"f{i}.jpg"),
-         "qdrant_id": f"q{i}", "created_at": ts}
+        {
+            "id": f"f{i}",
+            "mission_id": "m1",
+            "frame_path": str(tmp_path / f"f{i}.jpg"),
+            "qdrant_id": f"q{i}",
+            "created_at": ts,
+        }
         for i in range(3)
     ]
 
     from PIL import Image
+
     for row in frame_rows:
         Image.new("RGB", (4, 4)).save(row["frame_path"])
 
@@ -157,14 +171,20 @@ async def test_run_reembed_checkpoints_after_each_batch(tmp_path):
     qdrant = MagicMock()
     qdrant.upsert_points = MagicMock()
 
-    with patch("selfsuvis.worker.main.list_frames_after", new_callable=AsyncMock) as mock_lfa, \
-         patch("selfsuvis.worker.main.update_job", side_effect=_fake_update_job), \
-         patch("selfsuvis.worker.main._load_reembed_cursor",
-               new_callable=AsyncMock, return_value=(None, 0)):
-
+    with (
+        patch("selfsuvis.worker.main.list_frames_after", new_callable=AsyncMock) as mock_lfa,
+        patch("selfsuvis.worker.main.update_job", side_effect=_fake_update_job),
+        patch(
+            "selfsuvis.worker.main._load_reembed_cursor",
+            new_callable=AsyncMock,
+            return_value=(None, 0),
+        ),
+    ):
         mock_lfa.side_effect = [frame_rows, []]  # one batch then done
 
-        total = await _run_reembed(conn, "job-1", dino, clip, qdrant, 256, logging.getLogger("test"))
+        total = await _run_reembed(
+            conn, "job-1", dino, clip, qdrant, 256, logging.getLogger("test")
+        )
 
     assert total == 3
     # Checkpoint call after the batch + final finished call
@@ -173,6 +193,7 @@ async def test_run_reembed_checkpoints_after_each_batch(tmp_path):
 
 
 # ── POST /admin/reembed-all: 409 when job already active ────────────────────
+
 
 @pytest.mark.asyncio
 async def test_reembed_all_returns_409_when_job_active():

@@ -32,6 +32,7 @@ _DEFAULT_CACHE_SEC = 10.0
 
 # ── Public model ──────────────────────────────────────────────────────────────
 
+
 class SceneSynthesis(BaseModel):
     """Synthesised point-in-time scene understanding for the monitored site."""
 
@@ -47,6 +48,7 @@ class SceneSynthesis(BaseModel):
 
 
 # ── Synthesizer ───────────────────────────────────────────────────────────────
+
 
 class SceneSynthesizer:
     """Produce a unified SceneSynthesis from the current SiteState + recent DB captions.
@@ -70,8 +72,12 @@ class SceneSynthesizer:
         self._aggregator = aggregator
         self._db_pool = db_pool
         self._cache_sec = cache_sec
-        self._reasoning_url = (reasoning_url or settings.REASONING_API_URL or settings.GEMMA_API_URL).rstrip("/")
-        self._reasoning_model = reasoning_model or settings.REASONING_MODEL or settings.GEMMA_API_MODEL
+        self._reasoning_url = (
+            reasoning_url or settings.REASONING_API_URL or settings.GEMMA_API_URL
+        ).rstrip("/")
+        self._reasoning_model = (
+            reasoning_model or settings.REASONING_MODEL or settings.GEMMA_API_MODEL
+        )
         self._cache: SceneSynthesis | None = None
         self._cache_ts: float = 0.0
         self._lock = asyncio.Lock()
@@ -112,9 +118,7 @@ class SceneSynthesizer:
 
     # ── LLM call ─────────────────────────────────────────────────────────────
 
-    async def _call_llm(
-        self, state: SiteState, captions: list[dict[str, Any]]
-    ) -> SceneSynthesis:
+    async def _call_llm(self, state: SiteState, captions: list[dict[str, Any]]) -> SceneSynthesis:
         prompt = _build_prompt(state, captions)
         sources = []
 
@@ -204,10 +208,11 @@ def _build_prompt(state: SiteState, captions: list[dict[str, Any]]) -> str:
         lines.append("\n### Camera Detections (last 2 min)")
         for c in state.cameras:
             det_summary = ", ".join(
-                f"{d['label']}({d['score']:.2f})"
-                for d in c.recent_detections[:5]
+                f"{d['label']}({d['score']:.2f})" for d in c.recent_detections[:5]
             )
-            lines.append(f"  camera={c.camera} objects=[{det_summary}] motion_events={c.total_events}")
+            lines.append(
+                f"  camera={c.camera} objects=[{det_summary}] motion_events={c.total_events}"
+            )
 
     if captions:
         lines.append("\n### Live Scene Captions (most recent)")

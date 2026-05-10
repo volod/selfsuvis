@@ -22,32 +22,36 @@ from PIL import Image
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+
 def _make_records(n: int, tmp_path, *, base_t: float = 0.0) -> list[dict[str, Any]]:
     """Return n minimal frame_record dicts with valid PNGs under tmp_path."""
     records = []
     for i in range(n):
         p = tmp_path / f"frame_{i}.png"
         Image.new("RGB", (64, 64), color=(i * 20, 50, 100)).save(str(p))
-        records.append({
-            "id": f"m:{i}:{int((base_t + i) * 1000)}",
-            "frame_path": str(p),
-            "t_sec": base_t + float(i),
-            "segment_id": i,
-            "caption": None,
-            "caption_confidence": None,
-            "caption_model": None,
-            "subtitle_text": None,
-            "ocr_text": None,
-            "al_score": None,
-            "al_tag": "none",
-            "qdrant_id": f"qid-{i}",
-        })
+        records.append(
+            {
+                "id": f"m:{i}:{int((base_t + i) * 1000)}",
+                "frame_path": str(p),
+                "t_sec": base_t + float(i),
+                "segment_id": i,
+                "caption": None,
+                "caption_confidence": None,
+                "caption_model": None,
+                "subtitle_text": None,
+                "ocr_text": None,
+                "al_score": None,
+                "al_tag": "none",
+                "qdrant_id": f"qid-{i}",
+            }
+        )
     return records
 
 
 def _make_indexer() -> Any:
     """Build a VideoIndexer shell without calling __init__ (no GPU/model loads)."""
     import selfsuvis.pipeline.workflows.indexer as idx_module
+
     obj = object.__new__(idx_module.VideoIndexer)
     obj.logger = MagicMock()
     obj.store = MagicMock()
@@ -72,9 +76,11 @@ def _make_indexer() -> Any:
 
 # ── ASR pass ──────────────────────────────────────────────────────────────────
 
+
 class TestRunASRPass:
     def test_asr_subtitles_written_to_matching_frames(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "ASR_AUDIO_DIR", str(tmp_path))
 
@@ -88,10 +94,14 @@ class TestRunASRPass:
         records = _make_records(3, tmp_path)  # t_sec = 0, 1, 2
         wav = str(tmp_path / "audio.wav")
 
-        with patch("selfsuvis.pipeline.workflows.indexer.extract_audio", return_value=wav), \
-             patch("selfsuvis.pipeline.workflows.indexer.map_subtitles_to_frames",
-                   return_value={1.0: "target spotted", 2.0: "target spotted"}), \
-             patch("selfsuvis.pipeline.workflows.indexer.ensure_dir"):
+        with (
+            patch("selfsuvis.pipeline.workflows.indexer.extract_audio", return_value=wav),
+            patch(
+                "selfsuvis.pipeline.workflows.indexer.map_subtitles_to_frames",
+                return_value={1.0: "target spotted", 2.0: "target spotted"},
+            ),
+            patch("selfsuvis.pipeline.workflows.indexer.ensure_dir"),
+        ):
             indexer._run_asr_pass("/fake/video.mp4", records)
 
         assert records[0]["subtitle_text"] is None
@@ -100,6 +110,7 @@ class TestRunASRPass:
 
     def test_asr_skips_when_no_audio_track(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "ASR_AUDIO_DIR", str(tmp_path))
 
@@ -109,8 +120,10 @@ class TestRunASRPass:
 
         records = _make_records(2, tmp_path)
 
-        with patch("selfsuvis.pipeline.workflows.indexer.extract_audio", return_value=None), \
-             patch("selfsuvis.pipeline.workflows.indexer.ensure_dir"):
+        with (
+            patch("selfsuvis.pipeline.workflows.indexer.extract_audio", return_value=None),
+            patch("selfsuvis.pipeline.workflows.indexer.ensure_dir"),
+        ):
             indexer._run_asr_pass("/fake/video.mp4", records)
 
         fake_asr.transcribe.assert_not_called()
@@ -118,6 +131,7 @@ class TestRunASRPass:
 
     def test_asr_skips_when_transcribe_returns_empty(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "ASR_AUDIO_DIR", str(tmp_path))
 
@@ -129,14 +143,17 @@ class TestRunASRPass:
         records = _make_records(2, tmp_path)
         wav = str(tmp_path / "audio.wav")
 
-        with patch("selfsuvis.pipeline.workflows.indexer.extract_audio", return_value=wav), \
-             patch("selfsuvis.pipeline.workflows.indexer.ensure_dir"):
+        with (
+            patch("selfsuvis.pipeline.workflows.indexer.extract_audio", return_value=wav),
+            patch("selfsuvis.pipeline.workflows.indexer.ensure_dir"),
+        ):
             indexer._run_asr_pass("/fake/video.mp4", records)
 
         assert all(r["subtitle_text"] is None for r in records)
 
 
 # ── Florence pass ─────────────────────────────────────────────────────────────
+
 
 class TestRunFlorencePass:
     def _make_florence_model(self, captions: list[tuple]) -> MagicMock:
@@ -148,12 +165,15 @@ class TestRunFlorencePass:
 
     def test_caption_and_confidence_written_to_records(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
-        indexer._florence_model = self._make_florence_model([
-            ("five trucks on a mountain road", 0.87),
-            ("empty road, clear sky", 0.91),
-        ])
+        indexer._florence_model = self._make_florence_model(
+            [
+                ("five trucks on a mountain road", 0.87),
+                ("empty road, clear sky", 0.91),
+            ]
+        )
 
         records = _make_records(2, tmp_path)
         indexer._run_florence_pass(records)
@@ -166,6 +186,7 @@ class TestRunFlorencePass:
     def test_oom_batch_failure_falls_back_to_empty_caption(self, tmp_path, monkeypatch):
         """If caption_batch raises (OOM), every frame in that batch gets ("", 0.5)."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
         indexer._florence_model = MagicMock()
@@ -182,6 +203,7 @@ class TestRunFlorencePass:
     def test_bad_frame_path_uses_blank_image(self, tmp_path, monkeypatch):
         """Unreadable frame_path triggers blank PIL Image; captioning still runs."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
 
@@ -205,6 +227,7 @@ class TestRunFlorencePass:
     def test_florence_respects_batch_size(self, tmp_path, monkeypatch):
         """With FLORENCE_BATCH_SIZE=2 and 5 frames, caption_batch called 3 times."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 2)
 
@@ -226,11 +249,12 @@ class TestRunFlorencePass:
     def test_set_payload_called_per_frame(self, tmp_path, monkeypatch):
         """_set_caption_payload must call store.client.set_payload once per frame."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
-        indexer._florence_model = self._make_florence_model([
-            ("a caption", 0.9), ("another", 0.8), ("third", 0.7)
-        ])
+        indexer._florence_model = self._make_florence_model(
+            [("a caption", 0.9), ("another", 0.8), ("third", 0.7)]
+        )
 
         records = _make_records(3, tmp_path)
         indexer._run_florence_pass(records)
@@ -240,6 +264,7 @@ class TestRunFlorencePass:
     def test_set_payload_failure_does_not_raise(self, tmp_path, monkeypatch):
         """set_payload exception must be caught and logged — never propagated."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
         indexer._florence_model = self._make_florence_model([("cap", 0.9)])
@@ -254,6 +279,7 @@ class TestRunFlorencePass:
     def test_set_payload_skips_record_with_no_qdrant_id(self, tmp_path, monkeypatch):
         """A record without qdrant_id must not trigger a set_payload call."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "FLORENCE_BATCH_SIZE", 16)
         indexer._florence_model = self._make_florence_model([("cap", 0.9)])
@@ -268,9 +294,11 @@ class TestRunFlorencePass:
 
 # ── OCR pass ──────────────────────────────────────────────────────────────────
 
+
 class TestRunOCRPass:
     def test_ocr_text_written_to_records(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -287,6 +315,7 @@ class TestRunOCRPass:
 
     def test_ocr_empty_text_stored_as_none(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -299,6 +328,7 @@ class TestRunOCRPass:
 
     def test_ocr_merges_into_frame_facts_json(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -316,6 +346,7 @@ class TestRunOCRPass:
     def test_ocr_respects_batch_size(self, tmp_path, monkeypatch):
         """With batch_size=2 and 5 records, extract_text_batch must be called 3 times."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 2)
 
@@ -336,6 +367,7 @@ class TestRunOCRPass:
     def test_ocr_bad_image_falls_back_to_blank(self, tmp_path, monkeypatch):
         """A frame with an unreadable path should not crash the pass."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -350,6 +382,7 @@ class TestRunOCRPass:
 
 
 # ── Qwen pass ─────────────────────────────────────────────────────────────────
+
 
 class TestRunQwenPass:
     def test_qwen_result_stored_in_frame_facts_json(self, tmp_path):
@@ -431,6 +464,7 @@ class TestRunQwenPass:
 
 # ── Depth pass ────────────────────────────────────────────────────────────────
 
+
 class TestRunDepthPass:
     def test_depth_result_merged_into_frame_facts_json(self, tmp_path):
         indexer = _make_indexer()
@@ -485,9 +519,11 @@ class TestRunDepthPass:
 
 # ── Detection pass ────────────────────────────────────────────────────────────
 
+
 class TestRunDetectionPass:
     def test_detections_merged_into_frame_facts_json(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 8)
         indexer.detection_model = MagicMock()
@@ -503,6 +539,7 @@ class TestRunDetectionPass:
     def test_detection_batch_size_from_settings(self, tmp_path, monkeypatch):
         """detect_batch should be called with at most DETECTION_BATCH_SIZE images."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 4)
 
@@ -522,6 +559,7 @@ class TestRunDetectionPass:
 
     def test_detection_preserves_existing_depth_key(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 8)
         indexer.detection_model = MagicMock()
@@ -537,6 +575,7 @@ class TestRunDetectionPass:
     def test_detection_bad_frame_uses_blank_image(self, tmp_path, monkeypatch):
         """Unreadable frame_path must not crash; blank image is passed instead."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "DETECTION_BATCH_SIZE", 8)
 
@@ -558,6 +597,7 @@ class TestRunDetectionPass:
 
 
 # ── Segmentation pass ────────────────────────────────────────────────────────
+
 
 class TestRunSegmentationPass:
     def test_segmentation_summary_written_with_detection_labels(self, tmp_path, monkeypatch):
@@ -628,6 +668,7 @@ class TestRunSegmentationPass:
 
 # ── World model pass ──────────────────────────────────────────────────────────
 
+
 class TestRunWorldModelPass:
     def _make_world_model(self, result: dict[str, Any]) -> MagicMock:
         wm = MagicMock()
@@ -638,6 +679,7 @@ class TestRunWorldModelPass:
     def test_world_model_result_assigned_to_middle_frame_odd(self, tmp_path, monkeypatch):
         """clip_size=5 → middle index is 2."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 5)
         indexer.world_model = self._make_world_model({"world_model": {"embedding_dim": 768}})
@@ -652,6 +694,7 @@ class TestRunWorldModelPass:
     def test_world_model_result_assigned_to_middle_frame_even(self, tmp_path, monkeypatch):
         """clip_size=4 → middle index is 2 (len//2)."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 4)
         indexer.world_model = self._make_world_model({"world_model": {"embedding_dim": 768}})
@@ -664,6 +707,7 @@ class TestRunWorldModelPass:
     def test_world_model_windows_are_non_overlapping(self, tmp_path, monkeypatch):
         """With clip_size=3 and 9 frames → 3 windows; process_clip called 3 times."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 3)
         wm = self._make_world_model({"world_model": {}})
@@ -677,6 +721,7 @@ class TestRunWorldModelPass:
     def test_world_model_partial_last_window(self, tmp_path, monkeypatch):
         """With clip_size=4 and 6 frames → windows of size 4 then 2; both get a middle frame."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 4)
         wm = self._make_world_model({"world_model": {}})
@@ -692,6 +737,7 @@ class TestRunWorldModelPass:
 
     def test_world_model_preserves_existing_depth(self, tmp_path, monkeypatch):
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 3)
         indexer.world_model = self._make_world_model({"world_model": {}})
@@ -708,6 +754,7 @@ class TestRunWorldModelPass:
     def test_world_model_bad_frame_uses_blank_image(self, tmp_path, monkeypatch):
         """Unreadable frame_path must not crash the world model pass."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "WORLD_MODEL_CLIP_FRAMES", 3)
         wm = self._make_world_model({"world_model": {}})
@@ -725,6 +772,7 @@ class TestRunWorldModelPass:
 
 # ── Cross-pass isolation: failure in one pass leaves others intact ────────────
 
+
 class TestPassIsolation:
     def test_failing_depth_does_not_corrupt_ocr_text(self, tmp_path, monkeypatch):
         """When depth returns depth_error (absorbed internally), ocr_text is untouched.
@@ -733,6 +781,7 @@ class TestPassIsolation:
         rather than raising. The merged frame_facts_json must contain both keys.
         """
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
 
@@ -753,6 +802,7 @@ class TestPassIsolation:
     def test_ocr_pass_does_not_overwrite_prior_frame_facts_keys(self, tmp_path, monkeypatch):
         """OCR only sets frame_facts_json['ocr_text']; other keys are left alone."""
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
         indexer.ocr_model = MagicMock()
@@ -796,6 +846,7 @@ class TestPassIsolation:
         with {"file_error": True}, silently destroying any data written by prior passes.
         """
         import selfsuvis.pipeline.workflows.indexer as idx_module
+
         indexer = _make_indexer()
         monkeypatch.setattr(idx_module.settings, "OCR_BATCH_SIZE", 8)
 
@@ -866,5 +917,8 @@ class TestRunYoloSsgPass:
         assert summary["edge_count"] == 0
         assert summary["anchor_source"] == "enu"
         assert records[0]["frame_facts_json"]["semantic_graph_node_ids"]
-        assert records[1]["frame_facts_json"]["semantic_graph_node_ids"] == records[0]["frame_facts_json"]["semantic_graph_node_ids"]
+        assert (
+            records[1]["frame_facts_json"]["semantic_graph_node_ids"]
+            == records[0]["frame_facts_json"]["semantic_graph_node_ids"]
+        )
         assert (tmp_path / "mission-a" / "semantic_environment_graph.json").exists()

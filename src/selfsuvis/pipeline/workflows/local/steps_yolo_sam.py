@@ -37,17 +37,17 @@ _log = _logging_mod.getLogger("pipeline.local.yolo_sam")
 # ── Priority → display color (RGB) ───────────────────────────────────────────
 
 _PRIORITY_COLOR: dict[int, tuple[int, int, int]] = {
-    PRIORITY_HUMAN:      (229,  57,  53),   # red
-    PRIORITY_VEHICLE:    ( 30, 136, 229),   # blue
-    PRIORITY_ARTIFICIAL: ( 67, 160,  71),   # green
-    4:                   (158, 158, 158),   # grey
+    PRIORITY_HUMAN: (229, 57, 53),  # red
+    PRIORITY_VEHICLE: (30, 136, 229),  # blue
+    PRIORITY_ARTIFICIAL: (67, 160, 71),  # green
+    4: (158, 158, 158),  # grey
 }
 
 _PRIORITY_LABEL = {
-    PRIORITY_HUMAN:      "human",
-    PRIORITY_VEHICLE:    "vehicle",
+    PRIORITY_HUMAN: "human",
+    PRIORITY_VEHICLE: "vehicle",
     PRIORITY_ARTIFICIAL: "artificial",
-    4:                   "other",
+    4: "other",
 }
 
 # Sample at most this many frames for YOLO+SAM to keep the step fast
@@ -68,6 +68,7 @@ def _draw_detections(
     SAM masks are rendered as a semi-transparent overlay when available.
     """
     import numpy as np
+
     w, h = image.size
     result = image.copy().convert("RGBA")
 
@@ -161,6 +162,7 @@ def step_yolo_sam_detection(
     if settings.SAM_ENABLED:
         try:
             from selfsuvis.pipeline.vision.sam import SAMPredictor
+
             sam_predictor = SAMPredictor()
             sam_available = sam_predictor.is_available()
             if not sam_available:
@@ -178,7 +180,8 @@ def step_yolo_sam_detection(
     _log.info(
         "Running YOLO11 (%s) on %d/%d frames%s",
         detector.model_id,
-        n, n_avail,
+        n,
+        n_avail,
         " + SAM2/3 segmentation" if sam_available else "",
     )
 
@@ -227,33 +230,45 @@ def step_yolo_sam_detection(
             annotated.save(ann_path, quality=88)
             annotated_paths.append(str(ann_path))
 
-            detection_results.append({
-                "frame_path": fp,
-                "t_sec": t_sec,
-                "detections": detections,
-                "sam_available": sam_available,
-                "detection_model": det.get("yolo_model", detector.model_id),
-            })
+            detection_results.append(
+                {
+                    "frame_path": fp,
+                    "t_sec": t_sec,
+                    "detections": detections,
+                    "sam_available": sam_available,
+                    "detection_model": det.get("yolo_model", detector.model_id),
+                }
+            )
 
             if (idx + 1) % 10 == 0:
                 _log.info(
                     "    ... %d/%d frames processed (objects so far: %d)",
-                    idx + 1, n, total_objects,
+                    idx + 1,
+                    n,
+                    total_objects,
                 )
 
         except Exception as exc:
             _log.debug("frame %s failed: %s", fp, exc)
-            detection_results.append({
-                "frame_path": fp,
-                "t_sec": t_sec,
-                "detections": [],
-                "error": str(exc),
-            })
+            detection_results.append(
+                {
+                    "frame_path": fp,
+                    "t_sec": t_sec,
+                    "detections": [],
+                    "error": str(exc),
+                }
+            )
 
     elapsed = time.time() - t0
     _log.info(
         "Done: %d objects in %d frames (human=%d vehicle=%d artificial=%d other=%d) in %.1fs",
-        total_objects, n, human_count, vehicle_count, artificial_count, other_count, elapsed,
+        total_objects,
+        n,
+        human_count,
+        vehicle_count,
+        artificial_count,
+        other_count,
+        elapsed,
     )
 
     # Save JSON results
@@ -296,21 +311,23 @@ def step_yolo_sam_detection(
     if sam_predictor is not None:
         sam_predictor.release()
 
-    result.update({
-        "skipped": False,
-        "detection_results": detection_results,
-        "n_frames": n,
-        "total_objects": total_objects,
-        "human_count": human_count,
-        "vehicle_count": vehicle_count,
-        "artificial_count": artificial_count,
-        "other_count": other_count,
-        "elapsed_sec": elapsed,
-        "results_json_path": str(results_path),
-        "comparison_md_path": comparison_md,
-        "sam_enabled": sam_available,
-        "annotated_count": len(annotated_paths),
-    })
+    result.update(
+        {
+            "skipped": False,
+            "detection_results": detection_results,
+            "n_frames": n,
+            "total_objects": total_objects,
+            "human_count": human_count,
+            "vehicle_count": vehicle_count,
+            "artificial_count": artificial_count,
+            "other_count": other_count,
+            "elapsed_sec": elapsed,
+            "results_json_path": str(results_path),
+            "comparison_md_path": comparison_md,
+            "sam_enabled": sam_available,
+            "annotated_count": len(annotated_paths),
+        }
+    )
     return result
 
 
@@ -345,12 +362,18 @@ def _write_detection_comparison_md(
                 hf_total += 1
         # Map HF labels to priority buckets
         hf_by_priority: dict[str, int] = {
-            "human": 0, "vehicle": 0, "artificial": 0, "other": 0,
+            "human": 0,
+            "vehicle": 0,
+            "artificial": 0,
+            "other": 0,
         }
         for lbl, cnt in hf_label_counts.items():
             p = classify_label_priority(lbl)
-            bucket = {PRIORITY_HUMAN: "human", PRIORITY_VEHICLE: "vehicle",
-                      PRIORITY_ARTIFICIAL: "artificial"}.get(p, "other")
+            bucket = {
+                PRIORITY_HUMAN: "human",
+                PRIORITY_VEHICLE: "vehicle",
+                PRIORITY_ARTIFICIAL: "artificial",
+            }.get(p, "other")
             hf_by_priority[bucket] += cnt
 
     fps_yolo = n_frames / max(elapsed_sec, 0.01)
@@ -364,7 +387,7 @@ def _write_detection_comparison_md(
         "",
         "| Model | Backend | Frames | Total objects | ms/frame |",
         "|-------|---------|--------|--------------|---------|",
-        f"| **YOLO11** | `{yolo_model}` | {n_frames} | {total_yolo} | {1000/fps_yolo:.1f} |",
+        f"| **YOLO11** | `{yolo_model}` | {n_frames} | {total_yolo} | {1000 / fps_yolo:.1f} |",
     ]
     if hf_total > 0:
         lines.append(f"| **HF Detector** | `{hf_model}` | {n_frames} | {hf_total} | — |")

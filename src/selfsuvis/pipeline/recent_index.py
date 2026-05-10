@@ -3,6 +3,7 @@
 ``time`` is imported here so that existing
 ``patch("pipeline.recent_index.time")`` test targets keep working.
 """
+
 import time  # noqa: F401
 
 from selfsuvis.pipeline.storage.recent_index import RecentEmbeddingIndex  # noqa: F401

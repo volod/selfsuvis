@@ -1,6 +1,5 @@
 """Packaged entry point for local-run analytics."""
 
-
 import argparse
 import json
 import os
@@ -8,9 +7,7 @@ from pathlib import Path
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Analyse a selfsuvis local-run output directory."
-    )
+    parser = argparse.ArgumentParser(description="Analyse a selfsuvis local-run output directory.")
     parser.add_argument(
         "--run-dir",
         required=True,
@@ -63,7 +60,9 @@ def run(args: argparse.Namespace) -> None:
     summary = LocalRunLoader(run_dir).load()
 
     print(f"  Video     : {summary.video_name}")
-    print(f"  Frames    : {summary.n_frames}  ({summary.duration_sec:.1f}s @ {summary.fps:.1f} fps)")
+    print(
+        f"  Frames    : {summary.n_frames}  ({summary.duration_sec:.1f}s @ {summary.fps:.1f} fps)"
+    )
     print(f"  Domain    : {summary.domain or '—'}")
     print(f"  Category  : {summary.top_category or '—'}")
     print(f"  Artifacts : {summary.artifact_inventory.total_files} files")

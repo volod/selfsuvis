@@ -49,7 +49,9 @@ def node_p2_yolo_sam(state: PipelineState) -> dict[str, Any]:
         context_outputs=[
             f"{yolo_sam_result.get('total_objects', 0)} YOLO detections",
             f"human={yolo_sam_result.get('human_count', 0)} vehicle={yolo_sam_result.get('vehicle_count', 0)}",
-        ] if not yolo_sam_result.get("skipped") else ["no YOLO context"],
+        ]
+        if not yolo_sam_result.get("skipped")
+        else ["no YOLO context"],
         risks=[
             "YOLO class confusion can misidentify humans as objects",
             "SAM masks may bleed across object boundaries in cluttered frames",
@@ -58,7 +60,9 @@ def node_p2_yolo_sam(state: PipelineState) -> dict[str, Any]:
             "yolo_sam_results.json",
             "yolo_sam/frame_*_annotated.jpg",
             "detection_comparison.md",
-        ] if not yolo_sam_result.get("skipped") else [],
+        ]
+        if not yolo_sam_result.get("skipped")
+        else [],
     )
 
     stats = dict(state.get("stats", {}))
@@ -98,10 +102,9 @@ def node_p2_gemma_tracking(state: PipelineState) -> dict[str, Any]:
         # Agentic improvement: if JSON parse failure left target_labels empty,
         # substitute safe defaults so RF-DETR still tracks something useful.
         if not gemma_tracking_result.get("skipped"):
-            tracking_degraded = (
-                gemma_tracking_result.get("n_tracked_objects", 0) == 0
-                and not gemma_tracking_result.get("target_labels")
-            )
+            tracking_degraded = gemma_tracking_result.get(
+                "n_tracked_objects", 0
+            ) == 0 and not gemma_tracking_result.get("target_labels")
             if tracking_degraded:
                 _log.warning(
                     "  Step 10: Gemma tracking returned zero tracks with empty target_labels "
@@ -129,7 +132,9 @@ def node_p2_gemma_tracking(state: PipelineState) -> dict[str, Any]:
             f"scene_type={gemma_tracking_result.get('scene_type', 'n/a')}",
             f"{gemma_tracking_result.get('n_tracked_objects', 0)} unique track IDs",
             f"tracking_degraded={gemma_tracking_result.get('tracking_degraded', False)}",
-        ] if not gemma_tracking_result.get("skipped") else ["no Gemma tracking context"],
+        ]
+        if not gemma_tracking_result.get("skipped")
+        else ["no Gemma tracking context"],
         risks=[
             "Gemma JSON parse failure now falls back to default targets (person/vehicle/sign)",
             "rough_bbox from Gemma may not align precisely — SAM mask may bleed",
@@ -138,7 +143,9 @@ def node_p2_gemma_tracking(state: PipelineState) -> dict[str, Any]:
         artifacts=[
             "gemma_tracking_results.json",
             "gemma_tracking/frame_*_tracked.jpg",
-        ] if not gemma_tracking_result.get("skipped") else [],
+        ]
+        if not gemma_tracking_result.get("skipped")
+        else [],
     )
 
     stats = dict(state.get("stats", {}))

@@ -1,4 +1,5 @@
 """Unit tests for pipeline/rtsp_ingest.py."""
+
 import subprocess
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ import pytest
 from selfsuvis.pipeline.media.rtsp_ingest import record_rtsp, validate_rtsp_url
 
 # ── validate_rtsp_url ─────────────────────────────────────────────────────────
+
 
 def test_valid_rtsp_url_passes():
     with patch("selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo") as mock_dns:
@@ -58,6 +60,7 @@ def test_loopback_ip_rejected():
 
 def test_private_ip_allowed_with_flag(monkeypatch):
     from selfsuvis.pipeline.core import config
+
     monkeypatch.setattr(config.settings, "ALLOW_PRIVATE_URLS", True)
     with patch("selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo") as mock_dns:
         mock_dns.return_value = [(None, None, None, None, ("192.168.1.100", 0))]
@@ -66,12 +69,16 @@ def test_private_ip_allowed_with_flag(monkeypatch):
 
 def test_dns_failure_raises():
     import socket
-    with patch("selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo", side_effect=socket.gaierror("NXDOMAIN")):
+
+    with patch(
+        "selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo", side_effect=socket.gaierror("NXDOMAIN")
+    ):
         with pytest.raises(ValueError, match="Cannot resolve"):
             validate_rtsp_url("rtsp://does.not.exist/stream")
 
 
 # ── record_rtsp ───────────────────────────────────────────────────────────────
+
 
 @patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked")
 def test_record_rtsp_calls_ffmpeg(mock_run):
@@ -101,6 +108,7 @@ def test_record_rtsp_no_duration_omits_t_flag(mock_run):
 @patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked")
 def test_record_rtsp_caps_duration_at_max(mock_run, monkeypatch):
     from selfsuvis.pipeline.core import config
+
     monkeypatch.setattr(config.settings, "RTSP_MAX_DURATION_SEC", 300)
     record_rtsp("rtsp://cam/stream", "/tmp/out.mp4", duration_sec=9999)
     cmd = mock_run.call_args.args[0]
@@ -125,7 +133,10 @@ def test_record_rtsp_stream_copy(mock_run):
     assert "copy" in cmd
 
 
-@patch("selfsuvis.pipeline.media.rtsp_ingest.run_checked", side_effect=subprocess.CalledProcessError(1, "ffmpeg"))
+@patch(
+    "selfsuvis.pipeline.media.rtsp_ingest.run_checked",
+    side_effect=subprocess.CalledProcessError(1, "ffmpeg"),
+)
 def test_record_rtsp_raises_on_ffmpeg_error(mock_run):
     with pytest.raises(subprocess.CalledProcessError):
         record_rtsp("rtsp://cam/stream", "/tmp/out.mp4")

@@ -21,6 +21,7 @@ sys.modules.setdefault("selfsuvis.app.state", _state_stub)
 
 # ── App / route fixture ───────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def client():
     """Return a TestClient for the FastAPI app with auth bypassed."""
@@ -45,6 +46,7 @@ def client():
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_db_row(**kwargs) -> dict[str, Any]:
     """Build a fake asyncpg row-like dict."""
@@ -73,6 +75,7 @@ async def _fake_fetch(sql, *params):
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
+
 
 def test_query_scene_no_filters(client):
     """POST /query/scene with no filters returns results."""
@@ -109,8 +112,10 @@ def test_query_scene_with_gps_bbox(client):
 
     payload = {
         "gps_bbox": {
-            "min_lat": 47.0, "max_lat": 47.5,
-            "min_lon": 8.0,  "max_lon": 8.5,
+            "min_lat": 47.0,
+            "max_lat": 47.5,
+            "min_lon": 8.0,
+            "max_lon": 8.5,
         }
     }
     with patch("selfsuvis.app.routers.scene.get_db_pool", return_value=fake_pool):
@@ -206,9 +211,7 @@ def test_query_scene_db_error_returns_503(client):
 
 def test_query_scene_invalid_gps_bbox_rejected(client):
     """min_lat > max_lat is a validation error (422)."""
-    payload = {
-        "gps_bbox": {"min_lat": 48.0, "max_lat": 47.0, "min_lon": 8.0, "max_lon": 8.5}
-    }
+    payload = {"gps_bbox": {"min_lat": 48.0, "max_lat": 47.0, "min_lon": 8.0, "max_lon": 8.5}}
     fake_pool = MagicMock()
     with patch("selfsuvis.app.routers.scene.get_db_pool", return_value=fake_pool):
         resp = client.post("/query/scene", json=payload)
@@ -232,8 +235,10 @@ def test_query_scene_text_filter_listed_in_filters(client):
     fake_clip = MagicMock()
     fake_clip.encode_texts.return_value = [[0.1] * 512]
 
-    with patch("selfsuvis.app.routers.scene.get_db_pool", return_value=fake_pool), \
-         patch("selfsuvis.app.routers.scene.clip_model", fake_clip):
+    with (
+        patch("selfsuvis.app.routers.scene.get_db_pool", return_value=fake_pool),
+        patch("selfsuvis.app.routers.scene.clip_model", fake_clip),
+    ):
         resp = client.post("/query/scene", json={"text": "military convoy"})
 
     assert resp.status_code == 200

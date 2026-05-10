@@ -64,9 +64,7 @@ class MqttSubscriber:
                     password=settings.mqtt_password or None,
                     tls_params=aiomqtt.TLSParameters() if settings.mqtt_tls else None,
                 ) as client:
-                    logger.info(
-                        "MQTT connected to %s:%d", settings.mqtt_host, settings.mqtt_port
-                    )
+                    logger.info("MQTT connected to %s:%d", settings.mqtt_host, settings.mqtt_port)
                     await client.subscribe(settings.chirpstack_topic)
                     await client.subscribe(f"{self._prefix}/events")
                     await client.subscribe(f"{self._prefix}/+/events")
@@ -80,7 +78,9 @@ class MqttSubscriber:
                         await self._dispatch(str(message.topic), message.payload)
 
             except Exception as exc:  # noqa: BLE001
-                logger.warning("MQTT connection lost (%s), reconnecting in %ss", exc, reconnect_interval)
+                logger.warning(
+                    "MQTT connection lost (%s), reconnecting in %ss", exc, reconnect_interval
+                )
                 await asyncio.sleep(reconnect_interval)
 
     async def _dispatch(self, topic: str, payload: bytes) -> None:

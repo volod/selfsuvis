@@ -48,6 +48,7 @@ _ULTRALYTICS_AUX_MODELS = ("yolov8n.pt", "yolo26n.pt")
 
 # ── Dataset helpers ───────────────────────────────────────────────────────────
 
+
 def _download_batch_zip(
     repo_id: str,
     zip_path: str,
@@ -59,6 +60,7 @@ def _download_batch_zip(
         return local
     try:
         from huggingface_hub import hf_hub_download
+
         downloaded = hf_hub_download(
             repo_id=repo_id,
             filename=zip_path,
@@ -150,6 +152,7 @@ def _build_yolo_dataset(
 
 # ── Training ──────────────────────────────────────────────────────────────────
 
+
 def _train_yolov8n(yaml_path: Path, run_dir: Path, device: str) -> dict[str, Any]:
     """Train YOLOv8n on the prepared dataset. Returns training metrics."""
     try:
@@ -217,6 +220,7 @@ def _relocate_repo_root_ultralytics_artifacts() -> None:
 
 # ── Export helpers ────────────────────────────────────────────────────────────
 
+
 def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Path | None:
     """Export best.pt → ONNX fp32. Returns ONNX path."""
     out = export_dir / "drone_yolo8n_a76.onnx"
@@ -224,6 +228,7 @@ def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Path | None:
         return out
     try:
         from ultralytics import YOLO
+
         m = YOLO(str(best_pt))
         exported = m.export(
             format="onnx",
@@ -252,6 +257,7 @@ def _quantize_onnx_int8(onnx_fp32: Path, export_dir: Path) -> Path | None:
         return out
     try:
         from onnxruntime.quantization import QuantType, quantize_dynamic
+
         quantize_dynamic(
             model_input=str(onnx_fp32),
             model_output=str(out),
@@ -290,6 +296,7 @@ def _try_rknn_export(onnx_path: Path, export_dir: Path) -> Path | None:
 
 
 # ── Test-script generation ────────────────────────────────────────────────────
+
 
 def _write_test_a76(dest: Path, onnx_path: Path) -> None:
     script = textwrap.dedent(f"""
@@ -412,6 +419,7 @@ def _write_test_rv1106(dest: Path, rknn_available: bool, onnx_int8_path: Path) -
 
 # ── Report ────────────────────────────────────────────────────────────────────
 
+
 def _write_report(
     report_path: Path,
     metrics: dict[str, Any],
@@ -455,12 +463,17 @@ def _write_report(
         map50_95 = metrics.get("map50_95", float("nan"))
         box_loss = metrics.get("box_loss", float("nan"))
         import math as _math
+
         lines += [
             "| Metric | Value |",
             "|--------|-------|",
             f"| mAP@50 | {map50:.4f} |" if not _math.isnan(map50) else "| mAP@50 | n/a |",
-            f"| mAP@50-95 | {map50_95:.4f} |" if not _math.isnan(map50_95) else "| mAP@50-95 | n/a |",
-            f"| Final box loss | {box_loss:.4f} |" if not _math.isnan(box_loss) else "| Final box loss | n/a |",
+            f"| mAP@50-95 | {map50_95:.4f} |"
+            if not _math.isnan(map50_95)
+            else "| mAP@50-95 | n/a |",
+            f"| Final box loss | {box_loss:.4f} |"
+            if not _math.isnan(box_loss)
+            else "| Final box loss | n/a |",
             f"| Train time | {elapsed:.1f}s |",
             "",
         ]
@@ -494,7 +507,7 @@ def _write_report(
         "```bash",
         "# On x86 workstation (not on device):",
         "pip install rknn-toolkit2  # see https://github.com/airockchip/rknn-toolkit2",
-        "python -c \"",
+        'python -c "',
         "from rknn.api import RKNN",
         "rknn = RKNN()",
         "rknn.config(mean_values=[[0,0,0]], std_values=[[255,255,255]], target_platform='rv1106')",
@@ -502,7 +515,7 @@ def _write_report(
         "rknn.build(do_quantization=True)",
         "rknn.export_rknn('drone_yolo8n_rv1106.rknn')",
         "rknn.release()",
-        "\"",
+        '"',
         "",
         "# On device (RV1106G3), install rknn-toolkit-lite2 and run test_rv1106.py",
         "```",
@@ -528,6 +541,7 @@ def _write_report(
 
 
 # ── Public step function ──────────────────────────────────────────────────────
+
 
 def step_drone_detection_training(
     frame_list: list[tuple[str, float]],
@@ -593,7 +607,9 @@ def step_drone_detection_training(
     result["n_train_images"] = n_train
     result["n_negatives"] = n_neg
 
-    _log.info("Training YOLOv8n (%d epochs, imgsz=%d, device=%s) …", _TRAIN_EPOCHS, _IMG_SIZE, device)
+    _log.info(
+        "Training YOLOv8n (%d epochs, imgsz=%d, device=%s) …", _TRAIN_EPOCHS, _IMG_SIZE, device
+    )
     metrics = _train_yolov8n(yaml_path, run_dir, device)
     if "error" in metrics:
         _log.warning("YOLOv8n training failed: %s", metrics["error"])
@@ -601,7 +617,12 @@ def step_drone_detection_training(
         # Still write a partial report
         _write_report(
             drone_dir / "drone_detection_report.md",
-            metrics, n_train, n_neg, None, None, None,
+            metrics,
+            n_train,
+            n_neg,
+            None,
+            None,
+            None,
             time.monotonic() - t0,
         )
         return result
@@ -646,7 +667,9 @@ def step_drone_detection_training(
     )
 
     report_path = drone_dir / "drone_detection_report.md"
-    _write_report(report_path, metrics, n_train, n_neg, onnx_fp32, onnx_int8, rknn_path, time.monotonic() - t0)
+    _write_report(
+        report_path, metrics, n_train, n_neg, onnx_fp32, onnx_int8, rknn_path, time.monotonic() - t0
+    )
     _log.info("  ✓ Written %s", report_path)
 
     result["elapsed_sec"] = time.monotonic() - t0

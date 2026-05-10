@@ -66,12 +66,14 @@ class RtspCaptioner:
         self._frame_interval_s = 1.0 / max(self._caption_fps, 0.001)
 
         # Lazy-loaded models
-        self._gemma_model = None   # QwenModel (now Gemma-backed)
+        self._gemma_model = None  # QwenModel (now Gemma-backed)
         self._florence_model = None
 
         logger.info(
             "RtspCaptioner: url=%s mission=%s fps=%.2f",
-            rtsp_url, mission_id, self._caption_fps,
+            rtsp_url,
+            mission_id,
+            self._caption_fps,
         )
 
     # ── Model loading ─────────────────────────────────────────────────────────
@@ -79,12 +81,14 @@ class RtspCaptioner:
     def _get_gemma_model(self):
         if self._gemma_model is None:
             from selfsuvis.pipeline.vision.qwen import QwenModel
+
             self._gemma_model = QwenModel()
         return self._gemma_model
 
     def _get_florence(self):
         if self._florence_model is None:
             from selfsuvis.pipeline.vision.florence import FlorenceModel
+
             self._florence_model = FlorenceModel()
         return self._florence_model
 
@@ -181,7 +185,9 @@ class RtspCaptioner:
 
         logger.info(
             "RtspCaptioner: stream_fps=%.1f caption_fps=%.2f skip_n=%d",
-            stream_fps, self._caption_fps, skip_n,
+            stream_fps,
+            self._caption_fps,
+            skip_n,
         )
 
         try:
@@ -217,17 +223,17 @@ class RtspCaptioner:
 
                 # Caption (may be slow — offload to thread to keep loop alive)
                 loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    None, self._caption_frame, pil_image
-                )
+                result = await loop.run_in_executor(None, self._caption_frame, pil_image)
 
-                caption   = result.get("caption")
+                caption = result.get("caption")
                 facts_json = result.get("facts_json")
-                model     = result.get("model", "unknown")
+                model = result.get("model", "unknown")
 
                 logger.debug(
                     "RtspCaptioner frame=%d t=%.1fs model=%s caption=%s",
-                    frame_count, t_sec, model,
+                    frame_count,
+                    t_sec,
+                    model,
                     (caption or "")[:80],
                 )
 
@@ -249,5 +255,6 @@ class RtspCaptioner:
             cap.release()
             logger.info(
                 "RtspCaptioner: stopped. frames_read=%d mission=%s",
-                frame_count, self._mission_id,
+                frame_count,
+                self._mission_id,
             )

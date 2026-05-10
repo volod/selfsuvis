@@ -1,6 +1,5 @@
 """Unit tests for pure realtime helper methods."""
 
-
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -219,7 +218,9 @@ def test_build_fused_pose_from_packets_uses_magnetometer_heading_when_imu_missin
     )
     assert pose is not None
     assert pose["source"] == "fused_gps_magnetometer"
-    assert pose["orientation_quat"] == pytest.approx({"x": 0.0, "y": 0.0, "z": 0.70710678118, "w": 0.70710678119})
+    assert pose["orientation_quat"] == pytest.approx(
+        {"x": 0.0, "y": 0.0, "z": 0.70710678118, "w": 0.70710678119}
+    )
     assert pose["tracking_status"] == "ok"
 
 
@@ -341,13 +342,17 @@ def test_bridge_mavlink_messages_flattens_multiple_packets():
 
 
 def test_ros_message_to_packets_maps_topics():
-    packets = ros_message_to_packets({"topic": "/robot/gps/fix", "stamp": 3.0, "payload": {"east": 1.0}})
-    assert packets == [{
-        "sensor_type": "gps",
-        "t_device": 3.0,
-        "seq": None,
-        "payload": {"east": 1.0},
-    }]
+    packets = ros_message_to_packets(
+        {"topic": "/robot/gps/fix", "stamp": 3.0, "payload": {"east": 1.0}}
+    )
+    assert packets == [
+        {
+            "sensor_type": "gps",
+            "t_device": 3.0,
+            "seq": None,
+            "payload": {"east": 1.0},
+        }
+    ]
 
 
 def test_frame_capture_to_packet_emits_camera_payload():
@@ -363,4 +368,6 @@ def test_frame_capture_to_packet_emits_camera_payload():
 
 
 def test_project_detection_to_enu_returns_none_without_pose():
-    assert project_detection_to_enu(pose={}, bbox={"x1": 0.1, "x2": 0.2, "y1": 0.1, "y2": 0.2}) is None
+    assert (
+        project_detection_to_enu(pose={}, bbox={"x1": 0.1, "x2": 0.2, "y1": 0.1, "y2": 0.2}) is None
+    )

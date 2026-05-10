@@ -3,6 +3,7 @@
 All DB calls are mocked — no live PostgreSQL required.
 asyncpg is not installed in the test environment; it is stubbed in sys.modules.
 """
+
 import asyncio
 import json
 import sys
@@ -13,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # ── Stub asyncpg before any imports that use it ───────────────────────────────
 if "asyncpg" not in sys.modules:
     _asyncpg = types.ModuleType("asyncpg")
-    _asyncpg.connect = MagicMock()   # patch.object requires attribute to pre-exist
+    _asyncpg.connect = MagicMock()  # patch.object requires attribute to pre-exist
     sys.modules["asyncpg"] = _asyncpg
 
 # ── Stub app.state (heavy deps) ───────────────────────────────────────────────
@@ -69,9 +70,7 @@ def _mock_conn(
             rows = []
             for r in ft_rows:
                 m = MagicMock()
-                m.__getitem__ = lambda s, k, _r=r: (
-                    "finished" if k == "status" else json.dumps(_r)
-                )
+                m.__getitem__ = lambda s, k, _r=r: "finished" if k == "status" else json.dumps(_r)
                 rows.append(m)
             return rows
         return []
@@ -83,12 +82,13 @@ def _mock_conn(
 
 
 class TestAutomationROI:
-
     def _get(self, conn, db_url="postgresql://fake/db"):
         from selfsuvis.app.routers import admin as admin_mod
-        with patch.object(sys.modules["asyncpg"], "connect",
-                          AsyncMock(return_value=conn)), \
-             patch.object(admin_mod.settings, "DATABASE_URL", db_url):
+
+        with (
+            patch.object(sys.modules["asyncpg"], "connect", AsyncMock(return_value=conn)),
+            patch.object(admin_mod.settings, "DATABASE_URL", db_url),
+        ):
             return _Resp(asyncio.run(admin_mod.automation_roi()))
 
     # ── no-data cases ─────────────────────────────────────────────────────────
@@ -230,9 +230,13 @@ class TestAutomationROI:
 
     def test_db_connect_error_returns_error(self):
         from selfsuvis.app.routers import admin as admin_mod
-        with patch.object(sys.modules["asyncpg"], "connect",
-                          AsyncMock(side_effect=OSError("refused"))), \
-             patch.object(admin_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
+
+        with (
+            patch.object(
+                sys.modules["asyncpg"], "connect", AsyncMock(side_effect=OSError("refused"))
+            ),
+            patch.object(admin_mod.settings, "DATABASE_URL", "postgresql://fake/db"),
+        ):
             resp = _Resp(asyncio.run(admin_mod.automation_roi()))
         assert resp.status_code == 200
         assert "error" in resp.json()
@@ -251,13 +255,20 @@ class TestAutomationROI:
         )
         body = self._get(conn).json()
         expected = {
-            "total_annotated_frames", "annotation_campaigns",
-            "finetune_jobs_triggered", "finetune_jobs_accepted",
-            "finetune_acceptance_rate", "model_reloads",
-            "reembed_sweeps_completed", "estimated_ops_minutes_saved",
-            "first_annotation_at", "last_annotation_at",
-            "days_observed", "annotation_frequency_per_week",
-            "verdict", "verdict_detail",
+            "total_annotated_frames",
+            "annotation_campaigns",
+            "finetune_jobs_triggered",
+            "finetune_jobs_accepted",
+            "finetune_acceptance_rate",
+            "model_reloads",
+            "reembed_sweeps_completed",
+            "estimated_ops_minutes_saved",
+            "first_annotation_at",
+            "last_annotation_at",
+            "days_observed",
+            "annotation_frequency_per_week",
+            "verdict",
+            "verdict_detail",
         }
         assert expected.issubset(body.keys())
 

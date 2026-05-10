@@ -1,4 +1,5 @@
 """Backward-compatibility shim. Use pipeline.storage.global_maps directly."""
+
 from selfsuvis.pipeline.storage.global_maps import (  # noqa: F401
     get_global_map_by_id,
     get_global_map_origin,

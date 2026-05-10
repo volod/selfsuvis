@@ -13,15 +13,23 @@ class TestMQTTConnectivity:
         """Health user can connect to MQTT broker and read $SYS topics."""
         container = docker_client.containers.get(container_names["mosquitto"])
 
-        result = container.exec_run([
-            "mosquitto_sub",
-            "-h", "127.0.0.1",
-            "-p", "1883",
-            "-t", "$SYS/broker/version",
-            "-C", "1",
-            "-u", env_config["mqtt_health_user"],
-            "-P", env_config["mqtt_health_password"],
-        ])
+        result = container.exec_run(
+            [
+                "mosquitto_sub",
+                "-h",
+                "127.0.0.1",
+                "-p",
+                "1883",
+                "-t",
+                "$SYS/broker/version",
+                "-C",
+                "1",
+                "-u",
+                env_config["mqtt_health_user"],
+                "-P",
+                env_config["mqtt_health_password"],
+            ]
+        )
 
         assert result.exit_code == 0, f"MQTT connection failed: {result.output}"
 
@@ -30,15 +38,23 @@ class TestMQTTConnectivity:
         """ChirpStack user can publish to eu868 topics."""
         container = docker_client.containers.get(container_names["mosquitto"])
 
-        result = container.exec_run([
-            "mosquitto_pub",
-            "-h", "127.0.0.1",
-            "-p", "1883",
-            "-t", "eu868/test/topic",
-            "-m", "test_message",
-            "-u", env_config["chirpstack_mqtt_user"],
-            "-P", env_config["chirpstack_mqtt_password"],
-        ])
+        result = container.exec_run(
+            [
+                "mosquitto_pub",
+                "-h",
+                "127.0.0.1",
+                "-p",
+                "1883",
+                "-t",
+                "eu868/test/topic",
+                "-m",
+                "test_message",
+                "-u",
+                env_config["chirpstack_mqtt_user"],
+                "-P",
+                env_config["chirpstack_mqtt_password"],
+            ]
+        )
 
         assert result.exit_code == 0, f"MQTT publish failed: {result.output}"
 
@@ -51,15 +67,23 @@ class TestMQTTTopicACL:
         """Health user can subscribe to $SYS topics."""
         container = docker_client.containers.get(container_names["mosquitto"])
 
-        result = container.exec_run([
-            "mosquitto_sub",
-            "-h", "127.0.0.1",
-            "-p", "1883",
-            "-t", "$SYS/broker/uptime",
-            "-C", "1",
-            "-u", env_config["mqtt_health_user"],
-            "-P", env_config["mqtt_health_password"],
-        ])
+        result = container.exec_run(
+            [
+                "mosquitto_sub",
+                "-h",
+                "127.0.0.1",
+                "-p",
+                "1883",
+                "-t",
+                "$SYS/broker/uptime",
+                "-C",
+                "1",
+                "-u",
+                env_config["mqtt_health_user"],
+                "-P",
+                env_config["mqtt_health_password"],
+            ]
+        )
 
         assert result.exit_code == 0, f"Could not read $SYS topic: {result.output}"
 
@@ -76,15 +100,23 @@ class TestMQTTPerformance:
         start_time = time.time()
 
         for i in range(message_count):
-            result = container.exec_run([
-                "mosquitto_pub",
-                "-h", "127.0.0.1",
-                "-p", "1883",
-                "-t", f"eu868/test/perf/{i}",
-                "-m", f"message_{i}",
-                "-u", env_config["chirpstack_mqtt_user"],
-                "-P", env_config["chirpstack_mqtt_password"],
-            ])
+            result = container.exec_run(
+                [
+                    "mosquitto_pub",
+                    "-h",
+                    "127.0.0.1",
+                    "-p",
+                    "1883",
+                    "-t",
+                    f"eu868/test/perf/{i}",
+                    "-m",
+                    f"message_{i}",
+                    "-u",
+                    env_config["chirpstack_mqtt_user"],
+                    "-P",
+                    env_config["chirpstack_mqtt_password"],
+                ]
+            )
 
             if result.exit_code != 0:
                 pytest.fail(f"Message {i} failed: {result.output}")
@@ -93,5 +125,4 @@ class TestMQTTPerformance:
         messages_per_second = message_count / elapsed
 
         # Accounts for docker exec overhead; validates broker doesn't stall
-        assert messages_per_second >= 5, \
-            f"Low throughput: {messages_per_second:.2f} msg/s"
+        assert messages_per_second >= 5, f"Low throughput: {messages_per_second:.2f} msg/s"

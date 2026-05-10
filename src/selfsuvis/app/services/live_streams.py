@@ -1,6 +1,5 @@
 """Live MediaMTX stream control and realtime caption runtime management."""
 
-
 import asyncio
 import contextlib
 from dataclasses import dataclass
@@ -161,7 +160,9 @@ class RealtimeStreamManager:
             if existing is not None and not existing.task.done():
                 raise RuntimeError(f"realtime analysis already running for session {session_id}")
             stop_event = asyncio.Event()
-            caption_rate = float(caption_fps if caption_fps is not None else settings.RTSP_CAPTION_FPS)
+            caption_rate = float(
+                caption_fps if caption_fps is not None else settings.RTSP_CAPTION_FPS
+            )
             runtime = _LiveRuntime(
                 session_id=session_id,
                 mission_id=mission_id,

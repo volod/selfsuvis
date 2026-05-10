@@ -1,4 +1,5 @@
 """Unit tests for pipeline.report_generator."""
+
 import os
 
 import pytest
@@ -34,6 +35,7 @@ def sample_frames():
 
 
 # ── generate_summary_html ─────────────────────────────────────────────────────
+
 
 def test_generate_html_contains_mission_id(sample_frames):
     out = generate_summary_html("mission-001", sample_frames)
@@ -110,7 +112,13 @@ def test_generate_html_caption_truncated():
     """Captions longer than 80 chars are truncated."""
     long_caption = "x" * 200
     frames = [
-        {"frame_path": "f.jpg", "caption": long_caption, "al_tag": "none", "al_score": 0.0, "t_sec": 0.0}
+        {
+            "frame_path": "f.jpg",
+            "caption": long_caption,
+            "al_tag": "none",
+            "al_score": 0.0,
+            "t_sec": 0.0,
+        }
     ]
     out = generate_summary_html("m1", frames)
     # The first 80 chars should appear, not the full 200
@@ -130,8 +138,10 @@ def test_generate_html_none_al_tag_no_badge():
 
 # ── write_mission_report ──────────────────────────────────────────────────────
 
+
 def test_write_mission_report_creates_file(sample_frames, monkeypatch, tmp_path):
     from selfsuvis.pipeline.core import config
+
     monkeypatch.setattr(config.settings, "DATA_DIR", str(tmp_path))
     path = write_mission_report("test-mission", sample_frames)
     assert os.path.isfile(path)
@@ -140,6 +150,7 @@ def test_write_mission_report_creates_file(sample_frames, monkeypatch, tmp_path)
 
 def test_write_mission_report_returns_absolute_path(sample_frames, monkeypatch, tmp_path):
     from selfsuvis.pipeline.core import config
+
     monkeypatch.setattr(config.settings, "DATA_DIR", str(tmp_path))
     path = write_mission_report("m1", sample_frames)
     assert os.path.isabs(path)
@@ -147,6 +158,7 @@ def test_write_mission_report_returns_absolute_path(sample_frames, monkeypatch, 
 
 def test_write_mission_report_content(sample_frames, monkeypatch, tmp_path):
     from selfsuvis.pipeline.core import config
+
     monkeypatch.setattr(config.settings, "DATA_DIR", str(tmp_path))
     path = write_mission_report("m99", sample_frames)
     content = open(path).read()
@@ -157,6 +169,7 @@ def test_write_mission_report_content(sample_frames, monkeypatch, tmp_path):
 def test_write_mission_report_creates_nested_dirs(monkeypatch, tmp_path):
     """write_mission_report creates reports/{mission_id}/ if it doesn't exist."""
     from selfsuvis.pipeline.core import config
+
     monkeypatch.setattr(config.settings, "DATA_DIR", str(tmp_path))
     path = write_mission_report("brand-new-mission", [])
     assert os.path.isdir(os.path.dirname(path))

@@ -21,6 +21,7 @@ Usage:
     clf = EdgeClassifier("data/models/dino_edge_int8.onnx", "data/gallery/mission_objects.npz")
     results = clf.classify(frame_pil)   # [(label, score), ...]
 """
+
 import argparse
 import glob
 import os
@@ -36,6 +37,7 @@ def _load_backbone(model_name: str, checkpoint: str | None, device: str):
     import torch
 
     from selfsuvis.models.dino_model import _resolve_dino_hub, hub_load_dino
+
     _, repo_or_dir, actual_name = _resolve_dino_hub(model_name)
     logger.info("Loading backbone: %s (resolved: %s)", model_name, actual_name)
     backbone = hub_load_dino(model_name, pretrained=True)
@@ -58,7 +60,9 @@ def _export_onnx(backbone, output_path: str, image_size: int, opset: int) -> Non
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     dummy = torch.zeros(1, 3, image_size, image_size)
 
-    logger.info("Exporting ONNX to %s (opset=%d, image_size=%d) ...", output_path, opset, image_size)
+    logger.info(
+        "Exporting ONNX to %s (opset=%d, image_size=%d) ...", output_path, opset, image_size
+    )
     torch.onnx.export(
         backbone,
         dummy,
@@ -79,6 +83,7 @@ def _validate_parity(backbone, onnx_path: str, image_size: int, device: str) -> 
     """Run a forward pass through both PyTorch and ONNX and assert outputs are close."""
     import numpy as np
     import torch
+
     try:
         import onnxruntime as ort
     except ImportError as exc:
@@ -119,14 +124,17 @@ def _collect_calibration_images(calibration_dir: str, n_samples: int) -> list:
     return paths
 
 
-def _quantize_static(onnx_path: str, output_path: str, calibration_paths: list, image_size: int) -> None:
+def _quantize_static(
+    onnx_path: str, output_path: str, calibration_paths: list, image_size: int
+) -> None:
     """Quantize ONNX model to INT8 using static quantization."""
     try:
         from onnxruntime.quantization import CalibrationDataReader, QuantType, quantize_static
     except ImportError as exc:
         logger.warning(
             "onnxruntime.quantization is not available in this build — skipping INT8 quantization. "
-            "Install onnxruntime-tools or a newer onnxruntime build. Error: %s", exc
+            "Install onnxruntime-tools or a newer onnxruntime build. Error: %s",
+            exc,
         )
         return
 
@@ -150,6 +158,7 @@ def _quantize_static(onnx_path: str, output_path: str, calibration_paths: list, 
             return {self._input_name: arr}
 
     import onnxruntime as ort
+
     session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
     input_name = session.get_inputs()[0].name
     del session
@@ -175,7 +184,7 @@ def main() -> None:
         "--checkpoint",
         default=None,
         help="Path to dino_ssl_best.pt (fine-tuned backbone weights). "
-             "If omitted, uses pretrained hub weights.",
+        "If omitted, uses pretrained hub weights.",
     )
     parser.add_argument(
         "--model-name",

@@ -50,7 +50,9 @@ def _stamp_to_sec(stamp: Any) -> float:
     return float(sec) + float(nanosec or 0) / 1_000_000_000.0
 
 
-def _ecef_like_local_xy(origin_lat: float, origin_lon: float, lat: float, lon: float) -> tuple[float, float]:
+def _ecef_like_local_xy(
+    origin_lat: float, origin_lon: float, lat: float, lon: float
+) -> tuple[float, float]:
     lat0 = math.radians(origin_lat)
     d_lat = math.radians(lat - origin_lat)
     d_lon = math.radians(lon - origin_lon)
@@ -85,7 +87,9 @@ def ros_imu_message_to_dict(topic: str, msg: Any) -> dict[str, Any]:
     }
 
 
-def ros_navsatfix_message_to_dict(topic: str, msg: Any, origin: dict[str, float] | None) -> dict[str, Any]:
+def ros_navsatfix_message_to_dict(
+    topic: str, msg: Any, origin: dict[str, float] | None
+) -> dict[str, Any]:
     lat = float(getattr(msg, "latitude"))
     lon = float(getattr(msg, "longitude"))
     altitude = float(getattr(msg, "altitude", 0.0) or 0.0)
@@ -230,7 +234,9 @@ class RealtimePacketPublisher:
 
     async def start(self) -> None:
         await self._ensure_session()
-        self._task = asyncio.create_task(self._flush_loop(), name=f"realtime_bridge_flush:{self._session_id}")
+        self._task = asyncio.create_task(
+            self._flush_loop(), name=f"realtime_bridge_flush:{self._session_id}"
+        )
 
     async def publish(self, packet: dict[str, Any]) -> None:
         await self._queue.put(packet)
@@ -328,11 +334,19 @@ class MavsdkTelemetrySource:
             raise RuntimeError("MAVSDK system has no telemetry interface")
         tasks = []
         if hasattr(telemetry, "position_velocity_ned"):
-            tasks.append(asyncio.create_task(self._pump_position(telemetry, on_message), name="mavsdk_pos"))
+            tasks.append(
+                asyncio.create_task(self._pump_position(telemetry, on_message), name="mavsdk_pos")
+            )
         if hasattr(telemetry, "attitude_euler"):
-            tasks.append(asyncio.create_task(self._pump_attitude(telemetry, on_message), name="mavsdk_att"))
+            tasks.append(
+                asyncio.create_task(self._pump_attitude(telemetry, on_message), name="mavsdk_att")
+            )
         if hasattr(telemetry, "heading"):
-            tasks.append(asyncio.create_task(self._pump_heading(telemetry, on_message), name="mavsdk_heading"))
+            tasks.append(
+                asyncio.create_task(
+                    self._pump_heading(telemetry, on_message), name="mavsdk_heading"
+                )
+            )
         if not tasks:
             raise RuntimeError("No supported MAVSDK telemetry streams are available")
         try:
@@ -349,7 +363,9 @@ class MavsdkTelemetrySource:
         try:
             from mavsdk import System
         except ImportError as exc:
-            raise RuntimeError("mavsdk is not installed; install it in the realtime bridge image") from exc
+            raise RuntimeError(
+                "mavsdk is not installed; install it in the realtime bridge image"
+            ) from exc
         kwargs: dict[str, Any] = {}
         if self._server_address:
             kwargs["mavsdk_server_address"] = self._server_address
@@ -361,10 +377,12 @@ class MavsdkTelemetrySource:
         core = getattr(system, "core", None)
         if core is None or not hasattr(core, "connection_state"):
             return
+
         async def _wait_connected() -> None:
             async for state in core.connection_state():
                 if getattr(state, "is_connected", False):
                     return
+
         await asyncio.wait_for(_wait_connected(), timeout=self._connect_timeout_sec)
         logger.info("MAVSDK bridge connected: %s", self._system_address)
 
@@ -419,7 +437,9 @@ class RosTelemetrySource:
             from rclpy.node import Node
             from sensor_msgs.msg import FluidPressure, Image, Imu, MagneticField, NavSatFix
         except ImportError as exc:
-            raise RuntimeError("rclpy and sensor_msgs are not installed in the realtime bridge image") from exc
+            raise RuntimeError(
+                "rclpy and sensor_msgs are not installed in the realtime bridge image"
+            ) from exc
 
         if self._domain_id:
             os.environ["ROS_DOMAIN_ID"] = self._domain_id
@@ -430,15 +450,48 @@ class RosTelemetrySource:
             def __init__(self, outer: "RosTelemetrySource") -> None:
                 super().__init__("selfsuvis_realtime_ros_bridge")
                 if outer._imu_topic:
-                    self.create_subscription(Imu, outer._imu_topic, lambda msg: queue.put_nowait(ros_imu_message_to_dict(outer._imu_topic, msg)), 10)
+                    self.create_subscription(
+                        Imu,
+                        outer._imu_topic,
+                        lambda msg: queue.put_nowait(
+                            ros_imu_message_to_dict(outer._imu_topic, msg)
+                        ),
+                        10,
+                    )
                 if outer._gps_topic:
-                    self.create_subscription(NavSatFix, outer._gps_topic, lambda msg: queue.put_nowait(outer._gps_msg(outer._gps_topic, msg)), 10)
+                    self.create_subscription(
+                        NavSatFix,
+                        outer._gps_topic,
+                        lambda msg: queue.put_nowait(outer._gps_msg(outer._gps_topic, msg)),
+                        10,
+                    )
                 if outer._barometer_topic:
-                    self.create_subscription(FluidPressure, outer._barometer_topic, lambda msg: queue.put_nowait(ros_fluid_pressure_message_to_dict(outer._barometer_topic, msg)), 10)
+                    self.create_subscription(
+                        FluidPressure,
+                        outer._barometer_topic,
+                        lambda msg: queue.put_nowait(
+                            ros_fluid_pressure_message_to_dict(outer._barometer_topic, msg)
+                        ),
+                        10,
+                    )
                 if outer._mag_topic:
-                    self.create_subscription(MagneticField, outer._mag_topic, lambda msg: queue.put_nowait(ros_magnetic_field_message_to_dict(outer._mag_topic, msg)), 10)
+                    self.create_subscription(
+                        MagneticField,
+                        outer._mag_topic,
+                        lambda msg: queue.put_nowait(
+                            ros_magnetic_field_message_to_dict(outer._mag_topic, msg)
+                        ),
+                        10,
+                    )
                 if outer._camera_topic:
-                    self.create_subscription(Image, outer._camera_topic, lambda msg: queue.put_nowait(ros_image_message_to_dict(outer._camera_topic, msg)), 10)
+                    self.create_subscription(
+                        Image,
+                        outer._camera_topic,
+                        lambda msg: queue.put_nowait(
+                            ros_image_message_to_dict(outer._camera_topic, msg)
+                        ),
+                        10,
+                    )
 
         node = BridgeNode(self)
         executor = SingleThreadedExecutor()
@@ -564,7 +617,9 @@ def build_runtime_from_settings(
 async def _amain(backend: str | None = None) -> None:
     if not settings.DATABASE_URL:
         raise RuntimeError("DATABASE_URL must be configured for realtime bridge runtimes")
-    db_pool = await asyncpg.create_pool(dsn=settings.DATABASE_URL, min_size=1, max_size=2, timeout=10)
+    db_pool = await asyncpg.create_pool(
+        dsn=settings.DATABASE_URL, min_size=1, max_size=2, timeout=10
+    )
     runtime = build_runtime_from_settings(backend=backend, db_pool=db_pool)
     try:
         await runtime.run_forever()

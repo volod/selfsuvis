@@ -25,11 +25,13 @@ def step_extract_frames(
 ) -> dict[str, Any]:
     """Step 01: extract frames via ffmpeg, write metadata JSON."""
     import json
+
     _log.info("Extracting frames from %s at %.1f fps …", video_path.name, fps)
     t0 = time.time()
     frame_list = extract_frames(str(video_path), video_id)
     elapsed = time.time() - t0
     from .steps_caption import _log_vram_snapshot as _lvs
+
     _lvs("after frame extraction")
     meta = {
         "video": str(video_path),
@@ -63,16 +65,19 @@ def _embed_and_flush(
         from qdrant_client.http import models as qmodels
 
         from selfsuvis.pipeline.core.utils import stable_point_id
+
         points = []
         for i, (fp, t_sec) in enumerate(batch_meta):
             vectors: dict[str, Any] = {"clip": clip_embeds[i].tolist()}
             if dino_embeds is not None:
                 vectors["dino"] = dino_embeds[i].tolist()
-            points.append(qmodels.PointStruct(
-                id=stable_point_id(video_id, fp),
-                vector=vectors,
-                payload={"frame_path": fp, "t_sec": t_sec, "video_id": video_id},
-            ))
+            points.append(
+                qmodels.PointStruct(
+                    id=stable_point_id(video_id, fp),
+                    vector=vectors,
+                    payload={"frame_path": fp, "t_sec": t_sec, "video_id": video_id},
+                )
+            )
         store.upsert_points(points)
     else:
         for i, (fp, t_sec) in enumerate(batch_meta):
@@ -90,13 +95,13 @@ def step_index_to_store(
     frame_list: list[tuple[str, float]],
 ) -> dict[str, Any]:
     """Step 02: embed frames and upsert into Qdrant or InMemoryStore."""
-    t0   = time.time()
+    t0 = time.time()
     dest = "Qdrant" if is_qdrant else "in-memory store"
     _log.info("Embedding %d frames into %s …", len(frame_list), dest)
     clip_model: OpenCLIPEmbedder = models["clip"]
     dino_model = models.get("dino")
-    batch_pil: list[Image.Image]         = []
-    batch_meta: list[tuple[str, float]]  = []
+    batch_pil: list[Image.Image] = []
+    batch_meta: list[tuple[str, float]] = []
     indexed = 0
     for fp, t_sec in frame_list:
         try:
@@ -106,11 +111,13 @@ def step_index_to_store(
         batch_pil.append(img)
         batch_meta.append((fp, t_sec))
         if len(batch_pil) >= 32:
-            indexed += _embed_and_flush(batch_pil, batch_meta, video_id,
-                                        clip_model, dino_model, store, is_qdrant)
+            indexed += _embed_and_flush(
+                batch_pil, batch_meta, video_id, clip_model, dino_model, store, is_qdrant
+            )
             batch_pil, batch_meta = [], []
-    indexed += _embed_and_flush(batch_pil, batch_meta, video_id,
-                                clip_model, dino_model, store, is_qdrant)
+    indexed += _embed_and_flush(
+        batch_pil, batch_meta, video_id, clip_model, dino_model, store, is_qdrant
+    )
     elapsed = time.time() - t0
     _log.info("  ✓ %d frames indexed into %s in %.1fs", indexed, dest, elapsed)
     return {"indexed": indexed, "elapsed_sec": elapsed}
@@ -147,22 +154,29 @@ def _search(
         limit = max(limit + 8, top_k * 4)
     if is_qdrant:
         from qdrant_client.http import models as qmodels
-        filt = qmodels.Filter(must=[qmodels.FieldCondition(
-            key="video_id", match=qmodels.MatchValue(value=video_id),
-        )])
+
+        filt = qmodels.Filter(
+            must=[
+                qmodels.FieldCondition(
+                    key="video_id",
+                    match=qmodels.MatchValue(value=video_id),
+                )
+            ]
+        )
         raw = store.search(vector_name, query_vec, limit=limit, payload_filter=filt)
         results = [{"score": p.score, "payload": p.payload} for p in raw]
     else:
         results = store.search(query_vec, limit=limit)
     if exclude_frame_path:
         results = [
-            r for r in results
-            if (r.get("payload", r).get("frame_path", "")) != exclude_frame_path
+            r for r in results if (r.get("payload", r).get("frame_path", "")) != exclude_frame_path
         ]
     if exclude_t_sec is not None and min_time_gap_sec > 0.0:
         results = [
-            r for r in results
-            if abs(float((r.get("payload", r).get("t_sec", -1.0)) or -1.0) - exclude_t_sec) >= min_time_gap_sec
+            r
+            for r in results
+            if abs(float((r.get("payload", r).get("t_sec", -1.0)) or -1.0) - exclude_t_sec)
+            >= min_time_gap_sec
         ]
     return results[:top_k]
 
@@ -215,7 +229,9 @@ def step_base_model_search_test(
     """Step 14: embed query with base model, search, write base_search.md."""
     qfp, qt = _pick_query_frame(frame_list)
     _log.info("Query frame: %s (t=%.2fs)", Path(qfp).name, qt)
-    label = "Base DINOv3 (pretrained)" if models.get("dino") is not None else "Base CLIP (pretrained)"
+    label = (
+        "Base DINOv3 (pretrained)" if models.get("dino") is not None else "Base CLIP (pretrained)"
+    )
     result = _run_search_test(
         store=store,
         is_qdrant=is_qdrant,
@@ -231,8 +247,9 @@ def step_base_model_search_test(
     )
     results = result["results"]
     elapsed = float(result["elapsed_sec"])
-    _log.info("  ✓ Search in %.2fs → top score %.4f", elapsed,
-              results[0]["score"] if results else 0)
+    _log.info(
+        "  ✓ Search in %.2fs → top score %.4f", elapsed, results[0]["score"] if results else 0
+    )
     return {"results": results, "query_frame": qfp, "query_t_sec": qt}
 
 

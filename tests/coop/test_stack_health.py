@@ -9,9 +9,7 @@ class TestContainerHealth:
 
     def test_all_containers_running(self, docker_client, expected_containers):
         """Verify all expected containers are running."""
-        running_containers = {
-            c.name for c in docker_client.containers.list()
-        }
+        running_containers = {c.name for c in docker_client.containers.list()}
 
         missing = set(expected_containers) - running_containers
         assert not missing, f"Missing containers: {missing}"
@@ -30,12 +28,11 @@ class TestContainerHealth:
                     # Allow "starting" for certain containers
                     if container.name in allow_starting and status == "starting":
                         status = "healthy"  # Treat as OK
-                    containers_with_health.append({
-                        "name": container.name,
-                        "status": status
-                    })
+                    containers_with_health.append({"name": container.name, "status": status})
 
-        unhealthy = [c for c in containers_with_health if c["status"] not in ("healthy", "starting")]
+        unhealthy = [
+            c for c in containers_with_health if c["status"] not in ("healthy", "starting")
+        ]
         assert not unhealthy, f"Unhealthy containers: {unhealthy}"
 
     def test_container_restart_count(self, docker_client, expected_containers):
@@ -48,8 +45,9 @@ class TestContainerHealth:
         for container in docker_client.containers.list():
             if container.name in expected_containers and container.name not in skip_restart_check:
                 restart_count = container.attrs.get("RestartCount", 0)
-                assert restart_count <= max_restarts, \
+                assert restart_count <= max_restarts, (
                     f"Container {container.name} restarted {restart_count} times"
+                )
 
 
 class TestServiceEndpoints:

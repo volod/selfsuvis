@@ -35,7 +35,9 @@ def step_platform_state_fusion(
             ", ".join(fusion_result.telemetry_sources) or "no telemetry sources",
         )
     else:
-        _log.info("  ▷ Platform-state fusion skipped: %s", fusion_result.reason or fusion_result.status)
+        _log.info(
+            "  ▷ Platform-state fusion skipped: %s", fusion_result.reason or fusion_result.status
+        )
     return {
         "skipped": fusion_result.status != "ok",
         "summary": summary,
@@ -106,8 +108,7 @@ def step_full_state_fusion(
         "sfm_measurements": result.map_state.diagnostics.get("sfm_measurements", 0),
         "scene_type": result.semantic_prior.scene_type,
         "per_frame_object_states": [
-            [s.to_dict() for s in frame_samples]
-            for frame_samples in result.object_state.per_frame
+            [s.to_dict() for s in frame_samples] for frame_samples in result.object_state.per_frame
         ],
         "smoothed_trajectory": [s.to_dict() for s in result.map_state.smoothed_samples],
     }

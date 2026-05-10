@@ -43,7 +43,14 @@ def _iter_resolved_ips(host: str) -> Iterable[ipaddress._BaseAddress]:
 def _is_ip_allowed(ip: ipaddress._BaseAddress) -> bool:
     if settings.ALLOW_PRIVATE_URLS:
         return True
-    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    ):
         return False
     return True
 

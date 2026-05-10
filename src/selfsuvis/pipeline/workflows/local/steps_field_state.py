@@ -12,10 +12,24 @@ from selfsuvis.pipeline.vision.rf_analyzer import RFSignalAnalyzer, _find_iq_sid
 _log = get_logger("pipeline.local")
 
 _VISIBILITY_TERMS = (
-    "fog", "smoke", "dust", "haze", "rain", "blur", "low visibility", "mist",
+    "fog",
+    "smoke",
+    "dust",
+    "haze",
+    "rain",
+    "blur",
+    "low visibility",
+    "mist",
 )
 _THERMAL_TERMS = (
-    "fire", "flame", "burn", "hot", "overheat", "thermal", "glow", "smolder",
+    "fire",
+    "flame",
+    "burn",
+    "hot",
+    "overheat",
+    "thermal",
+    "glow",
+    "smolder",
 )
 
 
@@ -95,9 +109,7 @@ def _build_visibility_observations(
         if r.get("frame_path")
     }
     captions_by_path = {
-        str(r.get("frame_path", "")): r
-        for r in (caption_results or [])
-        if r.get("frame_path")
+        str(r.get("frame_path", "")): r for r in (caption_results or []) if r.get("frame_path")
     }
     unidrive_rows = {
         str(r.get("frame_path", "")): r
@@ -116,7 +128,11 @@ def _build_visibility_observations(
         sources: list[str] = []
         depth_term = 0.0
         if depth_row:
-            if depth_row.get("depth_error") or depth_row.get("depth_unavailable") or depth_row.get("depth_disabled"):
+            if (
+                depth_row.get("depth_error")
+                or depth_row.get("depth_unavailable")
+                or depth_row.get("depth_disabled")
+            ):
                 depth_term = 1.0
                 sources.append("depth_confidence_drop")
             else:
@@ -129,11 +145,13 @@ def _build_visibility_observations(
                 if depth_conf < 0.65:
                     sources.append("depth_confidence_drop")
 
-        semantic_blob = " ".join([
-            str(caption_row.get("caption", "") or caption_row.get("description", "") or ""),
-            str((unidrive_row.get("understanding") or {}).get("scene_summary", "") or ""),
-            str((unidrive_row.get("perception") or {}).get("environment", "") or ""),
-        ]).lower()
+        semantic_blob = " ".join(
+            [
+                str(caption_row.get("caption", "") or caption_row.get("description", "") or ""),
+                str((unidrive_row.get("understanding") or {}).get("scene_summary", "") or ""),
+                str((unidrive_row.get("perception") or {}).get("environment", "") or ""),
+            ]
+        ).lower()
         semantic_term = 0.0
         if any(term in semantic_blob for term in _VISIBILITY_TERMS):
             semantic_term = 0.7
@@ -178,7 +196,11 @@ def _build_rf_observations(
     observations: list[FieldObservation] = []
     for (frame_path, t_sec), row in zip(frame_list, rf_rows):
         signal = row.get("rf_signal") or {}
-        if not signal or signal.get("rf_insufficient_samples") or signal.get("rf_spectrogram_error"):
+        if (
+            not signal
+            or signal.get("rf_insufficient_samples")
+            or signal.get("rf_spectrogram_error")
+        ):
             continue
         flatness = _safe_float(signal.get("spectral_flatness", 0.0), 0.0)
         occupied = _safe_float(signal.get("occupied_bw_ratio", 0.0), 0.0)
@@ -220,9 +242,7 @@ def _build_thermal_observations(
     unidrive_result: dict[str, Any],
 ) -> list[FieldObservation]:
     captions_by_path = {
-        str(r.get("frame_path", "")): r
-        for r in (caption_results or [])
-        if r.get("frame_path")
+        str(r.get("frame_path", "")): r for r in (caption_results or []) if r.get("frame_path")
     }
     unidrive_rows = {
         str(r.get("frame_path", "")): r
@@ -234,11 +254,13 @@ def _build_thermal_observations(
         fp = str(frame_path)
         caption_row = captions_by_path.get(fp, {})
         unidrive_row = unidrive_rows.get(fp, {})
-        blob = " ".join([
-            str(caption_row.get("caption", "") or caption_row.get("description", "") or ""),
-            str((unidrive_row.get("understanding") or {}).get("scene_summary", "") or ""),
-            str((unidrive_row.get("perception") or {}).get("scene_elements", "") or ""),
-        ]).lower()
+        blob = " ".join(
+            [
+                str(caption_row.get("caption", "") or caption_row.get("description", "") or ""),
+                str((unidrive_row.get("understanding") or {}).get("scene_summary", "") or ""),
+                str((unidrive_row.get("perception") or {}).get("scene_elements", "") or ""),
+            ]
+        ).lower()
         matches = [term for term in _THERMAL_TERMS if term in blob]
         if not matches:
             continue

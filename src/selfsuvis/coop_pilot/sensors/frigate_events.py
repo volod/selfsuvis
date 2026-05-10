@@ -40,7 +40,7 @@ class CameraEvent:
     ended_at: datetime | None
     has_snapshot: bool
     has_clip: bool
-    region: dict[str, float]   # {x, y, width, height} normalized 0-1
+    region: dict[str, float]  # {x, y, width, height} normalized 0-1
     raw: dict[str, Any]
 
 

@@ -42,16 +42,17 @@ from ._common import write_markdown_artifact
 _log = get_logger("pipeline.local.drone_audio")
 
 _HF_REPO = "geronimobasso/drone-audio-detection-samples"
-_SR = 22050           # resample target
+_SR = 22050  # resample target
 _N_MFCC = 40
 _N_FFT = 1024
 _HOP_LENGTH = 512
 _N_MELS = 64
 _CHUNK_SAMPLES = _SR  # 1-second chunks
-_T_FRAMES = _CHUNK_SAMPLES // _HOP_LENGTH + 1   # ≈ 44
+_T_FRAMES = _CHUNK_SAMPLES // _HOP_LENGTH + 1  # ≈ 44
 
 
 # ── MFCC (scipy-only, no librosa) ─────────────────────────────────────────────
+
 
 def _hz_to_mel(hz: float) -> float:
     return 2595.0 * math.log10(1.0 + hz / 700.0)
@@ -88,8 +89,8 @@ _FILTERBANK: np.ndarray | None = None
 def _compute_mfcc(wave: np.ndarray) -> np.ndarray:
     """Return MFCC array of shape (N_MFCC, T_FRAMES) from a mono float32 waveform."""
     global _FILTERBANK
-    from scipy.signal import stft
     from scipy.fft import dct
+    from scipy.signal import stft
 
     if _FILTERBANK is None:
         _FILTERBANK = _mel_filterbank(_SR, _N_FFT, _N_MELS)
@@ -108,10 +109,10 @@ def _compute_mfcc(wave: np.ndarray) -> np.ndarray:
         noverlap=_N_FFT - _HOP_LENGTH,
         return_onesided=True,
     )
-    power = np.abs(Zxx) ** 2                            # (n_fft//2+1, T)
-    mel_spec = _FILTERBANK @ power                      # (n_mels, T)
+    power = np.abs(Zxx) ** 2  # (n_fft//2+1, T)
+    mel_spec = _FILTERBANK @ power  # (n_mels, T)
     log_mel = np.log(mel_spec + 1e-9)
-    mfcc = dct(log_mel, type=2, axis=0, norm="ortho")[:_N_MFCC]   # (n_mfcc, T)
+    mfcc = dct(log_mel, type=2, axis=0, norm="ortho")[:_N_MFCC]  # (n_mfcc, T)
 
     # Pad or truncate time axis to _T_FRAMES
     T = mfcc.shape[1]
@@ -125,10 +126,12 @@ def _compute_mfcc(wave: np.ndarray) -> np.ndarray:
 
 # ── Dataset helpers ───────────────────────────────────────────────────────────
 
+
 def _load_wav_mono(path: Path) -> np.ndarray | None:
     """Load a WAV file as mono float32 resampled to _SR. Returns None on error."""
     try:
         from scipy.io import wavfile
+
         sr_in, data = wavfile.read(str(path))
         if data.dtype.kind == "i":
             data = data.astype(np.float32) / np.iinfo(data.dtype).max
@@ -230,9 +233,9 @@ def _download_hf_dataset(cache_dir: Path) -> bool:
 
 # ── PyTorch model + dataset ───────────────────────────────────────────────────
 
+
 def _build_model() -> Any:
     """Return DroneAudioCNN. Raises ImportError if torch is unavailable."""
-    import torch
     import torch.nn as nn
 
     class DroneAudioCNN(nn.Module):
@@ -241,14 +244,21 @@ def _build_model() -> Any:
         Input: (batch, 1, 40, 44) — MFCC (40 coefficients × 44 time frames)
         Output: (batch, 2) — logits for [no_drone, drone]
         """
+
         def __init__(self) -> None:
             super().__init__()
             self.features = nn.Sequential(
-                nn.Conv2d(1, 16, 3, padding=1), nn.BatchNorm2d(16), nn.ReLU(inplace=True),
+                nn.Conv2d(1, 16, 3, padding=1),
+                nn.BatchNorm2d(16),
+                nn.ReLU(inplace=True),
                 nn.MaxPool2d(2),
-                nn.Conv2d(16, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+                nn.Conv2d(16, 32, 3, padding=1),
+                nn.BatchNorm2d(32),
+                nn.ReLU(inplace=True),
                 nn.MaxPool2d(2),
-                nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True),
+                nn.Conv2d(32, 64, 3, padding=1),
+                nn.BatchNorm2d(64),
+                nn.ReLU(inplace=True),
                 nn.AdaptiveAvgPool2d(1),
             )
             self.classifier = nn.Linear(64, 2)
@@ -270,16 +280,18 @@ class _AudioDataset:
 
     def __getitem__(self, idx: int) -> tuple[Any, int]:
         import torch
+
         path, label = self.items[idx]
         wave = _load_wav_mono(path)
         if wave is None:
             wave = np.zeros(_CHUNK_SAMPLES, dtype=np.float32)
-        mfcc = _compute_mfcc(wave)                      # (40, T)
-        x = torch.from_numpy(mfcc).unsqueeze(0)         # (1, 40, T)
+        mfcc = _compute_mfcc(wave)  # (40, T)
+        x = torch.from_numpy(mfcc).unsqueeze(0)  # (1, 40, T)
         return x, label
 
 
 # ── Training ──────────────────────────────────────────────────────────────────
+
 
 def _train(
     train_items: list[tuple[Path, int]],
@@ -293,7 +305,9 @@ def _train(
     from torch.utils.data import DataLoader
 
     dev = torch.device("cuda" if device == "cuda" and torch.cuda.is_available() else "cpu")
-    _log.info("Audio model training on device=%s  train=%d  val=%d", dev, len(train_items), len(val_items))
+    _log.info(
+        "Audio model training on device=%s  train=%d  val=%d", dev, len(train_items), len(val_items)
+    )
 
     model = _build_model().to(dev)
     optimiser = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
@@ -341,20 +355,25 @@ def _train(
         prec = tp / max(tp + fp, 1)
         rec = tp / max(tp + fn, 1)
         f1 = 2 * prec * rec / max(prec + rec, 1e-9)
-        history.append({
-            "epoch": epoch,
-            "train_loss": train_loss / max(n_train, 1),
-            "train_acc": train_correct / max(n_train, 1),
-            "val_acc": float(val_acc),
-            "val_f1": float(f1),
-            "val_precision": float(prec),
-            "val_recall": float(rec),
-        })
+        history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss / max(n_train, 1),
+                "train_acc": train_correct / max(n_train, 1),
+                "val_acc": float(val_acc),
+                "val_f1": float(f1),
+                "val_precision": float(prec),
+                "val_recall": float(rec),
+            }
+        )
         _log.info(
             "  epoch %d/%d  loss=%.4f  train_acc=%.3f  val_acc=%.3f  val_f1=%.3f",
-            epoch, epochs,
-            history[-1]["train_loss"], history[-1]["train_acc"],
-            val_acc, f1,
+            epoch,
+            epochs,
+            history[-1]["train_loss"],
+            history[-1]["train_acc"],
+            val_acc,
+            f1,
         )
 
     model.eval()
@@ -364,10 +383,12 @@ def _train(
 
 # ── ONNX export ───────────────────────────────────────────────────────────────
 
+
 def _export_onnx(model: Any, out_path: Path, device: str) -> bool:
     """Export model to ONNX opset 14. Returns True on success."""
     try:
         import torch
+
         dev = torch.device("cuda" if device == "cuda" and torch.cuda.is_available() else "cpu")
         dummy = torch.zeros(1, 1, _N_MFCC, _T_FRAMES, device=dev)
         torch.onnx.export(
@@ -387,6 +408,7 @@ def _export_onnx(model: Any, out_path: Path, device: str) -> bool:
 
 
 # ── Report ────────────────────────────────────────────────────────────────────
+
 
 def _write_report(
     path: Path,
@@ -501,6 +523,7 @@ def _write_report(
 
 # ── Public step function ──────────────────────────────────────────────────────
 
+
 def step_drone_audio_training(
     video_dir: Path,
     output_dir: Path,
@@ -558,12 +581,12 @@ def step_drone_audio_training(
     result["n_val"] = n_val
 
     train_counts = {
-        "drone": sum(1 for _, l in train_items if l == 1),
-        "no_drone": sum(1 for _, l in train_items if l == 0),
+        "drone": sum(1 for _, lbl in train_items if lbl == 1),
+        "no_drone": sum(1 for _, lbl in train_items if lbl == 0),
     }
     val_counts = {
-        "drone": sum(1 for _, l in val_items if l == 1),
-        "no_drone": sum(1 for _, l in val_items if l == 0),
+        "drone": sum(1 for _, lbl in val_items if lbl == 1),
+        "no_drone": sum(1 for _, lbl in val_items if lbl == 0),
     }
 
     try:
@@ -574,19 +597,29 @@ def step_drone_audio_training(
         result["error"] = "torch not installed"
         _write_report(
             audio_dir / "drone_audio_report.md",
-            cache_dir, n_train, n_val, train_counts, val_counts,
-            {}, None, time.monotonic() - t0,
+            cache_dir,
+            n_train,
+            n_val,
+            train_counts,
+            val_counts,
+            {},
+            None,
+            time.monotonic() - t0,
         )
         return result
 
     _log.info(
         "Training DroneAudioCNN  epochs=%d  train=%d  val=%d  device=%s",
-        epochs, n_train, n_val, device,
+        epochs,
+        n_train,
+        n_val,
+        device,
     )
     model, metrics = _train(train_items, val_items, device, epochs)
 
     # Save checkpoint
     import torch
+
     pt_path = audio_dir / "drone_audio_cnn.pt"
     torch.save(model.state_dict(), pt_path)
     _log.info("  ✓ Checkpoint: %s", pt_path)
@@ -606,12 +639,20 @@ def step_drone_audio_training(
 
     _write_report(
         audio_dir / "drone_audio_report.md",
-        cache_dir, n_train, n_val, train_counts, val_counts,
-        metrics, onnx_path if ok else None, elapsed,
+        cache_dir,
+        n_train,
+        n_val,
+        train_counts,
+        val_counts,
+        metrics,
+        onnx_path if ok else None,
+        elapsed,
     )
     _log.info(
         "  Drone audio: val_acc=%.3f  val_f1=%.3f  onnx=%s  elapsed=%.1fs",
-        result["val_acc"], result["val_f1"],
-        "✓" if ok else "✗", elapsed,
+        result["val_acc"],
+        result["val_f1"],
+        "✓" if ok else "✗",
+        elapsed,
     )
     return result

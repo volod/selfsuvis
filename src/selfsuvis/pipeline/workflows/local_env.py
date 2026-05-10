@@ -5,7 +5,6 @@ before `pipeline.core.config` is imported. This ensures local orchestration CLI 
 in environment variables consumed by settings initialization.
 """
 
-
 import os
 from pathlib import Path
 from typing import Any
@@ -44,6 +43,7 @@ def apply_local_env(args: Any) -> None:
     # further down) still override .env values.
     try:
         from dotenv import load_dotenv as _load_dotenv  # noqa: PLC0415
+
         _load_dotenv()
     except ImportError:
         pass

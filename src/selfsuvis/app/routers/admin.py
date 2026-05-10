@@ -13,6 +13,7 @@ POST /admin/reembed-all       — enqueue a full re-embedding sweep (all frames 
 
 al_tag distribution comes from the PostgreSQL frames table.
 """
+
 import glob
 import os
 import uuid
@@ -40,9 +41,7 @@ async def _job_counts(request: Request) -> dict[str, int]:
     try:
         pool = get_db_pool(request)
         async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT status, COUNT(*) AS cnt FROM jobs GROUP BY status"
-            )
+            rows = await conn.fetch("SELECT status, COUNT(*) AS cnt FROM jobs GROUP BY status")
             counts = {row["status"]: row["cnt"] for row in rows}
     except Exception:
         counts = {}
@@ -62,9 +61,7 @@ async def _al_tag_counts(request: Request) -> dict[str, int]:
     try:
         pool = get_db_pool(request)
         async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT al_tag, COUNT(*) AS cnt FROM frames GROUP BY al_tag"
-            )
+            rows = await conn.fetch("SELECT al_tag, COUNT(*) AS cnt FROM frames GROUP BY al_tag")
             counts = {row["al_tag"]: row["cnt"] for row in rows}
     except Exception:
         counts = {}
@@ -83,9 +80,7 @@ def _discover_splat_paths(mission_id: str) -> list[str]:
       - maps/{mission_id}/splat.ply          (single-scene, legacy)
     """
     maps_dir = settings.MAPS_DIR
-    chunked = sorted(
-        glob.glob(os.path.join(maps_dir, mission_id, "scene-*", "splat.ply"))
-    )
+    chunked = sorted(glob.glob(os.path.join(maps_dir, mission_id, "scene-*", "splat.ply")))
     if chunked:
         return chunked
     single = os.path.join(maps_dir, mission_id, "splat.ply")
@@ -192,7 +187,9 @@ def export_map_cache(
     from selfsuvis.app.state import qdrant_store
     from selfsuvis.pipeline.storage.map_cache import build_map_cache
 
-    parsed_mission_ids = [m.strip() for m in mission_ids.split(",") if m.strip()] if mission_ids else None
+    parsed_mission_ids = (
+        [m.strip() for m in mission_ids.split(",") if m.strip()] if mission_ids else None
+    )
 
     npz_bytes = build_map_cache(
         qdrant_store,
@@ -205,7 +202,7 @@ def export_map_cache(
     return Response(
         content=npz_bytes,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": "attachment; filename=\"map_cache.npz\""},
+        headers={"Content-Disposition": 'attachment; filename="map_cache.npz"'},
     )
 
 
@@ -242,9 +239,9 @@ async def admin_stats(request: Request) -> dict[str, Any]:
 # crossings and not manually kicking off reembed sweeps.
 
 _MANUAL_RESTART_MINUTES = 3  # estimated time per manual `docker restart api`
-_LOW_FREQUENCY_THRESHOLD = 0.5   # annotations/week below which automation may not be worth it
+_LOW_FREQUENCY_THRESHOLD = 0.5  # annotations/week below which automation may not be worth it
 _HIGH_FREQUENCY_THRESHOLD = 2.0  # annotations/week above which automation is clearly valuable
-_MIN_OBSERVATION_DAYS = 7        # minimum days before frequency verdict is meaningful
+_MIN_OBSERVATION_DAYS = 7  # minimum days before frequency verdict is meaningful
 
 
 async def _compute_caption_null_rate(conn) -> float | None:
@@ -272,32 +269,42 @@ async def _fetch_roi_raw_data(conn) -> dict[str, Any]:
     """Collect all raw ROI metrics from the DB in a single connection."""
     import json as _json
 
-    total_annotated = await conn.fetchval(
-        "SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'"
-    ) or 0
+    total_annotated = (
+        await conn.fetchval("SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'") or 0
+    )
     timeline = await conn.fetchrow(
         "SELECT MIN(created_at) AS first_at, MAX(created_at) AS last_at "
         "FROM frames WHERE al_tag = 'annotated'"
     )
-    campaigns = await conn.fetchval(
-        "SELECT COUNT(DISTINCT TO_CHAR(created_at, 'YYYY-MM')) "
-        "FROM frames WHERE al_tag = 'annotated'"
-    ) or 0
+    campaigns = (
+        await conn.fetchval(
+            "SELECT COUNT(DISTINCT TO_CHAR(created_at, 'YYYY-MM')) "
+            "FROM frames WHERE al_tag = 'annotated'"
+        )
+        or 0
+    )
     ft_rows = await conn.fetch(
         "SELECT status, progress_json FROM jobs WHERE type = 'supervised_finetune'"
     )
     ft_triggered = len(ft_rows)
     ft_accepted = sum(
-        1 for r in ft_rows
+        1
+        for r in ft_rows
         if (
-            (r["progress_json"] if isinstance(r["progress_json"], dict)
-             else _json.loads(r["progress_json"] or "{}"))
-            .get("accepted") is True
+            (
+                r["progress_json"]
+                if isinstance(r["progress_json"], dict)
+                else _json.loads(r["progress_json"] or "{}")
+            ).get("accepted")
+            is True
         )
     )
-    reembed_done = await conn.fetchval(
-        "SELECT COUNT(*) FROM jobs WHERE type = 'reembed' AND status = 'finished'"
-    ) or 0
+    reembed_done = (
+        await conn.fetchval(
+            "SELECT COUNT(*) FROM jobs WHERE type = 'reembed' AND status = 'finished'"
+        )
+        or 0
+    )
     return {
         "total_annotated": total_annotated,
         "first_at": timeline["first_at"] if timeline else None,
@@ -337,7 +344,9 @@ def _compute_roi_verdict(freq_per_week: float | None) -> tuple:
     )
 
 
-@router.get("/automation-roi", summary="Annotation frequency, finetune trigger rate, ops time saved")
+@router.get(
+    "/automation-roi", summary="Annotation frequency, finetune trigger rate, ops time saved"
+)
 async def automation_roi() -> dict[str, Any]:
     """Measure whether the auto-trigger pipeline is paying its maintenance cost.
 
@@ -390,14 +399,18 @@ async def automation_roi() -> dict[str, Any]:
         "annotation_campaigns": d["campaigns"],
         "finetune_jobs_triggered": ft_triggered,
         "finetune_jobs_accepted": ft_accepted,
-        "finetune_acceptance_rate": round(acceptance_rate, 3) if acceptance_rate is not None else None,
+        "finetune_acceptance_rate": round(acceptance_rate, 3)
+        if acceptance_rate is not None
+        else None,
         "model_reloads": ft_accepted,
         "reembed_sweeps_completed": d["reembed_done"],
         "estimated_ops_minutes_saved": ft_accepted * _MANUAL_RESTART_MINUTES,
         "first_annotation_at": first_at,
         "last_annotation_at": last_at,
         "days_observed": round(days_observed, 1) if days_observed is not None else None,
-        "annotation_frequency_per_week": round(freq_per_week, 2) if freq_per_week is not None else None,
+        "annotation_frequency_per_week": round(freq_per_week, 2)
+        if freq_per_week is not None
+        else None,
         "verdict": verdict,
         "verdict_detail": verdict_detail,
         "caption_null_rate": round(caption_null_rate, 4) if caption_null_rate is not None else None,
@@ -406,7 +419,10 @@ async def automation_roi() -> dict[str, Any]:
 
 # ── Caption eval endpoint ────────────────────────────────────────────────────
 
-@router.get("/caption-eval", summary="Captioner health: null rate, confidence stats, model breakdown")
+
+@router.get(
+    "/caption-eval", summary="Captioner health: null rate, confidence stats, model breakdown"
+)
 async def caption_eval(request: Request) -> dict[str, Any]:
     """Captioner health metrics derived from the frames table.
 
@@ -483,6 +499,7 @@ async def caption_eval(request: Request) -> dict[str, Any]:
 
 # ── Hot-reload model endpoint ────────────────────────────────────────────────
 
+
 class ReloadModelRequest(BaseModel):
     checkpoint: str | None = None  # path to checkpoint; falls back to active_checkpoint.txt
 
@@ -505,7 +522,9 @@ async def reload_model(body: ReloadModelRequest = ReloadModelRequest()) -> dict[
     import selfsuvis.app.state as state
 
     if state.dino_model is None:
-        raise HTTPException(status_code=400, detail="DINO model is not loaded (MODEL_NAME not dinov2/dinov3)")
+        raise HTTPException(
+            status_code=400, detail="DINO model is not loaded (MODEL_NAME not dinov2/dinov3)"
+        )
 
     # Resolve checkpoint path
     ckpt_path = body.checkpoint
@@ -532,12 +551,15 @@ async def reload_model(body: ReloadModelRequest = ReloadModelRequest()) -> dict[
             active_txt.parent.mkdir(parents=True, exist_ok=True)
             active_txt.write_text(ckpt_path)
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Failed to load checkpoint: {exc}") from exc
+            raise HTTPException(
+                status_code=500, detail=f"Failed to load checkpoint: {exc}"
+            ) from exc
 
     return {"status": "ok", "checkpoint": ckpt_path}
 
 
 # ── Re-embed all endpoint ────────────────────────────────────────────────────
+
 
 @router.post("/reembed-all", summary="Enqueue full re-embedding sweep (dino vectors)")
 async def reembed_all(request: Request) -> dict[str, Any]:
@@ -570,6 +592,7 @@ async def reembed_all(request: Request) -> dict[str, Any]:
 
 # ── Reembed status endpoint ───────────────────────────────────────────────────
 
+
 @router.get("/reembed-status", summary="Check whether a reembed sweep is active")
 async def reembed_status(request: Request) -> dict[str, Any]:
     """Return whether a re-embedding sweep is currently running.
@@ -598,6 +621,7 @@ async def reembed_status(request: Request) -> dict[str, Any]:
         return {"active": False, "job_id": None, "frames_reembedded": None}
 
     import json as _json
+
     progress = row["progress_json"] or {}
     if isinstance(progress, str):
         progress = _json.loads(progress)

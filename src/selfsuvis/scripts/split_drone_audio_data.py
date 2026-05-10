@@ -25,7 +25,6 @@ import math
 import sys
 from pathlib import Path
 
-
 _HF_REPO = "geronimobasso/drone-audio-detection-samples"
 _DEFAULT_SR = 22050
 _VAL_FRAC = 0.15
@@ -34,6 +33,7 @@ _TEST_FRAC = 0.10
 
 def _resample_linear(arr, sr_in: int, sr_out: int):
     import numpy as np
+
     if sr_in == sr_out:
         return arr
     n_out = int(len(arr) * sr_out / sr_in)
@@ -47,6 +47,7 @@ def _resample_linear(arr, sr_in: int, sr_out: int):
 def _write_wav(path: Path, arr, sr: int) -> None:
     import numpy as np
     from scipy.io import wavfile
+
     pcm = (arr * 32767).astype(np.int16)
     wavfile.write(str(path), sr, pcm)
 
@@ -58,15 +59,16 @@ def _label_to_dirname(label: int, label_names: list[str]) -> str:
     return "drone" if label == 1 else "no_drone"
 
 
-def run(data_dir: Path, target_sr: int, val_frac: float, test_frac: float, max_per_class: int) -> None:
+def run(
+    data_dir: Path, target_sr: int, val_frac: float, test_frac: float, max_per_class: int
+) -> None:
     import numpy as np
 
     try:
         from datasets import load_dataset  # type: ignore[import]
     except ImportError:
         print(
-            "ERROR: 'datasets' library required. Install with:\n"
-            "  pip install datasets soundfile\n",
+            "ERROR: 'datasets' library required. Install with:\n  pip install datasets soundfile\n",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -108,6 +110,7 @@ def run(data_dir: Path, target_sr: int, val_frac: float, test_frac: float, max_p
 
     # Split each class independently (preserves balance)
     import random
+
     random.seed(42)
 
     written_total = 0
@@ -123,8 +126,8 @@ def run(data_dir: Path, target_sr: int, val_frac: float, test_frac: float, max_p
 
         splits = {
             "train": samples[:n_train],
-            "val": samples[n_train:n_train + n_val],
-            "test": samples[n_train + n_val:],
+            "val": samples[n_train : n_train + n_val],
+            "test": samples[n_train + n_val :],
         }
 
         for split_name, split_samples in splits.items():
@@ -152,7 +155,9 @@ def run(data_dir: Path, target_sr: int, val_frac: float, test_frac: float, max_p
                 written += 1
                 written_total += 1
 
-            print(f"  {split_name}/{cls}: {len(split_samples)} samples  ({written} written, {len(split_samples)-written} already exist)")
+            print(
+                f"  {split_name}/{cls}: {len(split_samples)} samples  ({written} written, {len(split_samples) - written} already exist)"
+            )
 
     print(f"\nDone. {written_total} WAV files written to {data_dir}")
     print("\nDirectory layout:")
@@ -175,19 +180,27 @@ def main() -> None:
         help=f"Output directory for WAV files (default: {settings.DRONE_AUDIO_DATA_DIR})",
     )
     parser.add_argument(
-        "--sr", type=int, default=_DEFAULT_SR,
+        "--sr",
+        type=int,
+        default=_DEFAULT_SR,
         help=f"Target sample rate in Hz (default: {_DEFAULT_SR})",
     )
     parser.add_argument(
-        "--val-frac", type=float, default=_VAL_FRAC,
+        "--val-frac",
+        type=float,
+        default=_VAL_FRAC,
         help=f"Fraction of data for validation (default: {_VAL_FRAC})",
     )
     parser.add_argument(
-        "--test-frac", type=float, default=_TEST_FRAC,
+        "--test-frac",
+        type=float,
+        default=_TEST_FRAC,
         help=f"Fraction of data for test (default: {_TEST_FRAC})",
     )
     parser.add_argument(
-        "--max-per-class", type=int, default=0,
+        "--max-per-class",
+        type=int,
+        default=0,
         help="Max samples per class (0 = unlimited)",
     )
     args = parser.parse_args()

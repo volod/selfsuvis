@@ -24,6 +24,7 @@ Also tests:
 No heavy ML imports (cv2, open_clip, torch) are required — worker.main is
 not imported directly.
 """
+
 import asyncio
 import os
 import tempfile
@@ -32,6 +33,7 @@ from typing import Any
 import numpy as np
 
 # ── synthetic splat helper ────────────────────────────────────────────────────
+
 
 def _write_synthetic_splat(path: str, n: int = 100) -> str:
     """Write a minimal valid 3DGS splat.ply with n Gaussians.
@@ -54,6 +56,7 @@ def _write_synthetic_splat(path: str, n: int = 100) -> str:
 
 # ── MockConn ──────────────────────────────────────────────────────────────────
 
+
 class _Row(dict):
     def __getattr__(self, key):
         try:
@@ -68,7 +71,7 @@ class MockConn:
 
     def __init__(self):
         self._global_maps: list = []
-        self._gmm: list = []          # global_map_missions rows
+        self._gmm: list = []  # global_map_missions rows
         self._missions: list = []
         self._next_id = 1
         self.execute_calls: list = []  # (query_upper, args) for each call
@@ -82,9 +85,15 @@ class MockConn:
         q = query.strip().upper()
         if "INSERT INTO GLOBAL_MAP" in q:
             origin_lat, origin_lon, origin_alt, created_at, updated_at = args
-            row = _Row(id=self._new_id(), origin_lat=origin_lat,
-                       origin_lon=origin_lon, origin_alt=origin_alt,
-                       splat_path=None, created_at=created_at, updated_at=updated_at)
+            row = _Row(
+                id=self._new_id(),
+                origin_lat=origin_lat,
+                origin_lon=origin_lon,
+                origin_alt=origin_alt,
+                splat_path=None,
+                created_at=created_at,
+                updated_at=updated_at,
+            )
             self._global_maps.append(row)
             return row["id"]
         raise NotImplementedError(f"fetchval: {query[:60]}")
@@ -122,12 +131,20 @@ class MockConn:
         self.execute_calls.append((q, args))
         if "INSERT INTO GLOBAL_MAP_MISSIONS" in q:
             gm_id, mission_id, transform_json, reg_error, registered_at = args
-            self._gmm = [r for r in self._gmm
-                         if not (r["global_map_id"] == gm_id and r["mission_id"] == mission_id)]
-            self._gmm.append({"global_map_id": gm_id, "mission_id": mission_id,
-                               "registration_transform_json": transform_json,
-                               "registration_error": reg_error,
-                               "registered_at": registered_at})
+            self._gmm = [
+                r
+                for r in self._gmm
+                if not (r["global_map_id"] == gm_id and r["mission_id"] == mission_id)
+            ]
+            self._gmm.append(
+                {
+                    "global_map_id": gm_id,
+                    "mission_id": mission_id,
+                    "registration_transform_json": transform_json,
+                    "registration_error": reg_error,
+                    "registered_at": registered_at,
+                }
+            )
         elif "UPDATE GLOBAL_MAP SET SPLAT_PATH" in q:
             splat_path, updated_at, gm_id = args
             for row in self._global_maps:
@@ -154,6 +171,7 @@ class MockConn:
 # state rather than patching call counts.  If the worker logic changes,
 # this coroutine must be updated in sync.
 
+
 async def _simulate_db_and_map(
     conn: MockConn,
     mission_id: str,
@@ -178,8 +196,11 @@ async def _simulate_db_and_map(
     for icp in mapper_result.get("icp_results", []):
         if icp.get("converged"):
             await register_mission(
-                conn, global_map_id, mission_id,
-                icp.get("transform_4x4"), icp.get("rmse"),
+                conn,
+                global_map_id,
+                mission_id,
+                icp.get("transform_4x4"),
+                icp.get("rmse"),
             )
             icp_registered = True
             if icp.get("fused_splat"):
@@ -188,7 +209,7 @@ async def _simulate_db_and_map(
     # Bootstrap: register with identity when no ICP converged so the next
     # mission's get_global_map_splats call can find this splat as a target.
     if not icp_registered and primary_splat is not None:
-        _identity = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+        _identity = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
         await register_mission(conn, global_map_id, mission_id, _identity, None)
 
 
@@ -198,36 +219,64 @@ def _run(coro):
 
 # ── mapper_result helpers ─────────────────────────────────────────────────────
 
+
 def _mapper_success(splat: str, icp_results: list = None) -> dict:
-    return {"map_status": "success", "splat_path": splat,
-            "splat_paths": [splat], "scene_count": 1,
-            "message": "done", "icp_results": icp_results or []}
+    return {
+        "map_status": "success",
+        "splat_path": splat,
+        "splat_paths": [splat],
+        "scene_count": 1,
+        "message": "done",
+        "icp_results": icp_results or [],
+    }
 
 
 def _mapper_skipped() -> dict:
-    return {"map_status": "skipped", "splat_path": None,
-            "splat_paths": [], "scene_count": 0,
-            "message": "not enough frames", "icp_results": []}
+    return {
+        "map_status": "skipped",
+        "splat_path": None,
+        "splat_paths": [],
+        "scene_count": 0,
+        "message": "not enough frames",
+        "icp_results": [],
+    }
 
 
 def _icp_converged(src: str, tgt: str, fused: str, tx: float = 7.0) -> dict:
-    return {"source_splat": src, "target_splat": tgt, "status": "ok",
-            "converged": True,
-            "transform_4x4": [[1,0,0,tx],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
-            "rmse": 0.04, "fitness": 0.9, "message": "", "fused_splat": fused}
+    return {
+        "source_splat": src,
+        "target_splat": tgt,
+        "status": "ok",
+        "converged": True,
+        "transform_4x4": [[1, 0, 0, tx], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+        "rmse": 0.04,
+        "fitness": 0.9,
+        "message": "",
+        "fused_splat": fused,
+    }
 
 
 def _icp_not_converged(src: str, tgt: str) -> dict:
-    return {"source_splat": src, "target_splat": tgt, "status": "no_overlap",
-            "converged": False, "transform_4x4": None, "rmse": None,
-            "fitness": 0.0, "message": "insufficient overlap", "fused_splat": None}
+    return {
+        "source_splat": src,
+        "target_splat": tgt,
+        "status": "no_overlap",
+        "converged": False,
+        "transform_4x4": None,
+        "rmse": None,
+        "fitness": 0.0,
+        "message": "insufficient overlap",
+        "fused_splat": None,
+    }
 
 
 # ── update_mission_splat_path DB unit tests ───────────────────────────────────
 
+
 class TestUpdateMissionSplatPath:
     def test_sets_splat_path_on_matching_mission(self):
         from selfsuvis.pipeline.storage.global_maps import update_mission_splat_path
+
         conn = MockConn()
         conn._missions = [{"id": "m1", "splat_path": None, "updated_at": 0.0}]
         _run(update_mission_splat_path(conn, "m1", "/maps/m1/splat.ply"))
@@ -235,6 +284,7 @@ class TestUpdateMissionSplatPath:
 
     def test_execute_called_with_correct_args(self):
         from selfsuvis.pipeline.storage.global_maps import update_mission_splat_path
+
         conn = MockConn()
         conn._missions = [{"id": "m1", "splat_path": None, "updated_at": 0.0}]
         _run(update_mission_splat_path(conn, "m1", "/maps/m1/splat.ply"))
@@ -248,6 +298,7 @@ class TestUpdateMissionSplatPath:
         from datetime import datetime, timezone
 
         from selfsuvis.pipeline.storage.global_maps import update_mission_splat_path
+
         conn = MockConn()
         conn._missions = [{"id": "m1", "splat_path": None, "updated_at": 0.0}]
         before = datetime.now(timezone.utc)
@@ -259,6 +310,7 @@ class TestUpdateMissionSplatPath:
 
 # ── discovery chain tests ─────────────────────────────────────────────────────
 
+
 class TestGetGlobalMapSplatsAfterUpdate:
     """update_mission_splat_path → register_mission → get_global_map_splats returns it."""
 
@@ -268,11 +320,12 @@ class TestGetGlobalMapSplatsAfterUpdate:
             register_mission,
             update_mission_splat_path,
         )
+
         conn = MockConn()
         conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0))
         conn._missions.append({"id": "m1", "splat_path": None, "updated_at": 0.0})
 
-        identity = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+        identity = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
         _run(register_mission(conn, 1, "m1", identity, None))
         _run(update_mission_splat_path(conn, "m1", "/maps/m1/splat.ply"))
 
@@ -281,10 +334,11 @@ class TestGetGlobalMapSplatsAfterUpdate:
 
     def test_splat_not_visible_before_update(self):
         from selfsuvis.pipeline.storage.global_maps import get_global_map_splats, register_mission
+
         conn = MockConn()
         conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0))
         conn._missions.append({"id": "m1", "splat_path": None, "updated_at": 0.0})
-        identity = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+        identity = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
         _run(register_mission(conn, 1, "m1", identity, None))
         # splat_path still None
         splats = _run(get_global_map_splats(conn, 1))
@@ -296,13 +350,14 @@ class TestGetGlobalMapSplatsAfterUpdate:
             register_mission,
             update_mission_splat_path,
         )
+
         conn = MockConn()
         conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0))
         conn._missions = [
             {"id": "m1", "splat_path": None, "updated_at": 0.0},
             {"id": "m2", "splat_path": None, "updated_at": 0.0},
         ]
-        identity = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+        identity = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
         _run(register_mission(conn, 1, "m1", identity, None))
         _run(update_mission_splat_path(conn, "m1", "/maps/m1/splat.ply"))
         _run(register_mission(conn, 1, "m2", identity, None))
@@ -314,13 +369,15 @@ class TestGetGlobalMapSplatsAfterUpdate:
 
 # ── _db_and_map logic tests ───────────────────────────────────────────────────
 
+
 class TestDbAndMapFirstMission:
     """First mission at a site: no ICP targets, 3DGS succeeds."""
 
     def _setup(self, splat="/maps/m1/splat.ply"):
         conn = MockConn()
-        conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0,
-                                      splat_path=None, updated_at=0.0))
+        conn._global_maps.append(
+            _Row(id=1, origin_lat=48.0, origin_lon=11.0, splat_path=None, updated_at=0.0)
+        )
         conn._missions.append({"id": "m1", "splat_path": None, "updated_at": 0.0})
         _run(_simulate_db_and_map(conn, "m1", 1, _mapper_success(splat)))
         return conn
@@ -338,9 +395,10 @@ class TestDbAndMapFirstMission:
 
     def test_bootstrap_registration_uses_identity_transform(self):
         import json
+
         conn = self._setup()
         transform = json.loads(conn._gmm[0]["registration_transform_json"])
-        assert transform == [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+        assert transform == [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
 
     def test_bootstrap_registration_error_is_none(self):
         conn = self._setup()
@@ -353,6 +411,7 @@ class TestDbAndMapFirstMission:
 
     def test_splat_discoverable_after_first_mission(self):
         from selfsuvis.pipeline.storage.global_maps import get_global_map_splats
+
         conn = self._setup()
         splats = _run(get_global_map_splats(conn, 1))
         assert splats == ["/maps/m1/splat.ply"]
@@ -363,13 +422,16 @@ class TestDbAndMapSecondMissionIcpConverged:
 
     def _setup(self):
         conn = MockConn()
-        conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0,
-                                      splat_path=None, updated_at=0.0))
+        conn._global_maps.append(
+            _Row(id=1, origin_lat=48.0, origin_lon=11.0, splat_path=None, updated_at=0.0)
+        )
         conn._missions.append({"id": "m2", "splat_path": None, "updated_at": 0.0})
-        result = _mapper_success("/maps/m2/splat.ply", icp_results=[
-            _icp_converged("/maps/m2/splat.ply", "/maps/m1/splat.ply",
-                           "/maps/m2/fused.ply")
-        ])
+        result = _mapper_success(
+            "/maps/m2/splat.ply",
+            icp_results=[
+                _icp_converged("/maps/m2/splat.ply", "/maps/m1/splat.ply", "/maps/m2/fused.ply")
+            ],
+        )
         _run(_simulate_db_and_map(conn, "m2", 1, result))
         return conn
 
@@ -379,10 +441,11 @@ class TestDbAndMapSecondMissionIcpConverged:
 
     def test_register_mission_called_with_icp_transform(self):
         import json
+
         conn = self._setup()
         assert len(conn._gmm) == 1
         transform = json.loads(conn._gmm[0]["registration_transform_json"])
-        assert transform == [[1,0,0,7],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+        assert transform == [[1, 0, 0, 7], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
 
     def test_register_mission_has_icp_rmse(self):
         conn = self._setup()
@@ -399,9 +462,10 @@ class TestDbAndMapSecondMissionIcpConverged:
 
     def test_icp_transform_is_not_identity(self):
         import json
+
         conn = self._setup()
         transform = json.loads(conn._gmm[0]["registration_transform_json"])
-        identity = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+        identity = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
         assert transform != identity
 
 
@@ -410,12 +474,14 @@ class TestDbAndMapIcpNotConverged:
 
     def _setup(self):
         conn = MockConn()
-        conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0,
-                                      splat_path=None, updated_at=0.0))
+        conn._global_maps.append(
+            _Row(id=1, origin_lat=48.0, origin_lon=11.0, splat_path=None, updated_at=0.0)
+        )
         conn._missions.append({"id": "m2", "splat_path": None, "updated_at": 0.0})
-        result = _mapper_success("/maps/m2/splat.ply", icp_results=[
-            _icp_not_converged("/maps/m2/splat.ply", "/maps/m1/splat.ply")
-        ])
+        result = _mapper_success(
+            "/maps/m2/splat.ply",
+            icp_results=[_icp_not_converged("/maps/m2/splat.ply", "/maps/m1/splat.ply")],
+        )
         _run(_simulate_db_and_map(conn, "m2", 1, result))
         return conn
 
@@ -425,10 +491,11 @@ class TestDbAndMapIcpNotConverged:
 
     def test_bootstrap_registration_fires(self):
         import json
+
         conn = self._setup()
         assert len(conn._gmm) == 1
         transform = json.loads(conn._gmm[0]["registration_transform_json"])
-        assert transform == [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+        assert transform == [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
 
     def test_global_map_splat_not_updated(self):
         conn = self._setup()
@@ -436,6 +503,7 @@ class TestDbAndMapIcpNotConverged:
 
     def test_splat_still_discoverable_for_next_mission(self):
         from selfsuvis.pipeline.storage.global_maps import get_global_map_splats
+
         conn = self._setup()
         splats = _run(get_global_map_splats(conn, 1))
         assert splats == ["/maps/m2/splat.ply"]
@@ -465,6 +533,7 @@ class TestDbAndMapMapperSkipped:
 
     def test_splat_not_discoverable(self):
         from selfsuvis.pipeline.storage.global_maps import get_global_map_splats
+
         conn = self._setup()
         splats = _run(get_global_map_splats(conn, 1))
         assert splats == []
@@ -475,16 +544,22 @@ class TestDbAndMapMultipleIcpTargets:
 
     def test_last_fused_splat_wins(self):
         conn = MockConn()
-        conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0,
-                                      splat_path=None, updated_at=0.0))
+        conn._global_maps.append(
+            _Row(id=1, origin_lat=48.0, origin_lon=11.0, splat_path=None, updated_at=0.0)
+        )
         conn._missions.append({"id": "m3", "splat_path": None, "updated_at": 0.0})
 
-        result = _mapper_success("/maps/m3/splat.ply", icp_results=[
-            _icp_converged("/maps/m3/splat.ply", "/maps/m1/splat.ply",
-                           "/maps/m3/fused_vs_m1.ply", tx=3.0),
-            _icp_converged("/maps/m3/splat.ply", "/maps/m2/splat.ply",
-                           "/maps/m3/fused_vs_m2.ply", tx=5.0),
-        ])
+        result = _mapper_success(
+            "/maps/m3/splat.ply",
+            icp_results=[
+                _icp_converged(
+                    "/maps/m3/splat.ply", "/maps/m1/splat.ply", "/maps/m3/fused_vs_m1.ply", tx=3.0
+                ),
+                _icp_converged(
+                    "/maps/m3/splat.ply", "/maps/m2/splat.ply", "/maps/m3/fused_vs_m2.ply", tx=5.0
+                ),
+            ],
+        )
         _run(_simulate_db_and_map(conn, "m3", 1, result))
 
         # Only one gmm row (UPSERT on conflict)
@@ -494,19 +569,23 @@ class TestDbAndMapMultipleIcpTargets:
 
     def test_no_bootstrap_when_any_icp_converged(self):
         import json
+
         conn = MockConn()
-        conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0,
-                                      splat_path=None, updated_at=0.0))
+        conn._global_maps.append(
+            _Row(id=1, origin_lat=48.0, origin_lon=11.0, splat_path=None, updated_at=0.0)
+        )
         conn._missions.append({"id": "m3", "splat_path": None, "updated_at": 0.0})
-        result = _mapper_success("/maps/m3/splat.ply", icp_results=[
-            _icp_converged("/maps/m3/splat.ply", "/maps/m1/splat.ply",
-                           "/maps/m3/fused.ply"),
-        ])
+        result = _mapper_success(
+            "/maps/m3/splat.ply",
+            icp_results=[
+                _icp_converged("/maps/m3/splat.ply", "/maps/m1/splat.ply", "/maps/m3/fused.ply"),
+            ],
+        )
         _run(_simulate_db_and_map(conn, "m3", 1, result))
         # Single row, non-identity transform
         assert len(conn._gmm) == 1
         transform = json.loads(conn._gmm[0]["registration_transform_json"])
-        assert transform != [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+        assert transform != [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
 
 
 class TestDbAndMapFusedSplatNone:
@@ -514,8 +593,9 @@ class TestDbAndMapFusedSplatNone:
 
     def test_register_called_but_global_map_not_updated(self):
         conn = MockConn()
-        conn._global_maps.append(_Row(id=1, origin_lat=48.0, origin_lon=11.0,
-                                      splat_path=None, updated_at=0.0))
+        conn._global_maps.append(
+            _Row(id=1, origin_lat=48.0, origin_lon=11.0, splat_path=None, updated_at=0.0)
+        )
         conn._missions.append({"id": "m2", "splat_path": None, "updated_at": 0.0})
         icp = _icp_converged("/maps/m2/splat.ply", "/maps/m1/splat.ply", None)
         icp["fused_splat"] = None  # fusion step failed
@@ -530,11 +610,13 @@ class TestDbAndMapFusedSplatNone:
 
 # ── synthetic splat.ply tests ─────────────────────────────────────────────────
 
+
 class TestSyntheticSplatFiles:
     """Verify the synthetic splat helper produces valid 3DGS PLY files."""
 
     def test_write_and_read_roundtrip(self):
         from selfsuvis.pipeline.mapping.splat_io import read_splat, splat_count
+
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "test.ply"), n=200)
             assert splat_count(path) == 200
@@ -543,6 +625,7 @@ class TestSyntheticSplatFiles:
 
     def test_all_59_properties_present(self):
         from selfsuvis.pipeline.mapping.splat_io import ALL_PROPERTIES, read_splat
+
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "test.ply"), n=50)
             data = read_splat(path)
@@ -551,16 +634,17 @@ class TestSyntheticSplatFiles:
 
     def test_rotations_are_unit_quaternions(self):
         from selfsuvis.pipeline.mapping.splat_io import read_splat
+
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "test.ply"), n=50)
             data = read_splat(path)
-            quats = np.column_stack([data["rot_0"], data["rot_1"],
-                                     data["rot_2"], data["rot_3"]])
+            quats = np.column_stack([data["rot_0"], data["rot_1"], data["rot_2"], data["rot_3"]])
             norms = np.linalg.norm(quats, axis=1)
             np.testing.assert_allclose(norms, 1.0, atol=1e-5)
 
     def test_merge_produces_correct_count(self):
         from selfsuvis.pipeline.mapping.splat_io import merge_splats, splat_count
+
         with tempfile.TemporaryDirectory() as tmp:
             a = _write_synthetic_splat(os.path.join(tmp, "a.ply"), n=100)
             b = _write_synthetic_splat(os.path.join(tmp, "b.ply"), n=150)
@@ -570,6 +654,7 @@ class TestSyntheticSplatFiles:
 
     def test_is_splat_ply_recognises_synthetic(self):
         from selfsuvis.pipeline.mapping.splat_io import is_splat_ply
+
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "test.ply"), n=10)
             assert is_splat_ply(path) is True
@@ -577,6 +662,7 @@ class TestSyntheticSplatFiles:
     def test_typical_small_mission_size(self):
         """Confirm we can create a small-mission-sized splat (50K Gaussians)."""
         from selfsuvis.pipeline.mapping.splat_io import splat_count
+
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_synthetic_splat(os.path.join(tmp, "medium.ply"), n=50_000)
             assert splat_count(path) == 50_000

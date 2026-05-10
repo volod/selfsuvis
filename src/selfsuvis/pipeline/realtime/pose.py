@@ -7,7 +7,6 @@ velocity, barometric altitude, and magnetometer heading when those signals are
 fresh enough to trust together.
 """
 
-
 import math
 from collections.abc import Iterable
 from datetime import datetime, timezone
@@ -184,16 +183,18 @@ def build_fused_pose_from_packets(
 
     gps = _gps_pose(latest_by_type["gps"]) if "gps" in latest_by_type else None
     imu = _imu_pose(latest_by_type["imu"]) if "imu" in latest_by_type else None
-    barometer = _barometer_pose(latest_by_type["barometer"]) if "barometer" in latest_by_type else None
-    magnetometer = _magnetometer_pose(latest_by_type["magnetometer"]) if "magnetometer" in latest_by_type else None
+    barometer = (
+        _barometer_pose(latest_by_type["barometer"]) if "barometer" in latest_by_type else None
+    )
+    magnetometer = (
+        _magnetometer_pose(latest_by_type["magnetometer"])
+        if "magnetometer" in latest_by_type
+        else None
+    )
     if gps is None and imu is None and barometer is None and magnetometer is None:
         return None
 
-    anchors = [
-        item["t_sec"]
-        for item in (gps, imu, barometer, magnetometer)
-        if item is not None
-    ]
+    anchors = [item["t_sec"] for item in (gps, imu, barometer, magnetometer) if item is not None]
     anchor_t = max(anchors)
 
     def is_fresh(item: dict[str, Any] | None) -> bool:

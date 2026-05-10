@@ -65,7 +65,9 @@ class ReportRenderer:
     def _print_header(self, report: dict[str, Any]) -> None:
         self.console.print()
         self.console.print(
-            Panel.fit("[bold blue]coop-pilot Stack Analytics Report[/bold blue]", border_style="blue")
+            Panel.fit(
+                "[bold blue]coop-pilot Stack Analytics Report[/bold blue]", border_style="blue"
+            )
         )
         self.console.print(f"Generated: {report['generated_at']}")
         self.console.print()
@@ -101,9 +103,15 @@ class ReportRenderer:
         for service, stats in sorted(resources.items()):
             table.add_row(
                 service,
-                Text(f"{stats['cpu_percent']:.1f}%", style="red" if stats["cpu_percent"] > 80 else "green"),
+                Text(
+                    f"{stats['cpu_percent']:.1f}%",
+                    style="red" if stats["cpu_percent"] > 80 else "green",
+                ),
                 f"{stats['memory_usage_mb']:.1f}",
-                Text(f"{stats['memory_percent']:.1f}%", style="red" if stats["memory_percent"] > 80 else "green"),
+                Text(
+                    f"{stats['memory_percent']:.1f}%",
+                    style="red" if stats["memory_percent"] > 80 else "green",
+                ),
             )
         self.console.print(table)
         self.console.print()

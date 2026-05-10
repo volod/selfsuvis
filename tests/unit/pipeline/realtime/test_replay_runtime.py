@@ -48,20 +48,41 @@ def test_replay_local_run_produces_ordered_events_with_freshness():
                 "automation_confidence": 0.58,
                 "trust_penalty": 0.12,
                 "recommended_action": "reduce_speed",
-                "top_threats": [{"type": "collision_risk", "score": 0.62, "evidence": {"evidence_sources": ["near_field_occupancy", "object_velocity"]}}],
+                "top_threats": [
+                    {
+                        "type": "collision_risk",
+                        "score": 0.62,
+                        "evidence": {
+                            "evidence_sources": ["near_field_occupancy", "object_velocity"]
+                        },
+                    }
+                ],
             },
         )
         _write_json(
             video_dir / "threat_primitives.json",
             {
                 "primitives": [
-                    {"type": "collision_risk", "score": 0.62, "uncertainty": 0.15, "evidence_sources": ["near_field_occupancy", "object_velocity"]},
-                    {"type": "visibility_degradation", "score": 0.44, "uncertainty": 0.20, "evidence_sources": ["depth_failure_rate", "caption_confidence"]},
+                    {
+                        "type": "collision_risk",
+                        "score": 0.62,
+                        "uncertainty": 0.15,
+                        "evidence_sources": ["near_field_occupancy", "object_velocity"],
+                    },
+                    {
+                        "type": "visibility_degradation",
+                        "score": 0.44,
+                        "uncertainty": 0.20,
+                        "evidence_sources": ["depth_failure_rate", "caption_confidence"],
+                    },
                 ]
             },
         )
         _write_json(video_dir / "physical_state_summary.json", {"platform_pose_confidence": 0.77})
-        _write_json(video_dir / "field_state_summary.json", {"clip_level_fields": {"visibility": {"mean": 0.22}}})
+        _write_json(
+            video_dir / "field_state_summary.json",
+            {"clip_level_fields": {"visibility": {"mean": 0.22}}},
+        )
         _write_json(
             video_dir / "full_state_fusion.json",
             {
@@ -82,8 +103,18 @@ def test_replay_local_run_produces_ordered_events_with_freshness():
         )
 
         assert len(events) == 5
-        assert events == sorted(events, key=lambda row: (row["event_time"], row["event_kind"], row["sector_id"], row["sensor_type"]))
-        assert any(event["event_kind"] == "threat" and event["freshness_sec"] >= 4.0 for event in events)
+        assert events == sorted(
+            events,
+            key=lambda row: (
+                row["event_time"],
+                row["event_kind"],
+                row["sector_id"],
+                row["sensor_type"],
+            ),
+        )
+        assert any(
+            event["event_kind"] == "threat" and event["freshness_sec"] >= 4.0 for event in events
+        )
 
 
 def test_degraded_mode_and_aggregator_reflect_stale_and_missing_inputs():
@@ -119,17 +150,25 @@ def test_degraded_mode_and_aggregator_reflect_stale_and_missing_inputs():
     assert degraded["health_warnings"]
 
     aggregator = RealtimeThreatAggregator()
-    aggregator.consume_all(sensor_events + health_events + [
-        ThreatEvent(
-            event_time="2026-01-01T00:00:00+00:00",
-            ingest_time="2026-01-01T00:00:45+00:00",
-            node_id="node_a",
-            sensor_type="local_threat",
-            sector_id="sector_1",
-            payload={"route_id": "route_a", "local_threat_score": 0.66, "automation_confidence": 0.74},
-            freshness_sec=45.0,
-        ).to_dict()
-    ])
+    aggregator.consume_all(
+        sensor_events
+        + health_events
+        + [
+            ThreatEvent(
+                event_time="2026-01-01T00:00:00+00:00",
+                ingest_time="2026-01-01T00:00:45+00:00",
+                node_id="node_a",
+                sensor_type="local_threat",
+                sector_id="sector_1",
+                payload={
+                    "route_id": "route_a",
+                    "local_threat_score": 0.66,
+                    "automation_confidence": 0.74,
+                },
+                freshness_sec=45.0,
+            ).to_dict()
+        ]
+    )
     snapshot = aggregator.snapshot()
     assert snapshot["automation_confidence"] < 0.74
     assert snapshot["degraded"] is True
@@ -146,5 +185,16 @@ def test_replay_bridge_trace_loads_recorded_mavlink_and_ros_samples():
 
     assert len(mav_records) == 4
     assert len(ros_records) == 5
-    assert [packet["sensor_type"] for packet in mav_packets] == ["gps", "imu", "barometer", "magnetometer"]
-    assert [packet["sensor_type"] for packet in ros_packets] == ["gps", "imu", "barometer", "magnetometer", "camera"]
+    assert [packet["sensor_type"] for packet in mav_packets] == [
+        "gps",
+        "imu",
+        "barometer",
+        "magnetometer",
+    ]
+    assert [packet["sensor_type"] for packet in ros_packets] == [
+        "gps",
+        "imu",
+        "barometer",
+        "magnetometer",
+        "camera",
+    ]

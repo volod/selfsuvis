@@ -1,0 +1,33 @@
+name: OpenAPI spec diff gate
+
+on:
+  pull_request:
+    paths:
+      - "src/selfsuvis/app/**"
+      - "docs/api/**"
+
+jobs:
+  openapi-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps for OpenAPI export
+        run: |
+          pip install -e ".[dev]" --no-deps
+          pip install fastapi pydantic sse-starlette asyncpg
+
+      - name: Export OpenAPI spec
+        run: make export-openapi
+
+      - name: Fail if spec changed without committing
+        run: |
+          if ! git diff --exit-code docs/api/v1-openapi.json; then
+            echo "ERROR: docs/api/v1-openapi.json is out of date."
+            echo "Run 'make export-openapi && git add docs/api/v1-openapi.json' and commit."
+            exit 1
+          fi

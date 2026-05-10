@@ -1,4 +1,5 @@
 """Unit tests for pipeline/map_cache.py."""
+
 import json
 import math
 from io import BytesIO
@@ -11,6 +12,7 @@ import pytest
 from selfsuvis.pipeline.storage.map_cache import build_map_cache
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_point(
     clip: list[float],
@@ -50,6 +52,7 @@ def _load_npz(raw: bytes) -> Any:
 
 
 # ── build_map_cache tests ─────────────────────────────────────────────────────
+
 
 def test_empty_store_returns_valid_npz():
     store = _make_store([])
@@ -109,8 +112,9 @@ def test_t_sec_packed():
 
 
 def test_meta_json_decodable():
-    pt = _make_point([0.0], mission_id="mission_abc", robot_id="robot_1",
-                     frame_path="/data/frames/x.jpg")
+    pt = _make_point(
+        [0.0], mission_id="mission_abc", robot_id="robot_1", frame_path="/data/frames/x.jpg"
+    )
     cache = _load_npz(build_map_cache(_make_store([pt])))
     meta = json.loads(bytes(cache["meta_json"]).decode())
     assert isinstance(meta, list)

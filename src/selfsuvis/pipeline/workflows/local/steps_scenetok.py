@@ -48,15 +48,20 @@ def step_scenetok(
         return result
 
     effective_mode = mode or str(getattr(settings, "SCENETOK_MODE", "masks") or "masks")
-    effective_checkpoint = checkpoint or str(getattr(settings, "SCENETOK_CHECKPOINT", "va-videodc_re10k") or "va-videodc_re10k")
-    max_frames = int(getattr(settings, "SCENETOK_MAX_FRAMES", _DEFAULT_MAX_FRAMES) or _DEFAULT_MAX_FRAMES)
+    effective_checkpoint = checkpoint or str(
+        getattr(settings, "SCENETOK_CHECKPOINT", "va-videodc_re10k") or "va-videodc_re10k"
+    )
+    max_frames = int(
+        getattr(settings, "SCENETOK_MAX_FRAMES", _DEFAULT_MAX_FRAMES) or _DEFAULT_MAX_FRAMES
+    )
     sample_step = max(1, len(frame_list) // max_frames)
     sampled = frame_list[::sample_step][:max_frames]
 
     _log.info(
-        "Running SceneTok encoder+decoder on %d sampled frames "
-        "(checkpoint=%s mode=%s) …",
-        len(sampled), effective_checkpoint, effective_mode,
+        "Running SceneTok encoder+decoder on %d sampled frames (checkpoint=%s mode=%s) …",
+        len(sampled),
+        effective_checkpoint,
+        effective_mode,
     )
     t0 = time.time()
 
@@ -108,20 +113,24 @@ def step_scenetok(
     n_tokens = int(out.get("n_tokens", 0))
     _log.info(
         "  ✓ SceneTok: %d frames → %d tokens → %d %s in %.1fs",
-        len(images), n_tokens, saved,
+        len(images),
+        n_tokens,
+        saved,
         "masks" if effective_mode == "masks" else "views",
         elapsed,
     )
     client.release()
 
-    result.update({
-        "skipped": False,
-        "n_tokens": n_tokens,
-        "n_frames": saved,
-        "elapsed_sec": elapsed,
-        "mode": effective_mode,
-        "checkpoint": effective_checkpoint,
-        "tokens_path": str(video_dir / "scenetok_tokens.npz") if tokens_b64 else "",
-        "output_dir": str(out_dir),
-    })
+    result.update(
+        {
+            "skipped": False,
+            "n_tokens": n_tokens,
+            "n_frames": saved,
+            "elapsed_sec": elapsed,
+            "mode": effective_mode,
+            "checkpoint": effective_checkpoint,
+            "tokens_path": str(video_dir / "scenetok_tokens.npz") if tokens_b64 else "",
+            "output_dir": str(out_dir),
+        }
+    )
     return result

@@ -1,6 +1,5 @@
 """Packet normalization for realtime sensor ingest."""
 
-
 from collections.abc import Iterable
 from typing import Any
 

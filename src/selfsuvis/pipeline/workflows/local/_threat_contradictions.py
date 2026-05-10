@@ -75,7 +75,8 @@ def matching_unidrive_rows(
     support_set = {str(p) for p in support_paths if p}
     support_names = {Path(p).name for p in support_paths if p}
     return [
-        row for row in unidrive_rows
+        row
+        for row in unidrive_rows
         if str(row.get("frame_path", "")) in support_set
         or Path(str(row.get("frame_path", ""))).name in support_names
     ]
@@ -245,7 +246,10 @@ def summarize_contradictions(
                 "pattern": pattern,
                 "count": 0,
                 "severity": 0.0,
-                "source_pair": [signal.get("source_a", "unknown"), signal.get("source_b", "unknown")],
+                "source_pair": [
+                    signal.get("source_a", "unknown"),
+                    signal.get("source_b", "unknown"),
+                ],
                 "frames": [],
                 "description": str(signal.get("description", "") or ""),
             },
@@ -261,7 +265,10 @@ def summarize_contradictions(
     )
 
     if source_pair_conflicts:
-        raw_penalty = sum(float(item["severity"]) * min(1.0, 0.5 + 0.25 * int(item["count"])) for item in source_pair_conflicts)
+        raw_penalty = sum(
+            float(item["severity"]) * min(1.0, 0.5 + 0.25 * int(item["count"]))
+            for item in source_pair_conflicts
+        )
     else:
         raw_penalty = 0.0
     trust_penalty = min(0.65, raw_penalty * max(0.35, disagreement_rate))

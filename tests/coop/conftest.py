@@ -33,6 +33,7 @@ def env_config():
 def docker_client():
     """Create Docker client for container operations."""
     import docker
+
     return docker.from_env()
 
 

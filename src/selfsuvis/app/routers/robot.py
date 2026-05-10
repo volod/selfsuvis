@@ -21,6 +21,7 @@ to the nearest GPS waypoint, with their captions and scene facts.
 Auth: X-API-Key header required.
 Latency target: p99 < 200ms (advisory use only — does not block robot motion).
 """
+
 import math
 from typing import Any
 
@@ -50,6 +51,7 @@ class PoseQuery(BaseModel):
 
     Requires either GPS (lat + lon) or metric ENU (tx + ty + tz).
     """
+
     lat: float | None = Field(default=None, description="Latitude (decimal degrees, WGS-84)")
     lon: float | None = Field(default=None, description="Longitude (decimal degrees, WGS-84)")
     alt: float = Field(default=0.0, description="Altitude in metres (optional)")
@@ -57,11 +59,15 @@ class PoseQuery(BaseModel):
         default=None, description="Robot heading in degrees (0=North, 90=East)"
     )
     radius_m: float = Field(
-        default=50.0, ge=1.0, le=5000.0,
+        default=50.0,
+        ge=1.0,
+        le=5000.0,
         description="Search radius in metres (GPS bbox or ENU sphere)",
     )
     top_k: int = Field(
-        default=5, ge=1, le=50,
+        default=5,
+        ge=1,
+        le=50,
         description="Maximum number of results to return",
     )
     tx: float | None = Field(default=None, description="ENU East (m)")
@@ -74,7 +80,7 @@ class PoseQuery(BaseModel):
     global_map_id: int | None = Field(
         default=None,
         description="Restrict search to frames from a specific site (global_map id). "
-                    "Required for ENU queries to be meaningful across multiple sites.",
+        "Required for ENU queries to be meaningful across multiple sites.",
     )
 
     @model_validator(mode="after")
@@ -90,6 +96,7 @@ class PoseQuery(BaseModel):
 
 class PoseMatch(BaseModel):
     """Single frame match in a pose query response."""
+
     frame_id: str | None
     mission_id: str | None
     score: float
@@ -97,13 +104,14 @@ class PoseMatch(BaseModel):
     lat: float | None
     lon: float | None
     alt: float | None
-    distance_m: float | None   # approximate GPS distance from query point
+    distance_m: float | None  # approximate GPS distance from query point
     frame_path: str | None
     global_pose_json: dict[str, Any] | None
 
 
 class TimelineVisit(BaseModel):
     """One historical visit entry from the scene_timeline table."""
+
     mission_id: str
     frame_id: str
     t_sec: float | None
@@ -112,7 +120,7 @@ class TimelineVisit(BaseModel):
     caption: str | None
     road_condition: str | None
     vehicle_count: int | None
-    created_at: str | None   # ISO-8601 string
+    created_at: str | None  # ISO-8601 string
 
 
 class PoseQueryResponse(BaseModel):
@@ -123,7 +131,7 @@ class PoseQueryResponse(BaseModel):
     query_ty: float | None
     query_tz: float | None
     radius_m: float
-    filter_strategy: str   # "2d", "1d+python", or "enu+python"
+    filter_strategy: str  # "2d", "1d+python", or "enu+python"
     global_map_id: int | None
     last_visits: list[TimelineVisit] | None = None  # Phase 5: last 3 visits near query point
 
@@ -135,7 +143,9 @@ def _gps_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float
     return math.sqrt(dlat * dlat + dlon * dlon)
 
 
-def _enu_distance_m(tx1: float, ty1: float, tz1: float, tx2: float, ty2: float, tz2: float) -> float:
+def _enu_distance_m(
+    tx1: float, ty1: float, tz1: float, tx2: float, ty2: float, tz2: float
+) -> float:
     """3D Euclidean distance in the ENU frame (metres)."""
     return math.sqrt((tx2 - tx1) ** 2 + (ty2 - ty1) ** 2 + (tz2 - tz1) ** 2)
 
@@ -166,7 +176,11 @@ async def _get_last_visits(
             ORDER BY created_at DESC
             LIMIT $5
             """,
-            min_lat, max_lat, min_lon, max_lon, limit,
+            min_lat,
+            max_lat,
+            min_lon,
+            max_lon,
+            limit,
         )
     except Exception as exc:
         logger.debug("scene_timeline query failed (table may not exist yet): %s", exc)
@@ -244,16 +258,24 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
         if settings.GPS_FILTER_2D:
             query_filter = qmodels.Filter(
                 must=[
-                    qmodels.FieldCondition(key="gps.lat", range=qmodels.Range(gte=min_lat, lte=max_lat)),
-                    qmodels.FieldCondition(key="gps.lon", range=qmodels.Range(gte=min_lon, lte=max_lon)),
-                ] + robot_must
+                    qmodels.FieldCondition(
+                        key="gps.lat", range=qmodels.Range(gte=min_lat, lte=max_lat)
+                    ),
+                    qmodels.FieldCondition(
+                        key="gps.lon", range=qmodels.Range(gte=min_lon, lte=max_lon)
+                    ),
+                ]
+                + robot_must
             )
             filter_strategy = "2d"
         else:
             query_filter = qmodels.Filter(
                 must=[
-                    qmodels.FieldCondition(key="gps.lat", range=qmodels.Range(gte=min_lat, lte=max_lat)),
-                ] + robot_must
+                    qmodels.FieldCondition(
+                        key="gps.lat", range=qmodels.Range(gte=min_lat, lte=max_lat)
+                    ),
+                ]
+                + robot_must
             )
             filter_strategy = "1d+python"
     else:
@@ -261,9 +283,14 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
         tx, ty, tz = body.tx, body.ty, body.tz  # type: ignore[assignment]
         query_filter = qmodels.Filter(
             must=[
-                qmodels.FieldCondition(key="enu.tx", range=qmodels.Range(gte=tx - radius_m, lte=tx + radius_m)),
-                qmodels.FieldCondition(key="enu.ty", range=qmodels.Range(gte=ty - radius_m, lte=ty + radius_m)),
-            ] + robot_must
+                qmodels.FieldCondition(
+                    key="enu.tx", range=qmodels.Range(gte=tx - radius_m, lte=tx + radius_m)
+                ),
+                qmodels.FieldCondition(
+                    key="enu.ty", range=qmodels.Range(gte=ty - radius_m, lte=ty + radius_m)
+                ),
+            ]
+            + robot_must
         )
         filter_strategy = "enu+python"
 
@@ -288,7 +315,8 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
     # Python post-filters
     if has_gps and not settings.GPS_FILTER_2D:
         raw_results = [
-            r for r in raw_results
+            r
+            for r in raw_results
             if min_lon <= (r.payload or {}).get("gps", {}).get("lon", 999) <= max_lon
         ]
     elif not has_gps:
@@ -299,6 +327,7 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
             if ftx is None or fty is None or ftz is None:
                 return False
             return _enu_distance_m(tx, ty, tz, ftx, fty, ftz) <= radius_m
+
         raw_results = [r for r in raw_results if _within_enu(r)]
 
     matches: list[PoseMatch] = []
@@ -331,17 +360,26 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
             )
         )
 
-    matches.sort(key=lambda m: (m.distance_m if m.distance_m is not None else 1e9))
+    matches.sort(key=lambda m: m.distance_m if m.distance_m is not None else 1e9)
 
     if has_gps:
         logger.info(
             "Robot API: lat=%.6f lon=%.6f radius=%.0fm filter=%s results=%d",
-            body.lat, body.lon, radius_m, filter_strategy, len(matches),
+            body.lat,
+            body.lon,
+            radius_m,
+            filter_strategy,
+            len(matches),
         )
     else:
         logger.info(
             "Robot API: tx=%.2f ty=%.2f tz=%.2f radius=%.0fm filter=%s results=%d",
-            body.tx, body.ty, body.tz, radius_m, filter_strategy, len(matches),
+            body.tx,
+            body.ty,
+            body.tz,
+            radius_m,
+            filter_strategy,
+            len(matches),
         )
 
     # Phase 5: fetch last-3-visits summary from scene_timeline (GPS queries only)
@@ -350,7 +388,11 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
         db_pool = get_db_pool_optional(request)
         if db_pool is not None:
             last_visits = await _get_last_visits(
-                db_pool, body.lat, body.lon, radius_m, limit=3  # type: ignore[arg-type]
+                db_pool,
+                body.lat,
+                body.lon,
+                radius_m,
+                limit=3,  # type: ignore[arg-type]
             )
 
     return PoseQueryResponse(

@@ -7,17 +7,18 @@ from typing import Any
 def _docker_client():
     try:
         import docker
+
         return docker.from_env()
     except ImportError as exc:
         raise ImportError(
-            "docker is required for LogCollector. "
-            "Install with: pip install 'selfsuvis[coop_pilot]'"
+            "docker is required for LogCollector. Install with: pip install 'selfsuvis[coop_pilot]'"
         ) from exc
 
 
 def _get_not_found_exc():
     try:
         from docker.errors import NotFound
+
         return NotFound
     except ImportError:
         return Exception
@@ -120,16 +121,13 @@ class LogCollector:
             - stats["precpu_stats"]["cpu_usage"]["total_usage"]
         )
         system_delta = (
-            stats["cpu_stats"]["system_cpu_usage"]
-            - stats["precpu_stats"]["system_cpu_usage"]
+            stats["cpu_stats"]["system_cpu_usage"] - stats["precpu_stats"]["system_cpu_usage"]
         )
         return (cpu_delta / system_delta) * 100.0 if system_delta > 0 else 0.0
 
     def get_all_container_stats(self) -> dict[str, dict[str, Any]]:
         return {
-            service: s
-            for service in self.CONTAINER_MAP
-            if (s := self.get_container_stats(service))
+            service: s for service in self.CONTAINER_MAP if (s := self.get_container_stats(service))
         }
 
     # ── Container health ──────────────────────────────────────────────────────

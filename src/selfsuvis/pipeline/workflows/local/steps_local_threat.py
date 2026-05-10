@@ -150,15 +150,17 @@ def step_local_threat(
             ),
         }
         active.append(enriched)
-        remaining_risk *= (1.0 - eff)
+        remaining_risk *= 1.0 - eff
 
     active.sort(key=lambda p: float(p.get("aggregated_score", 0.0)), reverse=True)
     for primitive in active[:3]:
-        top_threats.append({
-            "type": str(primitive.get("type", "")),
-            "score": round(float(primitive.get("aggregated_score", 0.0)), 4),
-            "evidence": dict(primitive.get("evidence") or {}),
-        })
+        top_threats.append(
+            {
+                "type": str(primitive.get("type", "")),
+                "score": round(float(primitive.get("aggregated_score", 0.0)), 4),
+                "evidence": dict(primitive.get("evidence") or {}),
+            }
+        )
 
     contradiction_summary = summarize_contradictions(
         threat_rows=active,
@@ -166,9 +168,13 @@ def step_local_threat(
     )
     trust_penalty = float(contradiction_summary.get("trust_penalty", 0.0) or 0.0)
     mean_uncertainty = (
-        sum(float((p.get("evidence") or {}).get("uncertainty", p.get("uncertainty", 0.0)) or 0.0) for p in active)
+        sum(
+            float((p.get("evidence") or {}).get("uncertainty", p.get("uncertainty", 0.0)) or 0.0)
+            for p in active
+        )
         / len(active)
-        if active else 0.0
+        if active
+        else 0.0
     )
     automation_confidence = max(0.0, min(1.0, 1.0 - mean_uncertainty - trust_penalty))
 

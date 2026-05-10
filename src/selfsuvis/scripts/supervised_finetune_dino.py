@@ -22,6 +22,7 @@ Warm-starting from an SSL checkpoint (recommended):
          --output-dir data/checkpoints/supervised \\
          --ssl-checkpoint data/checkpoints/dino_ssl_best.pt
 """
+
 import argparse
 import sys
 from pathlib import Path
@@ -36,31 +37,42 @@ configure_logging()
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--frames-dir", required=True, help="Directory containing JPEG/PNG frames")
-    p.add_argument("--cvat-xml",   required=True, help="Path to CVAT XML 1.1 annotation file")
+    p.add_argument("--cvat-xml", required=True, help="Path to CVAT XML 1.1 annotation file")
     p.add_argument("--output-dir", required=True, help="Directory to write checkpoint files")
 
     # Model
-    p.add_argument("--model",          default="dinov3_vitb14", help="DINOv3 hub model name")
-    p.add_argument("--embed-dim",      type=int, default=768,   help="Backbone embedding dim (768 ViT-B, 1024 ViT-L)")
-    p.add_argument("--proj-out-dim",   type=int, default=128,   help="Projection head output dim")
-    p.add_argument("--freeze-blocks",  type=int, default=8,     help="Number of transformer blocks to freeze")
-    p.add_argument("--ssl-checkpoint", default="",              help="Optional SSL backbone checkpoint to warm-start from")
+    p.add_argument("--model", default="dinov3_vitb14", help="DINOv3 hub model name")
+    p.add_argument(
+        "--embed-dim", type=int, default=768, help="Backbone embedding dim (768 ViT-B, 1024 ViT-L)"
+    )
+    p.add_argument("--proj-out-dim", type=int, default=128, help="Projection head output dim")
+    p.add_argument(
+        "--freeze-blocks", type=int, default=8, help="Number of transformer blocks to freeze"
+    )
+    p.add_argument(
+        "--ssl-checkpoint", default="", help="Optional SSL backbone checkpoint to warm-start from"
+    )
 
     # Training
-    p.add_argument("--epochs",      type=int,   default=10,   help="Training epochs")
-    p.add_argument("--batch-size",  type=int,   default=16,   help="Batch size")
-    p.add_argument("--lr",          type=float, default=1e-5, help="Learning rate")
-    p.add_argument("--weight-decay",type=float, default=0.04, help="AdamW weight decay")
+    p.add_argument("--epochs", type=int, default=10, help="Training epochs")
+    p.add_argument("--batch-size", type=int, default=16, help="Batch size")
+    p.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
+    p.add_argument("--weight-decay", type=float, default=0.04, help="AdamW weight decay")
     p.add_argument("--temperature", type=float, default=0.07, help="SupCon temperature τ")
-    p.add_argument("--num-workers", type=int,   default=4,    help="DataLoader worker processes")
-    p.add_argument("--save-every",  type=int,   default=1,    help="Save per-epoch checkpoint every N epochs")
-    p.add_argument("--seed",        type=int,   default=42,   help="Random seed")
+    p.add_argument("--num-workers", type=int, default=4, help="DataLoader worker processes")
+    p.add_argument(
+        "--save-every", type=int, default=1, help="Save per-epoch checkpoint every N epochs"
+    )
+    p.add_argument("--seed", type=int, default=42, help="Random seed")
 
     # Device
-    p.add_argument("--device", default="auto",
-                   help="Device: 'auto' (prefer CUDA), 'cpu', or 'cuda'")
+    p.add_argument(
+        "--device", default="auto", help="Device: 'auto' (prefer CUDA), 'cpu', or 'cuda'"
+    )
 
     return p.parse_args()
 
@@ -71,6 +83,7 @@ def main() -> None:
     device = args.device
     if device == "auto":
         import torch
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
     cfg = SupervisedFinetuneConfig(

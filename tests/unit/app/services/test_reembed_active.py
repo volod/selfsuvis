@@ -4,6 +4,7 @@ GET /admin/reembed-status.
 All DB calls are mocked — no live PostgreSQL required.
 asyncpg is not installed in the test environment; it is stubbed in sys.modules.
 """
+
 import asyncio
 import sys
 import types
@@ -12,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # ── Stub asyncpg before any imports that use it ───────────────────────────────
 if "asyncpg" not in sys.modules:
     _asyncpg = types.ModuleType("asyncpg")
-    _asyncpg.connect = MagicMock()   # patch.object requires attribute to pre-exist
+    _asyncpg.connect = MagicMock()  # patch.object requires attribute to pre-exist
     sys.modules["asyncpg"] = _asyncpg
 
 # ── Stub app.state (heavy deps) before importing app modules ──────────────────
@@ -25,8 +26,8 @@ if "selfsuvis.app.state" not in sys.modules:
 
 # ── _reembed_is_active ─────────────────────────────────────────────────────────
 
-class TestReembedIsActive:
 
+class TestReembedIsActive:
     def _call(self, fetchrow_return, db_url="postgresql://fake/db"):
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(return_value=fetchrow_return)
@@ -36,8 +37,11 @@ class TestReembedIsActive:
         asyncpg_mock.connect = AsyncMock(return_value=mock_conn)
 
         from selfsuvis.app.services import search as search_mod
-        with patch.object(sys.modules["asyncpg"], "connect", asyncpg_mock.connect), \
-             patch.object(search_mod.settings, "DATABASE_URL", db_url):
+
+        with (
+            patch.object(sys.modules["asyncpg"], "connect", asyncpg_mock.connect),
+            patch.object(search_mod.settings, "DATABASE_URL", db_url),
+        ):
             search_mod._reembed_status_cache["checked_at"] = 0.0
             search_mod._reembed_status_cache["value"] = False
             return asyncio.run(search_mod._reembed_is_active())
@@ -57,9 +61,13 @@ class TestReembedIsActive:
     def test_returns_false_on_db_connect_error(self):
         """DB connection failure → fail-open (False), never raises."""
         from selfsuvis.app.services import search as search_mod
-        with patch.object(sys.modules["asyncpg"], "connect",
-                          AsyncMock(side_effect=OSError("refused"))), \
-             patch.object(search_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
+
+        with (
+            patch.object(
+                sys.modules["asyncpg"], "connect", AsyncMock(side_effect=OSError("refused"))
+            ),
+            patch.object(search_mod.settings, "DATABASE_URL", "postgresql://fake/db"),
+        ):
             search_mod._reembed_status_cache["checked_at"] = 0.0
             search_mod._reembed_status_cache["value"] = False
             result = asyncio.run(search_mod._reembed_is_active())
@@ -71,9 +79,11 @@ class TestReembedIsActive:
         mock_conn.close = AsyncMock()
 
         from selfsuvis.app.services import search as search_mod
-        with patch.object(sys.modules["asyncpg"], "connect",
-                          AsyncMock(return_value=mock_conn)), \
-             patch.object(search_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
+
+        with (
+            patch.object(sys.modules["asyncpg"], "connect", AsyncMock(return_value=mock_conn)),
+            patch.object(search_mod.settings, "DATABASE_URL", "postgresql://fake/db"),
+        ):
             search_mod._reembed_status_cache["checked_at"] = 0.0
             search_mod._reembed_status_cache["value"] = False
             result = asyncio.run(search_mod._reembed_is_active())
@@ -85,9 +95,11 @@ class TestReembedIsActive:
         mock_conn.close = AsyncMock()
 
         from selfsuvis.app.services import search as search_mod
-        with patch.object(sys.modules["asyncpg"], "connect",
-                          AsyncMock(return_value=mock_conn)), \
-             patch.object(search_mod.settings, "DATABASE_URL", "postgresql://fake/db"):
+
+        with (
+            patch.object(sys.modules["asyncpg"], "connect", AsyncMock(return_value=mock_conn)),
+            patch.object(search_mod.settings, "DATABASE_URL", "postgresql://fake/db"),
+        ):
             search_mod._reembed_status_cache["checked_at"] = 0.0
             search_mod._reembed_status_cache["value"] = False
             asyncio.run(search_mod._reembed_is_active())
@@ -105,7 +117,6 @@ class _Resp:
 
 
 class TestReembedStatusEndpoint:
-
     def _get(self, mock_conn):
         class _AcquireCtx:
             def __init__(self, conn):
@@ -118,6 +129,7 @@ class TestReembedStatusEndpoint:
                 return False
 
         from selfsuvis.app.routers import admin as admin_mod
+
         request = MagicMock()
         request.app = MagicMock()
         request.app.state = MagicMock()
@@ -128,11 +140,14 @@ class TestReembedStatusEndpoint:
 
     def test_returns_active_true_when_job_running(self):
         import json
+
         mock_conn = AsyncMock()
-        mock_conn.fetchrow = AsyncMock(return_value={
-            "id": "job-abc",
-            "progress_json": json.dumps({"frames_reembedded": 512}),
-        })
+        mock_conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "job-abc",
+                "progress_json": json.dumps({"frames_reembedded": 512}),
+            }
+        )
         mock_conn.close = AsyncMock()
 
         resp = self._get(mock_conn)
@@ -163,6 +178,7 @@ class TestReembedStatusEndpoint:
                 return False
 
         from selfsuvis.app.routers import admin as admin_mod
+
         request = MagicMock()
         request.app = MagicMock()
         request.app.state = MagicMock()

@@ -6,6 +6,7 @@ are also required because worker.main transitively imports pipeline.indexer.
 
 All asyncpg.connect calls are mocked per-test — no live PostgreSQL required.
 """
+
 import sys
 import time
 import types
@@ -16,7 +17,7 @@ import pytest
 # ── Stub asyncpg ──────────────────────────────────────────────────────────────
 if "asyncpg" not in sys.modules:
     _asyncpg = types.ModuleType("asyncpg")
-    _asyncpg.connect = MagicMock()   # patch.object requires attribute to pre-exist
+    _asyncpg.connect = MagicMock()  # patch.object requires attribute to pre-exist
     sys.modules["asyncpg"] = _asyncpg
 
 _asyncpg_mod = sys.modules["asyncpg"]
@@ -34,6 +35,7 @@ if "worker.main" not in sys.modules:
 import selfsuvis.worker.main as wm  # noqa: E402
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_conn(active_count=0, evicted_str="DELETE 0"):
     conn = AsyncMock()
@@ -62,10 +64,18 @@ def conn_url():
 
 # ── _gpu_checkin ──────────────────────────────────────────────────────────────
 
-class TestGpuCheckin:
 
-    def _checkin(self, conn, logger, conn_url, job_id="job-1", job_type="finetune",
-                 timeout_sec=3600, worker_id="worker-1"):
+class TestGpuCheckin:
+    def _checkin(
+        self,
+        conn,
+        logger,
+        conn_url,
+        job_id="job-1",
+        job_type="finetune",
+        timeout_sec=3600,
+        worker_id="worker-1",
+    ):
         settings_mock = MagicMock()
         settings_mock.GPU_JOB_TIMEOUT_SEC = timeout_sec
         settings_mock.WORKER_ID = worker_id
@@ -81,8 +91,7 @@ class TestGpuCheckin:
     def test_inserts_row_on_checkin(self, logger, conn_url):
         conn = _make_conn(active_count=0)
         self._checkin(conn, logger, conn_url, job_id="job-42")
-        insert_calls = [c for c in conn.execute.call_args_list
-                        if "INSERT INTO gpu_jobs" in str(c)]
+        insert_calls = [c for c in conn.execute.call_args_list if "INSERT INTO gpu_jobs" in str(c)]
         assert len(insert_calls) == 1
         assert "job-42" in str(insert_calls[0])
 
@@ -151,8 +160,8 @@ class TestGpuCheckin:
 
 # ── _gpu_checkout ─────────────────────────────────────────────────────────────
 
-class TestGpuCheckout:
 
+class TestGpuCheckout:
     def _checkout(self, conn, logger, conn_url, job_id="job-1"):
         with patch.object(_asyncpg_mod, "connect", new=AsyncMock(return_value=conn)):
             wm._gpu_checkout(job_id, conn_url, logger)
@@ -160,8 +169,9 @@ class TestGpuCheckout:
     def test_deletes_correct_job_row(self, logger, conn_url):
         conn = _make_conn()
         self._checkout(conn, logger, conn_url, job_id="job-xyz")
-        delete_calls = [c for c in conn.execute.call_args_list
-                        if "DELETE FROM gpu_jobs WHERE job_id" in str(c)]
+        delete_calls = [
+            c for c in conn.execute.call_args_list if "DELETE FROM gpu_jobs WHERE job_id" in str(c)
+        ]
         assert len(delete_calls) == 1
         assert "job-xyz" in str(delete_calls[0])
 
@@ -188,8 +198,8 @@ class TestGpuCheckout:
 
 # ── Round trip ────────────────────────────────────────────────────────────────
 
-class TestCheckinCheckoutRoundTrip:
 
+class TestCheckinCheckoutRoundTrip:
     def test_full_round_trip(self, logger, conn_url):
         """Check-in inserts a row; check-out deletes it."""
         checkin_conn = _make_conn(active_count=0)
@@ -205,9 +215,13 @@ class TestCheckinCheckoutRoundTrip:
         with patch.object(_asyncpg_mod, "connect", new=AsyncMock(return_value=checkout_conn)):
             wm._gpu_checkout("round-trip-job", conn_url, logger)
 
-        inserts = [c for c in checkin_conn.execute.call_args_list
-                   if "INSERT INTO gpu_jobs" in str(c)]
-        deletes = [c for c in checkout_conn.execute.call_args_list
-                   if "DELETE FROM gpu_jobs WHERE job_id" in str(c)]
+        inserts = [
+            c for c in checkin_conn.execute.call_args_list if "INSERT INTO gpu_jobs" in str(c)
+        ]
+        deletes = [
+            c
+            for c in checkout_conn.execute.call_args_list
+            if "DELETE FROM gpu_jobs WHERE job_id" in str(c)
+        ]
         assert len(inserts) == 1
         assert len(deletes) == 1

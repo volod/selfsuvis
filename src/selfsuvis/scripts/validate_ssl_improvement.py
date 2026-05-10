@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 
 # Gate constants — edit carefully, tests assert exact values.
-_GATE_VIDEOS = 2    # minimum number of validation videos that must improve
+_GATE_VIDEOS = 2  # minimum number of validation videos that must improve
 _GATE_DELTA = 0.02  # minimum R@1 improvement (strict >)
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -27,10 +27,7 @@ _DEFAULT_WINDOW = 3  # temporal window for R@1 (±window frames are considered p
 def _collect_frames(directory) -> list[Path]:
     """Return sorted list of image paths under `directory` (recursive)."""
     root = Path(directory)
-    frames = [
-        p for p in root.rglob("*")
-        if p.suffix.lower() in _IMAGE_EXTENSIONS and p.is_file()
-    ]
+    frames = [p for p in root.rglob("*") if p.suffix.lower() in _IMAGE_EXTENSIONS and p.is_file()]
     return sorted(frames)
 
 
@@ -53,16 +50,14 @@ def recall_at_1(embeddings: np.ndarray, window: int = _DEFAULT_WINDOW) -> float:
     np.fill_diagonal(sims, -np.inf)  # exclude self-match
 
     nn_idx = np.argmax(sims, axis=1)
-    hits = sum(
-        1 for i, j in enumerate(nn_idx)
-        if abs(i - j) <= window
-    )
+    hits = sum(1 for i, j in enumerate(nn_idx) if abs(i - j) <= window)
     return float(hits) / n
 
 
 def _embed_frames(model, frames: list[Path]) -> np.ndarray:
     """Encode frames with a DINOEmbedder; return L2-normalised (N, D) array."""
     from PIL import Image as PILImage
+
     images = [PILImage.open(p).convert("RGB") for p in frames]
     vecs = model.encode_images(images)
     norms = np.linalg.norm(vecs, axis=1, keepdims=True)
@@ -72,8 +67,13 @@ def _embed_frames(model, frames: list[Path]) -> np.ndarray:
 def _evaluate_video(base_model, ft_model, video_dir: Path) -> dict:
     frames = _collect_frames(video_dir)
     if not frames:
-        return {"frames": 0, "r1_base": 0.0, "r1_ft": 0.0,
-                "delta_median": 0.0, "gate_passed": False}
+        return {
+            "frames": 0,
+            "r1_base": 0.0,
+            "r1_ft": 0.0,
+            "delta_median": 0.0,
+            "gate_passed": False,
+        }
 
     embs_base = _embed_frames(base_model, frames)
     embs_ft = _embed_frames(ft_model, frames)

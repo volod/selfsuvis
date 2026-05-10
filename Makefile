@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints
+.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi
 
 # Default target: show help when no target is given
 help:
@@ -162,6 +162,10 @@ test-no-gpu: docker-check test-dirs
 # Directory integration test (same as test; set INDEX_DIR_PATH for custom path)
 test-dir:
 	$(MAKE) test
+
+export-openapi:
+	$(if $(wildcard .venv/bin/python),.venv/bin/python -c "import json; from selfsuvis.app.main import app; print(json.dumps(app.openapi(), indent=2))" > docs/api/v1-openapi.json,python -c "import json; from selfsuvis.app.main import app; print(json.dumps(app.openapi(), indent=2))" > docs/api/v1-openapi.json)
+	@echo "OpenAPI spec written to docs/api/v1-openapi.json"
 
 # Unit tests (no services required). Use .venv if present.
 # If you see numpy/opencv import errors, run: make test-unit-no-cv2

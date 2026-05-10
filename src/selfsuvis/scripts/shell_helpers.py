@@ -4,7 +4,6 @@ This module provides a small CLI so bash scripts can delegate JSON parsing and
 numeric calculations to named Python functions instead of inline heredocs.
 """
 
-
 import argparse
 import json
 import math
@@ -63,7 +62,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     json_field_parser = subparsers.add_parser("json-field", help="Read a JSON field from stdin")
     json_field_parser.add_argument("--field", required=True, help="Top-level JSON field name")
-    json_field_parser.add_argument("--default", default="", help="Fallback value when field is absent")
+    json_field_parser.add_argument(
+        "--default", default="", help="Fallback value when field is absent"
+    )
 
     cuda_parser = subparsers.add_parser(
         "cuda-version-from-json",
@@ -75,7 +76,9 @@ def build_parser() -> argparse.ArgumentParser:
         "compute-flash-attn-jobs",
         help="Compute flash-attn parallel build job budget",
     )
-    flash_parser.add_argument("--total-kb", required=True, type=int, help="MemTotal from /proc/meminfo")
+    flash_parser.add_argument(
+        "--total-kb", required=True, type=int, help="MemTotal from /proc/meminfo"
+    )
     flash_parser.add_argument(
         "--avail-kb",
         required=True,

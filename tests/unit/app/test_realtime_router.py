@@ -1,17 +1,16 @@
 """Unit tests for app/routers/realtime.py."""
 
-
 from typing import Any
 from unittest.mock import patch
 
 import httpx
 import pytest
 from fastapi import FastAPI
-from tests.support.realtime_db import FakeRealtimeConn as FakeConn
-from tests.support.realtime_db import FakeRealtimePool as FakePool
 
 from selfsuvis.app.deps import rate_limit, require_api_key
 from selfsuvis.app.routers.realtime import router
+from tests.support.realtime_db import FakeRealtimeConn as FakeConn
+from tests.support.realtime_db import FakeRealtimePool as FakePool
 
 
 class FakeMediaMtxClient:
@@ -95,7 +94,11 @@ async def test_start_state_stop_session():
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             start = await client.post(
                 "/realtime/session/start",
-                json={"robot_id": "drone_a", "mission_id": "mission_1", "sensors": ["camera", "imu", "gps"]},
+                json={
+                    "robot_id": "drone_a",
+                    "mission_id": "mission_1",
+                    "sensors": ["camera", "imu", "gps"],
+                },
             )
             assert start.status_code == 200
             session_id = start.json()["session_id"]
@@ -130,7 +133,12 @@ async def test_packet_ingest_creates_stub_pose_from_gps():
                             "sensor_type": "gps",
                             "t_device": 12.5,
                             "seq": 7,
-                            "payload": {"east": 1.25, "north": -0.5, "up": 10.0, "global_map_id": 3},
+                            "payload": {
+                                "east": 1.25,
+                                "north": -0.5,
+                                "up": 10.0,
+                                "global_map_id": 3,
+                            },
                         },
                         {
                             "sensor_type": "imu",
@@ -219,7 +227,9 @@ async def test_publish_map_tile_and_semantic_observation():
             assert latest_map.status_code == 200
             assert latest_map.json()["tiles"][0]["stats"]["occupied"] == 42
 
-            nearby = await client.get(f"/realtime/session/{session_id}/semantic-nearby?class_name=tree")
+            nearby = await client.get(
+                f"/realtime/session/{session_id}/semantic-nearby?class_name=tree"
+            )
             assert nearby.status_code == 200
             assert nearby.json()["observations"][0]["class_name"] == "tree"
 
@@ -248,9 +258,7 @@ async def test_integrate_frame_creates_pose_tile_and_semantic():
                             "payload": {"east": 5.0, "north": 6.0, "up": 1.0},
                         }
                     ],
-                    "semantic_observations": [
-                        {"class_name": "tree", "confidence": 0.7}
-                    ],
+                    "semantic_observations": [{"class_name": "tree", "confidence": 0.7}],
                 },
             )
             assert result.status_code == 200
@@ -313,7 +321,9 @@ async def test_realtime_backends_endpoint():
                         "hardware_profile": "cpu_or_gpu",
                         "required_modalities": ["camera", "imu"],
                         "recommended_modalities": ["camera", "imu", "gps"],
-                        "pros": ["Strong visual-inertial pose estimation on drone-class RGB + IMU feeds."],
+                        "pros": [
+                            "Strong visual-inertial pose estimation on drone-class RGB + IMU feeds."
+                        ],
                         "cons": ["Needs reliable camera/IMU calibration."],
                         "integration_doc": "docs/runbooks/realtime-sidecars/vins-fusion.md",
                         "notes": "RGB + IMU + GPS visual-inertial fusion sidecar.",

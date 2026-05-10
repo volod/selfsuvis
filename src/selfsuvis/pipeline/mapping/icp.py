@@ -20,6 +20,7 @@ Typical usage (called by mapper/main.py):
     # result.fitness         — overlap fraction [0, 1]
     # result.converged       — True if ICP converged within criteria
 """
+
 import math
 from dataclasses import dataclass
 from typing import Any
@@ -30,17 +31,19 @@ import numpy as np
 @dataclass
 class IcpResult:
     """Result of an ICP registration attempt."""
-    transform_4x4: list[list[float]]   # SE(3) 4×4 matrix (source → target)
-    rmse: float                         # correspondence RMSE in metres
-    fitness: float                      # overlap fraction [0, 1]
+
+    transform_4x4: list[list[float]]  # SE(3) 4×4 matrix (source → target)
+    rmse: float  # correspondence RMSE in metres
+    fitness: float  # overlap fraction [0, 1]
     converged: bool
-    n_source: int                       # input point count
+    n_source: int  # input point count
     n_target: int
-    voxel_size_m: float                 # downsampling used (0 = none)
+    voxel_size_m: float  # downsampling used (0 = none)
     message: str = ""
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _initial_transform_from_gps(
     source_meta: dict[str, Any],
@@ -72,6 +75,7 @@ def _initial_transform_from_gps(
 def _to_open3d_pointcloud(positions: np.ndarray):
     """Convert (N, 3) float32 array to an open3d PointCloud."""
     import open3d as o3d  # type: ignore
+
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(positions.astype(np.float64))
     return pcd
@@ -92,6 +96,7 @@ def _voxel_size_for(n_points: int, target_points: int = 5_000) -> float:
 
 
 # ── main API ──────────────────────────────────────────────────────────────────
+
 
 def register_splats(
     source_path: str,
@@ -149,9 +154,12 @@ def register_splats(
         tgt_pcd = tgt_pcd.voxel_down_sample(voxel_size_m)
 
     # Initial alignment from Phase 1 GPS registration
-    if source_meta and target_meta and \
-            all(k in source_meta for k in ("origin_lat", "origin_lon", "origin_alt")) and \
-            all(k in target_meta for k in ("origin_lat", "origin_lon", "origin_alt")):
+    if (
+        source_meta
+        and target_meta
+        and all(k in source_meta for k in ("origin_lat", "origin_lon", "origin_alt"))
+        and all(k in target_meta for k in ("origin_lat", "origin_lon", "origin_alt"))
+    ):
         init_T = _initial_transform_from_gps(source_meta, target_meta)
     else:
         init_T = np.eye(4, dtype=np.float64)
@@ -205,6 +213,7 @@ def check_overlap(
     Returns (overlaps: bool, gps_distance_m: float).
     """
     from selfsuvis.pipeline.mapping.gps_registration import gps_to_enu
+
     e, n, u = gps_to_enu(
         lat=source_meta["origin_lat"],
         lon=source_meta["origin_lon"],

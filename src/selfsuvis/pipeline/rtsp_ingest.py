@@ -5,6 +5,7 @@
 Both shim and real module import the same stdlib objects, so patching through
 either path reaches the same module-level reference.
 """
+
 import socket  # noqa: F401
 import subprocess  # noqa: F401
 

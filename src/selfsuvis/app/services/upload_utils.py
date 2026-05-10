@@ -33,7 +33,9 @@ async def write_upload_to_path(
     return total
 
 
-async def read_upload_limited(file: UploadFile, max_bytes: int, chunk_size: int = 1024 * 1024) -> bytes:
+async def read_upload_limited(
+    file: UploadFile, max_bytes: int, chunk_size: int = 1024 * 1024
+) -> bytes:
     buf = io.BytesIO()
     total = 0
     while True:
@@ -47,7 +49,9 @@ async def read_upload_limited(file: UploadFile, max_bytes: int, chunk_size: int 
     return buf.getvalue()
 
 
-async def hash_upload_limited(file: UploadFile, max_bytes: int, chunk_size: int = 1024 * 1024) -> tuple[str, int]:
+async def hash_upload_limited(
+    file: UploadFile, max_bytes: int, chunk_size: int = 1024 * 1024
+) -> tuple[str, int]:
     h = hashlib.sha256()
     total = 0
     while True:

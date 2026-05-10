@@ -5,6 +5,7 @@ Writes reports/{mission_id}/summary.html containing:
 - AL tag distribution (needs_annotation / novel / none counts)
 - Frame gallery sorted by al_score descending
 """
+
 import html as _html
 import os
 from typing import Any

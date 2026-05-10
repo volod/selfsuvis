@@ -1,4 +1,5 @@
 """Unit tests for app.routers.robot — POST /query/pose."""
+
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -27,6 +28,7 @@ _client = TestClient(_app)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_qdrant_hit(lat, lon, mission_id="m1", t_sec=10.0, score=0.9):
     hit = MagicMock()
@@ -65,6 +67,7 @@ def _mock_clip(dim=512):
 
 # ── _gps_distance_m tests ─────────────────────────────────────────────────────
 
+
 def test_gps_distance_same_point():
     assert _gps_distance_m(48.0, 11.0, 48.0, 11.0) == pytest.approx(0.0)
 
@@ -82,6 +85,7 @@ def test_gps_distance_symmetry():
 
 
 # ── POST /query/pose tests ────────────────────────────────────────────────────
+
 
 @patch("selfsuvis.app.routers.robot.qdrant_store")
 @patch("selfsuvis.app.routers.robot.clip_model")
@@ -107,7 +111,9 @@ def test_pose_query_returns_results(mock_clip, mock_qdrant_store):
 def test_pose_query_response_schema(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.query_points.return_value = _query_response([_make_qdrant_hit(48.0001, 11.0001)])
+    mock_qdrant_store.client.query_points.return_value = _query_response(
+        [_make_qdrant_hit(48.0001, 11.0001)]
+    )
 
     resp = _client.post(
         "/query/pose",
@@ -125,6 +131,7 @@ def test_pose_query_response_schema(mock_clip, mock_qdrant_store):
 @patch("selfsuvis.app.routers.robot.clip_model")
 def test_pose_query_1d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch):
     from selfsuvis.pipeline.core import config
+
     monkeypatch.setattr(config.settings, "GPS_FILTER_2D", False)
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
@@ -143,6 +150,7 @@ def test_pose_query_1d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch
 @patch("selfsuvis.app.routers.robot.clip_model")
 def test_pose_query_2d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch):
     from selfsuvis.pipeline.core import config
+
     monkeypatch.setattr(config.settings, "GPS_FILTER_2D", True)
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
@@ -162,6 +170,7 @@ def test_pose_query_2d_filter_strategy(mock_clip, mock_qdrant_store, monkeypatch
 def test_pose_query_python_lon_postfilter(mock_clip, mock_qdrant_store, monkeypatch):
     """1D mode: hits outside lon bbox are post-filtered in Python."""
     from selfsuvis.pipeline.core import config
+
     monkeypatch.setattr(config.settings, "GPS_FILTER_2D", False)
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
@@ -235,7 +244,9 @@ def test_pose_query_qdrant_error_returns_503(mock_clip, mock_qdrant_store):
 def test_pose_query_distance_m_present(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.query_points.return_value = _query_response([_make_qdrant_hit(48.0001, 11.0)])
+    mock_qdrant_store.client.query_points.return_value = _query_response(
+        [_make_qdrant_hit(48.0001, 11.0)]
+    )
 
     resp = _client.post(
         "/query/pose",
@@ -253,7 +264,7 @@ def test_pose_query_sorted_by_distance(mock_clip, mock_qdrant_store):
     """Results are sorted nearest-first."""
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    far = _make_qdrant_hit(48.01, 11.0, score=0.99)   # far but high score
+    far = _make_qdrant_hit(48.01, 11.0, score=0.99)  # far but high score
     near = _make_qdrant_hit(48.0001, 11.0, score=0.5)  # near but low score
     mock_qdrant_store.client.query_points.return_value = _query_response([far, near])
 
@@ -284,6 +295,7 @@ def test_pose_query_radius_validation(mock_clip, mock_qdrant_store):
 
 # ── _enu_distance_m tests ─────────────────────────────────────────────────────
 
+
 def test_enu_distance_same_point():
     assert _enu_distance_m(10.0, 20.0, 5.0, 10.0, 20.0, 5.0) == pytest.approx(0.0)
 
@@ -299,6 +311,7 @@ def test_enu_distance_3d():
 
 
 # ── ENU query path tests ──────────────────────────────────────────────────────
+
 
 def _make_enu_hit(tx, ty, tz, mission_id="m1", t_sec=10.0, score=0.9):
     hit = MagicMock()
@@ -319,7 +332,9 @@ def _make_enu_hit(tx, ty, tz, mission_id="m1", t_sec=10.0, score=0.9):
 def test_enu_query_returns_results(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.query_points.return_value = _query_response([_make_enu_hit(10.0, 20.0, 5.0)])
+    mock_qdrant_store.client.query_points.return_value = _query_response(
+        [_make_enu_hit(10.0, 20.0, 5.0)]
+    )
 
     resp = _client.post(
         "/query/pose",
@@ -379,7 +394,9 @@ def test_enu_query_3d_postfilter(mock_clip, mock_qdrant_store):
 def test_enu_query_distance_m_computed(mock_clip, mock_qdrant_store):
     mock_clip.embed_dim = 512
     mock_qdrant_store.collection_name = "test"
-    mock_qdrant_store.client.query_points.return_value = _query_response([_make_enu_hit(3.0, 4.0, 0.0)])
+    mock_qdrant_store.client.query_points.return_value = _query_response(
+        [_make_enu_hit(3.0, 4.0, 0.0)]
+    )
 
     resp = _client.post(
         "/query/pose",
@@ -411,6 +428,7 @@ def test_pose_query_partial_enu_returns_422():
 
 
 # ── robot_ids filter tests ────────────────────────────────────────────────────
+
 
 @patch("selfsuvis.app.routers.robot.qdrant_store")
 @patch("selfsuvis.app.routers.robot.clip_model")

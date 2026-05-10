@@ -15,11 +15,11 @@ from selfsuvis.app.routers.query import router as query_router
 from selfsuvis.app.routers.realtime import router as realtime_router
 from selfsuvis.app.routers.robot import router as robot_router
 from selfsuvis.app.routers.scene import router as scene_router
-from selfsuvis.app.routers.site_state import router as site_state_router
+from selfsuvis.app.routers.v1 import router as v1_router
 from selfsuvis.app.services.coop_streams import CoopStreamService
 from selfsuvis.app.services.form_templates import get_index_form_html
 from selfsuvis.app.services.live_streams import MediaMtxClient, RealtimeStreamManager
-from selfsuvis.pipeline.core import get_logger, log_preflight, run_production_preflight
+from selfsuvis.pipeline.core import get_logger, log_preflight, run_production_preflight, settings
 from selfsuvis.pipeline.storage.processed import ainit_db as init_processed_db
 
 logger = get_logger(__name__)
@@ -68,12 +68,14 @@ def _start_coop_pilot(app: FastAPI) -> "asyncio.Task | None":
 
 def _multi_callback(*cbs):
     """Return an async callback that fans out to all provided callbacks."""
+
     async def _cb(event) -> None:
         for cb in cbs:
             try:
                 await cb(event)
             except Exception:
                 pass
+
     return _cb
 
 
@@ -88,6 +90,7 @@ async def lifespan(app: FastAPI):
     await init_db_pool(app)
     app.state.mediamtx_client = MediaMtxClient()
     app.state.realtime_stream_manager = RealtimeStreamManager(getattr(app.state, "db_pool", None))
+    app.state.sse_subscribers: dict[str, asyncio.Queue] = {}
 
     mqtt_task = _start_coop_pilot(app)
 
@@ -100,12 +103,26 @@ async def lifespan(app: FastAPI):
     app.state.coop_streams = coop_streams
     await coop_streams.start()
 
+    correlator_task = None
+    webhook_task = None
+    if settings.CORRELATOR_ENABLED:
+        try:
+            from selfsuvis.pipeline.fusion.correlator import run_correlator
+            from selfsuvis.pipeline.fusion.webhook_retry import run_webhook_retry
+
+            correlator_task = asyncio.create_task(run_correlator(app), name="correlator")
+            webhook_task = asyncio.create_task(run_webhook_retry(), name="webhook_retry")
+            logger.info("Correlator and webhook retry tasks started")
+        except Exception as exc:
+            logger.warning("Correlator not started: %s", exc)
+
     try:
         yield
     finally:
-        if mqtt_task and not mqtt_task.done():
-            mqtt_task.cancel()
-            await asyncio.gather(mqtt_task, return_exceptions=True)
+        for task in (correlator_task, webhook_task, mqtt_task):
+            if task and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
         await coop_streams.shutdown()
         await app.state.realtime_stream_manager.shutdown()
         await close_db_pool(app)
@@ -123,6 +140,7 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+app.include_router(v1_router)
 app.include_router(admin_router)
 app.include_router(cvat_admin_router)
 app.include_router(health_router)
@@ -132,7 +150,6 @@ app.include_router(query_router)
 app.include_router(realtime_router)
 app.include_router(robot_router)
 app.include_router(scene_router)
-app.include_router(site_state_router)
 app.include_router(webhook_router)
 
 

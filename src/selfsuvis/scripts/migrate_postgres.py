@@ -6,6 +6,7 @@ Run after PostgreSQL is available:
 
     python scripts/migrate_postgres.py
 """
+
 import asyncio
 import os
 import sys
@@ -44,7 +45,6 @@ _SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs (status, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_jobs_type_status ON jobs (type, status)",
-
     """
     CREATE TABLE IF NOT EXISTS processed_files (
         file_hash   TEXT PRIMARY KEY,
@@ -60,7 +60,6 @@ _SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_processed_files_size_updated ON processed_files (size_bytes, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_processed_files_url ON processed_files ((meta_json ->> 'url'))",
-
     """
     CREATE TABLE IF NOT EXISTS missions (
         id              TEXT PRIMARY KEY,
@@ -87,7 +86,6 @@ _SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_missions_video_id ON missions (video_id)",
     "CREATE INDEX IF NOT EXISTS idx_missions_robot_id ON missions (robot_id)",
     "CREATE INDEX IF NOT EXISTS idx_missions_created_at ON missions (created_at DESC)",
-
     """
     CREATE TABLE IF NOT EXISTS frames (
         id                  TEXT PRIMARY KEY,
@@ -149,7 +147,6 @@ _SCHEMA = [
         "ON frames USING gin(to_tsvector('english', coalesce(ocr_text, ''))) "
         "WHERE ocr_text IS NOT NULL"
     ),
-
     """
     CREATE TABLE IF NOT EXISTS embedding_clusters (
         id            SERIAL PRIMARY KEY,
@@ -162,7 +159,6 @@ _SCHEMA = [
         UNIQUE (mission_id, cluster_id)
     )
     """,
-
     """
     CREATE TABLE IF NOT EXISTS change_detections (
         id                  SERIAL PRIMARY KEY,
@@ -183,7 +179,6 @@ _SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_change_detections_mission_id ON change_detections (mission_id)",
     "CREATE INDEX IF NOT EXISTS idx_change_detections_score ON change_detections (change_score)",
     "CREATE INDEX IF NOT EXISTS idx_change_detections_semantic_diff ON change_detections USING gin(semantic_diff_json) WHERE semantic_diff_json IS NOT NULL",
-
     """
     CREATE TABLE IF NOT EXISTS global_map (
         id          SERIAL PRIMARY KEY,
@@ -196,7 +191,6 @@ _SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_global_map_origin ON global_map (origin_lat, origin_lon)",
-
     """
     CREATE TABLE IF NOT EXISTS global_map_missions (
         id                            SERIAL PRIMARY KEY,
@@ -210,7 +204,6 @@ _SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_gmm_global_map_id ON global_map_missions (global_map_id)",
     "CREATE INDEX IF NOT EXISTS idx_gmm_mission_id ON global_map_missions (mission_id)",
-
     """
     CREATE TABLE IF NOT EXISTS cvat_tasks (
         cvat_task_id  INTEGER NOT NULL,
@@ -220,7 +213,6 @@ _SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_cvat_tasks_task_id ON cvat_tasks (cvat_task_id)",
-
     """
     CREATE TABLE IF NOT EXISTS system_state (
         key        TEXT PRIMARY KEY,
@@ -228,7 +220,6 @@ _SCHEMA = [
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
-
     """
     CREATE TABLE IF NOT EXISTS model_checkpoints (
         id                 SERIAL PRIMARY KEY,
@@ -241,7 +232,6 @@ _SCHEMA = [
         notes              TEXT
     )
     """,
-
     """
     CREATE TABLE IF NOT EXISTS gpu_jobs (
         job_id     TEXT PRIMARY KEY,
@@ -250,7 +240,6 @@ _SCHEMA = [
         started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
-
     """
     CREATE TABLE IF NOT EXISTS robot_sessions (
         id                  TEXT PRIMARY KEY,
@@ -266,7 +255,6 @@ _SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_robot_sessions_robot_id_started ON robot_sessions (robot_id, started_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_robot_sessions_status_started ON robot_sessions (status, started_at DESC)",
-
     """
     CREATE TABLE IF NOT EXISTS sensor_packets (
         id           BIGSERIAL PRIMARY KEY,
@@ -279,7 +267,6 @@ _SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_sensor_packets_session_sensor_time ON sensor_packets (session_id, sensor_type, t_device DESC)",
-
     """
     CREATE TABLE IF NOT EXISTS realtime_poses (
         id                    BIGSERIAL PRIMARY KEY,
@@ -297,7 +284,6 @@ _SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_realtime_poses_session_tsec ON realtime_poses (session_id, t_sec DESC)",
     "CREATE INDEX IF NOT EXISTS idx_realtime_poses_global_map_time ON realtime_poses (global_map_id, created_at DESC)",
-
     """
     CREATE TABLE IF NOT EXISTS realtime_frames (
         id         BIGSERIAL PRIMARY KEY,
@@ -315,7 +301,6 @@ _SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_realtime_frames_session_time ON realtime_frames (session_id, t_sec DESC)",
-
     """
     CREATE TABLE IF NOT EXISTS map_tiles (
         id            BIGSERIAL PRIMARY KEY,
@@ -332,7 +317,6 @@ _SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_map_tiles_session_type_updated ON map_tiles (session_id, map_type, updated_at DESC)",
-
     """
     CREATE TABLE IF NOT EXISTS semantic_observations (
         id                BIGSERIAL PRIMARY KEY,
@@ -350,7 +334,6 @@ _SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_semantic_observations_session_created ON semantic_observations (session_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_observations_class_created ON semantic_observations (class_name, created_at DESC)",
-
     # Phase 5 — scene_timeline: one row per GPS-tagged keyframe across all missions.
     # Enables "last N visits" reasoning in POST /query/pose.
     """
@@ -372,6 +355,101 @@ _SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_scene_timeline_frame_id ON scene_timeline (frame_id)",
     "CREATE INDEX IF NOT EXISTS idx_scene_timeline_created_at ON scene_timeline (created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_scene_timeline_facts ON scene_timeline USING gin(facts_json) WHERE facts_json IS NOT NULL",
+    # ── Site State API v1 ────────────────────────────────────────────────────
+    # Phase 1 — sensor_keys
+    """
+    CREATE TABLE IF NOT EXISTS sensor_keys (
+        key_hash    TEXT PRIMARY KEY,
+        sensor_id   TEXT NOT NULL,
+        scopes      TEXT[] NOT NULL DEFAULT '{ingest}',
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_sensor_keys_sensor_id ON sensor_keys (sensor_id)",
+    # Phase 1 — site_events
+    """
+    CREATE TABLE IF NOT EXISTS site_events (
+        event_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        ts          TIMESTAMPTZ NOT NULL,
+        zone_id     TEXT NOT NULL,
+        sensor_id   TEXT NOT NULL,
+        modality    TEXT NOT NULL
+                    CHECK (modality IN ('camera','audio','rf','thermal','vibration','custom')),
+        confidence  FLOAT CHECK (confidence BETWEEN 0.0 AND 1.0),
+        payload     JSONB NOT NULL DEFAULT '{}',
+        artifact_uri TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_site_events_ts_zone ON site_events (ts DESC, zone_id)",
+    "CREATE INDEX IF NOT EXISTS idx_site_events_modality_ts ON site_events (modality, zone_id, ts DESC)",
+    # Phase 2 — zones
+    """
+    CREATE TABLE IF NOT EXISTS zones (
+        zone_id     TEXT PRIMARY KEY,
+        label       TEXT NOT NULL,
+        description TEXT,
+        map_x       INTEGER,
+        map_y       INTEGER,
+        map_w       INTEGER,
+        map_h       INTEGER,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    # Phase 3A — fusion_rules
+    """
+    CREATE TABLE IF NOT EXISTS fusion_rules (
+        rule_id         TEXT PRIMARY KEY,
+        label           TEXT NOT NULL,
+        modalities      TEXT[] NOT NULL,
+        zone_id         TEXT,
+        window_s        INTEGER NOT NULL DEFAULT 30,
+        min_confidence  FLOAT NOT NULL DEFAULT 0.5,
+        enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    # Phase 3A — incidents
+    """
+    CREATE TABLE IF NOT EXISTS incidents (
+        incident_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        ts               TIMESTAMPTZ NOT NULL,
+        zone_id          TEXT NOT NULL,
+        modalities       TEXT[] NOT NULL,
+        confidence       FLOAT NOT NULL,
+        risk_level       TEXT NOT NULL
+                         CHECK (risk_level IN ('low','medium','high','critical')),
+        summary_text     TEXT,
+        evidence_refs    JSONB NOT NULL,
+        rule_id          TEXT,
+        acknowledged_at  TIMESTAMPTZ,
+        dismissed_at     TIMESTAMPTZ,
+        dismissal_reason TEXT,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_incidents_zone_ts ON incidents (zone_id, ts DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_incidents_ts ON incidents (ts DESC)",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_incidents_summary_fts ON incidents "
+        "USING GIN(to_tsvector('english', COALESCE(summary_text, '')))"
+    ),
+    # Phase 3B — incident_notes
+    """
+    CREATE TABLE IF NOT EXISTS incident_notes (
+        note_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        incident_id UUID NOT NULL REFERENCES incidents(incident_id) ON DELETE CASCADE,
+        body        TEXT NOT NULL,
+        operator_id TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_incident_notes_incident_id ON incident_notes (incident_id)",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_incident_notes_body_fts ON incident_notes "
+        "USING GIN(to_tsvector('english', body))"
+    ),
 ]
 
 

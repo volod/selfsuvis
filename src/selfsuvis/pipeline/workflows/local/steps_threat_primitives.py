@@ -31,20 +31,21 @@ _log = get_logger("pipeline.local")
 
 # ── Evidence thresholds ───────────────────────────────────────────────────────
 
-_COLL_OCC_THRESH       = 0.15   # near-field occupancy fraction to flag
-_COLL_VEL_THRESH       = 0.02   # mean normalised velocity/frame to flag
-_COLL_FREE_THRESH      = 0.70   # free space < this flags constraint
-_VIS_DEPTH_FAIL_THRESH = 0.15   # fraction of depth frames that fail
-_VIS_SSIM_QUALITY_THRESH = 0.20 # mean SSIM-diff below this implies low visual novelty / blur
-_VIS_CAPTION_THRESH    = 0.55   # mean caption confidence below this
-_TRACK_BREAK_THRESH    = 0.08   # track-break rate (breaks / total consecutive pairs)
-_TRACK_IOU_DROP_THRESH = 0.25   # same-track IoU below this implies unstable geometry
-_TRACK_SHORTLEN_THRESH = 5.0    # mean track length in frames
-_POSE_KALMAN_THRESH    = 0.40   # Kalman pose confidence below this
-_POSE_SFM_FAIL_THRESH  = 0.30   # fraction of frames without an SfM pose
+_COLL_OCC_THRESH = 0.15  # near-field occupancy fraction to flag
+_COLL_VEL_THRESH = 0.02  # mean normalised velocity/frame to flag
+_COLL_FREE_THRESH = 0.70  # free space < this flags constraint
+_VIS_DEPTH_FAIL_THRESH = 0.15  # fraction of depth frames that fail
+_VIS_SSIM_QUALITY_THRESH = 0.20  # mean SSIM-diff below this implies low visual novelty / blur
+_VIS_CAPTION_THRESH = 0.55  # mean caption confidence below this
+_TRACK_BREAK_THRESH = 0.08  # track-break rate (breaks / total consecutive pairs)
+_TRACK_IOU_DROP_THRESH = 0.25  # same-track IoU below this implies unstable geometry
+_TRACK_SHORTLEN_THRESH = 5.0  # mean track length in frames
+_POSE_KALMAN_THRESH = 0.40  # Kalman pose confidence below this
+_POSE_SFM_FAIL_THRESH = 0.30  # fraction of frames without an SfM pose
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _max_run_length(flags: list[bool]) -> int:
     """Return the longest consecutive run of True in *flags*."""
@@ -164,7 +165,8 @@ def _depth_failure_rate(depth_results: list[dict[str, Any]]) -> float:
     if not depth_results:
         return 0.0
     failed = sum(
-        1 for r in depth_results
+        1
+        for r in depth_results
         if r.get("depth_error") or r.get("depth_unavailable") or r.get("depth_disabled")
     )
     return failed / len(depth_results)
@@ -186,7 +188,7 @@ def _caption_confidence_stats(
         return 0.75, 0.0, []
     mean_c = sum(confs) / len(confs)
     var = sum((c - mean_c) ** 2 for c in confs) / len(confs)
-    std_c = var ** 0.5
+    std_c = var**0.5
     return mean_c, std_c, low_frames
 
 
@@ -236,15 +238,16 @@ def _ssim_quality_stats(frame_list: list[tuple[str, float]]) -> tuple[float, lis
 
 # ── Primitive builders ────────────────────────────────────────────────────────
 
+
 def _build_collision_risk(
     physical_state: dict[str, Any],
     per_frame_occ: list[tuple[str, float]],
     frame_list: list[tuple[str, float]],
 ) -> dict[str, Any] | None:
-    occ     = float(physical_state.get("near_field_occupancy_density", 0.0))
-    vel_m   = float(physical_state.get("tracked_object_velocities", {}).get("mean", 0.0))
-    free    = float(physical_state.get("free_space_estimate", 1.0))
-    bbox_u  = float(physical_state.get("mean_bbox_uncertainty", 0.0))
+    occ = float(physical_state.get("near_field_occupancy_density", 0.0))
+    vel_m = float(physical_state.get("tracked_object_velocities", {}).get("mean", 0.0))
+    free = float(physical_state.get("free_space_estimate", 1.0))
+    bbox_u = float(physical_state.get("mean_bbox_uncertainty", 0.0))
 
     sources: list[str] = []
     if occ > _COLL_OCC_THRESH:
@@ -257,30 +260,26 @@ def _build_collision_risk(
     if len(sources) < 2:
         return None
 
-    score = min(1.0,
-        occ * 0.50
-        + min(1.0, vel_m / 0.05) * 0.30
-        + (1.0 - free) * 0.20
-    )
+    score = min(1.0, occ * 0.50 + min(1.0, vel_m / 0.05) * 0.30 + (1.0 - free) * 0.20)
     uncertainty = min(0.50, bbox_u * 10.0)
 
     if per_frame_occ:
         threshold = _COLL_OCC_THRESH
-        flags  = [a > threshold for _, a in per_frame_occ]
+        flags = [a > threshold for _, a in per_frame_occ]
         frames = [fp for (fp, a) in per_frame_occ if a > threshold]
         persist = _max_run_length(flags)
     else:
         # No per-frame data: clip-level signal spans the whole video
-        frames  = [fp for fp, _ in frame_list]
+        frames = [fp for fp, _ in frame_list]
         persist = len(frame_list)
 
     return {
-        "type":                 "collision_risk",
-        "score":                round(score, 4),
-        "uncertainty":          round(uncertainty, 4),
-        "spatial_support":      frames,
+        "type": "collision_risk",
+        "score": round(score, 4),
+        "uncertainty": round(uncertainty, 4),
+        "spatial_support": frames,
         "temporal_persistence": persist,
-        "evidence_sources":     sources,
+        "evidence_sources": sources,
     }
 
 
@@ -290,10 +289,10 @@ def _build_visibility_degradation(
     frame_list: list[tuple[str, float]],
     field_state: dict[str, Any],
 ) -> dict[str, Any] | None:
-    fail_rate              = _depth_failure_rate(depth_results)
+    fail_rate = _depth_failure_rate(depth_results)
     mean_conf, std_conf, low_cap_frames = _caption_confidence_stats(caption_results)
     mean_ssim_quality, low_ssim_frames, ssim_persist = _ssim_quality_stats(frame_list)
-    visibility_field = ((field_state.get("clip_level_fields") or {}).get("visibility") or {})
+    visibility_field = (field_state.get("clip_level_fields") or {}).get("visibility") or {}
     field_mean = float(visibility_field.get("mean", 0.0) or 0.0)
     field_trend = str(visibility_field.get("trend", "stable") or "stable")
     field_support = list(visibility_field.get("support_frames") or [])
@@ -328,7 +327,9 @@ def _build_visibility_degradation(
         for r in depth_results
         if r.get("depth_error") or r.get("depth_unavailable") or r.get("depth_disabled")
     ]
-    support = list(dict.fromkeys(depth_fail_frames + low_cap_frames + low_ssim_frames + field_support))
+    support = list(
+        dict.fromkeys(depth_fail_frames + low_cap_frames + low_ssim_frames + field_support)
+    )
 
     # Temporal persistence across depth results
     depth_flags = [
@@ -341,12 +342,12 @@ def _build_visibility_degradation(
     ) or len(frame_list)
 
     return {
-        "type":                 "visibility_degradation",
-        "score":                round(score, 4),
-        "uncertainty":          round(uncertainty, 4),
-        "spatial_support":      support,
+        "type": "visibility_degradation",
+        "score": round(score, 4),
+        "uncertainty": round(uncertainty, 4),
+        "spatial_support": support,
         "temporal_persistence": persist,
-        "evidence_sources":     sources,
+        "evidence_sources": sources,
     }
 
 
@@ -354,7 +355,7 @@ def _build_rf_anomaly(
     field_state: dict[str, Any],
     frame_list: list[tuple[str, float]],
 ) -> dict[str, Any] | None:
-    rf_field = ((field_state.get("clip_level_fields") or {}).get("rf_interference") or {})
+    rf_field = (field_state.get("clip_level_fields") or {}).get("rf_interference") or {}
     if not rf_field:
         return None
     score = float(rf_field.get("mean", 0.0) or 0.0)
@@ -399,10 +400,11 @@ def _build_track_anomaly(
     if len(sources) < 2:
         return None
 
-    score = min(1.0,
+    score = min(
+        1.0,
         min(1.0, break_rate / 0.30) * 0.60
         + min(1.0, iou_drop_rate / 0.40) * 0.25
-        + min(1.0, max(0.0, _TRACK_SHORTLEN_THRESH - mean_len) / _TRACK_SHORTLEN_THRESH) * 0.15
+        + min(1.0, max(0.0, _TRACK_SHORTLEN_THRESH - mean_len) / _TRACK_SHORTLEN_THRESH) * 0.15,
     )
     # Uncertainty: if tracking was used as evidence in physical state, lower uncertainty
     tracking_used = bool(physical_state.get("tracking_used", False))
@@ -419,12 +421,12 @@ def _build_track_anomaly(
     persist = _max_run_length(flags)
 
     return {
-        "type":                 "track_anomaly",
-        "score":                round(score, 4),
-        "uncertainty":          round(uncertainty, 4),
-        "spatial_support":      [p for p in gap_paths if p],
+        "type": "track_anomaly",
+        "score": round(score, 4),
+        "uncertainty": round(uncertainty, 4),
+        "spatial_support": [p for p in gap_paths if p],
         "temporal_persistence": persist,
-        "evidence_sources":     sources,
+        "evidence_sources": sources,
     }
 
 
@@ -435,7 +437,7 @@ def _build_pose_uncertain(
     frame_list: list[tuple[str, float]],
 ) -> dict[str, Any] | None:
     pose_conf = float(physical_state.get("platform_pose_confidence", 0.0))
-    n_frames  = len(frame_list)
+    n_frames = len(frame_list)
     sfm_fail_rate = 1.0 - (sfm_poses / max(1, n_frames))
 
     sources: list[str] = []
@@ -449,24 +451,22 @@ def _build_pose_uncertain(
     if len(sources) < 2:
         return None
 
-    score = min(1.0,
-        (1.0 - pose_conf) * 0.60
-        + min(1.0, sfm_fail_rate / 0.60) * 0.40
-    )
+    score = min(1.0, (1.0 - pose_conf) * 0.60 + min(1.0, sfm_fail_rate / 0.60) * 0.40)
     # Uncertainty decreases as more independent sources agree
     uncertainty = max(0.10, 0.40 - 0.10 * len(sources))
 
     return {
-        "type":                 "pose_uncertain",
-        "score":                round(score, 4),
-        "uncertainty":          round(uncertainty, 4),
-        "spatial_support":      [fp for fp, _ in frame_list],
+        "type": "pose_uncertain",
+        "score": round(score, 4),
+        "uncertainty": round(uncertainty, 4),
+        "spatial_support": [fp for fp, _ in frame_list],
         "temporal_persistence": n_frames,
-        "evidence_sources":     sources,
+        "evidence_sources": sources,
     }
 
 
 # ── Overall threat level ──────────────────────────────────────────────────────
+
 
 def _threat_level(primitives: list[dict[str, Any]]) -> str:
     if not primitives:
@@ -482,6 +482,7 @@ def _threat_level(primitives: list[dict[str, Any]]) -> str:
 
 
 # ── Main step ─────────────────────────────────────────────────────────────────
+
 
 def step_threat_primitives(
     physical_state_result: dict[str, Any],
@@ -521,10 +522,10 @@ def step_threat_primitives(
     """
     t0 = time.time()
 
-    phys_skipped     = physical_state_result.get("skipped", True)
-    depth_skipped    = depth_result.get("skipped", True)
+    phys_skipped = physical_state_result.get("skipped", True)
+    depth_skipped = depth_result.get("skipped", True)
     tracking_skipped = gemma_tracking_result.get("skipped", True)
-    fusion_skipped   = full_fusion_result.get("skipped", True)
+    fusion_skipped = full_fusion_result.get("skipped", True)
 
     if phys_skipped and depth_skipped and tracking_skipped and fusion_skipped:
         _log.info("  [threat primitives] all upstream inputs skipped — no primitives")
@@ -536,28 +537,24 @@ def step_threat_primitives(
     physical_state = physical_state_result if not phys_skipped else {}
     field_state = field_state_result if not field_state_result.get("skipped", True) else {}
     unidrive_rows = [
-        row for row in (unidrive_result.get("results") or [])
+        row
+        for row in (unidrive_result.get("results") or [])
         if not row.get("service_unavailable") and not row.get("parse_error")
     ]
 
     # Per-frame object occupancy (requires both tracking and fusion)
     tracking_results: list[dict[str, Any]] = (
-        gemma_tracking_result.get("tracking_results") or []
-        if not tracking_skipped else []
+        gemma_tracking_result.get("tracking_results") or [] if not tracking_skipped else []
     )
     per_frame_obj = (
-        full_fusion_result.get("per_frame_object_states") or []
-        if not fusion_skipped else []
+        full_fusion_result.get("per_frame_object_states") or [] if not fusion_skipped else []
     )
     # Align lengths for safe zip
     _min_len = min(len(per_frame_obj), len(tracking_results))
-    per_frame_occ = _per_frame_near_field_occ(
-        per_frame_obj[:_min_len], tracking_results[:_min_len]
-    )
+    per_frame_occ = _per_frame_near_field_occ(per_frame_obj[:_min_len], tracking_results[:_min_len])
 
     depth_results_list: list[dict[str, Any]] = (
-        depth_result.get("depth_results") or []
-        if not depth_skipped else []
+        depth_result.get("depth_results") or [] if not depth_skipped else []
     )
 
     primitives: list[dict[str, Any]] = []
@@ -568,7 +565,9 @@ def step_threat_primitives(
         primitives.append(p)
 
     # ── Visibility degradation ────────────────────────────────────────────────
-    p = _build_visibility_degradation(depth_results_list, caption_results or [], frame_list, field_state)
+    p = _build_visibility_degradation(
+        depth_results_list, caption_results or [], frame_list, field_state
+    )
     if p:
         primitives.append(p)
 
@@ -640,12 +639,12 @@ def step_threat_primitives(
     contradiction_summary = summarize_contradictions(contradiction_signals=contradiction_signals)
 
     result = {
-        "skipped":    False,
+        "skipped": False,
         "primitives": primitives,
         "contradiction_signals": contradiction_signals,
         "summary": {
-            "n_primitives":        n,
-            "types_detected":      types,
+            "n_primitives": n,
+            "types_detected": types,
             "overall_threat_level": level,
             "disagreement_count": int(contradiction_summary.get("disagreement_count", 0)),
             "disagreement_rate": float(contradiction_summary.get("disagreement_rate", 0.0)),
@@ -659,7 +658,9 @@ def step_threat_primitives(
 
     _log.info(
         "  ✓ Threat primitives: %d emitted  level=%s  types=%s",
-        n, level, types or "none",
+        n,
+        level,
+        types or "none",
     )
     return result
 
@@ -669,13 +670,13 @@ def _empty_result() -> dict[str, Any]:
         "primitives": [],
         "contradiction_signals": [],
         "summary": {
-            "n_primitives":         0,
-            "types_detected":       [],
+            "n_primitives": 0,
+            "types_detected": [],
             "overall_threat_level": "none",
-            "disagreement_count":   0,
-            "disagreement_rate":    0.0,
+            "disagreement_count": 0,
+            "disagreement_rate": 0.0,
             "source_pair_conflicts": [],
-            "trust_penalty":        0.0,
+            "trust_penalty": 0.0,
         },
         "elapsed_sec": 0.0,
     }

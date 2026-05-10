@@ -35,7 +35,11 @@ def evaluate_degraded_mode(
             freshest_by_sensor[sensor] = freshness_sec
 
     missing = [sensor for sensor in required if sensor not in freshest_by_sensor]
-    stale = [sensor for sensor, age in freshest_by_sensor.items() if sensor in required and age > outage_warning_sec]
+    stale = [
+        sensor
+        for sensor, age in freshest_by_sensor.items()
+        if sensor in required and age > outage_warning_sec
+    ]
 
     penalty = 0.0
     for sensor in missing:

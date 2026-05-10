@@ -1,6 +1,5 @@
 """Realtime semantic-observation helpers."""
 
-
 from typing import Any
 
 
@@ -43,7 +42,9 @@ def project_detection_to_enu(
     y2 = float(bbox.get("y2", bbox.get("ymax", 1.0)) or 1.0)
     cx = max(0.0, min(1.0, (x1 + x2) / 2.0))
     cy = max(0.0, min(1.0, (y1 + y2) / 2.0))
-    distance = float(range_m if range_m is not None else bbox.get("depth_m", bbox.get("range_m", 10.0)) or 10.0)
+    distance = float(
+        range_m if range_m is not None else bbox.get("depth_m", bbox.get("range_m", 10.0)) or 10.0
+    )
     east_offset = (cx - 0.5) * distance
     north_offset = (0.5 - cy) * distance
     return {

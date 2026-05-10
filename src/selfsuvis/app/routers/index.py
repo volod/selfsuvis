@@ -233,7 +233,12 @@ async def _precheck_url(url: str):
     if size is not None:
         by_size = await aget_by_size(size)
         if by_size:
-            return {"status": "maybe", "reason": "size_match", "existing": by_size, "size_bytes": size}
+            return {
+                "status": "maybe",
+                "reason": "size_match",
+                "existing": by_size,
+                "size_bytes": size,
+            }
     return {"status": "unknown", "reason": "url_unmatched", "size_bytes": size}
 
 
@@ -260,6 +265,7 @@ async def index_rtsp(
     - enable_tiles: Whether to extract and index tiles (default true)
     """
     from selfsuvis.pipeline.media.rtsp_ingest import validate_rtsp_url
+
     try:
         validate_rtsp_url(stream_url)
     except ValueError as exc:
@@ -280,7 +286,10 @@ async def index_rtsp(
     )
     logger.info(
         "Enqueued RTSP stream video_id=%s mission_id=%s job_id=%s url=%s",
-        video_id, effective_mission_id, job_id, stream_url,
+        video_id,
+        effective_mission_id,
+        job_id,
+        stream_url,
     )
     return {"video_id": video_id, "mission_id": effective_mission_id, "job_id": job_id}
 
@@ -323,23 +332,51 @@ async def precheck_dir(
     try:
         for video_path, stat_failed in _iter_video_paths_in_allowed_dir(resolved):
             if stat_failed:
-                results.append({"filename": os.path.basename(video_path), "status": "error", "reason": "stat_failed"})
+                results.append(
+                    {
+                        "filename": os.path.basename(video_path),
+                        "status": "error",
+                        "reason": "stat_failed",
+                    }
+                )
                 continue
             try:
                 file_hash = file_sha256(video_path)
             except OSError as e:
                 logger.debug("Hash failed for path=%s err=%s", video_path, e)
-                results.append({"filename": os.path.basename(video_path), "status": "error", "reason": "hash_failed"})
+                results.append(
+                    {
+                        "filename": os.path.basename(video_path),
+                        "status": "error",
+                        "reason": "hash_failed",
+                    }
+                )
                 continue
             existing = await _lookup_by_hash(file_hash)
             if existing:
-                results.append({"filename": os.path.basename(video_path), "status": "duplicate", "reason": "hash", "existing": existing})
+                results.append(
+                    {
+                        "filename": os.path.basename(video_path),
+                        "status": "duplicate",
+                        "reason": "hash",
+                        "existing": existing,
+                    }
+                )
             else:
-                entry = {"filename": os.path.basename(video_path), "status": "new", "reason": "hash", "hash": file_hash}
+                entry = {
+                    "filename": os.path.basename(video_path),
+                    "status": "new",
+                    "reason": "hash",
+                    "hash": file_hash,
+                }
                 if enqueue:
                     video_id = uuid.uuid4().hex
                     job_id = await _enqueue_job(
-                        {"video_id": video_id, "video_path": video_path, "enable_tiles": enable_tiles},
+                        {
+                            "video_id": video_id,
+                            "video_path": video_path,
+                            "enable_tiles": enable_tiles,
+                        },
                         request,
                     )
                     entry["enqueued"] = True

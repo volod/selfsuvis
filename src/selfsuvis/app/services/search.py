@@ -108,9 +108,7 @@ async def search_vectors(
         # mix of old-model and new-model dino vectors during the sweep, so cosine
         # similarity between them is meaningless and would corrupt result ranking.
         if await _reembed_is_active(db_pool=db_pool):
-            logger.info(
-                "Dino reranking suppressed: reembed sweep is active (falling back to clip)"
-            )
+            logger.info("Dino reranking suppressed: reembed sweep is active (falling back to clip)")
         else:
             dino_vec = dino_model.encode_images([image_query], batch_size=1)[0]
             dino_scored = store.search("dino", dino_vec, k_retrieve, filter_obj)
@@ -124,7 +122,12 @@ async def search_vectors(
 
 
 def _tile_bbox(payload: dict) -> dict | None:
-    return {"x": payload.get("x"), "y": payload.get("y"), "w": payload.get("w"), "h": payload.get("h")}
+    return {
+        "x": payload.get("x"),
+        "y": payload.get("y"),
+        "w": payload.get("w"),
+        "h": payload.get("h"),
+    }
 
 
 def format_results(scored: list[qmodels.ScoredPoint]) -> list[dict]:

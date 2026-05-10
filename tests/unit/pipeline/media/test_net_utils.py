@@ -31,7 +31,10 @@ def test_validate_url_rejects_single_label_hostname(monkeypatch):
 
 def test_validate_url_rejects_private_ip(monkeypatch):
     monkeypatch.setattr(config.settings, "ALLOW_PRIVATE_URLS", False)
-    with patch("selfsuvis.pipeline.media.network._iter_resolved_ips", return_value=[ipaddress.ip_address("192.168.1.1")]):
+    with patch(
+        "selfsuvis.pipeline.media.network._iter_resolved_ips",
+        return_value=[ipaddress.ip_address("192.168.1.1")],
+    ):
         with pytest.raises(ValueError, match="not allowed"):
             validate_url("http://example.com/")
 
@@ -80,7 +83,10 @@ def test_post_connect_ip_validation_blocks_private_peer(monkeypatch):
     mock_resp = _make_mock_response()
 
     with patch("selfsuvis.pipeline.media.network.validate_url"):
-        with patch("selfsuvis.pipeline.media.network._peer_ip", return_value=ipaddress.ip_address("192.168.1.1")):
+        with patch(
+            "selfsuvis.pipeline.media.network._peer_ip",
+            return_value=ipaddress.ip_address("192.168.1.1"),
+        ):
             with patch("requests.Session.request", return_value=mock_resp):
                 with pytest.raises(ValueError, match="Post-connect IP validation failed"):
                     safe_request("GET", "http://example.com/", timeout=5)
@@ -94,7 +100,10 @@ def test_post_connect_ip_validation_passes_public_peer(monkeypatch):
     mock_resp = _make_mock_response()
 
     with patch("selfsuvis.pipeline.media.network.validate_url"):
-        with patch("selfsuvis.pipeline.media.network._peer_ip", return_value=ipaddress.ip_address("8.8.8.8")):
+        with patch(
+            "selfsuvis.pipeline.media.network._peer_ip",
+            return_value=ipaddress.ip_address("8.8.8.8"),
+        ):
             with patch("requests.Session.request", return_value=mock_resp):
                 result = safe_request("GET", "http://example.com/", timeout=5)
     assert result is mock_resp

@@ -39,8 +39,7 @@ class LogAnalyzer:
     ) -> dict[str, list[LogEntry]]:
         raw_logs = self.collector.get_all_service_logs(since=since, until=until, tail=tail)
         return {
-            service: self._parse_service_logs(service, lines)
-            for service, lines in raw_logs.items()
+            service: self._parse_service_logs(service, lines) for service, lines in raw_logs.items()
         }
 
     def _parse_service_logs(self, service: str, lines: list[str]) -> list[LogEntry]:
@@ -69,11 +68,13 @@ class LogAnalyzer:
             summary["total_errors"] += len(errors)
             summary["total_warnings"] += len(warnings)
             for entry in errors[-5:]:
-                summary["recent_errors"].append({
-                    "service": service,
-                    "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
-                    "message": entry.message[:200],
-                })
+                summary["recent_errors"].append(
+                    {
+                        "service": service,
+                        "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
+                        "message": entry.message[:200],
+                    }
+                )
         summary["recent_errors"].sort(key=lambda x: x["timestamp"] or "", reverse=True)
         summary["recent_errors"] = summary["recent_errors"][:20]
         return summary
@@ -132,9 +133,7 @@ class LogAnalyzer:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df.set_index("timestamp", inplace=True)
         return (
-            df.groupby([pd.Grouper(freq=interval), "service", "level"])
-            .size()
-            .unstack(fill_value=0)
+            df.groupby([pd.Grouper(freq=interval), "service", "level"]).size().unstack(fill_value=0)
         )
 
     def get_full_report(

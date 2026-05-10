@@ -1,6 +1,5 @@
 """Shared logging helpers, constants, and VideoKnowledge for the local subpackage."""
 
-
 import hashlib
 import json
 import logging
@@ -14,10 +13,19 @@ from PIL import Image
 
 # ── Logging helpers ────────────────────────────────────────────────────────────
 
-_LOG_FMT  = "%(asctime)s  %(levelname)-7s  %(message)s"
+_LOG_FMT = "%(asctime)s  %(levelname)-7s  %(message)s"
 _DATE_FMT = "%H:%M:%S"
 
-_NOISY_LOGGERS = ("urllib3", "PIL", "filelock", "torch", "timm", "httpx", "httpcore", "transformers")
+_NOISY_LOGGERS = (
+    "urllib3",
+    "PIL",
+    "filelock",
+    "torch",
+    "timm",
+    "httpx",
+    "httpcore",
+    "transformers",
+)
 
 # Logger namespaces that should stay at INFO level.
 # Setting root to WARNING silences SAM2/ultralytics spam; these overrides
@@ -38,12 +46,14 @@ def _configure_logging() -> None:
 
 
 def _configure_warnings() -> None:
-    warnings.filterwarnings("ignore", message="xFormers is available",          category=UserWarning)
-    warnings.filterwarnings("ignore", message="xFormers is not available",       category=UserWarning)
-    warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
-                            category=FutureWarning)
-    warnings.filterwarnings("ignore", message="The image_processor_class argument is deprecated",
-                            category=FutureWarning)
+    warnings.filterwarnings("ignore", message="xFormers is available", category=UserWarning)
+    warnings.filterwarnings("ignore", message="xFormers is not available", category=UserWarning)
+    warnings.filterwarnings(
+        "ignore", message="Importing from timm.models.layers is deprecated", category=FutureWarning
+    )
+    warnings.filterwarnings(
+        "ignore", message="The image_processor_class argument is deprecated", category=FutureWarning
+    )
     warnings.filterwarnings(
         "ignore",
         message=r".*Florence2Processor.*image_processor_class = 'CLIPImageProcessor'.*deprecated.*",
@@ -69,8 +79,9 @@ def _configure_warnings() -> None:
 # Apply timm FutureWarning filter at import time so it takes effect before
 # timm is imported anywhere in the process (calling _configure_warnings()
 # later would be too late — the warning fires at timm import time).
-warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
-                        category=FutureWarning)
+warnings.filterwarnings(
+    "ignore", message="Importing from timm.models.layers is deprecated", category=FutureWarning
+)
 warnings.filterwarnings(
     "ignore",
     message=r".*Florence2Processor.*image_processor_class = 'CLIPImageProcessor'.*deprecated.*",
@@ -152,10 +163,11 @@ def gemma_frame_cache_key(frame_path: str, *, model: str, prompt_tag: str) -> st
 
 class _Timer:
     """Context manager that records elapsed seconds into a dict under *key*."""
+
     def __init__(self, store: dict[str, float], key: str) -> None:
         self._store = store
-        self._key   = key
-        self._t0    = 0.0
+        self._key = key
+        self._t0 = 0.0
 
     def __enter__(self) -> "_Timer":
         self._t0 = time.time()
@@ -261,8 +273,8 @@ _TEXT_PROMPTS: list[str] = [
 
 # ── Gemma analysis constants ──────────────────────────────────────────────────
 
-_GEMMA_ANALYSIS_SAMPLE_N = 30    # max frames sampled per video for Gemma analysis
-_SCENE_CHANGE_THRESH     = 0.25  # cosine distance threshold for scene change detection
+_GEMMA_ANALYSIS_SAMPLE_N = 30  # max frames sampled per video for Gemma analysis
+_SCENE_CHANGE_THRESH = 0.25  # cosine distance threshold for scene change detection
 
 # Text probes for cross-modal search and zero-shot classification
 _GEMMA_TEXT_PROBES: list[str] = [
@@ -317,13 +329,15 @@ def _analyze_caption_sequence(
             else:
                 is_new = False
 
-        enriched.append({
-            **r,
-            "segment_id": seg_id,
-            "is_new_segment": is_new,
-            "similarity": sim,
-            "segment_start_t": seg_start_t,
-        })
+        enriched.append(
+            {
+                **r,
+                "segment_id": seg_id,
+                "is_new_segment": is_new,
+                "similarity": sim,
+                "segment_start_t": seg_start_t,
+            }
+        )
         if cap:
             prev_caption = cap
 
@@ -358,27 +372,27 @@ class VideoKnowledge:
     """
 
     def __init__(self, video_name: str, duration_sec: float, frame_count: int) -> None:
-        self.video_name   = video_name
+        self.video_name = video_name
         self.duration_sec = duration_sec
-        self.frame_count  = frame_count
+        self.frame_count = frame_count
 
         # Gemma-derived domain knowledge (step 03)
-        self.scene_type: str       = ""   # dominant zero-shot category
-        self.n_transitions: int    = 0
-        self.n_clusters: int       = 0
+        self.scene_type: str = ""  # dominant zero-shot category
+        self.n_transitions: int = 0
+        self.n_clusters: int = 0
         self.gemma_mnn_dino: float = 0.0
 
         # Per-frame outputs keyed by t_sec (steps 04, 05, 06, 07, 08)
-        self._captions:   dict[float, str]        = {}  # Florence caption text
-        self._asr:        dict[float, str]         = {}  # ASR subtitle text
-        self._ocr:        dict[float, str]         = {}  # OCR visible text
-        self._depth:      dict[float, dict]        = {}  # depth summary dict
-        self._detections: dict[float, list[str]]  = {}  # detected labels at t
+        self._captions: dict[float, str] = {}  # Florence caption text
+        self._asr: dict[float, str] = {}  # ASR subtitle text
+        self._ocr: dict[float, str] = {}  # OCR visible text
+        self._depth: dict[float, dict] = {}  # depth summary dict
+        self._detections: dict[float, list[str]] = {}  # detected labels at t
         self._state_fusion: dict[float, dict[str, Any]] = {}  # fused platform state at t
 
         # Sorted timestamp index for nearest-frame lookups
-        self._ts_captions:   list[float] = []
-        self._ts_depth:      list[float] = []
+        self._ts_captions: list[float] = []
+        self._ts_depth: list[float] = []
         self._ts_detections: list[float] = []
         self._ts_state_fusion: list[float] = []
 
@@ -404,12 +418,14 @@ class VideoKnowledge:
         sc = task_results.get("scene_change_detection", {})
         self.n_transitions = sc.get("n_changes", 0)
         cl = task_results.get("scene_clustering", {})
-        self.n_clusters   = cl.get("n_clusters", 0)
+        self.n_clusters = cl.get("n_clusters", 0)
         self.gemma_mnn_dino = mnn_dino
 
     def add_captions(self, caption_results: list[dict[str, Any]]) -> None:
         """Deposit Florence per-frame captions (step 04) and derive segments."""
-        self._captions   = {r["t_sec"]: r.get("caption") or "" for r in caption_results if "t_sec" in r}
+        self._captions = {
+            r["t_sec"]: r.get("caption") or "" for r in caption_results if "t_sec" in r
+        }
         self._ts_captions = sorted(self._captions)
         # Re-use existing segment analysis
         enriched = _analyze_caption_sequence(caption_results)
@@ -417,8 +433,12 @@ class VideoKnowledge:
         for r in enriched:
             sid = r["segment_id"]
             if sid not in seg_map:
-                seg_map[sid] = {"segment_id": sid, "start_t": r["t_sec"],
-                                "end_t": r["t_sec"], "caption": r.get("caption") or ""}
+                seg_map[sid] = {
+                    "segment_id": sid,
+                    "start_t": r["t_sec"],
+                    "end_t": r["t_sec"],
+                    "caption": r.get("caption") or "",
+                }
             else:
                 seg_map[sid]["end_t"] = r["t_sec"]
         self._segments = [seg_map[k] for k in sorted(seg_map)]
@@ -429,8 +449,9 @@ class VideoKnowledge:
 
     def add_ocr(self, ocr_results: list[dict[str, Any]]) -> None:
         """Deposit OCR per-frame results (step 06)."""
-        self._ocr = {r["t_sec"]: r["ocr_text"] for r in ocr_results
-                     if r.get("ocr_text") and "t_sec" in r}
+        self._ocr = {
+            r["t_sec"]: r["ocr_text"] for r in ocr_results if r.get("ocr_text") and "t_sec" in r
+        }
 
     def add_depth(self, depth_results: list[dict[str, Any]]) -> None:
         """Deposit depth estimation per-frame results (step 07)."""
@@ -519,14 +540,13 @@ class VideoKnowledge:
         seg = self._segment_at(t_sec)
         if seg and seg.get("caption"):
             lines.append(
-                f"[Scene segment {seg['segment_id']+1}, "
+                f"[Scene segment {seg['segment_id'] + 1}, "
                 f"{seg['start_t']:.1f}s–{seg['end_t']:.1f}s]: "
                 f"{seg['caption'][:120]}"
             )
 
         # ASR in window
-        asr_parts = [txt for ts, txt in self._asr.items()
-                     if abs(ts - t_sec) <= asr_window]
+        asr_parts = [txt for ts, txt in self._asr.items() if abs(ts - t_sec) <= asr_window]
         if asr_parts:
             lines.append(f"[Audio context]: {' '.join(asr_parts)[:120]}")
 
@@ -538,8 +558,8 @@ class VideoKnowledge:
         # Depth profile
         dep = self._nearest(self._ts_depth, self._depth, t_sec, max_gap=2.0)
         if dep:
-            nr  = dep.get("near_ratio",  dep.get("near_frac",  0.0))
-            mn  = dep.get("mean_depth",  dep.get("median",     0.0))
+            nr = dep.get("near_ratio", dep.get("near_frac", 0.0))
+            mn = dep.get("mean_depth", dep.get("median", 0.0))
             if nr or mn:
                 lines.append(f"[Depth profile]: near_ratio={nr:.2f}  mean={mn:.2f}")
 
@@ -565,9 +585,11 @@ class VideoKnowledge:
             prev_road = self._last_qwen.get("road_surface", "")
             prev_cond = self._last_qwen.get("road_condition", "")
             if prev_vg or prev_road:
-                vg_str = "; ".join(
-                    f"{g.get('count', 1)}×{g.get('type', '?')}" for g in prev_vg
-                ) if prev_vg else "none"
+                vg_str = (
+                    "; ".join(f"{g.get('count', 1)}×{g.get('type', '?')}" for g in prev_vg)
+                    if prev_vg
+                    else "none"
+                )
                 lines.append(
                     f"[Prior frame state]: vehicles={vg_str}  "
                     f"road={prev_road}  condition={prev_cond}"

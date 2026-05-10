@@ -31,9 +31,15 @@ async def test_packet_publisher_auto_creates_session_and_flushes():
     conn = object()
     pool = FakePool(conn)
     with (
-        patch.object(bridge_runtime, "fetch_realtime_state", new_callable=AsyncMock, return_value=None),
-        patch.object(bridge_runtime, "create_robot_session", new_callable=AsyncMock) as create_session,
-        patch.object(bridge_runtime, "ingest_realtime_packets", new_callable=AsyncMock) as ingest_packets,
+        patch.object(
+            bridge_runtime, "fetch_realtime_state", new_callable=AsyncMock, return_value=None
+        ),
+        patch.object(
+            bridge_runtime, "create_robot_session", new_callable=AsyncMock
+        ) as create_session,
+        patch.object(
+            bridge_runtime, "ingest_realtime_packets", new_callable=AsyncMock
+        ) as ingest_packets,
     ):
         publisher = bridge_runtime.RealtimePacketPublisher(
             pool,
@@ -47,7 +53,9 @@ async def test_packet_publisher_auto_creates_session_and_flushes():
             log_every_n_packets=0,
         )
         await publisher.start()
-        await publisher.publish({"sensor_type": "gps", "t_device": 1.0, "payload": {"east": 1.0, "north": 2.0}})
+        await publisher.publish(
+            {"sensor_type": "gps", "t_device": 1.0, "payload": {"east": 1.0, "north": 2.0}}
+        )
         await publisher.publish({"sensor_type": "imu", "t_device": 1.0, "payload": {"yaw": 0.1}})
         await publisher.shutdown()
 
@@ -113,7 +121,9 @@ async def test_build_runtime_from_settings_uses_ros_bridge_when_selected():
             raise asyncio.CancelledError
 
     with patch.object(bridge_runtime.settings, "REALTIME_BRIDGE_BACKEND", "ros"):
-        runtime = bridge_runtime.build_runtime_from_settings(backend="ros", db_pool=pool, source=FakeSource())
+        runtime = bridge_runtime.build_runtime_from_settings(
+            backend="ros", db_pool=pool, source=FakeSource()
+        )
 
     assert isinstance(runtime._bridge, bridge_runtime.RosTopicBridge)
 

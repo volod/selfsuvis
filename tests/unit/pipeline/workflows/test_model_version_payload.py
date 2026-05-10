@@ -7,6 +7,7 @@ pipeline.config.settings.MODEL_VERSION_ID.
 cv2 and skimage are stubbed because they fail to import under NumPy 2.x
 in this environment.  All other deps (qdrant_client, torch, PIL) are real.
 """
+
 import importlib
 import sys
 import types
@@ -20,10 +21,18 @@ import pytest
 if "selfsuvis.pipeline.indexer" not in sys.modules:
     for _name in ("cv2", "skimage", "skimage.metrics"):
         _m = types.ModuleType(_name)
-        _m.__spec__ = type("S", (), {"name": _name, "origin": None, "loader": None,
-                                     "submodule_search_locations": None,
-                                     "parent": _name.rsplit(".", 1)[0] if "." in _name else "",
-                                     "has_location": False})()
+        _m.__spec__ = type(
+            "S",
+            (),
+            {
+                "name": _name,
+                "origin": None,
+                "loader": None,
+                "submodule_search_locations": None,
+                "parent": _name.rsplit(".", 1)[0] if "." in _name else "",
+                "has_location": False,
+            },
+        )()
         sys.modules[_name] = _m
 
 # ── Now import the module under test ─────────────────────────────────────────
@@ -37,6 +46,7 @@ VideoIndexer = indexer_mod.VideoIndexer  # noqa: E402
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _make_indexer(model_version_id="base", clip_dim=512):
     """Build a VideoIndexer shell with mocked attributes — no model loading."""
     settings_mock = MagicMock()
@@ -44,7 +54,7 @@ def _make_indexer(model_version_id="base", clip_dim=512):
 
     indexer = VideoIndexer.__new__(VideoIndexer)
     indexer.clip = MagicMock()
-    indexer.dino_model = None   # checked inside _build_frame_point
+    indexer.dino_model = None  # checked inside _build_frame_point
     indexer.store = MagicMock()
     return indexer, settings_mock
 
@@ -53,6 +63,7 @@ def _build_point(indexer, settings_mock, **kwargs):
     """Call _build_frame_point with patched settings."""
     import numpy as np
     from PIL import Image as PILImage
+
     fake_pil = PILImage.new("RGB", (32, 32))
     fake_clip = np.zeros(512, dtype=np.float32)
     defaults = dict(
@@ -65,14 +76,15 @@ def _build_point(indexer, settings_mock, **kwargs):
     )
     defaults.update(kwargs)
     import selfsuvis.pipeline.workflows.indexer as _wf_indexer
+
     with patch.object(_wf_indexer, "settings", settings_mock):
         return VideoIndexer._build_frame_point(indexer, **defaults)
 
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
-class TestModelVersionIdInPayload:
 
+class TestModelVersionIdInPayload:
     def test_default_base_version_present(self):
         indexer, settings_mock = _make_indexer(model_version_id="base")
         point = _build_point(indexer, settings_mock)
@@ -96,7 +108,8 @@ class TestModelVersionIdInPayload:
     def test_model_version_present_with_all_standard_fields(self):
         indexer, settings_mock = _make_indexer()
         point = _build_point(
-            indexer, settings_mock,
+            indexer,
+            settings_mock,
             video_id="vid99",
             segment_id=3,
             t_sec=5.0,
@@ -126,7 +139,8 @@ class TestModelVersionIdInPayload:
     def test_model_version_present_with_gps(self):
         indexer, settings_mock = _make_indexer(model_version_id="v3")
         point = _build_point(
-            indexer, settings_mock,
+            indexer,
+            settings_mock,
             gps={"lat": 37.7749, "lon": -122.4194, "alt": 10.0},
         )
         assert point.payload["model_version_id"] == "v3"

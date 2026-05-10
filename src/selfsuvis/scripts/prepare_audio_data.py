@@ -150,7 +150,9 @@ def main() -> None:
         if existing:
             print(f"Found {len(existing)} WAV files in {data_dir} — verifying completeness ...")
             if _verify(data_dir):
-                print("Dataset already complete. Use --verify to re-check, or delete the directory to re-download.")
+                print(
+                    "Dataset already complete. Use --verify to re-check, or delete the directory to re-download."
+                )
                 return
 
     print(f"Preparing drone audio dataset → {data_dir}")

@@ -1,6 +1,5 @@
 """Adapter registry for realtime engines."""
 
-
 from .base import (
     RealtimeEngineAdapter,
     available_backend_urls,

@@ -108,5 +108,7 @@ def available_backend_urls(registry: dict[str, type[RealtimeEngineAdapter]]) -> 
     return {name: adapter_cls().api_url for name, adapter_cls in registry.items()}
 
 
-def describe_backends(registry: dict[str, type[RealtimeEngineAdapter]]) -> dict[str, dict[str, object]]:
+def describe_backends(
+    registry: dict[str, type[RealtimeEngineAdapter]],
+) -> dict[str, dict[str, object]]:
     return {name: adapter_cls().describe() for name, adapter_cls in registry.items()}

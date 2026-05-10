@@ -11,7 +11,9 @@ INDEX_DIR_PATH = os.getenv("INDEX_DIR_PATH")
 RUN_API_TESTS = os.getenv("RUN_API_TESTS", "").lower() in {"1", "true", "yes"}
 
 if not RUN_API_TESTS:
-    pytest.skip("API integration tests disabled; set RUN_API_TESTS=1 to run them", allow_module_level=True)
+    pytest.skip(
+        "API integration tests disabled; set RUN_API_TESTS=1 to run them", allow_module_level=True
+    )
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
@@ -94,7 +96,12 @@ def test_index_video_and_query_image():
         resp = requests.post(
             f"{API_URL}/query/image",
             files={"file": ("green.png", f, "image/png")},
-            data={"top_k": "5", "search_type": "both", "vector_space": "clip", "enable_rerank": "false"},
+            data={
+                "top_k": "5",
+                "search_type": "both",
+                "vector_space": "clip",
+                "enable_rerank": "false",
+            },
         )
     resp.raise_for_status()
     results = resp.json().get("results", [])

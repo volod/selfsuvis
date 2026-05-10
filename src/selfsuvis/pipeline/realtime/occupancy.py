@@ -1,6 +1,5 @@
 """Realtime occupancy/tile helpers."""
 
-
 import json
 from pathlib import Path
 from typing import Any
@@ -18,7 +17,9 @@ def normalize_map_tile(tile: dict[str, Any]) -> dict[str, Any]:
         "resolution_m": float(tile.get("resolution_m", 0.2)),
         "bounds": dict(tile.get("bounds") or {}),
         "stats": dict(tile.get("stats") or {}),
-        "global_map_id": int(tile["global_map_id"]) if tile.get("global_map_id") is not None else None,
+        "global_map_id": int(tile["global_map_id"])
+        if tile.get("global_map_id") is not None
+        else None,
     }
 
 

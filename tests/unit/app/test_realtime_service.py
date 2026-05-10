@@ -1,6 +1,5 @@
 """Unit tests for app.services.realtime workflow methods."""
 
-
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,7 +12,9 @@ async def test_start_realtime_session_creates_profile_and_session():
     conn = object()
     with (
         patch.object(realtime_service, "new_session_id", return_value="session-123"),
-        patch.object(realtime_service, "create_robot_session", new_callable=AsyncMock) as create_session,
+        patch.object(
+            realtime_service, "create_robot_session", new_callable=AsyncMock
+        ) as create_session,
     ):
         result = await realtime_service.start_realtime_session(
             conn,
@@ -43,9 +44,18 @@ async def test_start_realtime_session_creates_profile_and_session():
 async def test_ingest_realtime_packets_persists_packets_and_stub_pose():
     conn = object()
     with (
-        patch.object(realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value={"session": {"id": "s1"}}),
-        patch.object(realtime_service, "insert_sensor_packets", new_callable=AsyncMock) as insert_packets,
-        patch.object(realtime_service, "insert_realtime_pose", new_callable=AsyncMock) as insert_pose,
+        patch.object(
+            realtime_service,
+            "fetch_realtime_state",
+            new_callable=AsyncMock,
+            return_value={"session": {"id": "s1"}},
+        ),
+        patch.object(
+            realtime_service, "insert_sensor_packets", new_callable=AsyncMock
+        ) as insert_packets,
+        patch.object(
+            realtime_service, "insert_realtime_pose", new_callable=AsyncMock
+        ) as insert_pose,
         patch.object(realtime_service, "upsert_realtime_frame", new_callable=AsyncMock),
     ):
         result = await realtime_service.ingest_realtime_packets(
@@ -53,7 +63,11 @@ async def test_ingest_realtime_packets_persists_packets_and_stub_pose():
             session_id="s1",
             packets=[
                 {"sensor_type": "gps", "t_device": 10.0, "payload": {"east": 1.0, "north": 2.0}},
-                {"sensor_type": "imu", "t_device": 10.1, "payload": {"yaw": 0.1, "vx": 0.4, "vy": 0.0}},
+                {
+                    "sensor_type": "imu",
+                    "t_device": 10.1,
+                    "payload": {"yaw": 0.1, "vx": 0.4, "vy": 0.0},
+                },
             ],
         )
 
@@ -92,9 +106,16 @@ async def test_ingest_realtime_packets_uses_pose_sidecar_when_configured():
             }
 
     with (
-        patch.object(realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value={"session": {"id": "s1"}}),
+        patch.object(
+            realtime_service,
+            "fetch_realtime_state",
+            new_callable=AsyncMock,
+            return_value={"session": {"id": "s1"}},
+        ),
         patch.object(realtime_service, "insert_sensor_packets", new_callable=AsyncMock),
-        patch.object(realtime_service, "insert_realtime_pose", new_callable=AsyncMock) as insert_pose,
+        patch.object(
+            realtime_service, "insert_realtime_pose", new_callable=AsyncMock
+        ) as insert_pose,
         patch.object(realtime_service.settings, "REALTIME_POSE_BACKEND", "vins_fusion"),
         patch.object(realtime_service, "RealtimePoseClient", return_value=_PoseClient()),
         patch.object(realtime_service, "upsert_realtime_frame", new_callable=AsyncMock),
@@ -102,7 +123,9 @@ async def test_ingest_realtime_packets_uses_pose_sidecar_when_configured():
         result = await realtime_service.ingest_realtime_packets(
             conn,
             session_id="s1",
-            packets=[{"sensor_type": "gps", "t_device": 5.0, "payload": {"east": 1.0, "north": 2.0}}],
+            packets=[
+                {"sensor_type": "gps", "t_device": 5.0, "payload": {"east": 1.0, "north": 2.0}}
+            ],
         )
 
     assert result["pose_updated"] is True
@@ -113,9 +136,16 @@ async def test_ingest_realtime_packets_uses_pose_sidecar_when_configured():
 async def test_ingest_realtime_packets_skips_pose_when_gps_and_imu_are_stale():
     conn = object()
     with (
-        patch.object(realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value={"session": {"id": "s1"}}),
+        patch.object(
+            realtime_service,
+            "fetch_realtime_state",
+            new_callable=AsyncMock,
+            return_value={"session": {"id": "s1"}},
+        ),
         patch.object(realtime_service, "insert_sensor_packets", new_callable=AsyncMock),
-        patch.object(realtime_service, "insert_realtime_pose", new_callable=AsyncMock) as insert_pose,
+        patch.object(
+            realtime_service, "insert_realtime_pose", new_callable=AsyncMock
+        ) as insert_pose,
         patch.object(realtime_service.settings, "REALTIME_MAX_SENSOR_LAG_MS", 100),
     ):
         result = await realtime_service.ingest_realtime_packets(
@@ -134,12 +164,16 @@ async def test_ingest_realtime_packets_skips_pose_when_gps_and_imu_are_stale():
 @pytest.mark.anyio
 async def test_ingest_realtime_packets_missing_session_raises():
     conn = object()
-    with patch.object(realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value=None):
+    with patch.object(
+        realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value=None
+    ):
         with pytest.raises(LookupError, match="session not found"):
             await realtime_service.ingest_realtime_packets(
                 conn,
                 session_id="missing",
-                packets=[{"sensor_type": "gps", "t_device": 1.0, "payload": {"east": 1, "north": 2}}],
+                packets=[
+                    {"sensor_type": "gps", "t_device": 1.0, "payload": {"east": 1, "north": 2}}
+                ],
             )
 
 
@@ -148,16 +182,25 @@ async def test_publish_and_fetch_map_tiles_delegate_to_storage():
     conn = object()
     rows = [{"tile_key": "tile-1", "map_type": "occupancy"}]
     with (
-        patch.object(realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value={"session": {"id": "s1"}}),
+        patch.object(
+            realtime_service,
+            "fetch_realtime_state",
+            new_callable=AsyncMock,
+            return_value={"session": {"id": "s1"}},
+        ),
         patch.object(realtime_service, "upsert_map_tile", new_callable=AsyncMock) as upsert_tile,
-        patch.object(realtime_service, "list_map_tiles", new_callable=AsyncMock, return_value=rows) as list_tiles,
+        patch.object(
+            realtime_service, "list_map_tiles", new_callable=AsyncMock, return_value=rows
+        ) as list_tiles,
     ):
         await realtime_service.publish_map_tile(
             conn,
             session_id="s1",
             tile={"tile_key": "tile-1", "storage_path": "/tmp/t.bin"},
         )
-        result = await realtime_service.fetch_map_tiles(conn, session_id="s1", map_type="occupancy", limit=5)
+        result = await realtime_service.fetch_map_tiles(
+            conn, session_id="s1", map_type="occupancy", limit=5
+        )
 
     upsert_tile.assert_awaited_once()
     list_tiles.assert_awaited_once_with(conn, "s1", map_type="occupancy", limit=5)
@@ -168,8 +211,15 @@ async def test_publish_and_fetch_map_tiles_delegate_to_storage():
 async def test_publish_semantic_observation_validates_and_delegates():
     conn = object()
     with (
-        patch.object(realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value={"session": {"id": "s1"}}),
-        patch.object(realtime_service, "insert_semantic_observation", new_callable=AsyncMock) as insert_obs,
+        patch.object(
+            realtime_service,
+            "fetch_realtime_state",
+            new_callable=AsyncMock,
+            return_value={"session": {"id": "s1"}},
+        ),
+        patch.object(
+            realtime_service, "insert_semantic_observation", new_callable=AsyncMock
+        ) as insert_obs,
     ):
         await realtime_service.publish_semantic_observation(
             conn,
@@ -187,7 +237,9 @@ async def test_publish_semantic_observation_validates_and_delegates():
 @pytest.mark.anyio
 async def test_fetch_semantic_observations_missing_session_raises():
     conn = object()
-    with patch.object(realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value=None):
+    with patch.object(
+        realtime_service, "fetch_realtime_state", new_callable=AsyncMock, return_value=None
+    ):
         with pytest.raises(LookupError, match="session not found"):
             await realtime_service.fetch_semantic_observations(conn, session_id="missing")
 
@@ -204,8 +256,12 @@ async def test_finalize_realtime_session_creates_job_when_requested():
         ),
         patch.object(realtime_service, "upsert_mission", new_callable=AsyncMock) as upsert_mission,
         patch.object(realtime_service, "create_job", new_callable=AsyncMock) as create_job,
-        patch.object(realtime_service, "stop_robot_session", new_callable=AsyncMock) as stop_session,
-        patch.object(realtime_service, "list_realtime_frames", new_callable=AsyncMock, return_value=[]),
+        patch.object(
+            realtime_service, "stop_robot_session", new_callable=AsyncMock
+        ) as stop_session,
+        patch.object(
+            realtime_service, "list_realtime_frames", new_callable=AsyncMock, return_value=[]
+        ),
         patch.object(
             realtime_service,
             "summarize_realtime_session",
@@ -271,7 +327,9 @@ async def test_finalize_realtime_session_without_recording_does_not_enqueue():
         patch.object(realtime_service, "upsert_mission", new_callable=AsyncMock) as upsert_mission,
         patch.object(realtime_service, "create_job", new_callable=AsyncMock) as create_job,
         patch.object(realtime_service, "stop_robot_session", new_callable=AsyncMock),
-        patch.object(realtime_service, "list_realtime_frames", new_callable=AsyncMock, return_value=[]),
+        patch.object(
+            realtime_service, "list_realtime_frames", new_callable=AsyncMock, return_value=[]
+        ),
         patch.object(
             realtime_service,
             "summarize_realtime_session",
@@ -303,21 +361,33 @@ async def test_integrate_realtime_frame_writes_stub_tile_and_semantics():
             new_callable=AsyncMock,
             return_value={"session": {"id": "s1"}, "latest_pose": None},
         ),
-        patch.object(realtime_service, "insert_sensor_packets", new_callable=AsyncMock) as insert_packets,
-        patch.object(realtime_service, "insert_realtime_pose", new_callable=AsyncMock) as insert_pose,
+        patch.object(
+            realtime_service, "insert_sensor_packets", new_callable=AsyncMock
+        ) as insert_packets,
+        patch.object(
+            realtime_service, "insert_realtime_pose", new_callable=AsyncMock
+        ) as insert_pose,
         patch.object(realtime_service, "upsert_map_tile", new_callable=AsyncMock) as upsert_tile,
-        patch.object(realtime_service, "insert_semantic_observation", new_callable=AsyncMock) as insert_semantic,
-        patch.object(realtime_service, "upsert_realtime_frame", new_callable=AsyncMock) as upsert_realtime_frame,
+        patch.object(
+            realtime_service, "insert_semantic_observation", new_callable=AsyncMock
+        ) as insert_semantic,
+        patch.object(
+            realtime_service, "upsert_realtime_frame", new_callable=AsyncMock
+        ) as upsert_realtime_frame,
         patch.object(realtime_service.settings, "REALTIME_OCCUPANCY_BACKEND", "stub"),
-        patch.object(realtime_service, "write_stub_map_tile", return_value={
-            "tile_key": "frame-f1",
-            "map_type": "occupancy",
-            "storage_path": "/tmp/frame-f1.json",
-            "resolution_m": 0.2,
-            "bounds": {},
-            "stats": {"occupied": 3},
-            "global_map_id": None,
-        }),
+        patch.object(
+            realtime_service,
+            "write_stub_map_tile",
+            return_value={
+                "tile_key": "frame-f1",
+                "map_type": "occupancy",
+                "storage_path": "/tmp/frame-f1.json",
+                "resolution_m": 0.2,
+                "bounds": {},
+                "stats": {"occupied": 3},
+                "global_map_id": None,
+            },
+        ),
     ):
         result = await realtime_service.integrate_realtime_frame(
             conn,
@@ -325,7 +395,9 @@ async def test_integrate_realtime_frame_writes_stub_tile_and_semantics():
             frame_id="f1",
             t_sec=3.0,
             image_path="/tmp/f1.jpg",
-            packets=[{"sensor_type": "gps", "t_device": 3.0, "payload": {"east": 1.0, "north": 2.0}}],
+            packets=[
+                {"sensor_type": "gps", "t_device": 3.0, "payload": {"east": 1.0, "north": 2.0}}
+            ],
             semantic_observations=[{"class_name": "tree", "confidence": 0.8}],
         )
 

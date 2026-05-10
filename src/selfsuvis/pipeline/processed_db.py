@@ -1,4 +1,5 @@
 """Backward-compatibility shim. Use pipeline.storage.processed directly."""
+
 from selfsuvis.pipeline.storage.processed import (  # noqa: F401
     aget_by_hash,
     aget_by_size,

@@ -29,7 +29,7 @@ class MeshNode(BaseModel):
     """Single node in the site sensor mesh."""
 
     node_id: str
-    node_type: str          # "sensor" | "camera" | "visual"
+    node_type: str  # "sensor" | "camera" | "visual"
     lat: float | None = None
     lon: float | None = None
     alt_m: float | None = None
@@ -133,6 +133,7 @@ class SensorMeshFusion:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _sensor_attrs(sensor: Any) -> dict[str, Any]:
     return {
         k: v
@@ -163,7 +164,7 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def _link_neighbours(nodes: list[MeshNode], radius_m: float) -> None:
     positioned = [n for n in nodes if n.lat is not None and n.lon is not None]
     for i, a in enumerate(positioned):
-        for b in positioned[i + 1:]:
+        for b in positioned[i + 1 :]:
             dist = _haversine_m(a.lat, a.lon, b.lat, b.lon)  # type: ignore[arg-type]
             if dist <= radius_m:
                 a.neighbor_ids.append(b.node_id)

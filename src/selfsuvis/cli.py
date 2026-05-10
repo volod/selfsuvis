@@ -24,21 +24,27 @@ def main() -> None:
 
     if args.mode == "local":
         from selfsuvis.pipeline.workflows import apply_local_env  # noqa: PLC0415
+
         apply_local_env(args)
         from selfsuvis.pipeline.core import log_preflight, run_local_preflight  # noqa: PLC0415
+
         report = run_local_preflight(args)
         log_preflight(report)
         report.raise_for_errors()
         from selfsuvis.pipeline.workflows import run_local  # noqa: PLC0415
+
         run_local(args)
     elif args.mode == "file":
         from selfsuvis.pipeline.workflows import run_file_mode  # noqa: PLC0415
+
         run_file_mode(args)
     elif args.mode == "analyse":
         from selfsuvis.scripts.analyse_local_run import run  # noqa: PLC0415
+
         run(args)
     else:
         from selfsuvis.pipeline.workflows import run_stream_mode  # noqa: PLC0415
+
         run_stream_mode(args)
 
 

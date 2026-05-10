@@ -54,7 +54,8 @@ def replay_local_run(
     ingest_delay_sec_by_kind = dict(ingest_delay_sec_by_kind or {})
 
     video_dirs = sorted(
-        path for path in output_dir.iterdir()
+        path
+        for path in output_dir.iterdir()
         if path.is_dir() and (path / "local_threat_assessment.json").exists()
     )
     raw_events: list[dict[str, Any]] = []
@@ -115,80 +116,92 @@ def _video_events(video_dir: Path, *, node_id: str) -> list[dict[str, Any]]:
     primary_sector = sector_ids[0] if sector_ids else "unknown"
 
     events: list[dict[str, Any]] = []
-    events.append(SensorEvent(
-        event_time=start_dt.isoformat(),
-        ingest_time=start_dt.isoformat(),
-        node_id=node_id,
-        sensor_type="fusion",
-        sector_id=primary_sector,
-        payload={
-            "video_id": video_dir.name,
-            "route_id": route_id,
-            "physical_state": physical_state,
-            "field_state": field_state.get("clip_level_fields", {}),
-        },
-    ).to_dict())
-
-    for primitive in list(primitives.get("primitives") or []):
-        events.append(ThreatEvent(
+    events.append(
+        SensorEvent(
             event_time=start_dt.isoformat(),
             ingest_time=start_dt.isoformat(),
             node_id=node_id,
-            sensor_type=str(primitive.get("type", "threat")),
+            sensor_type="fusion",
             sector_id=primary_sector,
             payload={
                 "video_id": video_dir.name,
                 "route_id": route_id,
-                "threat_type": primitive.get("type"),
-                "score": primitive.get("score", 0.0),
-                "uncertainty": primitive.get("uncertainty", 0.0),
-                "evidence_sources": list(primitive.get("evidence_sources") or []),
+                "physical_state": physical_state,
+                "field_state": field_state.get("clip_level_fields", {}),
             },
-        ).to_dict())
+        ).to_dict()
+    )
 
-    events.append(ThreatEvent(
-        event_time=end_dt.isoformat(),
-        ingest_time=end_dt.isoformat(),
-        node_id=node_id,
-        sensor_type="local_threat",
-        sector_id=primary_sector,
-        payload={
-            "video_id": video_dir.name,
-            "route_id": route_id,
-            "local_threat_score": local_threat.get("local_threat_score", 0.0),
-            "automation_confidence": local_threat.get("automation_confidence", 1.0),
-            "trust_penalty": local_threat.get("trust_penalty", 0.0),
-            "recommended_action": local_threat.get("recommended_action", "continue"),
-            "top_threats": list(local_threat.get("top_threats") or []),
-        },
-    ).to_dict())
+    for primitive in list(primitives.get("primitives") or []):
+        events.append(
+            ThreatEvent(
+                event_time=start_dt.isoformat(),
+                ingest_time=start_dt.isoformat(),
+                node_id=node_id,
+                sensor_type=str(primitive.get("type", "threat")),
+                sector_id=primary_sector,
+                payload={
+                    "video_id": video_dir.name,
+                    "route_id": route_id,
+                    "threat_type": primitive.get("type"),
+                    "score": primitive.get("score", 0.0),
+                    "uncertainty": primitive.get("uncertainty", 0.0),
+                    "evidence_sources": list(primitive.get("evidence_sources") or []),
+                },
+            ).to_dict()
+        )
 
-    events.append(NodeHealthEvent(
-        event_time=end_dt.isoformat(),
-        ingest_time=end_dt.isoformat(),
-        node_id=node_id,
-        sensor_type="analytics",
-        sector_id=primary_sector,
-        payload={
-            "video_id": video_dir.name,
-            "route_id": route_id,
-            "automation_confidence": local_threat.get("automation_confidence", 1.0),
-            "trust_penalty": local_threat.get("trust_penalty", 0.0),
-            "disagreement_count": local_threat.get("disagreement_count", 0),
-            "outage_sec": 0.0,
-            "model_name": "local_pipeline",
-        },
-    ).to_dict())
+    events.append(
+        ThreatEvent(
+            event_time=end_dt.isoformat(),
+            ingest_time=end_dt.isoformat(),
+            node_id=node_id,
+            sensor_type="local_threat",
+            sector_id=primary_sector,
+            payload={
+                "video_id": video_dir.name,
+                "route_id": route_id,
+                "local_threat_score": local_threat.get("local_threat_score", 0.0),
+                "automation_confidence": local_threat.get("automation_confidence", 1.0),
+                "trust_penalty": local_threat.get("trust_penalty", 0.0),
+                "recommended_action": local_threat.get("recommended_action", "continue"),
+                "top_threats": list(local_threat.get("top_threats") or []),
+            },
+        ).to_dict()
+    )
+
+    events.append(
+        NodeHealthEvent(
+            event_time=end_dt.isoformat(),
+            ingest_time=end_dt.isoformat(),
+            node_id=node_id,
+            sensor_type="analytics",
+            sector_id=primary_sector,
+            payload={
+                "video_id": video_dir.name,
+                "route_id": route_id,
+                "automation_confidence": local_threat.get("automation_confidence", 1.0),
+                "trust_penalty": local_threat.get("trust_penalty", 0.0),
+                "disagreement_count": local_threat.get("disagreement_count", 0),
+                "outage_sec": 0.0,
+                "model_name": "local_pipeline",
+            },
+        ).to_dict()
+    )
     return events
 
 
 def _sector_index(full_fusion: dict[str, Any], video_name: str) -> tuple[list[str], list[float]]:
     platform = full_fusion.get("platform") or {}
     origin = platform.get("origin_lla") or {}
-    smoothed = ((full_fusion.get("map_state") or {}).get("smoothed_samples") or [])
-    positions = [dict(row.get("position_enu_m") or {}) for row in smoothed if row.get("position_enu_m")]
+    smoothed = (full_fusion.get("map_state") or {}).get("smoothed_samples") or []
+    positions = [
+        dict(row.get("position_enu_m") or {}) for row in smoothed if row.get("position_enu_m")
+    ]
     if origin and positions:
-        sectors = unique_sector_sequence(sectorize_global_positions(origin, positions, tile_size_m=50.0))
+        sectors = unique_sector_sequence(
+            sectorize_global_positions(origin, positions, tile_size_m=50.0)
+        )
     else:
         sectors = []
     if smoothed:

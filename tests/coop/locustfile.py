@@ -27,7 +27,7 @@ class ChirpStackUser(HttpUser):
             "/api/device-profiles",
             headers=headers,
             catch_response=True,
-            name="List Device Profiles"
+            name="List Device Profiles",
         ) as response:
             if response.status_code in [200, 401, 403]:
                 response.success()
@@ -39,10 +39,7 @@ class ChirpStackUser(HttpUser):
         """List applications."""
         headers = {"Grpc-Metadata-Authorization": f"Bearer {self.api_key}"}
         with self.client.get(
-            "/api/applications",
-            headers=headers,
-            catch_response=True,
-            name="List Applications"
+            "/api/applications", headers=headers, catch_response=True, name="List Applications"
         ) as response:
             if response.status_code in [200, 401, 403]:
                 response.success()
@@ -54,10 +51,7 @@ class ChirpStackUser(HttpUser):
         """List gateways."""
         headers = {"Grpc-Metadata-Authorization": f"Bearer {self.api_key}"}
         with self.client.get(
-            "/api/gateways",
-            headers=headers,
-            catch_response=True,
-            name="List Gateways"
+            "/api/gateways", headers=headers, catch_response=True, name="List Gateways"
         ) as response:
             if response.status_code in [200, 401, 403]:
                 response.success()
@@ -75,9 +69,7 @@ class OpenRemoteUser(HttpUser):
     def get_master_info(self):
         """Get master realm info."""
         with self.client.get(
-            "/api/master/info",
-            catch_response=True,
-            name="Get Master Info"
+            "/api/master/info", catch_response=True, name="Get Master Info"
         ) as response:
             if response.status_code in [200, 401, 403, 404]:
                 response.success()
@@ -88,9 +80,7 @@ class OpenRemoteUser(HttpUser):
     def get_realm_info(self):
         """Get realm info."""
         with self.client.get(
-            "/api/master/realm/info",
-            catch_response=True,
-            name="Get Realm Info"
+            "/api/master/realm/info", catch_response=True, name="Get Realm Info"
         ) as response:
             if response.status_code in [200, 401, 403, 404]:
                 response.success()
@@ -100,11 +90,7 @@ class OpenRemoteUser(HttpUser):
     @task(1)
     def health_check(self):
         """Simple health check."""
-        with self.client.get(
-            "/",
-            catch_response=True,
-            name="Health Check"
-        ) as response:
+        with self.client.get("/", catch_response=True, name="Health Check") as response:
             if response.status_code in [200, 302, 401, 403, 404]:
                 response.success()
             else:
@@ -120,11 +106,7 @@ class FrigateUser(HttpUser):
     @task(3)
     def get_stats(self):
         """Get Frigate statistics."""
-        with self.client.get(
-            "/api/stats",
-            catch_response=True,
-            name="Get Stats"
-        ) as response:
+        with self.client.get("/api/stats", catch_response=True, name="Get Stats") as response:
             if response.status_code in [200, 401, 403]:
                 response.success()
             else:
@@ -133,11 +115,7 @@ class FrigateUser(HttpUser):
     @task(2)
     def get_config(self):
         """Get Frigate configuration."""
-        with self.client.get(
-            "/api/config",
-            catch_response=True,
-            name="Get Config"
-        ) as response:
+        with self.client.get("/api/config", catch_response=True, name="Get Config") as response:
             if response.status_code in [200, 401, 403]:
                 response.success()
             else:
@@ -146,11 +124,7 @@ class FrigateUser(HttpUser):
     @task(1)
     def get_version(self):
         """Get Frigate version."""
-        with self.client.get(
-            "/api/version",
-            catch_response=True,
-            name="Get Version"
-        ) as response:
+        with self.client.get("/api/version", catch_response=True, name="Get Version") as response:
             if response.status_code in [200, 401, 403]:
                 response.success()
             else:
@@ -161,26 +135,33 @@ class FrigateUser(HttpUser):
 @events.test_start.add_listener
 def on_test_start(environment, **kwargs):
     """Called when test starts."""
-    print("="*60)
+    print("=" * 60)
     print("Stack A Pilot Load Test Starting")
-    print("="*60)
+    print("=" * 60)
 
 
 @events.test_stop.add_listener
 def on_test_stop(environment, **kwargs):
     """Called when test stops."""
-    print("="*60)
+    print("=" * 60)
     print("Stack A Pilot Load Test Complete")
-    print("="*60)
+    print("=" * 60)
 
 
 if __name__ == "__main__":
     import subprocess
-    subprocess.run([
-        "locust",
-        "-f", __file__,
-        "--headless",
-        "-u", "10",  # 10 users
-        "-r", "2",   # spawn rate
-        "-t", "60s", # run time
-    ])
+
+    subprocess.run(
+        [
+            "locust",
+            "-f",
+            __file__,
+            "--headless",
+            "-u",
+            "10",  # 10 users
+            "-r",
+            "2",  # spawn rate
+            "-t",
+            "60s",  # run time
+        ]
+    )

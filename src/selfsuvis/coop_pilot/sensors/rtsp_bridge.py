@@ -123,7 +123,9 @@ class FrigateRtspBridge:
         try:
             await self._mtx.ensure_path(path_name=path_name, source_url=rtsp_url)
         except Exception as exc:
-            logger.warning("FrigateRtspBridge: MediaMTX path registration failed for %s: %s", camera, exc)
+            logger.warning(
+                "FrigateRtspBridge: MediaMTX path registration failed for %s: %s", camera, exc
+            )
 
         mission_id = f"coop-live-{camera}"
         try:
@@ -152,7 +154,9 @@ class FrigateRtspBridge:
             try:
                 await self._mgr.stop(session.session_id)
             except Exception as exc:
-                logger.debug("FrigateRtspBridge: error stopping session %s: %s", session.session_id, exc)
+                logger.debug(
+                    "FrigateRtspBridge: error stopping session %s: %s", session.session_id, exc
+                )
         if session:
             try:
                 await self._mtx.delete_path(session.mediamtx_path)

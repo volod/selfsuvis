@@ -35,8 +35,10 @@ router = APIRouter(
 
 # ── Request / Response models ─────────────────────────────────────────────────
 
+
 class GpsBbox(BaseModel):
     """Bounding box for GPS filtering."""
+
     min_lat: float = Field(description="Minimum latitude (decimal degrees, WGS-84)")
     min_lon: float = Field(description="Minimum longitude")
     max_lat: float = Field(description="Maximum latitude")
@@ -53,8 +55,13 @@ class GpsBbox(BaseModel):
 
 class TimeRange(BaseModel):
     """Frame timestamp range within a mission."""
-    start_sec: float = Field(ge=0.0, description="Earliest frame timestamp (seconds from mission start)")
-    end_sec: float = Field(ge=0.0, description="Latest frame timestamp (seconds from mission start)")
+
+    start_sec: float = Field(
+        ge=0.0, description="Earliest frame timestamp (seconds from mission start)"
+    )
+    end_sec: float = Field(
+        ge=0.0, description="Latest frame timestamp (seconds from mission start)"
+    )
 
     @model_validator(mode="after")
     def _validate_range(self) -> "TimeRange":
@@ -65,17 +72,20 @@ class TimeRange(BaseModel):
 
 class SceneQuery(BaseModel):
     """POST /query/scene request body."""
+
     text: str | None = Field(
         default=None,
         max_length=1000,
         description="Optional text query — results re-ranked by CLIP similarity when provided",
     )
     vehicle_count_min: int | None = Field(
-        default=None, ge=0,
+        default=None,
+        ge=0,
         description="Minimum total vehicle count across all vehicle_groups",
     )
     vehicle_count_max: int | None = Field(
-        default=None, ge=0,
+        default=None,
+        ge=0,
         description="Maximum total vehicle count across all vehicle_groups",
     )
     road_condition: str | None = Field(
@@ -92,13 +102,16 @@ class SceneQuery(BaseModel):
         description="Frame timestamp range within missions",
     )
     top_k: int = Field(
-        default=20, ge=1, le=100,
+        default=20,
+        ge=1,
+        le=100,
         description="Maximum number of results to return",
     )
 
 
 class SceneMatch(BaseModel):
     """Single frame result from a scene query."""
+
     frame_id: str
     mission_id: str
     score: float
@@ -120,6 +133,7 @@ class SceneQueryResponse(BaseModel):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _count_vehicles(frame_facts: dict[str, Any] | None) -> int | None:
     """Sum the 'count' field across all vehicle_groups entries."""
@@ -188,6 +202,7 @@ def _build_sql_filters(body: SceneQuery) -> tuple[str, list]:
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/scene",
@@ -260,6 +275,7 @@ async def query_scene(body: SceneQuery, request: Request) -> SceneQueryResponse:
             if qdrant_ids:
                 try:
                     from selfsuvis.app.state import qdrant_store
+
                     points = qdrant_store.client.retrieve(
                         collection_name=qdrant_store.collection_name,
                         ids=qdrant_ids,
@@ -273,9 +289,10 @@ async def query_scene(body: SceneQuery, request: Request) -> SceneQueryResponse:
                             vec = pt.vector
                         if vec is not None:
                             fv = np.array(vec, dtype=np.float32)
-                            score = float(np.dot(text_vec, fv) / (
-                                np.linalg.norm(text_vec) * np.linalg.norm(fv) + 1e-8
-                            ))
+                            score = float(
+                                np.dot(text_vec, fv)
+                                / (np.linalg.norm(text_vec) * np.linalg.norm(fv) + 1e-8)
+                            )
                             payload = pt.payload or {}
                             fid = payload.get("frame_id") or str(pt.id)
                             frame_id_to_score[fid] = score
@@ -336,7 +353,9 @@ async def query_scene(body: SceneQuery, request: Request) -> SceneQueryResponse:
 
     logger.info(
         "query/scene: filters=%s matched=%d returned=%d",
-        filters_applied, total_matched, len(results),
+        filters_applied,
+        total_matched,
+        len(results),
     )
 
     return SceneQueryResponse(

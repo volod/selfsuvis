@@ -157,6 +157,7 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
     """
     try:
         from selfsuvis.pipeline.gps_extractor import extract_gps
+
         # Request GPS at t=1s; extract_gps will return the nearest available fix
         gps_list = extract_gps(video_path, [1_000.0])
         first_gps = next((g for g in gps_list if g is not None), None)
@@ -188,7 +189,10 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
         if origin is not None:
             logger.info(
                 "Multi-site ENU: video assigned to global_map_id=%d origin=(%.6f, %.6f, %.1f)",
-                gmap_id, origin[0], origin[1], origin[2],
+                gmap_id,
+                origin[0],
+                origin[1],
+                origin[2],
             )
         return gmap_id, origin
     except Exception as exc:
@@ -196,7 +200,14 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
         return None, None
 
 
-def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: dict, logger, global_map_id: int = None) -> None:
+def _run_pass_a(
+    video_path: str,
+    video_id: str,
+    mission_id: str,
+    index_result: dict,
+    logger,
+    global_map_id: int = None,
+) -> None:
     """Run SfM → GPS registration → nerfstudio 3DGS for a completed indexing job.
 
     All steps degrade gracefully: missing optional deps (pycolmap, open3d) or
@@ -218,18 +229,19 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
     scene_count = sfm_out.get("scene_count", 1)
     logger.info(
         "Pass A: SfM done mission=%s scene_count=%d registered=%d",
-        mission_id, scene_count,
+        mission_id,
+        scene_count,
         sum(1 for r in sfm_results if r.get("pose_status") == "success"),
     )
 
     try:
         from selfsuvis.pipeline.gps_registration import register_mission_gps
+
         keyed_frames = sfm_results
         if index_result.get("frame_records"):
             keyed_frames = []
             indexed_by_t = {
-                round(frame["t_sec"], 3): frame
-                for frame in index_result.get("frame_records", [])
+                round(frame["t_sec"], 3): frame for frame in index_result.get("frame_records", [])
             }
             for row in sfm_results:
                 keyed = dict(row)
@@ -238,7 +250,9 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
                 keyed["id"] = matched.get("id") if matched else None
                 keyed_frames.append(keyed)
         enu_origin, global_poses = register_mission_gps(keyed_frames)
-        logger.info("Pass A: GPS registration done mission=%s enu_origin=%s", mission_id, enu_origin)
+        logger.info(
+            "Pass A: GPS registration done mission=%s enu_origin=%s", mission_id, enu_origin
+        )
     except Exception as exc:
         logger.warning("Pass A: GPS registration failed mission=%s: %s", mission_id, exc)
         enu_origin = None
@@ -318,15 +332,13 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
                         )
                         icp_registered = True
                         if icp.get("fused_splat"):
-                            await update_global_map_splat(
-                                conn, global_map_id, icp["fused_splat"]
-                            )
+                            await update_global_map_splat(conn, global_map_id, icp["fused_splat"])
 
                 # Bootstrap: no ICP targets existed (first mission at site) or
                 # ICP did not converge.  Register with GPS-identity transform so
                 # the next mission's get_global_map_splats call finds this splat.
                 if not icp_registered and primary_splat is not None:
-                    _identity = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+                    _identity = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
                     await register_mission(conn, global_map_id, mission_id, _identity, None)
 
             await mark_mission_finished(
@@ -354,6 +366,7 @@ def _run_pass_a(video_path: str, video_id: str, mission_id: str, index_result: d
 #
 # The semaphore is advisory (fail-open): DB errors never block GPU work.
 # Contention is logged so operators are aware.
+
 
 class GPULock:
     """Context manager that registers/deregisters a job in the gpu_jobs table."""
@@ -386,7 +399,10 @@ class GPULock:
             await conn.execute(
                 "INSERT INTO gpu_jobs (job_id, job_type, worker_id, started_at) "
                 "VALUES ($1, $2, $3, $4) ON CONFLICT (job_id) DO NOTHING",
-                self.job_id, self.job_type, settings.WORKER_ID, now,
+                self.job_id,
+                self.job_type,
+                settings.WORKER_ID,
+                now,
             )
         finally:
             await conn.close()
@@ -413,6 +429,7 @@ class GPULock:
 
 
 # ── Backward-compat wrappers (used by tests and legacy call sites) ────────────
+
 
 def _gpu_checkin(job_id: str, job_type: str, conn_url: str, logger) -> bool:
     """Synchronous wrapper around GPULock._checkin. Always returns True (fail-open)."""
@@ -443,7 +460,9 @@ _UPSERT_SYSTEM_STATE_SQL = (
 _API_RELOAD_TIMEOUT_SEC = 30
 
 
-async def _persist_finetune_acceptance(conn, job_id: str, ckpt_path: str, result: dict, logger) -> str:
+async def _persist_finetune_acceptance(
+    conn, job_id: str, ckpt_path: str, result: dict, logger
+) -> str:
     """Persist watermark, checkpoint provenance, and mark job finished.
 
     Returns the model_version_id assigned to this checkpoint.
@@ -452,33 +471,52 @@ async def _persist_finetune_acceptance(conn, job_id: str, ckpt_path: str, result
     total_annotated = await conn.fetchval("SELECT COUNT(*) FROM frames WHERE al_tag = 'annotated'")
     model_version_id = f"sup_{job_id[:8]}"
 
-    await conn.execute(_UPSERT_SYSTEM_STATE_SQL, "last_retrain_watermark", str(total_annotated), now)
+    await conn.execute(
+        _UPSERT_SYSTEM_STATE_SQL, "last_retrain_watermark", str(total_annotated), now
+    )
     await conn.execute(_UPSERT_SYSTEM_STATE_SQL, "active_dino_checkpoint", ckpt_path, now)
     await conn.execute(
         "INSERT INTO model_checkpoints "
         "(checkpoint_path, model_version_id, annotation_count, best_accuracy, "
         " distribution_shift, created_at, notes) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (checkpoint_path) DO NOTHING",
-        ckpt_path, model_version_id, total_annotated, result["best_accuracy"],
-        result.get("distribution_shift", 0.0), now, f"finetune job_id={job_id}",
+        ckpt_path,
+        model_version_id,
+        total_annotated,
+        result["best_accuracy"],
+        result.get("distribution_shift", 0.0),
+        now,
+        f"finetune job_id={job_id}",
     )
     settings.MODEL_VERSION_ID = model_version_id
     logger.info(
         "Finetune job id=%s — provenance registered model_version_id=%s "
         "annotation_count=%d distribution_shift=%.4f",
-        job_id, model_version_id, total_annotated, result.get("distribution_shift", 0.0),
+        job_id,
+        model_version_id,
+        total_annotated,
+        result.get("distribution_shift", 0.0),
     )
-    await update_job(conn, job_id, status="finished",
-                     progress={"accepted": True, "best_accuracy": result["best_accuracy"],
-                               "epochs": result["epochs"], "checkpoint": ckpt_path,
-                               "model_version_id": model_version_id},
-                     finished_at=now)
+    await update_job(
+        conn,
+        job_id,
+        status="finished",
+        progress={
+            "accepted": True,
+            "best_accuracy": result["best_accuracy"],
+            "epochs": result["epochs"],
+            "checkpoint": ckpt_path,
+            "model_version_id": model_version_id,
+        },
+        finished_at=now,
+    )
     return model_version_id
 
 
 def _hot_reload_model(ckpt_path: str, job_id: str, logger) -> None:
     """Call POST /admin/reload-model to swap DINOv3 weights in the API process."""
     import httpx
+
     api_base = f"http://localhost:{os.environ.get('API_PORT', '8000')}"
     try:
         resp = httpx.post(
@@ -521,14 +559,21 @@ def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logg
         if not result["accepted"]:
             logger.info(
                 "Finetune job id=%s — checkpoint rejected (accuracy=%.4f < gate=%.4f)",
-                job_id, result["best_accuracy"], settings.SUP_EVAL_GATE_THRESHOLD,
+                job_id,
+                result["best_accuracy"],
+                settings.SUP_EVAL_GATE_THRESHOLD,
             )
+
             async def _mark_rejected():
                 async with db_pool.acquire() as conn:
-                    await update_job(conn, job_id, status="finished",
-                                     progress={"accepted": False,
-                                               "best_accuracy": result["best_accuracy"]},
-                                     finished_at=time.time())
+                    await update_job(
+                        conn,
+                        job_id,
+                        status="finished",
+                        progress={"accepted": False, "best_accuracy": result["best_accuracy"]},
+                        finished_at=time.time(),
+                    )
+
             _pg_run(_mark_rejected())
             return
 
@@ -540,8 +585,12 @@ def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logg
                 await _persist_finetune_acceptance(conn, job_id, ckpt_path, result, logger)
 
         _pg_run(_finish_accepted())
-        logger.info("Finetune job finished id=%s checkpoint=%s accuracy=%.4f",
-                    job_id, ckpt_path, result["best_accuracy"])
+        logger.info(
+            "Finetune job finished id=%s checkpoint=%s accuracy=%.4f",
+            job_id,
+            ckpt_path,
+            result["best_accuracy"],
+        )
 
     except Exception as exc:
         logger.exception("Finetune job failed id=%s error=%s", job_id, exc)
@@ -549,17 +598,20 @@ def handle_finetune_job(job_id: str, payload: dict, db_pool, conn_url: str, logg
 
         async def _mark_error():
             async with db_pool.acquire() as conn:
-                await update_job(conn, job_id, status="error", error=error_message,
-                                 finished_at=time.time())
+                await update_job(
+                    conn, job_id, status="error", error=error_message, finished_at=time.time()
+                )
 
         _pg_run(_mark_error())
 
 
 # ── Reembed job handler ──────────────────────────────────────────────────────
 
+
 async def _load_reembed_cursor(conn, job_id: str) -> tuple:
     """Return (cursor, frames_reembedded) restored from stored job progress."""
     import json as _json
+
     row = await conn.fetchrow("SELECT progress_json FROM jobs WHERE id = $1", job_id)
     progress: dict = {}
     if row:
@@ -577,6 +629,7 @@ def _load_batch_images(batch, logger) -> tuple:
     Returns (images, valid_rows).
     """
     from PIL import Image as PILImage
+
     images, valid_rows = [], []
     for frame_row in batch:
         try:
@@ -591,6 +644,7 @@ def _load_batch_images(batch, logger) -> tuple:
 def _build_reembed_points(valid_rows, dino_vecs, clip_vecs):
     """Assemble Qdrant PointStructs from embedding vectors and frame metadata."""
     from qdrant_client.http import models as qmodels
+
     return [
         qmodels.PointStruct(
             id=row["qdrant_id"],
@@ -624,25 +678,37 @@ async def _run_reembed(conn, job_id: str, dino, clip, qdrant, batch_size: int, l
             except Exception as exc:
                 logger.error("Reembed: Qdrant upsert failed cursor=%s err=%s", cursor, exc)
                 cursor_serial = [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None
-                await update_job(conn, job_id, status="error", error=str(exc),
-                                 progress={"last_cursor": cursor_serial,
-                                           "frames_reembedded": frames_reembedded},
-                                 finished_at=time.time())
+                await update_job(
+                    conn,
+                    job_id,
+                    status="error",
+                    error=str(exc),
+                    progress={"last_cursor": cursor_serial, "frames_reembedded": frames_reembedded},
+                    finished_at=time.time(),
+                )
                 return frames_reembedded
             frames_reembedded += len(valid_rows)
 
         last_row = batch[-1]
         cursor = (last_row["created_at"], last_row["id"])
-        await update_job(conn, job_id,
-                         progress={"last_cursor": [datetime_to_ts(cursor[0]), cursor[1]],
-                                   "frames_reembedded": frames_reembedded})
+        await update_job(
+            conn,
+            job_id,
+            progress={
+                "last_cursor": [datetime_to_ts(cursor[0]), cursor[1]],
+                "frames_reembedded": frames_reembedded,
+            },
+        )
         logger.debug("Reembed: cursor=%s frames_reembedded=%d", cursor, frames_reembedded)
 
     cursor_serial = [datetime_to_ts(cursor[0]), cursor[1]] if cursor else None
-    await update_job(conn, job_id, status="finished",
-                     progress={"last_cursor": cursor_serial,
-                               "frames_reembedded": frames_reembedded},
-                     finished_at=time.time())
+    await update_job(
+        conn,
+        job_id,
+        status="finished",
+        progress={"last_cursor": cursor_serial, "frames_reembedded": frames_reembedded},
+        finished_at=time.time(),
+    )
     return frames_reembedded
 
 
@@ -684,8 +750,9 @@ def handle_reembed_job(job_id: str, payload: dict, conn_url: str, logger) -> Non
         async def _mark_error():
             conn = await asyncpg.connect(conn_url)
             try:
-                await update_job(conn, job_id, status="error", error=error_message,
-                                 finished_at=time.time())
+                await update_job(
+                    conn, job_id, status="error", error=error_message, finished_at=time.time()
+                )
             finally:
                 await conn.close()
 
@@ -837,8 +904,10 @@ def handle_postflight_semantic_graph_job(job_id: str, payload: dict, pool, logge
 
 # ── Main loop ────────────────────────────────────────────────────────────────
 
+
 def _claim_next_job(pool) -> dict | None:
     """Atomically claim the next pending job using SELECT FOR UPDATE SKIP LOCKED."""
+
     async def _claim():
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -915,9 +984,13 @@ def main() -> None:
 
             if job_type not in (None, JobType.INDEX):
                 logger.warning("Unknown job type=%s id=%s — marking error", job_type, job_id)
-                _update_job_sync(pool, job_id, status="error",
-                                 error=f"unknown job type: {job_type}",
-                                 finished_at=time.time())
+                _update_job_sync(
+                    pool,
+                    job_id,
+                    status="error",
+                    error=f"unknown job type: {job_type}",
+                    finished_at=time.time(),
+                )
                 continue
 
             # Default: index job (type=None for legacy rows, type='index' for new rows)

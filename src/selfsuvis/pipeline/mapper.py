@@ -3,6 +3,7 @@
 ``requests`` is imported here so that existing
 ``patch("pipeline.mapper.requests.post")`` test targets keep working.
 """
+
 import requests  # noqa: F401
 
 from selfsuvis.pipeline.mapping.mapper import (  # noqa: F401

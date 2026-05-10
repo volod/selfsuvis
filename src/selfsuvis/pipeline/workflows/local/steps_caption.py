@@ -1,6 +1,5 @@
 """Captioning steps: Gemma, Florence, Qwen, ASR, OCR, depth, detection, world model."""
 
-
 import json
 import math
 import time
@@ -35,16 +34,18 @@ _RUNTIME_TELEMETRY: dict[str, float] = {
     "restore_failures": 0.0,
 }
 
-_STRUCTURED_SCENE_TYPES = frozenset({
-    "urban_street",
-    "rural_terrain",
-    "indoor",
-    "aerial",
-    "waterway",
-    "construction",
-    "industrial",
-    "other",
-})
+_STRUCTURED_SCENE_TYPES = frozenset(
+    {
+        "urban_street",
+        "rural_terrain",
+        "indoor",
+        "aerial",
+        "waterway",
+        "construction",
+        "industrial",
+        "other",
+    }
+)
 
 _OCR_TEXT_HINT_TERMS = (
     "text",
@@ -82,12 +83,14 @@ _SEGMENT_DIFF_MIN_JACCARD_DELTA = 0.18
 
 try:
     from selfsuvis.models.dino_model import DINOEmbedder
+
     _HAS_DINO = True
 except Exception:
     _HAS_DINO = False
 
 try:
     from selfsuvis.models.gemma_model import GemmaEmbedder
+
     _HAS_GEMMA = True
 except Exception:
     _HAS_GEMMA = False
@@ -144,7 +147,9 @@ def _estimate_ocr_frame_score(
         diagnostics["caption_uncertainty"] = uncertainty
         score += 1.6 * uncertainty
 
-    hint_score = _caption_keyword_score(caption_text, _OCR_TEXT_HINT_TERMS, _OCR_TEXTLESS_SCENE_TERMS)
+    hint_score = _caption_keyword_score(
+        caption_text, _OCR_TEXT_HINT_TERMS, _OCR_TEXTLESS_SCENE_TERMS
+    )
     diagnostics["caption_hint"] = hint_score
     score += 0.8 * hint_score
 
@@ -230,7 +235,10 @@ def _select_ocr_candidate_frames(
             for item in ranking:
                 if len(selected_ranked) >= max_ocr:
                     break
-                if any(abs(float(item["t_sec"]) - float(prev["t_sec"])) < _OCR_TEMPORAL_MIN_GAP_SEC for prev in selected_ranked):
+                if any(
+                    abs(float(item["t_sec"]) - float(prev["t_sec"])) < _OCR_TEMPORAL_MIN_GAP_SEC
+                    for prev in selected_ranked
+                ):
                     continue
                 selected_ranked.append(item)
             if len(selected_ranked) < max_ocr:
@@ -286,6 +294,7 @@ def _select_segment_boundary_pairs(
 
 # ── VRAM snapshot helper ──────────────────────────────────────────────────────
 
+
 def _log_vram_snapshot(label: str) -> None:
     """Best-effort VRAM snapshot. Uses torch.cuda.mem_get_info for per-process accuracy."""
     try:
@@ -301,14 +310,19 @@ def _log_vram_snapshot(label: str) -> None:
         if torch.cuda.is_available():
             torch.cuda.synchronize()
             free_bytes, _ = torch.cuda.mem_get_info(0)
-            free = free_bytes / (1024 ** 3)
+            free = free_bytes / (1024**3)
         else:
             from selfsuvis.pipeline.vision.registry import detect_free_vram_gb  # noqa: PLC0415
+
             free = detect_free_vram_gb()
         used = max(0.0, total - free)
         _log.info(
             "  [VRAM] %s | total=%.1f GiB free=%.1f GiB used~=%.1f GiB ram=%.1f GiB",
-            label, total, free, used, ram,
+            label,
+            total,
+            free,
+            used,
+            ram,
         )
         return
     except Exception as exc:
@@ -317,14 +331,17 @@ def _log_vram_snapshot(label: str) -> None:
 
 # ── Memory helpers for GPU-constrained machines ───────────────────────────────
 
+
 def _detect_free_vram_gb() -> float:
     try:
         import torch
+
         if torch.cuda.is_available():
             torch.cuda.synchronize()
             free_bytes, _ = torch.cuda.mem_get_info(0)
-            return free_bytes / (1024 ** 3)
+            return free_bytes / (1024**3)
         from selfsuvis.pipeline.vision.registry import detect_free_vram_gb  # noqa: PLC0415
+
         return detect_free_vram_gb()
     except Exception:
         return 0.0
@@ -447,8 +464,10 @@ def _guard_min_free_vram(stage: str, min_free_gb: float | None = None) -> float:
     if total_gb <= 0.0:
         return free_gb
 
-    required_gb = min_free_gb if min_free_gb is not None else float(
-        getattr(settings, "LOCAL_CUDA_STAGE_MIN_FREE_VRAM_GB", 6.0) or 6.0
+    required_gb = (
+        min_free_gb
+        if min_free_gb is not None
+        else float(getattr(settings, "LOCAL_CUDA_STAGE_MIN_FREE_VRAM_GB", 6.0) or 6.0)
     )
     required_gb = min(total_gb, max(required_gb, total_gb * 0.35))
     if free_gb < required_gb:
@@ -485,6 +504,7 @@ def _offload_models_to_cpu(models: dict[str, Any]) -> None:
                 pass
     try:
         from selfsuvis.models.dino_model import _set_dino_xformers_enabled
+
         _set_dino_xformers_enabled(False)
     except Exception:
         pass
@@ -492,7 +512,7 @@ def _offload_models_to_cpu(models: dict[str, Any]) -> None:
     try:
         import torch as _torch
 
-        free_mb = _torch.cuda.mem_get_info(0)[0] / 1024 ** 2 if _torch.cuda.is_available() else 0
+        free_mb = _torch.cuda.mem_get_info(0)[0] / 1024**2 if _torch.cuda.is_available() else 0
     except Exception:
         free_mb = 0
     if moved > 0:
@@ -535,7 +555,8 @@ def _prep_vram_for_step(
         _flush_cuda_allocator()
         try:
             import torch as _torch
-            free_mb = _torch.cuda.mem_get_info(0)[0] / 1024 ** 2 if _torch.cuda.is_available() else 0
+
+            free_mb = _torch.cuda.mem_get_info(0)[0] / 1024**2 if _torch.cuda.is_available() else 0
         except Exception:
             free_mb = 0
         _log.info("  VRAM cleared for next step — %.0f MiB free", free_mb)
@@ -562,7 +583,7 @@ def _prep_vram_for_step(
     try:
         import torch as _torch
 
-        free_mb = _torch.cuda.mem_get_info(0)[0] / 1024 ** 2 if _torch.cuda.is_available() else 0
+        free_mb = _torch.cuda.mem_get_info(0)[0] / 1024**2 if _torch.cuda.is_available() else 0
     except Exception:
         free_mb = 0
     _log.info("  VRAM cleared for next step — %.0f MiB free", free_mb)
@@ -575,6 +596,7 @@ def _restore_models_to_gpu(models: dict[str, Any], device: str) -> bool:
     import os as _os
 
     import torch as _torch
+
     if str(device).startswith("cuda"):
         free_gb = _detect_free_vram_gb()
         if free_gb > 0.0 and free_gb < 2.5:
@@ -624,7 +646,9 @@ def _restore_models_to_gpu(models: dict[str, Any], device: str) -> bool:
                 except RuntimeError:
                     _log.warning(
                         "  Could not move %s backbone to %s (%s) — staying on CPU",
-                        key, device, exc,
+                        key,
+                        device,
+                        exc,
                     )
             try:
                 actual = next(backbone.parameters()).device
@@ -640,6 +664,7 @@ def _restore_models_to_gpu(models: dict[str, Any], device: str) -> bool:
                 restored_all = False
     try:
         from selfsuvis.models.dino_model import _set_dino_xformers_enabled
+
         _set_dino_xformers_enabled(str(device).startswith("cuda") and restored_all)
     except Exception:
         pass
@@ -648,7 +673,10 @@ def _restore_models_to_gpu(models: dict[str, Any], device: str) -> bool:
     elif restored_all:
         _log.debug("  CLIP+DINO already resident on %s", device)
     else:
-        _log.warning("  CLIP+DINO not fully restored to %s; continuing with CPU fallback where needed", device)
+        _log.warning(
+            "  CLIP+DINO not fully restored to %s; continuing with CPU fallback where needed",
+            device,
+        )
         _RUNTIME_TELEMETRY["restore_failures"] += 1.0
     _log_vram_snapshot(f"after restore models to {device}")
     return restored_all
@@ -656,6 +684,7 @@ def _restore_models_to_gpu(models: dict[str, Any], device: str) -> bool:
 
 def _models_on_device(models: dict[str, Any], device: str) -> bool:
     import torch as _torch
+
     expected = _torch.device(device)
     for key in ("clip", "dino"):
         m = models.get(key)
@@ -803,10 +832,12 @@ def _select_qwen_frames(
 
 # ── Ollama helpers ────────────────────────────────────────────────────────────
 
+
 def _list_ollama_models(api_url: str) -> list[str]:
     """Return model names available in the Ollama instance at *api_url*."""
     try:
         import httpx
+
         base = api_url.rstrip("/")
         if base.endswith("/v1"):
             base = base[:-3]
@@ -822,6 +853,7 @@ def _get_ollama_model_size_gb(model_name: str, api_url: str) -> float:
     """Return the on-disk size of *model_name* in GiB, or 0.0 if unavailable."""
     try:
         import httpx
+
         base = api_url.rstrip("/")
         if base.endswith("/v1"):
             base = base[:-3]
@@ -830,7 +862,7 @@ def _get_ollama_model_size_gb(model_name: str, api_url: str) -> float:
             for m in resp.json().get("models", []):
                 if m.get("name") == model_name:
                     size_bytes = m.get("size", 0)
-                    return size_bytes / (1024 ** 3)
+                    return size_bytes / (1024**3)
     except Exception:
         pass
     return 0.0
@@ -841,11 +873,24 @@ def _estimate_model_size_gb_from_name(model_name: str) -> float:
     m = (model_name or "").lower()
     # ordered largest → smallest so first match wins
     for tag, gb in [
-        ("671b", 420.0), ("405b", 250.0), ("72b", 45.0), ("70b", 44.0),
-        ("32b", 20.0), ("31b", 19.0), ("30b", 19.0), ("27b", 17.0), ("26b", 16.0),
-        ("14b", 9.0), ("12b", 8.0),
-        ("8b", 5.5), ("7b", 5.0), ("e4b", 9.6),   # e4b is Gemma4 efficient-4bit ~9.6 GB
-        ("4b", 3.5), ("3b", 2.5), ("2b", 1.8), ("1b", 1.0),
+        ("671b", 420.0),
+        ("405b", 250.0),
+        ("72b", 45.0),
+        ("70b", 44.0),
+        ("32b", 20.0),
+        ("31b", 19.0),
+        ("30b", 19.0),
+        ("27b", 17.0),
+        ("26b", 16.0),
+        ("14b", 9.0),
+        ("12b", 8.0),
+        ("8b", 5.5),
+        ("7b", 5.0),
+        ("e4b", 9.6),  # e4b is Gemma4 efficient-4bit ~9.6 GB
+        ("4b", 3.5),
+        ("3b", 2.5),
+        ("2b", 1.8),
+        ("1b", 1.0),
     ]:
         if tag in m:
             return gb
@@ -873,6 +918,7 @@ def _compute_sidecar_timeout(
       model ≥ 2.0× VRAM  →  300 s  (heavy offload / CPU-only)
     """
     import os as _os
+
     override = _os.environ.get("SELFSUVIS_SIDECAR_TIMEOUT_SEC", "").strip()
     if override:
         try:
@@ -883,6 +929,7 @@ def _compute_sidecar_timeout(
     if resources is None:
         try:
             from selfsuvis.pipeline.vision.registry import detect_resources
+
             resources = detect_resources()
         except Exception:
             resources = {}
@@ -918,18 +965,33 @@ def _compute_sidecar_timeout(
 # Preferred Gemma model order: smallest usable first so we never pick a 26B/31B
 # when a lighter option is available.
 _GEMMA_PREFERENCE_ORDER = [
-    "gemma4:e4b", "gemma4:4b", "gemma3:4b", "gemma3:1b",
-    "gemma4:12b", "gemma3:12b",
-    "gemma4:26b", "gemma4:31b", "gemma3:27b",
+    "gemma4:e4b",
+    "gemma4:4b",
+    "gemma3:4b",
+    "gemma3:1b",
+    "gemma4:12b",
+    "gemma3:12b",
+    "gemma4:26b",
+    "gemma4:31b",
+    "gemma3:27b",
 ]
 
 
 _REASONING_PREFERENCE_ORDER = [
-    "deepseek-r1:32b", "qwen3:32b", "qwen3:30b",
-    "deepseek-r1:14b", "qwen3:14b",
-    "deepseek-r1:8b", "qwen3:8b",
-    "gemma3:27b", "gemma3:12b", "gemma4:12b",
-    "gemma3:4b", "gemma4:4b", "gemma4:e4b", "gemma3:1b",
+    "deepseek-r1:32b",
+    "qwen3:32b",
+    "qwen3:30b",
+    "deepseek-r1:14b",
+    "qwen3:14b",
+    "deepseek-r1:8b",
+    "qwen3:8b",
+    "gemma3:27b",
+    "gemma3:12b",
+    "gemma4:12b",
+    "gemma3:4b",
+    "gemma4:4b",
+    "gemma4:e4b",
+    "gemma3:1b",
 ]
 
 
@@ -980,7 +1042,10 @@ def _resolve_ollama_model_with_preferences(
         if preferred in available:
             _log.warning(
                 "  %s model '%s' not found in Ollama; auto-selected '%s'. Pull the desired model with: ollama pull %s",
-                label, configured_model, preferred, configured_model,
+                label,
+                configured_model,
+                preferred,
+                configured_model,
             )
             return preferred
     family_models = [m for m in available if m.startswith(family_prefixes)]
@@ -988,7 +1053,9 @@ def _resolve_ollama_model_with_preferences(
         chosen = family_models[0]
         _log.warning(
             "  %s model '%s' not found; using first available family match: '%s'",
-            label, configured_model, chosen,
+            label,
+            configured_model,
+            chosen,
         )
         return chosen
     return configured_model
@@ -1014,7 +1081,8 @@ def _resolve_ollama_gemma_model(api_url: str, configured_model: str) -> str:
         if available and not any(m.startswith("gemma") for m in available):
             _log.error(
                 "No Gemma model found in Ollama. Pull one with: ollama pull gemma4:e4b\n"
-                "Available models: %s", available,
+                "Available models: %s",
+                available,
             )
     return resolved
 
@@ -1081,6 +1149,7 @@ def _unload_known_sidecars(pairs: list[tuple[str, str]]) -> int:
 
 # ── Gemma analysis ────────────────────────────────────────────────────────────
 
+
 def _gemma_analyse_frame_via_api(
     fp: str,
     api_url: str,
@@ -1118,20 +1187,26 @@ def _gemma_analyse_frame_via_api(
         b64 = base64.b64encode(buf.getvalue()).decode()
         payload = {
             "model": model,
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                    {"type": "text",
-                     "text": (
-                         "Analyse this frame from aerial/robotics mission video. "
-                         "Describe in 2-3 sentences: scene type, visible objects, "
-                         "terrain, any notable features or anomalies. "
-                         "Be concise and factual."
-                     )},
-                ],
-            }],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Analyse this frame from aerial/robotics mission video. "
+                                "Describe in 2-3 sentences: scene type, visible objects, "
+                                "terrain, any notable features or anomalies. "
+                                "Be concise and factual."
+                            ),
+                        },
+                    ],
+                }
+            ],
             # 600 tokens: thinking models (gemma4:e4b) consume ~300-400 on reasoning
             # before writing the final answer into content.
             "max_tokens": 600,
@@ -1150,13 +1225,14 @@ def _gemma_analyse_frame_via_api(
             reasoning = msg.get("reasoning") or msg.get("thinking") or ""
             if reasoning:
                 # Take last non-empty sentence as a best-effort summary
-                sentences = [s.strip() for s in reasoning.replace("\n", " ").split(".") if s.strip()]
+                sentences = [
+                    s.strip() for s in reasoning.replace("\n", " ").split(".") if s.strip()
+                ]
                 content = sentences[-1] if sentences else reasoning[-200:]
         # content may be a list of parts (some backends)
         if isinstance(content, list):
             content = " ".join(
-                p.get("text", "") if isinstance(p, dict) else str(p)
-                for p in content
+                p.get("text", "") if isinstance(p, dict) else str(p) for p in content
             )
         elapsed = time.time() - t_req
         if elapsed >= float(settings.GEMMA_SLOW_CALL_SEC):
@@ -1178,6 +1254,7 @@ def _summarise_gemma_captions_to_structured_scene(
     timeout: float,
 ) -> dict[str, Any]:
     """Use one text-only call to derive a structured scene summary from step 03 descriptions."""
+
     def _empty_structured_scene() -> dict[str, Any]:
         return {
             "scene_type": "other",
@@ -1279,11 +1356,11 @@ def _summarise_gemma_captions_to_structured_scene(
         "Do not copy the list as a pipe-separated string.\n"
         "Use this schema shape:\n"
         "{"
-        "\"scene_type\":\"aerial\","
-        "\"dominant_objects\":[{\"category\":\"vehicle\",\"count_estimate\":1,\"spatial_hint\":\"center\",\"rough_bbox\":[0.1,0.1,0.9,0.9]}],"
-        "\"areas_of_interest\":[\"...\"],"
-        "\"motion_present\":true,"
-        "\"tracking_priority\":[\"vehicle\",\"person\"]"
+        '"scene_type":"aerial",'
+        '"dominant_objects":[{"category":"vehicle","count_estimate":1,"spatial_hint":"center","rough_bbox":[0.1,0.1,0.9,0.9]}],'
+        '"areas_of_interest":["..."],'
+        '"motion_present":true,'
+        '"tracking_priority":["vehicle","person"]'
         "}\n"
         "Use only detector-aligned classes where possible, especially vehicle/person/sign/building.\n"
         "Descriptions:\n" + "\n".join(description_lines[:20])
@@ -1309,7 +1386,9 @@ def _summarise_gemma_captions_to_structured_scene(
         msg = resp.json()["choices"][0]["message"]
         content = msg.get("content") or ""
         if isinstance(content, list):
-            content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+            content = " ".join(
+                p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+            )
         # Thinking models (e.g. gemma4:e4b) emit output as reasoning tokens, leaving
         # content empty on the OpenAI path.  Fall back to the Ollama native endpoint
         # which bypasses the thinking mechanism and writes directly to content.
@@ -1347,7 +1426,9 @@ def _summarise_gemma_captions_to_structured_scene(
         except Exception:
             pass
     except Exception as exc:
-        _log.warning("  [Gemma API] structured-scene synthesis failed (%s) — using empty scene", exc)
+        _log.warning(
+            "  [Gemma API] structured-scene synthesis failed (%s) — using empty scene", exc
+        )
     return _empty_structured_scene()
 
 
@@ -1386,18 +1467,20 @@ def step_gemma_analysis(
 
     result: dict[str, Any] = {"skipped": True, "reason": ""}
 
-    effective_api_url   = gemma_api_url or settings.GEMMA_API_URL
+    effective_api_url = gemma_api_url or settings.GEMMA_API_URL
     effective_api_model = gemma_api_model or settings.GEMMA_API_MODEL
-    effective_timeout   = float(settings.GEMMA_API_TIMEOUT_SEC)
+    effective_timeout = float(settings.GEMMA_API_TIMEOUT_SEC)
 
     # Use local GemmaEmbedder when available; otherwise fall back to whatever
     # embedder is loaded (OpenCLIP) — all embedding analyses still run, just
     # powered by a different backbone.
     _clip_model = models.get("clip")
-    has_local  = _clip_model is not None
+    has_local = _clip_model is not None
     _embedder_name = (
-        "GemmaEmbedder" if (_HAS_GEMMA and isinstance(_clip_model, GemmaEmbedder))
-        else type(_clip_model).__name__ if _clip_model is not None
+        "GemmaEmbedder"
+        if (_HAS_GEMMA and isinstance(_clip_model, GemmaEmbedder))
+        else type(_clip_model).__name__
+        if _clip_model is not None
         else "none"
     )
     has_sidecar = bool(effective_api_url)
@@ -1410,14 +1493,16 @@ def step_gemma_analysis(
     t0 = time.time()
 
     # Sample frames evenly, then drop near-duplicates for stable scenes.
-    n_avail  = len(frame_list)
-    n_sample = min(int(settings.GEMMA_ANALYSIS_MAX_SAMPLE_FRAMES), _GEMMA_ANALYSIS_SAMPLE_N, n_avail)
-    step     = max(1, n_avail // max(1, n_sample))
+    n_avail = len(frame_list)
+    n_sample = min(
+        int(settings.GEMMA_ANALYSIS_MAX_SAMPLE_FRAMES), _GEMMA_ANALYSIS_SAMPLE_N, n_avail
+    )
+    step = max(1, n_avail // max(1, n_sample))
     sample_frames = frame_list[::step][:n_sample]
     sample_frames = _reduce_llm_sample_frames(sample_frames, max_frames=n_sample)
     sample_images = [_open_frame_image(fp) for fp, _ in sample_frames]
-    sample_paths  = [fp for fp, _ in sample_frames]
-    sample_ts     = [t for _, t in sample_frames]
+    sample_paths = [fp for fp, _ in sample_frames]
+    sample_ts = [t for _, t in sample_frames]
     n = len(sample_images)
     _log.info("  Gemma analysis: %d sampled frames (from %d total)", n, n_avail)
 
@@ -1428,11 +1513,17 @@ def step_gemma_analysis(
     if has_sidecar:
         _log.info(
             "Generative scene analysis via sidecar (url=%s  model=%s  frames=%d) ...",
-            effective_api_url, effective_api_model, n,
+            effective_api_url,
+            effective_api_model,
+            n,
         )
         for idx, (fp, t_sec) in enumerate(sample_frames):
             desc = _gemma_analyse_frame_via_api(
-                fp, effective_api_url, effective_api_model, effective_timeout, video_dir=video_dir,
+                fp,
+                effective_api_url,
+                effective_api_model,
+                effective_timeout,
+                video_dir=video_dir,
             )
             gemma_captions.append({"frame_path": fp, "t_sec": t_sec, "description": desc})
             if (idx + 1) % 10 == 0:
@@ -1448,7 +1539,9 @@ def step_gemma_analysis(
         }
         _write_gemma_captions_md(
             video_dir / "gemma_captions.md",
-            video_name, effective_api_model, gemma_captions,
+            video_name,
+            effective_api_model,
+            gemma_captions,
         )
         structured_scene = _summarise_gemma_captions_to_structured_scene(
             gemma_captions,
@@ -1473,18 +1566,26 @@ def step_gemma_analysis(
         elapsed = time.time() - t0
         write_gemma_analysis_md(
             video_dir / "gemma_analysis.md",
-            video_name, effective_api_model or settings.GEMMA_MODEL_ID,
-            n, task_results, dino_comparison, text_query_results, elapsed,
+            video_name,
+            effective_api_model or settings.GEMMA_MODEL_ID,
+            n,
+            task_results,
+            dino_comparison,
+            text_query_results,
+            elapsed,
             clip_comparison=clip_comparison,
         )
-        result.update({
-            "skipped": False, "n_frames": n,
-            "task_results": task_results,
-            "dino_comparison": dino_comparison,
-            "clip_comparison": clip_comparison,
-            "elapsed_sec": elapsed,
-            "structured_scene": structured_scene,
-        })
+        result.update(
+            {
+                "skipped": False,
+                "n_frames": n,
+                "task_results": task_results,
+                "dino_comparison": dino_comparison,
+                "clip_comparison": clip_comparison,
+                "elapsed_sec": elapsed,
+                "structured_scene": structured_scene,
+            }
+        )
         return result
 
     # Use whichever embedder is loaded (GemmaEmbedder preferred, CLIP fallback).
@@ -1498,7 +1599,7 @@ def step_gemma_analysis(
         gemma_embeds = gemma.encode_images(sample_images)
         changes = []
         for i in range(1, n):
-            cos_sim  = float(np.dot(gemma_embeds[i - 1], gemma_embeds[i]))
+            cos_sim = float(np.dot(gemma_embeds[i - 1], gemma_embeds[i]))
             distance = 1.0 - cos_sim
             if distance >= _SCENE_CHANGE_THRESH:
                 changes.append({"frame_idx": i, "t_sec": sample_ts[i], "distance": distance})
@@ -1517,8 +1618,8 @@ def step_gemma_analysis(
     try:
         _log.info("Semantic scene clustering ...")
         cl_embeds = gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
-        sim_mat   = np.dot(cl_embeds, cl_embeds.T)
-        labels    = [-1] * n
+        sim_mat = np.dot(cl_embeds, cl_embeds.T)
+        labels = [-1] * n
         cluster_id = 0
         for i in range(n):
             if labels[i] != -1:
@@ -1542,13 +1643,12 @@ def step_gemma_analysis(
     # 4. Zero-shot scene classification via text probe matching
     try:
         _log.info("Zero-shot scene classification (%d probes) ...", len(_GEMMA_TEXT_PROBES))
-        clf_frame  = gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
-        clf_text   = gemma.encode_texts(_GEMMA_TEXT_PROBES)
+        clf_frame = gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
+        clf_text = gemma.encode_texts(_GEMMA_TEXT_PROBES)
         clf_scores = np.dot(clf_frame, clf_text.T)  # (n_frames, n_categories)
         from collections import Counter
-        top_cats: list[str] = [
-            _GEMMA_TEXT_PROBES[int(np.argmax(clf_scores[i]))] for i in range(n)
-        ]
+
+        top_cats: list[str] = [_GEMMA_TEXT_PROBES[int(np.argmax(clf_scores[i]))] for i in range(n)]
         cat_dist = dict(Counter(top_cats).most_common(5))
         task_results["scene_classification"] = {
             "description": f"Zero-shot classification against {len(_GEMMA_TEXT_PROBES)} scene categories",
@@ -1564,19 +1664,26 @@ def step_gemma_analysis(
     text_query_results = []
     try:
         _log.info("Cross-modal text->frame retrieval (%d probes) ...", len(_GEMMA_TEXT_PROBES))
-        doc_embeds   = gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
+        doc_embeds = (
+            gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
+        )
         query_embeds = gemma.encode_texts(_GEMMA_TEXT_PROBES)
-        tq_scores    = np.dot(query_embeds, doc_embeds.T)  # (n_queries, n_frames)
+        tq_scores = np.dot(query_embeds, doc_embeds.T)  # (n_queries, n_frames)
         for q_idx, query in enumerate(_GEMMA_TEXT_PROBES):
             top_idxs = list(np.argsort(-tq_scores[q_idx])[:3])
-            text_query_results.append({
-                "query": query,
-                "top_results": [
-                    {"frame_path": sample_paths[i], "t_sec": sample_ts[i],
-                     "score": float(tq_scores[q_idx, i])}
-                    for i in top_idxs
-                ],
-            })
+            text_query_results.append(
+                {
+                    "query": query,
+                    "top_results": [
+                        {
+                            "frame_path": sample_paths[i],
+                            "t_sec": sample_ts[i],
+                            "score": float(tq_scores[q_idx, i]),
+                        }
+                        for i in top_idxs
+                    ],
+                }
+            )
         task_results["cross_modal_retrieval"] = {
             "description": "Text probes matched against Gemma frame embeddings",
             "n_queries": len(_GEMMA_TEXT_PROBES),
@@ -1593,6 +1700,7 @@ def step_gemma_analysis(
         else:
             # OpenCLIP fallback: mean-pool per-frame image embeddings and L2-normalise
             import torch as _torch
+
             _feats = gemma.encode_images(sample_images)  # (N, dim) numpy
             _t = _torch.from_numpy(_feats).mean(dim=0, keepdim=True)
             vid_embed = _torch.nn.functional.normalize(_t, dim=-1)
@@ -1609,21 +1717,25 @@ def step_gemma_analysis(
     # 7. Gemma vs CLIP comparison — skip when the main embedder IS CLIP (trivial)
     clip_comparison: dict[str, Any] = {"available": False}
     from selfsuvis.models.openclip_model import OpenCLIPEmbedder as _CLIPModel
+
     _main_is_clip = isinstance(gemma, _CLIPModel)
     if _main_is_clip:
-        clip_comparison = {"available": False, "reason": "main embedder is OpenCLIP — comparison skipped (self vs self)"}
+        clip_comparison = {
+            "available": False,
+            "reason": "main embedder is OpenCLIP — comparison skipped (self vs self)",
+        }
         _log.info("  [Gemma vs CLIP] Skipped — main embedder is already OpenCLIP")
     else:
         try:
             _log.info("  [Gemma vs CLIP] Loading temporary OpenCLIP ViT-B-16 ...")
-            temp_clip  = _CLIPModel()
+            temp_clip = _CLIPModel()
             clip_frame = temp_clip.encode_images(sample_images)
             g_e = gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
             g_sim_c = np.dot(g_e, g_e.T)
-            c_sim   = np.dot(clip_frame, clip_frame.T)
-            mask_c  = ~np.eye(n, dtype=bool)
+            c_sim = np.dot(clip_frame, clip_frame.T)
+            mask_c = ~np.eye(n, dtype=bool)
             mean_cossim_gemma_c = float(np.mean(g_sim_c[mask_c]))
-            mean_cossim_clip    = float(np.mean(c_sim[mask_c]))
+            mean_cossim_clip = float(np.mean(c_sim[mask_c]))
             k_c = min(5, n - 1)
             mnn_c = 0
             for i in range(n):
@@ -1631,7 +1743,9 @@ def step_gemma_analysis(
                 gr[i] = -2.0
                 cr = c_sim[i].copy()
                 cr[i] = -2.0
-                mnn_c += len(set(np.argsort(-gr)[:k_c].tolist()) & set(np.argsort(-cr)[:k_c].tolist()))
+                mnn_c += len(
+                    set(np.argsort(-gr)[:k_c].tolist()) & set(np.argsort(-cr)[:k_c].tolist())
+                )
             mnn_rate_c = mnn_c / (n * k_c)
             clip_comparison = {
                 "available": True,
@@ -1643,10 +1757,14 @@ def step_gemma_analysis(
             }
             _log.info(
                 "  [Gemma vs CLIP] MNN@%d=%.3f  mean_cossim: Gemma=%.4f  CLIP=%.4f",
-                k_c, mnn_rate_c, mean_cossim_gemma_c, mean_cossim_clip,
+                k_c,
+                mnn_rate_c,
+                mean_cossim_gemma_c,
+                mean_cossim_clip,
             )
             try:
                 import torch as _t
+
                 _bb = getattr(temp_clip, "model", None)
                 if _bb is not None:
                     _bb.cpu()
@@ -1662,14 +1780,14 @@ def step_gemma_analysis(
     if _HAS_DINO and n > 1:
         try:
             _log.info("  [Gemma vs DINOv3] Loading temporary DINOv3 ViT-B/14 ...")
-            temp_dino   = DINOEmbedder("dinov3_vitb14")
+            temp_dino = DINOEmbedder("dinov3_vitb14")
             dino_embeds = temp_dino.encode_images(sample_images)
             g_e = gemma_embeds if gemma_embeds is not None else gemma.encode_images(sample_images)
             g_sim_d = np.dot(g_e, g_e.T)
-            d_sim   = np.dot(dino_embeds, dino_embeds.T)
-            mask_d  = ~np.eye(n, dtype=bool)
+            d_sim = np.dot(dino_embeds, dino_embeds.T)
+            mask_d = ~np.eye(n, dtype=bool)
             mean_cossim_gemma_d = float(np.mean(g_sim_d[mask_d]))
-            mean_cossim_dino    = float(np.mean(d_sim[mask_d]))
+            mean_cossim_dino = float(np.mean(d_sim[mask_d]))
             k_d = min(5, n - 1)
             mnn_d = 0
             for i in range(n):
@@ -1677,7 +1795,9 @@ def step_gemma_analysis(
                 gr[i] = -2.0
                 dr = d_sim[i].copy()
                 dr[i] = -2.0
-                mnn_d += len(set(np.argsort(-gr)[:k_d].tolist()) & set(np.argsort(-dr)[:k_d].tolist()))
+                mnn_d += len(
+                    set(np.argsort(-gr)[:k_d].tolist()) & set(np.argsort(-dr)[:k_d].tolist())
+                )
             mnn_rate_d = mnn_d / (n * k_d)
             dino_comparison = {
                 "available": True,
@@ -1689,10 +1809,14 @@ def step_gemma_analysis(
             }
             _log.info(
                 "  [Gemma vs DINOv3] MNN@%d=%.3f  mean_cossim: Gemma=%.4f  DINO=%.4f",
-                k_d, mnn_rate_d, mean_cossim_gemma_d, mean_cossim_dino,
+                k_d,
+                mnn_rate_d,
+                mean_cossim_gemma_d,
+                mean_cossim_dino,
             )
             try:
                 import torch as _t
+
                 _bb = getattr(temp_dino, "model", None)
                 if _bb is not None:
                     _bb.cpu()
@@ -1711,24 +1835,32 @@ def step_gemma_analysis(
 
     write_gemma_analysis_md(
         video_dir / "gemma_analysis.md",
-        video_name, effective_api_model or settings.GEMMA_MODEL_ID,
-        n, task_results, dino_comparison, text_query_results, elapsed,
+        video_name,
+        effective_api_model or settings.GEMMA_MODEL_ID,
+        n,
+        task_results,
+        dino_comparison,
+        text_query_results,
+        elapsed,
         clip_comparison=clip_comparison,
     )
 
-    result.update({
-        "skipped": False,
-        "n_frames": n,
-        "task_results": task_results,
-        "dino_comparison": dino_comparison,
-        "clip_comparison": clip_comparison,
-        "elapsed_sec": elapsed,
-        "structured_scene": structured_scene,
-    })
+    result.update(
+        {
+            "skipped": False,
+            "n_frames": n,
+            "task_results": task_results,
+            "dino_comparison": dino_comparison,
+            "clip_comparison": clip_comparison,
+            "elapsed_sec": elapsed,
+            "structured_scene": structured_scene,
+        }
+    )
     return result
 
 
 # ── Florence / Qwen captioning ────────────────────────────────────────────────
+
 
 def _caption_via_florence_api(
     frame_list: list[tuple[str, float]],
@@ -1760,7 +1892,9 @@ def _caption_via_florence_api(
 
     _log.info(
         "  Florence-2 via vLLM API (url=%s  model=%s  frames=%d)",
-        api_url, model, len(frame_list),
+        api_url,
+        model,
+        len(frame_list),
     )
     endpoint = f"{api_url.rstrip('/')}/chat/completions"
     caption_results: list[dict[str, Any]] = []
@@ -1776,17 +1910,25 @@ def _caption_via_florence_api(
             b64 = base64.b64encode(buf.getvalue()).decode()
             payload = {
                 "model": model,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                        {"type": "text", "text": (
-                            f"[Context: {domain_hint}] <MORE_DETAILED_CAPTION>"
-                            if domain_hint else "<MORE_DETAILED_CAPTION>"
-                        )},
-                    ],
-                }],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                            },
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"[Context: {domain_hint}] <MORE_DETAILED_CAPTION>"
+                                    if domain_hint
+                                    else "<MORE_DETAILED_CAPTION>"
+                                ),
+                            },
+                        ],
+                    }
+                ],
                 "max_tokens": 256,
                 "temperature": 0.0,
             }
@@ -1795,27 +1937,35 @@ def _caption_via_florence_api(
             raw = resp.json()["choices"][0]["message"]["content"].strip()
             # Florence-2 sometimes echoes the task token; strip it
             if raw.startswith("<MORE_DETAILED_CAPTION>"):
-                raw = raw[len("<MORE_DETAILED_CAPTION>"):].strip()
+                raw = raw[len("<MORE_DETAILED_CAPTION>") :].strip()
             caption = raw
         except Exception as exc:
             _log.debug("  Florence API error for %s: %s", Path(fp).name, exc)
 
-        caption_results.append({
-            "frame_path": fp, "t_sec": t_sec,
-            "caption": caption,
-            "caption_confidence": 0.75 if caption else 0.0,
-        })
+        caption_results.append(
+            {
+                "frame_path": fp,
+                "t_sec": t_sec,
+                "caption": caption,
+                "caption_confidence": 0.75 if caption else 0.0,
+            }
+        )
         if (idx + 1) % 20 == 0:
             _log.info("    ... %d/%d frames captioned via Florence API", idx + 1, len(frame_list))
 
-    elapsed   = time.time() - t0
+    elapsed = time.time() - t0
     captioned = sum(1 for r in caption_results if r.get("caption"))
-    _log.info("  ✓ Florence API captions: %d/%d frames in %.1fs", captioned, len(frame_list), elapsed)
+    _log.info(
+        "  ✓ Florence API captions: %d/%d frames in %.1fs", captioned, len(frame_list), elapsed
+    )
     out_md = video_dir / "scene_captions.md"
     write_scene_captions_md(out_md, video_name, caption_results, elapsed)
     return {
-        "skipped": False, "captions": caption_results,
-        "captioned_count": captioned, "elapsed_sec": elapsed, "backend": "florence_api",
+        "skipped": False,
+        "captions": caption_results,
+        "captioned_count": captioned,
+        "elapsed_sec": elapsed,
+        "backend": "florence_api",
     }
 
 
@@ -1848,7 +1998,9 @@ def _caption_via_qwen_api(
     _log.info(
         "  Florence-2 unavailable locally — falling back to Qwen API captioning "
         "(url=%s  model=%s  frames=%d)",
-        api_url, model, len(frame_list),
+        api_url,
+        model,
+        len(frame_list),
     )
     endpoint = f"{api_url.rstrip('/')}/chat/completions"
     caption_results: list[dict[str, Any]] = []
@@ -1859,8 +2011,11 @@ def _caption_via_qwen_api(
     try:
         probe = httpx.post(
             endpoint,
-            json={"model": model, "messages": [{"role": "user", "content": "ping"}],
-                  "max_tokens": 1},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            },
             timeout=15.0,
         )
         if probe.status_code >= 500:
@@ -1868,7 +2023,11 @@ def _caption_via_qwen_api(
                 "  Qwen API pre-flight failed (HTTP %d) — skipping captioning",
                 probe.status_code,
             )
-            return {"skipped": True, "reason": f"Qwen API returned {probe.status_code}", "captions": []}
+            return {
+                "skipped": True,
+                "reason": f"Qwen API returned {probe.status_code}",
+                "captions": [],
+            }
     except Exception as exc:
         _log.warning("  Qwen API pre-flight error (%s) — skipping captioning", exc)
         return {"skipped": True, "reason": str(exc), "captions": []}
@@ -1884,19 +2043,25 @@ def _caption_via_qwen_api(
             b64 = base64.b64encode(buf.getvalue()).decode()
             payload = {
                 "model": model,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                        {"type": "text",
-                         "text": (
-                             (f"[Context: {domain_hint}]\n" if domain_hint else "")
-                             + "Describe this image in one or two sentences. "
-                             "Focus on the scene type, visible objects, and environment."
-                         )},
-                    ],
-                }],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                            },
+                            {
+                                "type": "text",
+                                "text": (
+                                    (f"[Context: {domain_hint}]\n" if domain_hint else "")
+                                    + "Describe this image in one or two sentences. "
+                                    "Focus on the scene type, visible objects, and environment."
+                                ),
+                            },
+                        ],
+                    }
+                ],
                 "max_tokens": 150,
                 "temperature": 0.1,
             }
@@ -1911,30 +2076,39 @@ def _caption_via_qwen_api(
                 _log.warning(
                     "  Qwen API: %d consecutive failures — aborting captioning early "
                     "(%d/%d frames done)",
-                    consecutive_failures, idx + 1, len(frame_list),
+                    consecutive_failures,
+                    idx + 1,
+                    len(frame_list),
                 )
                 # Fill remaining frames with empty captions and break
-                for fp2, t2 in frame_list[idx + 1:]:
-                    caption_results.append({"frame_path": fp2, "t_sec": t2,
-                                            "caption": "", "caption_confidence": 0.0})
+                for fp2, t2 in frame_list[idx + 1 :]:
+                    caption_results.append(
+                        {"frame_path": fp2, "t_sec": t2, "caption": "", "caption_confidence": 0.0}
+                    )
                 break
 
-        caption_results.append({
-            "frame_path": fp, "t_sec": t_sec,
-            "caption": caption,
-            "caption_confidence": 0.7 if caption else 0.0,
-        })
+        caption_results.append(
+            {
+                "frame_path": fp,
+                "t_sec": t_sec,
+                "caption": caption,
+                "caption_confidence": 0.7 if caption else 0.0,
+            }
+        )
         if (idx + 1) % 50 == 0:
             _log.info("    ... %d/%d frames captioned via Qwen API", idx + 1, len(frame_list))
 
-    elapsed   = time.time() - t0
+    elapsed = time.time() - t0
     captioned = sum(1 for r in caption_results if r.get("caption"))
     _log.info("  ✓ Qwen API captions: %d/%d frames in %.1fs", captioned, len(frame_list), elapsed)
     out_md = video_dir / "scene_captions.md"
     write_scene_captions_md(out_md, video_name, caption_results, elapsed)
     return {
-        "skipped": False, "captions": caption_results,
-        "captioned_count": captioned, "elapsed_sec": elapsed, "backend": "qwen_api",
+        "skipped": False,
+        "captions": caption_results,
+        "captioned_count": captioned,
+        "elapsed_sec": elapsed,
+        "backend": "qwen_api",
     }
 
 
@@ -1968,7 +2142,7 @@ def step_scene_captioning(
 
     # ── API route: vLLM serving Florence-2 ────────────────────────────────────
     effective_florence_api_url = florence_api_url or settings.FLORENCE_API_URL
-    effective_florence_model   = florence_model or settings.FLORENCE_MODEL
+    effective_florence_model = florence_model or settings.FLORENCE_MODEL
     if effective_florence_api_url:
         _log.info("  Florence-2 via vLLM API at %s", effective_florence_api_url)
         _log_vram_snapshot("before Florence API captioning")
@@ -1976,8 +2150,11 @@ def step_scene_captioning(
         if models and device == "cuda":
             _offload_models_to_cpu(models)
         result = _caption_via_florence_api(
-            frame_list, video_name, video_dir,
-            effective_florence_api_url, effective_florence_model,
+            frame_list,
+            video_name,
+            video_dir,
+            effective_florence_api_url,
+            effective_florence_model,
             domain_hint=domain_hint,
         )
         _log_vram_snapshot("after Florence API captioning")
@@ -2015,13 +2192,15 @@ def step_scene_captioning(
             _log.warning("  Florence-2 load failed (%s) — using Qwen API fallback", exc)
             try:
                 import torch as _torch
+
                 if _torch.cuda.is_available():
                     _torch.cuda.empty_cache()
                     _log.info("  CUDA cache cleared before Qwen fallback")
             except Exception:
                 pass
-            return _caption_via_qwen_api(frame_list, video_name, video_dir, qwen_api_url, qwen_model,
-                                         domain_hint=domain_hint)
+            return _caption_via_qwen_api(
+                frame_list, video_name, video_dir, qwen_api_url, qwen_model, domain_hint=domain_hint
+            )
         _log.warning(
             "  Florence-2 load failed (%s) — skipping captioning "
             "(pass --qwen-api-url + --qwen to enable Qwen API fallback)",
@@ -2052,15 +2231,18 @@ def step_scene_captioning(
                 florence_runtime_mode = florence.runtime_mode
             except Exception as exc:
                 from selfsuvis.pipeline.core.gpu_utils import is_cuda_oom, log_oom_banner
+
                 if is_cuda_oom(exc):
                     remaining = len(frame_list) - batch_start
                     log_oom_banner(
-                        _log, "Florence-2 caption_batch",
+                        _log,
+                        "Florence-2 caption_batch",
                         f"batch_start={batch_start}, releasing model, "
                         f"{remaining} frames will get empty captions",
                     )
                     try:
                         import torch as _t
+
                         _t.cuda.empty_cache()
                         florence.release()
                     except Exception:
@@ -2070,10 +2252,11 @@ def step_scene_captioning(
                     _log.warning("  Florence batch %d failed: %s", batch_start, exc, exc_info=True)
                 captions_and_confs = [("", 0.5)] * len(batch)
         for (fp, t_sec), (cap, conf) in zip(batch, captions_and_confs):
-            caption_results.append({"frame_path": fp, "t_sec": t_sec,
-                                    "caption": cap, "caption_confidence": conf})
+            caption_results.append(
+                {"frame_path": fp, "t_sec": t_sec, "caption": cap, "caption_confidence": conf}
+            )
 
-    elapsed   = time.time() - t0
+    elapsed = time.time() - t0
     captioned = sum(1 for r in caption_results if r.get("caption"))
     _log.info("  ✓ %d/%d frames captioned in %.1fs", captioned, len(frame_list), elapsed)
     _log_vram_snapshot("after local Florence captioning")
@@ -2152,16 +2335,22 @@ def _gemma_diff_two_frames_via_api(
 
     payload = {
         "model": model,
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "image_url",
-                 "image_url": {"url": f"data:image/jpeg;base64,{b64_before}"}},
-                {"type": "image_url",
-                 "image_url": {"url": f"data:image/jpeg;base64,{b64_after}"}},
-                {"type": "text", "text": _SEGMENT_DIFF_PROMPT},
-            ],
-        }],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64_before}"},
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64_after}"},
+                    },
+                    {"type": "text", "text": _SEGMENT_DIFF_PROMPT},
+                ],
+            }
+        ],
         "max_tokens": 400,
         "temperature": 0.1,
     }
@@ -2183,11 +2372,13 @@ def _gemma_diff_two_frames_via_api(
     native_payload = {
         "model": model,
         "stream": False,
-        "messages": [{
-            "role": "user",
-            "content": _SEGMENT_DIFF_PROMPT,
-            "images": [b64_before, b64_after],
-        }],
+        "messages": [
+            {
+                "role": "user",
+                "content": _SEGMENT_DIFF_PROMPT,
+                "images": [b64_before, b64_after],
+            }
+        ],
     }
     try:
         resp = httpx.post(ollama_endpoint, json=native_payload, timeout=timeout)
@@ -2223,9 +2414,9 @@ def step_gemma_segment_captions(
 
     result: dict[str, Any] = {"skipped": True, "reason": "", "boundary_diffs": []}
 
-    effective_api_url   = gemma_api_url or settings.GEMMA_API_URL
+    effective_api_url = gemma_api_url or settings.GEMMA_API_URL
     effective_api_model = gemma_api_model or settings.GEMMA_API_MODEL
-    effective_timeout   = float(settings.GEMMA_API_TIMEOUT_SEC)
+    effective_timeout = float(settings.GEMMA_API_TIMEOUT_SEC)
 
     if not effective_api_url:
         result["reason"] = "GEMMA_API_URL not configured"
@@ -2242,7 +2433,10 @@ def step_gemma_segment_captions(
 
     enriched = _analyze_caption_sequence(caption_results)
 
-    max_boundaries = int(getattr(settings, "GEMMA_SEGMENT_DIFF_MAX_BOUNDARIES", _SEGMENT_DIFF_MAX_BOUNDARIES_DEFAULT) or 0)
+    max_boundaries = int(
+        getattr(settings, "GEMMA_SEGMENT_DIFF_MAX_BOUNDARIES", _SEGMENT_DIFF_MAX_BOUNDARIES_DEFAULT)
+        or 0
+    )
     boundary_pairs = _select_segment_boundary_pairs(enriched, max_boundaries=max_boundaries)
 
     if not boundary_pairs:
@@ -2260,14 +2454,16 @@ def step_gemma_segment_captions(
 
     _log.info(
         "Gemma segment-boundary diff: %d boundaries  model=%s  url=%s ...",
-        len(boundary_pairs), effective_api_model, effective_api_url,
+        len(boundary_pairs),
+        effective_api_model,
+        effective_api_url,
     )
     t0 = time.time()
 
     boundary_diffs: list[dict[str, Any]] = []
     for idx, (prev_row, next_row) in enumerate(boundary_pairs):
         fp_before = ts_to_fp.get(prev_row.get("t_sec", -1.0), "") or prev_row.get("frame_path", "")
-        fp_after  = ts_to_fp.get(next_row.get("t_sec", -1.0), "") or next_row.get("frame_path", "")
+        fp_after = ts_to_fp.get(next_row.get("t_sec", -1.0), "") or next_row.get("frame_path", "")
         if not fp_before or not fp_after:
             _log.debug("  Gemma diff: missing frame paths at boundary %d — skipping", idx)
             continue
@@ -2276,13 +2472,13 @@ def step_gemma_segment_captions(
             fp_before, fp_after, effective_api_url, effective_api_model, effective_timeout
         )
         entry = {
-            "boundary_idx":     idx,
-            "prev_t_sec":       prev_row.get("t_sec", 0.0),
-            "next_t_sec":       next_row.get("t_sec", 0.0),
-            "prev_segment_id":  prev_row.get("segment_id", 0),
-            "next_segment_id":  next_row.get("segment_id", 0),
-            "fp_before":        fp_before,
-            "fp_after":         fp_after,
+            "boundary_idx": idx,
+            "prev_t_sec": prev_row.get("t_sec", 0.0),
+            "next_t_sec": next_row.get("t_sec", 0.0),
+            "prev_segment_id": prev_row.get("segment_id", 0),
+            "next_segment_id": next_row.get("segment_id", 0),
+            "fp_before": fp_before,
+            "fp_after": fp_after,
             "diff_description": desc,
         }
         boundary_diffs.append(entry)
@@ -2291,20 +2487,24 @@ def step_gemma_segment_captions(
     described = sum(1 for b in boundary_diffs if b.get("diff_description"))
     _log.info(
         "  ✓ Gemma segment diffs: %d/%d boundaries described in %.1fs",
-        described, len(boundary_pairs), elapsed,
+        described,
+        len(boundary_pairs),
+        elapsed,
     )
 
     out_md = video_dir / "gemma_segment_captions.md"
     write_gemma_segment_captions_md(out_md, video_name, effective_api_model, boundary_diffs)
 
-    result.update({
-        "skipped":        False,
-        "boundary_count": len(boundary_pairs),
-        "described_count": described,
-        "elapsed_sec":    elapsed,
-        "model":          effective_api_model,
-        "boundary_diffs": boundary_diffs,
-    })
+    result.update(
+        {
+            "skipped": False,
+            "boundary_count": len(boundary_pairs),
+            "described_count": described,
+            "elapsed_sec": elapsed,
+            "model": effective_api_model,
+            "boundary_diffs": boundary_diffs,
+        }
+    )
     return result
 
 
@@ -2312,17 +2512,17 @@ def step_gemma_segment_captions(
 
 _GEMMA_QWEN_FALLBACK_PROMPT = (
     "Analyse this image and return ONLY a JSON object with these keys:\n"
-    '{\n'
+    "{\n"
     '  "vehicle_groups": [\n'
     '    {"type": "truck|car|bus|motorcycle|emergency|military|van|other",\n'
     '     "count": <integer>,\n'
     '     "color": "<dominant color or unknown>",\n'
     '     "position": "<front|centre|rear|left|right|scattered>"}\n'
-    '  ],\n'
+    "  ],\n"
     '  "road_surface": "asphalt|concrete|gravel|dirt|unknown",\n'
     '  "road_condition": "clear|wet|snow|ice|debris|unknown",\n'
     '  "scene_summary": "<one sentence describing the scene>"\n'
-    '}\n'
+    "}\n"
     "If no vehicles are visible, return an empty vehicle_groups list. "
     "Return only the JSON object, no other text."
 )
@@ -2377,14 +2577,15 @@ def _gemma_extract_frame_structured(
 
     payload = {
         "model": model,
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "image_url",
-                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                {"type": "text", "text": _GEMMA_QWEN_FALLBACK_PROMPT},
-            ],
-        }],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    {"type": "text", "text": _GEMMA_QWEN_FALLBACK_PROMPT},
+                ],
+            }
+        ],
         "max_tokens": 512,
         "temperature": 0.0,
     }
@@ -2407,11 +2608,13 @@ def _gemma_extract_frame_structured(
             native_payload = {
                 "model": model,
                 "stream": False,
-                "messages": [{
-                    "role": "user",
-                    "content": _GEMMA_QWEN_FALLBACK_PROMPT,
-                    "images": [b64],
-                }],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": _GEMMA_QWEN_FALLBACK_PROMPT,
+                        "images": [b64],
+                    }
+                ],
             }
             resp = httpx.post(ollama_endpoint, json=native_payload, timeout=timeout)
             resp.raise_for_status()
@@ -2424,8 +2627,9 @@ def _gemma_extract_frame_structured(
 
     # Parse JSON — strip markdown fences if present
     import re as _re
+
     text = raw_content.strip()
-    match = _re.search(r'\{[\s\S]*\}', text)
+    match = _re.search(r"\{[\s\S]*\}", text)
     if not match:
         return {**base_result, "parse_error": True, "raw_content": text[:200]}
     try:
@@ -2468,11 +2672,13 @@ def _step_qwen_captioning_gemma_fallback(
         seconds_per_sample=0.9,
         floor=8,
     )
-    sampled = frame_list[::max(1, len(frame_list) // max(1, budget))][:budget]
+    sampled = frame_list[:: max(1, len(frame_list) // max(1, budget))][:budget]
 
     _log.info(
         "Gemma structured extraction (Qwen fallback): %d/%d frames  model=%s ...",
-        len(sampled), len(frame_list), gemma_model,
+        len(sampled),
+        len(frame_list),
+        gemma_model,
     )
     t0 = time.time()
     caption_results: list[dict[str, Any]] = []
@@ -2481,24 +2687,32 @@ def _step_qwen_captioning_gemma_fallback(
         caption_results.append(r)
 
     elapsed = time.time() - t0
-    ok = sum(1 for r in caption_results
-             if not r.get("service_unavailable") and not r.get("skipped") and not r.get("parse_error"))
+    ok = sum(
+        1
+        for r in caption_results
+        if not r.get("service_unavailable") and not r.get("skipped") and not r.get("parse_error")
+    )
     parse_errors = sum(1 for r in caption_results if r.get("parse_error"))
     _log.info(
         "  ✓ Gemma fallback: %d/%d frames extracted in %.1fs (parse_errors=%d)",
-        ok, len(sampled), elapsed, parse_errors,
+        ok,
+        len(sampled),
+        elapsed,
+        parse_errors,
     )
     write_detailed_captions_md(out_md, video_name, caption_results, elapsed, gemma_model)
-    result.update({
-        "skipped": False,
-        "results": caption_results,
-        "ok_count": ok,
-        "elapsed_sec": elapsed,
-        "sampled_count": len(sampled),
-        "total_frames": len(frame_list),
-        "parse_error_count": parse_errors,
-        "backend": "gemma_fallback",
-    })
+    result.update(
+        {
+            "skipped": False,
+            "results": caption_results,
+            "ok_count": ok,
+            "elapsed_sec": elapsed,
+            "sampled_count": len(sampled),
+            "total_frames": len(frame_list),
+            "parse_error_count": parse_errors,
+            "backend": "gemma_fallback",
+        }
+    )
     return result
 
 
@@ -2539,12 +2753,18 @@ def step_qwen_captioning(
         gemma_model = settings.GEMMA_API_MODEL
         if gemma_url:
             return _step_qwen_captioning_gemma_fallback(
-                frame_list, video_name, video_dir, gemma_url, gemma_model,
+                frame_list,
+                video_name,
+                video_dir,
+                gemma_url,
+                gemma_model,
             )
         return result
-    ocr_map: dict[float, str] = {r["t_sec"]: r["ocr_text"]
-                                  for r in ocr_results
-                                  if r.get("t_sec") is not None and r.get("ocr_text")}
+    ocr_map: dict[float, str] = {
+        r["t_sec"]: r["ocr_text"]
+        for r in ocr_results
+        if r.get("t_sec") is not None and r.get("ocr_text")
+    }
 
     domain = knowledge.domain_hint() if knowledge else ""
     if domain:
@@ -2595,8 +2815,13 @@ def step_qwen_captioning(
                 )
                 _use_agentic = False
 
-    _log.info("Running Qwen detailed captioning on %d sampled frames (from %d total, model=%s  agentic=%s) …",
-              len(sampled_frame_list), len(frame_list), settings.QWEN_MODEL, "yes" if _use_agentic else "no")
+    _log.info(
+        "Running Qwen detailed captioning on %d sampled frames (from %d total, model=%s  agentic=%s) …",
+        len(sampled_frame_list),
+        len(frame_list),
+        settings.QWEN_MODEL,
+        "yes" if _use_agentic else "no",
+    )
 
     caption_results: list[dict[str, Any]] = []
 
@@ -2628,18 +2853,36 @@ def step_qwen_captioning(
         t_sec = r.get("t_sec", 0.0)
         caption_results.append({**r, "subtitle_text": subtitle_map.get(t_sec) or ""})
     elapsed = time.time() - t0
-    ok             = sum(1 for r in caption_results
-                         if not r.get("service_unavailable") and not r.get("skipped") and not r.get("parse_error"))
-    parse_errors   = sum(1 for r in caption_results if r.get("parse_error"))
-    subtitle_used  = sum(1 for r in caption_results if r.get("subtitle_text"))
-    _log.info("  ✓ Qwen: %d/%d sampled frames captioned in %.1fs (%d with ASR  parse_errors=%d  agentic=%s)",
-              ok, len(sampled_frame_list), elapsed, subtitle_used, parse_errors, "yes" if knowledge else "no")
+    ok = sum(
+        1
+        for r in caption_results
+        if not r.get("service_unavailable") and not r.get("skipped") and not r.get("parse_error")
+    )
+    parse_errors = sum(1 for r in caption_results if r.get("parse_error"))
+    subtitle_used = sum(1 for r in caption_results if r.get("subtitle_text"))
+    _log.info(
+        "  ✓ Qwen: %d/%d sampled frames captioned in %.1fs (%d with ASR  parse_errors=%d  agentic=%s)",
+        ok,
+        len(sampled_frame_list),
+        elapsed,
+        subtitle_used,
+        parse_errors,
+        "yes" if knowledge else "no",
+    )
     _log_vram_snapshot("after Qwen sidecar use")
     write_detailed_captions_md(out_md, video_name, caption_results, elapsed, settings.QWEN_MODEL)
-    result.update({"skipped": False, "results": caption_results,
-                   "ok_count": ok, "subtitle_used": subtitle_used, "elapsed_sec": elapsed,
-                   "sampled_count": len(sampled_frame_list), "total_frames": len(frame_list),
-                   "parse_error_count": parse_errors})
+    result.update(
+        {
+            "skipped": False,
+            "results": caption_results,
+            "ok_count": ok,
+            "subtitle_used": subtitle_used,
+            "elapsed_sec": elapsed,
+            "sampled_count": len(sampled_frame_list),
+            "total_frames": len(frame_list),
+            "parse_error_count": parse_errors,
+        }
+    )
     return result
 
 
@@ -2667,7 +2910,9 @@ def step_unidrive_analysis(
     if not client.is_enabled():
         _log.info("  UniDriveVLA disabled (no sidecar URL and no usable local HF model) — skipping")
         _log.info("  To enable sidecar mode: --unidrive-api-url http://localhost:8030/v1")
-        _log.info("  To enable local mode: cache HF weights with scripts/prepare_models.py --unidrive --unidrive-backend vllm")
+        _log.info(
+            "  To enable local mode: cache HF weights with scripts/prepare_models.py --unidrive --unidrive-backend vllm"
+        )
         return result
 
     max_frames = _adaptive_sparse_budget(
@@ -2686,7 +2931,8 @@ def step_unidrive_analysis(
     domain = knowledge.domain_hint() if knowledge else ""
     _log.info(
         "Running UniDriveVLA expert analysis on %d sampled frames (model=%s backend=%s) …",
-        len(sampled_frames), settings.UNIDRIVE_MODEL,
+        len(sampled_frames),
+        settings.UNIDRIVE_MODEL,
         getattr(settings, "UNIDRIVE_BACKEND", "vllm"),
     )
     t0 = time.time()
@@ -2711,18 +2957,24 @@ def step_unidrive_analysis(
         error_result={"service_unavailable": True},
     )
     elapsed = time.time() - t0
-    ok = sum(1 for r in batch_results if not r.get("service_unavailable") and not r.get("parse_error"))
-    _log.info("  ✓ UniDriveVLA: %d/%d sampled frames analysed in %.1fs", ok, len(batch_results), elapsed)
+    ok = sum(
+        1 for r in batch_results if not r.get("service_unavailable") and not r.get("parse_error")
+    )
+    _log.info(
+        "  ✓ UniDriveVLA: %d/%d sampled frames analysed in %.1fs", ok, len(batch_results), elapsed
+    )
     _log_vram_snapshot("after UniDrive sidecar use")
     write_unidrive_analysis_md(out_md, video_name, batch_results, elapsed, settings.UNIDRIVE_MODEL)
     client.release()
-    result.update({
-        "skipped": False,
-        "results": batch_results,
-        "ok_count": ok,
-        "elapsed_sec": elapsed,
-        "sampled_frames": len(batch_results),
-    })
+    result.update(
+        {
+            "skipped": False,
+            "results": batch_results,
+            "ok_count": ok,
+            "elapsed_sec": elapsed,
+            "sampled_frames": len(batch_results),
+        }
+    )
     return result
 
 
@@ -2758,26 +3010,36 @@ def step_asr_transcription(
         _log.warning("  No audio stream found in %s — ASR skipped", video_path.name)
         return result
     _log.info("Transcribing audio with %s …", asr.model_id)
-    t0       = time.time()
+    t0 = time.time()
     segments = asr.transcribe(wav_path)
-    elapsed  = time.time() - t0
+    elapsed = time.time() - t0
     if not segments:
         _log.warning("  ASR returned no segments for %s", video_path.name)
         return result
     frame_timestamps = [t for _, t in frame_list]
-    subtitle_map     = map_subtitles_to_frames(segments, frame_timestamps,
-                                               window_sec=settings.ASR_SUBTITLE_WINDOW_SEC)
+    subtitle_map = map_subtitles_to_frames(
+        segments, frame_timestamps, window_sec=settings.ASR_SUBTITLE_WINDOW_SEC
+    )
     covered = sum(1 for t in frame_timestamps if t in subtitle_map)
-    _log.info("  ✓ ASR: %d segments → %d/%d frames have subtitles (%.1fs, model=%s)",
-              len(segments), covered, len(frame_list), elapsed, asr.model_id)
+    _log.info(
+        "  ✓ ASR: %d segments → %d/%d frames have subtitles (%.1fs, model=%s)",
+        len(segments),
+        covered,
+        len(frame_list),
+        elapsed,
+        asr.model_id,
+    )
     _log_vram_snapshot("after ASR model use")
     lines = [
-        f"# ASR Subtitles — {video_name}", "",
+        f"# ASR Subtitles — {video_name}",
+        "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Model: `{asr.model_id}`",
         f"Segments: {len(segments)}  |  Frames with subtitles: {covered}/{len(frame_list)}",
-        f"Elapsed: {elapsed:.1f}s", "",
-        "## Subtitle Segments", "",
+        f"Elapsed: {elapsed:.1f}s",
+        "",
+        "## Subtitle Segments",
+        "",
         "| Start (s) | End (s) | Text |",
         "|-----------|---------|------|",
     ]
@@ -2789,8 +3051,15 @@ def step_asr_transcription(
         lines.append(f"| {start:.2f} | {end:.2f} | {text} |")
     lines += ["", "---", f"*Produced by {_RUNNER_LABEL} · ASR step 05*"]
     write_markdown_artifact(out_md, lines)
-    result.update({"skipped": False, "subtitle_map": subtitle_map,
-                   "segments": segments, "elapsed_sec": elapsed, "covered_frames": covered})
+    result.update(
+        {
+            "skipped": False,
+            "subtitle_map": subtitle_map,
+            "segments": segments,
+            "elapsed_sec": elapsed,
+            "covered_frames": covered,
+        }
+    )
     return result
 
 
@@ -2869,11 +3138,17 @@ def step_ocr_extraction(
                     {"frame_path": fp, "t_sec": t_sec, "ocr_text": "", "ocr_error": True},
                 )
             )
-    elapsed   = time.time() - t0
+    elapsed = time.time() - t0
     non_empty = sum(1 for r in ocr_results if r.get("ocr_text"))
     _log.info("  ✓ OCR: %d/%d frames have text in %.1fs", non_empty, len(frame_list), elapsed)
-    result.update({"skipped": False, "ocr_results": ocr_results,
-                   "non_empty": non_empty, "elapsed_sec": elapsed})
+    result.update(
+        {
+            "skipped": False,
+            "ocr_results": ocr_results,
+            "non_empty": non_empty,
+            "elapsed_sec": elapsed,
+        }
+    )
     ocr.release()
     _log_vram_snapshot("after OCR model use")
     return result
@@ -2887,10 +3162,7 @@ def _fallback_ocr_frame_sample(
     if len(frame_list) <= max_samples:
         return list(frame_list)
     last = len(frame_list) - 1
-    indices = sorted({
-        round(i * last / max(max_samples - 1, 1))
-        for i in range(max_samples)
-    })
+    indices = sorted({round(i * last / max(max_samples - 1, 1)) for i in range(max_samples)})
     return [frame_list[i] for i in indices]
 
 
@@ -2911,8 +3183,9 @@ def step_depth_estimation(
     if not depth_model.is_enabled():
         _log.info("  Depth disabled (DEPTH_ENABLED=false) — skipping")
         return result
-    _log.info("Running depth estimation on %d frames (model=%s) …",
-              len(frame_list), depth_model.model_id)
+    _log.info(
+        "Running depth estimation on %d frames (model=%s) …", len(frame_list), depth_model.model_id
+    )
     t0 = time.time()
     depth_results = _run_batched_frame_inference(
         frame_list,
@@ -2955,8 +3228,9 @@ def step_object_detection(
     if not det_model.is_enabled():
         _log.info("  Detection disabled (DETECTION_ENABLED=false) — skipping")
         return result
-    _log.info("Running object detection on %d frames (model=%s) …",
-              len(frame_list), det_model.model_id)
+    _log.info(
+        "Running object detection on %d frames (model=%s) …", len(frame_list), det_model.model_id
+    )
     t0 = time.time()
     det_results = _run_batched_frame_inference(
         frame_list,
@@ -2965,19 +3239,31 @@ def step_object_detection(
         warning_label="Detection",
         error_result={"detection_error": True},
     )
-    elapsed     = time.time() - t0
-    total_objs  = sum(len(r.get("detections", [])) for r in det_results)
-    ok          = sum(
+    elapsed = time.time() - t0
+    total_objs = sum(len(r.get("detections", [])) for r in det_results)
+    ok = sum(
         1
         for r in det_results
         if not r.get("detection_error")
         and not r.get("detection_unavailable")
         and not r.get("detection_disabled")
     )
-    _log.info("  ✓ Detection: %d objects across %d/%d frames in %.1fs",
-              total_objs, ok, len(frame_list), elapsed)
-    result.update({"skipped": False, "detection_results": det_results,
-                   "total_objects": total_objs, "ok_count": ok, "elapsed_sec": elapsed})
+    _log.info(
+        "  ✓ Detection: %d objects across %d/%d frames in %.1fs",
+        total_objs,
+        ok,
+        len(frame_list),
+        elapsed,
+    )
+    result.update(
+        {
+            "skipped": False,
+            "detection_results": det_results,
+            "total_objects": total_objs,
+            "ok_count": ok,
+            "elapsed_sec": elapsed,
+        }
+    )
     det_model.release()
     _log_vram_snapshot("after detection model use")
     return result
@@ -3016,8 +3302,12 @@ def step_world_model_pass(
             _log.info("  World model disabled (WORLD_MODEL_ENABLED=false) — skipping Q-A")
         else:
             clip_frames = settings.WORLD_MODEL_CLIP_FRAMES
-            _log.info("Running world model on %d frames in clips of %d (model=%s) …",
-                      len(frame_list), clip_frames, wm.model_id)
+            _log.info(
+                "Running world model on %d frames in clips of %d (model=%s) …",
+                len(frame_list),
+                clip_frames,
+                wm.model_id,
+            )
             t0 = time.time()
             world_results: list[dict[str, Any]] = []
             for clip_start in range(0, len(frame_list), clip_frames):
@@ -3040,8 +3330,14 @@ def step_world_model_pass(
                 and not r.get("world_model_disabled")
             )
             _log.info("  ✓ World model: %d clips processed in %.1fs", ok, elapsed)
-            result.update({"skipped": False, "world_results": world_results,
-                           "ok_count": ok, "elapsed_sec": elapsed})
+            result.update(
+                {
+                    "skipped": False,
+                    "world_results": world_results,
+                    "ok_count": ok,
+                    "elapsed_sec": elapsed,
+                }
+            )
             wm.release()
             _log_vram_snapshot("after world model use")
 
@@ -3087,7 +3383,9 @@ def step_world_model_pass(
                     valid_idx = 0
                     for i, (fp, _t) in enumerate(frame_list):
                         if valid_idx < n_valid:
-                            dense[i] = float(surprise_scores[min(valid_idx, len(surprise_scores) - 1)])
+                            dense[i] = float(
+                                surprise_scores[min(valid_idx, len(surprise_scores) - 1)]
+                            )
                             valid_idx += 1
 
                     rssm_json: dict[str, Any] = {
@@ -3112,11 +3410,14 @@ def step_world_model_pass(
                         elapsed_rssm,
                         rssm_path.name,
                     )
-                    result.update({"rssm_scores": dense, "rssm_method": method,
-                                   "rssm_path": str(rssm_path)})
+                    result.update(
+                        {"rssm_scores": dense, "rssm_method": method, "rssm_path": str(rssm_path)}
+                    )
                     result["skipped"] = False
                 else:
-                    _log.info("  RSSM: too few embedded frames (%d) — skipping Q-B", len(clip_embeds))
+                    _log.info(
+                        "  RSSM: too few embedded frames (%d) — skipping Q-B", len(clip_embeds)
+                    )
             except Exception as exc:
                 _log.warning("  RSSM temporal surprise failed (%s) — skipping Q-B", exc)
         else:

@@ -29,6 +29,7 @@ def run(coro):
 # Helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def _make_embedding(seed: int = 0, dim: int = 512) -> np.ndarray:
     """Return a deterministic, L2-normalised unit embedding."""
     rng = np.random.default_rng(seed)
@@ -47,8 +48,9 @@ def _frames_with_al(
 
     dino_dists = [float(i) / (n - 1) if n > 1 else 0.5 for i in range(n)]
     cap_confs = [1.0 - d for d in dino_dists]
-    scores, tags = assign_al_tags(dino_dists, cap_confs, top_k=top_k,
-                                  novel_threshold=novel_threshold)
+    scores, tags = assign_al_tags(
+        dino_dists, cap_confs, top_k=top_k, novel_threshold=novel_threshold
+    )
 
     frames = []
     for i, (score, tag) in enumerate(zip(scores, tags)):
@@ -69,6 +71,7 @@ def _frames_with_al(
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. Active learning → frame persistence
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def test_al_tags_persisted_correctly():
     """AL tags computed by assign_al_tags survive the round-trip through replace_frames."""
@@ -123,13 +126,16 @@ def test_al_novel_tag_assigned_above_threshold():
     conn = PipelineMockConn()
     # Frame 0: top-K candidate (high score), frame 1: high dist but rank 2+ → novel
     dino_dists = [0.9, 0.85, 0.0, 0.0, 0.0]
-    cap_confs  = [0.1, 0.5, 0.95, 0.95, 0.95]
+    cap_confs = [0.1, 0.5, 0.95, 0.95, 0.95]
 
     scores, tags = assign_al_tags(dino_dists, cap_confs, top_k=1, novel_threshold=0.7)
 
     frames = [
-        {**make_frame_record(f"m3_f{i}", "m3", t_sec=float(i)),
-         "al_score": scores[i], "al_tag": tags[i]}
+        {
+            **make_frame_record(f"m3_f{i}", "m3", t_sec=float(i)),
+            "al_score": scores[i],
+            "al_tag": tags[i],
+        }
         for i in range(5)
     ]
     run(replace_frames(conn, "m3", frames))
@@ -146,12 +152,15 @@ def test_al_score_ordering_matches_score_field():
 
     conn = PipelineMockConn()
     dino_dists = [0.1, 0.5, 0.9]
-    cap_confs  = [0.9, 0.5, 0.1]
+    cap_confs = [0.9, 0.5, 0.1]
     scores, tags = assign_al_tags(dino_dists, cap_confs, top_k=1)
 
     frames = [
-        {**make_frame_record(f"m4_f{i}", "m4", t_sec=float(i)),
-         "al_score": scores[i], "al_tag": tags[i]}
+        {
+            **make_frame_record(f"m4_f{i}", "m4", t_sec=float(i)),
+            "al_score": scores[i],
+            "al_tag": tags[i],
+        }
         for i in range(3)
     ]
     run(replace_frames(conn, "m4", frames))
@@ -164,6 +173,7 @@ def test_al_score_ordering_matches_score_field():
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. Change detection
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def _make_cd_frame(
     frame_id: str,
@@ -185,8 +195,10 @@ def _make_cd_frame(
 
 def _ref_query_fn(ref_frames: list[dict[str, Any]]):
     """Synthetic query_fn that returns all ref_frames regardless of bbox."""
+
     def _fn(embedding, bbox):
         return ref_frames
+
     return _fn
 
 
@@ -253,8 +265,18 @@ def test_detect_changes_below_threshold_no_event():
     from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
     emb = _make_embedding(42).tolist()
-    ref = {"frame_id": "ref", "mission_id": "m_old", "embedding": emb, "gps": {"lat": 47.0, "lon": 8.0}}
-    new = {"frame_id": "new", "mission_id": "m_new", "embedding": emb, "gps": {"lat": 47.0, "lon": 8.0}}
+    ref = {
+        "frame_id": "ref",
+        "mission_id": "m_old",
+        "embedding": emb,
+        "gps": {"lat": 47.0, "lon": 8.0},
+    }
+    new = {
+        "frame_id": "new",
+        "mission_id": "m_new",
+        "embedding": emb,
+        "gps": {"lat": 47.0, "lon": 8.0},
+    }
 
     changes = detect_changes(
         new_frames=[new],
@@ -274,14 +296,29 @@ def test_detect_changes_multiple_refs_picks_closest():
     emb_a = _make_embedding(99)
     # ref_b: close to emb_new (small distance, below threshold)
     # Construct ref_b ≈ emb_new but slightly perturbed
-    emb_b = (emb_new + 0.001 * np.ones_like(emb_new))
+    emb_b = emb_new + 0.001 * np.ones_like(emb_new)
     emb_b = (emb_b / np.linalg.norm(emb_b)).tolist()
 
     refs = [
-        {"frame_id": "ref_a", "mission_id": "m_old", "embedding": emb_a.tolist(), "gps": {"lat": 47.0, "lon": 8.0}},
-        {"frame_id": "ref_b", "mission_id": "m_old", "embedding": emb_b, "gps": {"lat": 47.0, "lon": 8.0}},
+        {
+            "frame_id": "ref_a",
+            "mission_id": "m_old",
+            "embedding": emb_a.tolist(),
+            "gps": {"lat": 47.0, "lon": 8.0},
+        },
+        {
+            "frame_id": "ref_b",
+            "mission_id": "m_old",
+            "embedding": emb_b,
+            "gps": {"lat": 47.0, "lon": 8.0},
+        },
     ]
-    new = {"frame_id": "new", "mission_id": "m_new", "embedding": emb_new.tolist(), "gps": {"lat": 47.0, "lon": 8.0}}
+    new = {
+        "frame_id": "new",
+        "mission_id": "m_new",
+        "embedding": emb_new.tolist(),
+        "gps": {"lat": 47.0, "lon": 8.0},
+    }
 
     changes = detect_changes(
         new_frames=[new],
@@ -329,10 +366,18 @@ def test_detect_changes_change_score_in_event():
     emb_ref = _make_embedding(99)
     expected_dist = cosine_distance(emb_new, emb_ref)
 
-    ref = {"frame_id": "ref", "mission_id": "m_old",
-           "embedding": emb_ref.tolist(), "gps": {"lat": 47.0, "lon": 8.0}}
-    new = {"frame_id": "new", "mission_id": "m_new",
-           "embedding": emb_new.tolist(), "gps": {"lat": 47.0, "lon": 8.0}}
+    ref = {
+        "frame_id": "ref",
+        "mission_id": "m_old",
+        "embedding": emb_ref.tolist(),
+        "gps": {"lat": 47.0, "lon": 8.0},
+    }
+    new = {
+        "frame_id": "new",
+        "mission_id": "m_new",
+        "embedding": emb_new.tolist(),
+        "gps": {"lat": 47.0, "lon": 8.0},
+    }
 
     changes = detect_changes(
         new_frames=[new],
@@ -347,6 +392,7 @@ def test_detect_changes_change_score_in_event():
 # ══════════════════════════════════════════════════════════════════════════════
 # 3. Semantic diff
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def test_semantic_diff_vehicle_count_change():
     """compute_semantic_diff detects a change in vehicle count."""
@@ -418,8 +464,8 @@ def test_detect_changes_no_facts_semantic_diff_none():
     """When facts are missing, semantic_diff_json is None."""
     from selfsuvis.pipeline.analysis.change_detection import detect_changes
 
-    ref = _make_cd_frame("ref", "m_old", seed=0)   # no facts
-    new = _make_cd_frame("new", "m_new", seed=99)   # no facts
+    ref = _make_cd_frame("ref", "m_old", seed=0)  # no facts
+    new = _make_cd_frame("new", "m_new", seed=99)  # no facts
 
     changes = detect_changes(
         new_frames=[new],
@@ -435,22 +481,39 @@ def test_detect_changes_no_facts_semantic_diff_none():
 # 4. Report generator
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 @pytest.fixture
 def report_dir(tmp_path, monkeypatch):
     """Point DATA_DIR at tmp_path so report files land somewhere writable."""
     import selfsuvis.pipeline.core.config as cfg
+
     monkeypatch.setattr(cfg.settings, "DATA_DIR", str(tmp_path))
     return tmp_path
 
 
 def _sample_frames(mission_id: str = "m1") -> list[dict[str, Any]]:
     return [
-        {"frame_path": "/frames/f0.jpg", "caption": "road ahead", "al_tag": "none",
-         "al_score": 0.1, "t_sec": 0.0},
-        {"frame_path": "/frames/f1.jpg", "caption": "construction zone",
-         "al_tag": "needs_annotation", "al_score": 0.85, "t_sec": 5.0},
-        {"frame_path": "/frames/f2.jpg", "caption": "unusual vehicle",
-         "al_tag": "novel", "al_score": 0.72, "t_sec": 10.0},
+        {
+            "frame_path": "/frames/f0.jpg",
+            "caption": "road ahead",
+            "al_tag": "none",
+            "al_score": 0.1,
+            "t_sec": 0.0,
+        },
+        {
+            "frame_path": "/frames/f1.jpg",
+            "caption": "construction zone",
+            "al_tag": "needs_annotation",
+            "al_score": 0.85,
+            "t_sec": 5.0,
+        },
+        {
+            "frame_path": "/frames/f2.jpg",
+            "caption": "unusual vehicle",
+            "al_tag": "novel",
+            "al_score": 0.72,
+            "t_sec": 10.0,
+        },
     ]
 
 
@@ -518,8 +581,15 @@ def test_report_captions_escaped(report_dir):
     """Captions with HTML-special characters are escaped."""
     from selfsuvis.pipeline.workflows.reporting import write_mission_report
 
-    frames = [{"frame_path": "/f.jpg", "caption": "<script>alert(1)</script>",
-               "al_tag": "none", "al_score": 0.0, "t_sec": 0.0}]
+    frames = [
+        {
+            "frame_path": "/f.jpg",
+            "caption": "<script>alert(1)</script>",
+            "al_tag": "none",
+            "al_score": 0.0,
+            "t_sec": 0.0,
+        }
+    ]
     write_mission_report("m-xss", frames)
     html_path = os.path.join(str(report_dir), "reports", "m-xss", "summary.html")
     content = open(html_path).read()
@@ -533,10 +603,20 @@ def test_report_sorted_by_score_descending(report_dir):
     from selfsuvis.pipeline.workflows.reporting import generate_summary_html
 
     frames = [
-        {"frame_path": "/frames/low.jpg", "caption": "low", "al_tag": "none",
-         "al_score": 0.1, "t_sec": 0.0},
-        {"frame_path": "/frames/high.jpg", "caption": "high", "al_tag": "needs_annotation",
-         "al_score": 0.9, "t_sec": 1.0},
+        {
+            "frame_path": "/frames/low.jpg",
+            "caption": "low",
+            "al_tag": "none",
+            "al_score": 0.1,
+            "t_sec": 0.0,
+        },
+        {
+            "frame_path": "/frames/high.jpg",
+            "caption": "high",
+            "al_tag": "needs_annotation",
+            "al_score": 0.9,
+            "t_sec": 1.0,
+        },
     ]
     html = generate_summary_html("m-sort", frames)
 
@@ -558,6 +638,7 @@ def test_report_empty_frames(report_dir):
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. Worker job loop
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def test_worker_job_loop_end_to_end():
     """Simulates the worker: create → claim → mission upsert → frames → finish."""
@@ -581,18 +662,20 @@ def test_worker_job_loop_end_to_end():
     assert conn._jobs["job-1"]["status"] == "running"
 
     # 3. Worker creates mission record
-    run(upsert_mission(
-        conn,
-        mission_id="mis-1",
-        video_id="vid-1",
-        video_path="/data/vid-1.mp4",
-        job_id="job-1",
-        robot_id="drone-a",
-        status="indexing",
-        frame_count=3,
-        duration_sec=15.0,
-        gps_origin={"lat": 47.0, "lon": 8.0, "alt": 400.0},
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="mis-1",
+            video_id="vid-1",
+            video_path="/data/vid-1.mp4",
+            job_id="job-1",
+            robot_id="drone-a",
+            status="indexing",
+            frame_count=3,
+            duration_sec=15.0,
+            gps_origin={"lat": 47.0, "lon": 8.0, "alt": 400.0},
+        )
+    )
     assert conn._missions["mis-1"]["status"] == "indexing"
 
     # 4. Worker persists frames with AL tags
@@ -620,18 +703,20 @@ def test_worker_marks_job_error_on_failure():
     run(create_job(conn, "job-err", {"video_id": "vid-err", "mission_id": "mis-err"}))
     run(fetch_and_claim_next_pending(conn))
 
-    run(upsert_mission(
-        conn,
-        mission_id="mis-err",
-        video_id="vid-err",
-        video_path="/data/broken.mp4",
-        job_id="job-err",
-        robot_id="rover-b",
-        status="indexing",
-        frame_count=0,
-        duration_sec=None,
-        gps_origin=None,
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="mis-err",
+            video_id="vid-err",
+            video_path="/data/broken.mp4",
+            job_id="job-err",
+            robot_id="rover-b",
+            status="indexing",
+            frame_count=0,
+            duration_sec=None,
+            gps_origin=None,
+        )
+    )
 
     # Simulate ffmpeg crash
     run(mark_mission_finished(conn, "mis-err", status="error", error="ffmpeg exit code 1"))
@@ -672,9 +757,11 @@ def test_worker_no_pending_returns_none():
 # 6. AL → DB → report round-trip
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def test_al_to_report_round_trip(tmp_path, monkeypatch):
     """Full pipeline: AL scoring → DB persistence → HTML report generated correctly."""
     import selfsuvis.pipeline.core.config as cfg
+
     monkeypatch.setattr(cfg.settings, "DATA_DIR", str(tmp_path))
 
     from selfsuvis.pipeline.analysis.active_learning import assign_al_tags
@@ -684,7 +771,7 @@ def test_al_to_report_round_trip(tmp_path, monkeypatch):
     conn = PipelineMockConn()
 
     dino_dists = [0.1, 0.6, 0.95, 0.3, 0.8]
-    cap_confs  = [0.9, 0.4, 0.05, 0.7, 0.2]
+    cap_confs = [0.9, 0.4, 0.05, 0.7, 0.2]
     scores, tags = assign_al_tags(dino_dists, cap_confs, top_k=2, novel_threshold=0.7)
 
     frames = []
@@ -748,9 +835,12 @@ def test_multi_mission_change_detection_pipeline():
 
     # Build reference pool m1 frames
     ref_pool = [
-        {"frame_id": f["id"], "mission_id": "m1",
-         "embedding": _make_embedding(seed=i).tolist(),
-         "gps": {"lat": 47.0, "lon": 8.0}}
+        {
+            "frame_id": f["id"],
+            "mission_id": "m1",
+            "embedding": _make_embedding(seed=i).tolist(),
+            "gps": {"lat": 47.0, "lon": 8.0},
+        }
         for i, f in enumerate(m1_frames)
     ]
 

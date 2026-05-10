@@ -50,9 +50,7 @@ def _run_metadata(
     }
 
 
-def _jsonl_path(
-    result: dict[str, Any] | None, out_dir: str, video_name: str
-) -> str:
+def _jsonl_path(result: dict[str, Any] | None, out_dir: str, video_name: str) -> str:
     """Return jsonl path from process_frames result or default path."""
     if result and "jsonl_path" in result:
         return result["jsonl_path"]
@@ -109,9 +107,7 @@ def _load_existing_frames(out_dir: str) -> list[FrameRecord]:
             continue
         h, w = img.shape[:2]
         index = len(frames)
-        frames.append(
-            FrameRecord(path=path, t_sec=t_sec, index=index, width=w, height=h)
-        )
+        frames.append(FrameRecord(path=path, t_sec=t_sec, index=index, width=w, height=h))
     return frames
 
 
@@ -135,9 +131,7 @@ def run_file_mode(args: argparse.Namespace) -> None:
     for video_path in videos:
         video_name = _safe_stem(video_path)
         out_dir = os.path.join(args.output_dir, video_name)
-        run_metadata = _run_metadata(
-            args, "file", video_path=os.path.abspath(video_path)
-        )
+        run_metadata = _run_metadata(args, "file", video_path=os.path.abspath(video_path))
         frames: list[FrameRecord] = []
         if "extract" in steps:
             if args.adaptive:

@@ -1,6 +1,5 @@
 """Shared in-process database helpers for tests."""
 
-
 import json
 from datetime import datetime, timezone
 from typing import Any
@@ -38,10 +37,17 @@ class PipelineMockConn:
             prog = json.loads(prog_j) if isinstance(prog_j, str) else (prog_j or {})
             payload = json.loads(payload_j) if isinstance(payload_j, str) else (payload_j or {})
             self._jobs[job_id] = Row(
-                id=job_id, status=status, type=job_type,
-                progress=prog, progress_json=prog,
-                payload=payload, payload_json=payload,
-                created_at=created_at, started_at=None, finished_at=None, error=None,
+                id=job_id,
+                status=status,
+                type=job_type,
+                progress=prog,
+                progress_json=prog,
+                payload=payload,
+                payload_json=payload,
+                created_at=created_at,
+                started_at=None,
+                finished_at=None,
+                error=None,
             )
         elif "UPDATE JOBS SET STATUS" in q and "'RUNNING'" in q:
             started_at, job_id = args
@@ -52,7 +58,7 @@ class PipelineMockConn:
             *vals, job_id = args
             if job_id not in self._jobs:
                 return "UPDATE 0"
-            set_part = query[query.upper().index("SET") + 3:query.upper().index("WHERE")].strip()
+            set_part = query[query.upper().index("SET") + 3 : query.upper().index("WHERE")].strip()
             cols = [p.split("=")[0].strip() for p in set_part.split(",")]
             for col, val in zip(cols, vals):
                 if col in ("progress_json", "progress"):
@@ -66,16 +72,36 @@ class PipelineMockConn:
                 self._jobs[job_id][col.replace("_json", "")] = val
 
         elif "INSERT INTO MISSIONS" in q:
-            (m_id, vid_id, vid_path, job_id, robot_id, status,
-             pose_st, map_st, frame_cnt, dur, gps_j,
-             created_at, updated_at, error) = args
+            (
+                m_id,
+                vid_id,
+                vid_path,
+                job_id,
+                robot_id,
+                status,
+                pose_st,
+                map_st,
+                frame_cnt,
+                dur,
+                gps_j,
+                created_at,
+                updated_at,
+                error,
+            ) = args
             gps = json.loads(gps_j) if gps_j else None
             self._missions[m_id] = Row(
-                id=m_id, video_id=vid_id, video_path=vid_path,
-                job_id=job_id, robot_id=robot_id, status=status,
-                pose_status=pose_st, map_status=map_st,
-                frame_count=frame_cnt, duration_sec=dur,
-                gps_origin_json=gps, error=error,
+                id=m_id,
+                video_id=vid_id,
+                video_path=vid_path,
+                job_id=job_id,
+                robot_id=robot_id,
+                status=status,
+                pose_status=pose_st,
+                map_status=map_st,
+                frame_count=frame_cnt,
+                duration_sec=dur,
+                gps_origin_json=gps,
+                error=error,
             )
         elif "UPDATE MISSIONS SET" in q:
             if "GPS_ORIGIN_JSON" in q:
@@ -86,7 +112,9 @@ class PipelineMockConn:
                 *vals, m_id = args
                 if m_id not in self._missions:
                     return "UPDATE 0"
-                set_part = query[query.upper().index("SET") + 3:query.upper().index("WHERE")].strip()
+                set_part = query[
+                    query.upper().index("SET") + 3 : query.upper().index("WHERE")
+                ].strip()
                 cols = [p.split("=")[0].strip() for p in set_part.split(",")]
                 for col, val in zip(cols, vals):
                     self._missions[m_id][col] = val
@@ -100,12 +128,19 @@ class PipelineMockConn:
         elif "INSERT INTO SCENE_TIMELINE" in q:
             (m_id, f_id, lat, lon, alt, t_sec, cap, facts_j, created_at) = args
             facts = json.loads(facts_j) if isinstance(facts_j, str) else facts_j
-            self._timeline.append(Row(
-                mission_id=m_id, frame_id=f_id,
-                gps_lat=lat, gps_lon=lon, gps_alt=alt,
-                t_sec=t_sec, caption=cap, facts_json=facts,
-                created_at=created_at,
-            ))
+            self._timeline.append(
+                Row(
+                    mission_id=m_id,
+                    frame_id=f_id,
+                    gps_lat=lat,
+                    gps_lon=lon,
+                    gps_alt=alt,
+                    t_sec=t_sec,
+                    caption=cap,
+                    facts_json=facts,
+                    created_at=created_at,
+                )
+            )
 
         return "OK"
 
@@ -113,21 +148,48 @@ class PipelineMockConn:
         q = query.strip().upper()
         if "INSERT INTO FRAMES" in q:
             for row in rows:
-                (f_id, m_id, fpath, t_sec, seg_id, cap, cap_conf,
-                 cap_model, sub, ocr, facts_j,
-                 al_score, al_tag, cvat, pose_st, pose_j, gps_j,
-                 gpj, qid, created_at, updated_at) = row
+                (
+                    f_id,
+                    m_id,
+                    fpath,
+                    t_sec,
+                    seg_id,
+                    cap,
+                    cap_conf,
+                    cap_model,
+                    sub,
+                    ocr,
+                    facts_j,
+                    al_score,
+                    al_tag,
+                    cvat,
+                    pose_st,
+                    pose_j,
+                    gps_j,
+                    gpj,
+                    qid,
+                    created_at,
+                    updated_at,
+                ) = row
                 self._frames[f_id] = Row(
-                    id=f_id, mission_id=m_id, frame_path=fpath,
-                    t_sec=t_sec, segment_id=seg_id, caption=cap,
-                    caption_confidence=cap_conf, caption_model=cap_model,
-                    al_tag=al_tag, al_score=al_score,
+                    id=f_id,
+                    mission_id=m_id,
+                    frame_path=fpath,
+                    t_sec=t_sec,
+                    segment_id=seg_id,
+                    caption=cap,
+                    caption_confidence=cap_conf,
+                    caption_model=cap_model,
+                    al_tag=al_tag,
+                    al_score=al_score,
                     gps_json=json.loads(gps_j) if gps_j else None,
                     global_pose_json=json.loads(gpj) if gpj else None,
-                    qdrant_id=qid, created_at=created_at, updated_at=updated_at,
+                    qdrant_id=qid,
+                    created_at=created_at,
+                    updated_at=updated_at,
                 )
         elif "UPDATE FRAMES" in q and "GLOBAL_POSE_JSON" in q:
-            for (pose_j, updated_at, f_id) in rows:
+            for pose_j, updated_at, f_id in rows:
                 if f_id in self._frames:
                     self._frames[f_id]["global_pose_json"] = json.loads(pose_j)
 
@@ -147,7 +209,11 @@ class PipelineMockConn:
         if "COUNT(*)" in q and "JOBS" in q:
             return sum(1 for j in self._jobs.values() if j["status"] == "pending")
         if "COUNT(*)" in q and "MISSIONS" in q:
-            return sum(1 for m in self._missions.values() if m["status"] == args[0]) if args else len(self._missions)
+            return (
+                sum(1 for m in self._missions.values() if m["status"] == args[0])
+                if args
+                else len(self._missions)
+            )
         return None
 
     async def fetch(self, query: str, *args) -> list[Row]:
@@ -162,7 +228,8 @@ class PipelineMockConn:
             if "(CREATED_AT, ID) >" in q:
                 cursor_ts, cursor_id, limit = args
                 sorted_frames = [
-                    f for f in sorted_frames
+                    f
+                    for f in sorted_frames
                     if (f.get("created_at") or self._min_dt(), f["id"]) > (cursor_ts, cursor_id)
                 ]
             return sorted_frames[:limit]
@@ -170,7 +237,8 @@ class PipelineMockConn:
         if "FROM SCENE_TIMELINE" in q:
             min_lat, max_lat, min_lon, max_lon, limit = args
             nearby = [
-                t for t in self._timeline
+                t
+                for t in self._timeline
                 if (
                     t.get("gps_lat") is not None
                     and min_lat <= t["gps_lat"] <= max_lat

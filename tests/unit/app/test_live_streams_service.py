@@ -1,6 +1,5 @@
 """Unit tests for live stream MediaMTX helpers and runtime manager."""
 
-
 import asyncio
 from unittest.mock import patch
 
@@ -30,7 +29,10 @@ def test_build_rtsp_stream_url_uses_public_base():
         "selfsuvis.app.services.live_streams.settings.MEDIAMTX_PUBLIC_RTSP_BASE_URL",
         "rtsp://stream.example.com:8554",
     ):
-        assert build_rtsp_stream_url("live/drone-1", public=True) == "rtsp://stream.example.com:8554/live/drone-1"
+        assert (
+            build_rtsp_stream_url("live/drone-1", public=True)
+            == "rtsp://stream.example.com:8554/live/drone-1"
+        )
 
 
 def test_validate_stream_path_rejects_invalid_chars():

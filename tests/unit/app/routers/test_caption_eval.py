@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def admin_client():
     """TestClient for the admin router with auth bypassed."""
@@ -51,14 +52,17 @@ def _make_pool(agg_row=None, model_rows=None):
     conn.fetch = AsyncMock(return_value=model_rows)
 
     pool = MagicMock()
-    pool.acquire = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=conn),
-        __aexit__=AsyncMock(return_value=False),
-    ))
+    pool.acquire = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    )
     return pool, conn
 
 
 # ── _compute_caption_null_rate ────────────────────────────────────────────────
+
 
 @pytest.mark.anyio
 async def test_compute_caption_null_rate_typical():
@@ -66,10 +70,12 @@ async def test_compute_caption_null_rate_typical():
     from selfsuvis.app.routers.admin import _compute_caption_null_rate
 
     conn = AsyncMock()
-    conn.fetchrow = AsyncMock(return_value={
-        "null_count": 5,
-        "captionable_total": 95,
-    })
+    conn.fetchrow = AsyncMock(
+        return_value={
+            "null_count": 5,
+            "captionable_total": 95,
+        }
+    )
     rate = await _compute_caption_null_rate(conn)
     assert rate == pytest.approx(5 / 95, rel=1e-5)
 
@@ -109,6 +115,7 @@ async def test_compute_caption_null_rate_all_null():
 
 # ── GET /admin/caption-eval ───────────────────────────────────────────────────
 
+
 def test_caption_eval_returns_expected_fields(admin_client):
     pool, conn = _make_pool()
     with patch("selfsuvis.app.routers.admin.get_db_pool", return_value=pool):
@@ -146,10 +153,12 @@ def test_caption_eval_null_rate_calculation(admin_client):
 
 
 def test_caption_eval_model_breakdown(admin_client):
-    pool, _ = _make_pool(model_rows=[
-        {"caption_model": "gemma-api:gemma4:e4b", "cnt": 80},
-        {"caption_model": "florence-2-large:v1:fp16", "cnt": 10},
-    ])
+    pool, _ = _make_pool(
+        model_rows=[
+            {"caption_model": "gemma-api:gemma4:e4b", "cnt": 80},
+            {"caption_model": "florence-2-large:v1:fp16", "cnt": 10},
+        ]
+    )
     with patch("selfsuvis.app.routers.admin.get_db_pool", return_value=pool):
         resp = admin_client.get("/admin/caption-eval")
 
@@ -190,20 +199,25 @@ def test_caption_eval_confidence_rounded(admin_client):
 
 # ── automation-roi includes caption_null_rate ─────────────────────────────────
 
+
 def test_automation_roi_includes_caption_null_rate(admin_client):
     """GET /admin/automation-roi response includes caption_null_rate field."""
     annotated_row = {"first_at": None, "last_at": None}
 
     conn = AsyncMock()
     conn.fetchval = AsyncMock(return_value=0)
-    conn.fetchrow = AsyncMock(side_effect=[
-        annotated_row,                                     # timeline
-        {"null_count": 3, "captionable_total": 100},       # caption null rate
-    ])
-    conn.fetch = AsyncMock(side_effect=[
-        [],  # al_tag counts
-        [],  # finetune job rows
-    ])
+    conn.fetchrow = AsyncMock(
+        side_effect=[
+            annotated_row,  # timeline
+            {"null_count": 3, "captionable_total": 100},  # caption null rate
+        ]
+    )
+    conn.fetch = AsyncMock(
+        side_effect=[
+            [],  # al_tag counts
+            [],  # finetune job rows
+        ]
+    )
 
     conn.close = AsyncMock()
 

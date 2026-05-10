@@ -54,10 +54,13 @@ def node_p3_ssl_finetune(state: PipelineState) -> dict[str, Any]:
 
     if device == "cuda":
         _prep_vram_for_step(
-            models, device,
+            models,
+            device,
             extra_sidecars=[
-                (getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL,
-                 getattr(args, "qwen_model", "") or settings.QWEN_MODEL),
+                (
+                    getattr(args, "qwen_api_url", "") or settings.QWEN_API_URL,
+                    getattr(args, "qwen_model", "") or settings.QWEN_MODEL,
+                ),
             ],
             label="SSL fine-tuning",
         )
@@ -69,13 +72,21 @@ def node_p3_ssl_finetune(state: PipelineState) -> dict[str, Any]:
     if _ssl_epochs != args.epochs:
         _log.info(
             "  SSL adaptive epochs: %d (CLI default=%d) — %d frames, %d batches/epoch",
-            _ssl_epochs, args.epochs, len(frame_list), _n_batches,
+            _ssl_epochs,
+            args.epochs,
+            len(frame_list),
+            _n_batches,
         )
 
     t0 = time.monotonic()
     d = step_ssl_finetune(
-        state["video_id"], state["video_name"], Path(state["video_dir"]),
-        frame_list, device, epochs=_ssl_epochs, batch_size=args.batch_size,
+        state["video_id"],
+        state["video_name"],
+        Path(state["video_dir"]),
+        frame_list,
+        device,
+        epochs=_ssl_epochs,
+        batch_size=args.batch_size,
         tracking_results=((state.get("gemma_tracking_result") or {}).get("tracking_results") or []),
         depth_result=state.get("depth_result"),
         platform_state_fusion=state.get("platform_fusion_result"),
@@ -99,7 +110,9 @@ def node_p3_ssl_finetune(state: PipelineState) -> dict[str, Any]:
     else:
         _log.warning(
             "  ✗ SSL gate did not pass (checkpoint=%r, best_loss=%.4f, threshold=%.1f)",
-            checkpoint_path, d["best_loss"], _SSL_GATE_MAX_LOSS,
+            checkpoint_path,
+            d["best_loss"],
+            _SSL_GATE_MAX_LOSS,
         )
 
     _append_agentic_step(
@@ -146,13 +159,23 @@ def node_p3_distill(state: PipelineState) -> dict[str, Any]:
     if args.no_distill:
         stats.setdefault("timings", {})["E_distill"] = 0.0
         _append_agentic_step(
-            agentic_trace, step_id="18", title="Knowledge distillation",
+            agentic_trace,
+            step_id="18",
+            title="Knowledge distillation",
             description="Compress teacher knowledge into a smaller deployable student.",
-            status="skipped", context_inputs=["--no-distill flag"],
-            context_outputs=["no distilled student"], risks=[], artifacts=[],
+            status="skipped",
+            context_inputs=["--no-distill flag"],
+            context_outputs=["no distilled student"],
+            risks=[],
+            artifacts=[],
         )
-        return {"student_backbone": None, "student_dim": 768, "distill_result": {"skipped": True},
-                "stats": stats, "agentic_trace": agentic_trace}
+        return {
+            "student_backbone": None,
+            "student_dim": 768,
+            "distill_result": {"skipped": True},
+            "stats": stats,
+            "agentic_trace": agentic_trace,
+        }
 
     # Restore CLIP+DINO for caption anchor embedding if needed.
     clip_dino_on_gpu = state.get("clip_dino_on_gpu", False)
@@ -164,19 +187,27 @@ def node_p3_distill(state: PipelineState) -> dict[str, Any]:
     _cap_anchor_embs = None
     if caption_results and models.get("clip"):
         try:
-            _cap_texts = [r.get("caption", "") for r in caption_results if r.get("caption", "").strip()]
+            _cap_texts = [
+                r.get("caption", "") for r in caption_results if r.get("caption", "").strip()
+            ]
             clip_model = models["clip"]
             if _cap_texts and hasattr(clip_model, "encode_texts"):
                 _cap_anchor_embs = clip_model.encode_texts(_cap_texts)
-                _log.info("  Distillation caption anchors: %d CLIP text embeddings", len(_cap_anchor_embs))
+                _log.info(
+                    "  Distillation caption anchors: %d CLIP text embeddings", len(_cap_anchor_embs)
+                )
         except Exception as exc:
             _log.debug("  Caption anchor prep failed (%s) — distilling without anchor", exc)
 
     t0 = time.monotonic()
     e_distill = step_distill(
-        state["checkpoint_path"], state["frame_list"], state["video_name"],
-        Path(state["video_dir"]), device,
-        distill_epochs=args.distill_epochs, batch_size=args.batch_size,
+        state["checkpoint_path"],
+        state["frame_list"],
+        state["video_name"],
+        Path(state["video_dir"]),
+        device,
+        distill_epochs=args.distill_epochs,
+        batch_size=args.batch_size,
         caption_embeddings=_cap_anchor_embs,
         gemma_embedder=None,
     )
@@ -193,13 +224,19 @@ def node_p3_distill(state: PipelineState) -> dict[str, Any]:
     stats.setdefault("timings", {})["E_distill"] = elapsed
 
     _append_agentic_step(
-        agentic_trace, step_id="18", title="Knowledge distillation",
+        agentic_trace,
+        step_id="18",
+        title="Knowledge distillation",
         description="Compress teacher geometry into a smaller ViT-S/14 student.",
         status="skipped" if e_distill.get("skipped") else "ok",
         context_inputs=["fine-tuned teacher checkpoint", "optional Florence caption anchors"],
-        context_outputs=[f"student dim {student_dim}"] if not e_distill.get("skipped") else ["no distilled student"],
+        context_outputs=[f"student dim {student_dim}"]
+        if not e_distill.get("skipped")
+        else ["no distilled student"],
         risks=["teacher mistakes transfer into the student representation"],
-        artifacts=["distill_stats.md", "checkpoints/student_best.pt"] if not e_distill.get("skipped") else [],
+        artifacts=["distill_stats.md", "checkpoints/student_best.pt"]
+        if not e_distill.get("skipped")
+        else [],
     )
 
     return {
@@ -227,8 +264,12 @@ def node_p3_onnx_export(state: PipelineState) -> dict[str, Any]:
 
     t0 = time.monotonic()
     e = step_export_model(
-        state["checkpoint_path"], state["frame_list"], Path(state["video_dir"]),
-        device, models, no_onnx=args.no_onnx,
+        state["checkpoint_path"],
+        state["frame_list"],
+        Path(state["video_dir"]),
+        device,
+        models,
+        no_onnx=args.no_onnx,
         student_backbone=state.get("student_backbone"),
         student_dim=state.get("student_dim", 768),
     )
@@ -239,11 +280,16 @@ def node_p3_onnx_export(state: PipelineState) -> dict[str, Any]:
     stats.setdefault("timings", {})["F_export"] = elapsed
 
     _append_agentic_step(
-        agentic_trace, step_id="19", title="ONNX export",
+        agentic_trace,
+        step_id="19",
+        title="ONNX export",
         description="Package the best available backbone and gallery into deployment artifacts.",
         status="ok",
         context_inputs=["teacher or student backbone", "retrieval gallery frames"],
-        context_outputs=[f"onnx exported={e.get('exported', False)}", "gallery.npz for edge classification"],
+        context_outputs=[
+            f"onnx exported={e.get('exported', False)}",
+            "gallery.npz for edge classification",
+        ],
         risks=["export mismatches can change runtime behavior versus training"],
         artifacts=["edge_models/dino_local.onnx", "edge_models/gallery.npz"],
     )
@@ -265,9 +311,15 @@ def node_p3_ft_search(state: PipelineState) -> dict[str, Any]:
 
     t0 = time.monotonic()
     f = step_finetuned_model_search_test(
-        state["frame_list"], state["store"], state["is_qdrant"], state["models"],
-        state["query_frame"], state["query_t_sec"],
-        state["video_id"], state["video_name"], Path(state["video_dir"]),
+        state["frame_list"],
+        state["store"],
+        state["is_qdrant"],
+        state["models"],
+        state["query_frame"],
+        state["query_t_sec"],
+        state["video_id"],
+        state["video_name"],
+        Path(state["video_dir"]),
         top_k=args.top_k,
     )
     ft_results = f["results"]
@@ -275,11 +327,16 @@ def node_p3_ft_search(state: PipelineState) -> dict[str, Any]:
     stats.setdefault("timings", {})["G_ft_search"] = time.monotonic() - t0
 
     _append_agentic_step(
-        agentic_trace, step_id="20", title="Fine-tuned search test",
+        agentic_trace,
+        step_id="20",
+        title="Fine-tuned search test",
         description="Re-run retrieval after adaptation to quantify search-space changes.",
         status="ok",
         context_inputs=["fine-tuned or distilled backbone", "same query frame as baseline"],
-        context_outputs=[f"top-{len(ft_results)} adapted matches", f"top score {stats['ft_top_score']:.4f}"],
+        context_outputs=[
+            f"top-{len(ft_results)} adapted matches",
+            f"top score {stats['ft_top_score']:.4f}",
+        ],
         risks=["score improvements can hide semantic regressions"],
         artifacts=["finetuned_search.md"],
     )
@@ -296,11 +353,17 @@ def node_p3_compare(state: PipelineState) -> dict[str, Any]:
 
     t0 = time.monotonic()
     g = step_compare_and_describe(
-        state["frame_list"], state["store"], state["is_qdrant"],
-        state.get("base_results", []), state.get("ft_results", []),
-        state["models"], state["video_id"], state["video_name"],
+        state["frame_list"],
+        state["store"],
+        state["is_qdrant"],
+        state.get("base_results", []),
+        state.get("ft_results", []),
+        state["models"],
+        state["video_id"],
+        state["video_name"],
         Path(state["video_dir"]),
-        stats.get("ckpt_mb", 0.0), stats.get("onnx_mb", 0.0),
+        stats.get("ckpt_mb", 0.0),
+        stats.get("onnx_mb", 0.0),
     )
     elapsed = time.monotonic() - t0
 
@@ -312,7 +375,9 @@ def node_p3_compare(state: PipelineState) -> dict[str, Any]:
     stats.setdefault("timings", {})["H_compare"] = elapsed
 
     _append_agentic_step(
-        agentic_trace, step_id="21", title="Comparison and description",
+        agentic_trace,
+        step_id="21",
+        title="Comparison and description",
         description="Summarize retrieval changes and derive CLIP-based video description.",
         status="ok",
         context_inputs=["baseline and adapted retrieval outputs"],

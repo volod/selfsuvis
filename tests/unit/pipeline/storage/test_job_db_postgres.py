@@ -3,6 +3,7 @@
 Uses a synchronous in-memory MockConn so these tests run without a live database
 or the asyncpg package installed.  asyncio.run() drives the coroutines.
 """
+
 import asyncio
 
 import pytest
@@ -18,8 +19,10 @@ from selfsuvis.pipeline.storage.jobs import (
 
 # ── Minimal asyncpg Connection mock ──────────────────────────────────────────
 
+
 class _Row(dict):
     """dict subclass that supports both row["col"] and row.col access."""
+
     def __getattr__(self, key):
         try:
             return self[key]
@@ -69,10 +72,10 @@ class MockConn:
             if job_id not in self._jobs:
                 return
             # Parse column names from the SET clause
-            set_clause = query[query.upper().index("SET") + 3:query.upper().index("WHERE")].strip()
-            col_names = [
-                part.split("=")[0].strip() for part in set_clause.split(",")
-            ]
+            set_clause = query[
+                query.upper().index("SET") + 3 : query.upper().index("WHERE")
+            ].strip()
+            col_names = [part.split("=")[0].strip() for part in set_clause.split(",")]
             for col, val in zip(col_names, set_vals):
                 self._jobs[job_id][col] = val
 
@@ -98,6 +101,7 @@ class MockConn:
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -108,6 +112,7 @@ def conn():
 
 
 # ── whitelist constant ────────────────────────────────────────────────────────
+
 
 def test_update_job_columns_whitelist():
     """Whitelist contains exactly the expected columns."""
@@ -122,6 +127,7 @@ def test_update_job_columns_whitelist():
 
 
 # ── create_job / fetch_job ────────────────────────────────────────────────────
+
 
 def test_create_job_and_fetch(conn):
     run(create_job(conn, "j1", {"video_id": "v1"}))
@@ -149,6 +155,7 @@ def test_create_job_multiple(conn):
 
 
 # ── update_job ────────────────────────────────────────────────────────────────
+
 
 def test_update_job_status(conn):
     run(create_job(conn, "j1", {}))
@@ -185,6 +192,7 @@ def test_update_job_error_field(conn):
 
 
 # ── fetch_and_claim_next_pending ──────────────────────────────────────────────
+
 
 def test_claim_oldest_pending(conn):
     """Oldest job (by created_at) is claimed first."""
@@ -228,6 +236,7 @@ def test_claim_skips_running_jobs(conn):
 
 # ── fetch_queue_depth ─────────────────────────────────────────────────────────
 
+
 def test_queue_depth_empty(conn):
     assert run(fetch_queue_depth(conn)) == 0
 
@@ -246,6 +255,7 @@ def test_queue_depth_decrements_on_claim(conn):
 
 
 # ── full lifecycle ────────────────────────────────────────────────────────────
+
 
 def test_full_lifecycle(conn):
     """pending → running → done via claim + update."""

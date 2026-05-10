@@ -1,7 +1,5 @@
 """Database pool utilities for FastAPI app lifecycle."""
 
-
-
 import asyncpg
 from fastapi import FastAPI, HTTPException, Request
 

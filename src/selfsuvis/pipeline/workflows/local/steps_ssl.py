@@ -51,17 +51,15 @@ def _analyze_loss_curve(history: list[float]) -> dict[str, Any]:
 
     # Convergence epoch: first epoch within 5 % of best loss
     threshold = best * 1.05
-    convergence_epoch = next(
-        (i + 1 for i, v in enumerate(history) if v <= threshold), best_epoch
-    )
+    convergence_epoch = next((i + 1 for i, v in enumerate(history) if v <= threshold), best_epoch)
 
     # Monotone check: count epochs where loss increased
     increases = sum(1 for a, b in zip(history, history[1:]) if b > a)
 
     # Plateau: last 20 % of epochs — std relative to mean
-    tail = history[max(0, n - max(2, n // 5)):]
+    tail = history[max(0, n - max(2, n // 5)) :]
     tail_mean = float(np.mean(tail)) if tail else float("nan")
-    tail_std  = float(np.std(tail))  if tail else float("nan")
+    tail_std = float(np.std(tail)) if tail else float("nan")
     plateau_cv = (tail_std / tail_mean) if tail_mean > 0 else float("nan")
 
     # Epoch-over-epoch deltas
@@ -93,12 +91,12 @@ def _interpret_finetune_results(
         return ["*No training data — stats unavailable.*"]
 
     bullets: list[str] = []
-    drop   = stats["drop_pct"]
-    best   = stats["best_loss"]
+    drop = stats["drop_pct"]
+    best = stats["best_loss"]
     best_e = stats["best_epoch"]
-    n      = stats["n_epochs"]
-    cv     = stats["plateau_cv"]
-    incr   = stats["n_increases"]
+    n = stats["n_epochs"]
+    cv = stats["plateau_cv"]
+    incr = stats["n_increases"]
     conv_e = stats["convergence_epoch"]
 
     # --- Approach explanation ---
@@ -151,7 +149,9 @@ def _interpret_finetune_results(
     elif best < 3.0:
         loss_comment = "moderate — consider more epochs, a lower temperature, or more frames"
     else:
-        loss_comment = "high — the model may not have converged; try more epochs or check data quality"
+        loss_comment = (
+            "high — the model may not have converged; try more epochs or check data quality"
+        )
     bullets.append(f"**Best loss ({best:.4f}):** {loss_comment}.")
 
     # --- Drop ---
@@ -263,9 +263,7 @@ def _extract_track_map(
     }
 
 
-def _count_potential_pairs(
-    track_map: dict[int, list], min_gap: int = 2, max_gap: int = 5
-) -> int:
+def _count_potential_pairs(track_map: dict[int, list], min_gap: int = 2, max_gap: int = 5) -> int:
     """Count how many (i, j) pairs can be formed across all tracks."""
     count = 0
     for appearances in track_map.values():
@@ -373,9 +371,8 @@ def _extract_depth_alignment_pairs(
     by_path = {
         str(r.get("frame_path", "")): r
         for r in depth_rows
-        if r.get("frame_path") and not (
-            r.get("depth_error") or r.get("depth_unavailable") or r.get("depth_disabled")
-        )
+        if r.get("frame_path")
+        and not (r.get("depth_error") or r.get("depth_unavailable") or r.get("depth_disabled"))
     }
     occ = {
         "near_field_occupancy_density": float(
@@ -417,8 +414,12 @@ def _extract_depth_alignment_pairs(
                         "depth_similarity_target": round(target, 4),
                         "anchor_near_ratio": round(anchor_nr, 4),
                         "positive_near_ratio": round(positive_nr, 4),
-                        "anchor_depth_confidence": _safe_float(anchor_row.get("depth_confidence"), None),
-                        "positive_depth_confidence": _safe_float(positive_row.get("depth_confidence"), None),
+                        "anchor_depth_confidence": _safe_float(
+                            anchor_row.get("depth_confidence"), None
+                        ),
+                        "positive_depth_confidence": _safe_float(
+                            positive_row.get("depth_confidence"), None
+                        ),
                         "occupancy_summary": occ,
                     },
                     pair_source="depth_alignment",
@@ -448,7 +449,9 @@ def _extract_motion_alignment_pairs(
     ordered: list[tuple[str, float, dict[str, Any]]] = []
     sample_i = 0
     for frame_path, t_sec in frame_list:
-        while sample_i + 1 < len(samples) and abs(float(samples[sample_i + 1].get("t_sec", 0.0)) - t_sec) <= abs(float(samples[sample_i].get("t_sec", 0.0)) - t_sec):
+        while sample_i + 1 < len(samples) and abs(
+            float(samples[sample_i + 1].get("t_sec", 0.0)) - t_sec
+        ) <= abs(float(samples[sample_i].get("t_sec", 0.0)) - t_sec):
             sample_i += 1
         ordered.append((str(frame_path), float(t_sec), samples[sample_i]))
 
@@ -513,7 +516,7 @@ def _extract_pose_overlap_pairs(
     pose_conf = float((physical_state_result or {}).get("platform_pose_confidence", 0.0) or 0.0)
     for i in range(max(0, len(frame_list) - 1)):
         fp_a, t_a = frame_list[i]
-        pos_a = ((smoothed[i] or {}).get("position_enu_m") or {})
+        pos_a = (smoothed[i] or {}).get("position_enu_m") or {}
         xa = _safe_float(pos_a.get("x"), None)
         ya = _safe_float(pos_a.get("y"), None)
         za = _safe_float(pos_a.get("z"), None)
@@ -521,7 +524,7 @@ def _extract_pose_overlap_pairs(
             continue
         for j in range(i + min_gap, min(len(frame_list), i + max_gap + 1)):
             fp_b, t_b = frame_list[j]
-            pos_b = ((smoothed[j] or {}).get("position_enu_m") or {})
+            pos_b = (smoothed[j] or {}).get("position_enu_m") or {}
             xb = _safe_float(pos_b.get("x"), None)
             yb = _safe_float(pos_b.get("y"), None)
             zb = _safe_float(pos_b.get("z"), None)
@@ -543,8 +546,16 @@ def _extract_pose_overlap_pairs(
                         "geometry_similarity_target": round(overlap, 4),
                         "pose_distance_m": round(dist, 4),
                         "platform_pose_confidence": round(pose_conf, 4),
-                        "anchor_position_enu_m": {"x": round(xa, 4), "y": round(ya, 4), "z": round(za, 4)},
-                        "positive_position_enu_m": {"x": round(xb, 4), "y": round(yb, 4), "z": round(zb, 4)},
+                        "anchor_position_enu_m": {
+                            "x": round(xa, 4),
+                            "y": round(ya, 4),
+                            "z": round(za, 4),
+                        },
+                        "positive_position_enu_m": {
+                            "x": round(xb, 4),
+                            "y": round(yb, 4),
+                            "z": round(zb, 4),
+                        },
                     },
                     pair_source="sfm_pose_overlap",
                 )
@@ -628,7 +639,7 @@ def step_ssl_finetune(
 
     from .steps_report import write_finetune_stats_md
 
-    out_md   = video_dir / "finetune_stats.md"
+    out_md = video_dir / "finetune_stats.md"
     ckpt_dir = video_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     n_frames = len(frame_list)
@@ -668,7 +679,7 @@ def step_ssl_finetune(
     # Select pairing approach in priority order:
     # multimodal > track_cycle > track > temporal > augment.
     n_triplets = _count_potential_triplets(track_map, _MIN_GAP, _MAX_GAP)
-    n_pairs    = _count_potential_pairs(track_map, _MIN_GAP, _MAX_GAP)
+    n_pairs = _count_potential_pairs(track_map, _MIN_GAP, _MAX_GAP)
     frames_dir = str(Path(frame_list[0][0]).parent) if frame_list else settings.FRAMES_DIR
 
     if pair_mining_stats["has_auxiliary_pairs"] and pair_mining_stats["total_pairs"] >= batch_size:
@@ -685,13 +696,15 @@ def step_ssl_finetune(
         approach = "track_cycle"
         _log.info(
             "  Track-cycle SSL: %d triplets from %d tracks",
-            n_triplets, len(track_map),
+            n_triplets,
+            len(track_map),
         )
     elif n_pairs >= batch_size:
         approach = "track"
         _log.info(
             "  Track-pair SSL: %d pairs from %d tracks",
-            n_pairs, len(track_map),
+            n_pairs,
+            len(track_map),
         )
     elif n_frames >= batch_size * 2:
         approach = "temporal"
@@ -705,15 +718,24 @@ def step_ssl_finetune(
         approach=approach,
         epochs=epochs,
         batch_size=batch_size,
-        lr=1e-5, weight_decay=0.04, temperature=0.07,
-        freeze_blocks=10, embed_dim=768, proj_out_dim=128,
-        num_workers=0, save_every=1, max_gap=3, device=device, seed=42,
+        lr=1e-5,
+        weight_decay=0.04,
+        temperature=0.07,
+        freeze_blocks=10,
+        embed_dim=768,
+        proj_out_dim=128,
+        num_workers=0,
+        save_every=1,
+        max_gap=3,
+        device=device,
+        seed=42,
         depth_consistency_weight=0.15,
         motion_consistency_weight=0.10,
         geometry_consistency_weight=0.15,
     )
-    _log.info("Starting SSL fine-tuning: %d epochs, approach=%s, device=%s",
-              epochs, approach, device)
+    _log.info(
+        "Starting SSL fine-tuning: %d epochs, approach=%s, device=%s", epochs, approach, device
+    )
     t0 = time.time()
     loss_history: list[float] = []
     component_history: dict[str, list[float]] = {
@@ -727,6 +749,7 @@ def step_ssl_finetune(
         import random
 
         import torch
+
         random.seed(c.seed)
         torch.manual_seed(c.seed)
         os.makedirs(c.output_dir, exist_ok=True)
@@ -745,6 +768,7 @@ def step_ssl_finetune(
             build_augment_transform,
             multimodal_batch_collate,
         )
+
         transform = build_augment_transform()
         ntxent = NTXentLoss(temperature=c.temperature)
         component_keys = list(component_history.keys())
@@ -758,34 +782,49 @@ def step_ssl_finetune(
             )
             collate_fn = multimodal_batch_collate
         elif c.approach == "track_cycle":
-            dataset  = TrackTripletDataset(track_map, transform=transform,
-                                           min_gap=_MIN_GAP, max_gap=_MAX_GAP)
-            loss_fn  = CycleConsistencyLoss(ntxent)
+            dataset = TrackTripletDataset(
+                track_map, transform=transform, min_gap=_MIN_GAP, max_gap=_MAX_GAP
+            )
+            loss_fn = CycleConsistencyLoss(ntxent)
             collate_fn = None
         elif c.approach == "track":
-            dataset  = TrackPairDataset(track_map, transform=transform,
-                                        min_gap=_MIN_GAP, max_gap=_MAX_GAP)
-            loss_fn  = ntxent
+            dataset = TrackPairDataset(
+                track_map, transform=transform, min_gap=_MIN_GAP, max_gap=_MAX_GAP
+            )
+            loss_fn = ntxent
             collate_fn = None
         elif c.approach == "temporal":
-            dataset  = TemporalPairDataset(c.frames_dir, transform=transform, max_gap=c.max_gap)
-            loss_fn  = ntxent
+            dataset = TemporalPairDataset(c.frames_dir, transform=transform, max_gap=c.max_gap)
+            loss_fn = ntxent
             collate_fn = None
         else:
-            dataset  = AugmentPairDataset(c.frames_dir, transform=transform)
-            loss_fn  = ntxent
+            dataset = AugmentPairDataset(c.frames_dir, transform=transform)
+            loss_fn = ntxent
             collate_fn = None
-        loader = DataLoader(dataset, batch_size=c.batch_size, shuffle=True,
-                            num_workers=c.num_workers, pin_memory=(c.device != "cpu"),
-                            drop_last=True, collate_fn=collate_fn)
-        tuner     = DINOFineTuner(model_name=c.model_name, freeze_blocks=c.freeze_blocks,
-                                  device=c.device, embed_dim=c.embed_dim, proj_out_dim=c.proj_out_dim)
-        optimizer = torch.optim.AdamW(tuner.trainable_params(), lr=c.lr, weight_decay=c.weight_decay)
+        loader = DataLoader(
+            dataset,
+            batch_size=c.batch_size,
+            shuffle=True,
+            num_workers=c.num_workers,
+            pin_memory=(c.device != "cpu"),
+            drop_last=True,
+            collate_fn=collate_fn,
+        )
+        tuner = DINOFineTuner(
+            model_name=c.model_name,
+            freeze_blocks=c.freeze_blocks,
+            device=c.device,
+            embed_dim=c.embed_dim,
+            proj_out_dim=c.proj_out_dim,
+        )
+        optimizer = torch.optim.AdamW(
+            tuner.trainable_params(), lr=c.lr, weight_decay=c.weight_decay
+        )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=c.epochs)
         best_loss = float("inf")
         best_path = os.path.join(c.output_dir, "dino_ssl_best.pt")
-        is_triplet = (c.approach == "track_cycle")
-        is_multimodal = (c.approach == "multimodal")
+        is_triplet = c.approach == "track_cycle"
+        is_multimodal = c.approach == "multimodal"
         patience = 3
         no_improve = 0
         for epoch in range(1, c.epochs + 1):
@@ -821,7 +860,11 @@ def step_ssl_finetune(
             component_msg = ""
             if is_multimodal:
                 for key in component_keys:
-                    mean_component = float(np.mean(epoch_component_values[key])) if epoch_component_values[key] else 0.0
+                    mean_component = (
+                        float(np.mean(epoch_component_values[key]))
+                        if epoch_component_values[key]
+                        else 0.0
+                    )
                     component_history[key].append(mean_component)
                 component_msg = (
                     " | contrast={:.4f} depth={:.4f} motion={:.4f} geometry={:.4f}".format(
@@ -841,13 +884,15 @@ def step_ssl_finetune(
                 if no_improve >= patience:
                     _log.info(
                         "    Early stop at epoch %d/%d (no improvement for %d epochs)",
-                        epoch, c.epochs, patience,
+                        epoch,
+                        c.epochs,
+                        patience,
                     )
                     break
         return best_path
 
     best_path = _run_capturing(cfg)
-    elapsed   = time.time() - t0
+    elapsed = time.time() - t0
     best_loss = min(loss_history) if loss_history else float("nan")
     metrics_path = video_dir / "ssl_training_metrics.json"
     write_json_artifact(
@@ -859,15 +904,25 @@ def step_ssl_finetune(
             "pair_mining": pair_mining_stats,
         },
     )
-    _log.info("  ✓ Fine-tuning complete in %.1fs | best loss=%.4f | checkpoint: %s",
-              elapsed, best_loss, best_path)
+    _log.info(
+        "  ✓ Fine-tuning complete in %.1fs | best loss=%.4f | checkpoint: %s",
+        elapsed,
+        best_loss,
+        best_path,
+    )
     _log.info("  To use: export DINO_CHECKPOINT=%s", best_path)
     write_finetune_stats_md(out_md, video_name, cfg, best_loss, best_path, elapsed, loss_history)
     ckpt_mb = os.path.getsize(best_path) / 1e6 if os.path.exists(best_path) else 0
-    return {"checkpoint": best_path, "best_loss": best_loss,
-            "elapsed_sec": elapsed, "ckpt_mb": ckpt_mb, "cfg": cfg,
-            "loss_history": loss_history, "component_history": component_history,
-            "pair_mining_path": str(pair_mining_path),
-            "sfm_overlap_path": str(sfm_overlap_path),
-            "metrics_path": str(metrics_path),
-            "pair_mining": pair_mining_stats}
+    return {
+        "checkpoint": best_path,
+        "best_loss": best_loss,
+        "elapsed_sec": elapsed,
+        "ckpt_mb": ckpt_mb,
+        "cfg": cfg,
+        "loss_history": loss_history,
+        "component_history": component_history,
+        "pair_mining_path": str(pair_mining_path),
+        "sfm_overlap_path": str(sfm_overlap_path),
+        "metrics_path": str(metrics_path),
+        "pair_mining": pair_mining_stats,
+    }

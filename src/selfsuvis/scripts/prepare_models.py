@@ -95,12 +95,15 @@ from pathlib import Path
 # Suppress noisy third-party warnings that are irrelevant to warmup.
 warnings.filterwarnings("ignore", message="xFormers is not available")
 warnings.filterwarnings("ignore", message="xFormers is available", category=UserWarning)
-warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated",
-                        category=FutureWarning)
+warnings.filterwarnings(
+    "ignore", message="Importing from timm.models.layers is deprecated", category=FutureWarning
+)
 # timm ResNet50 meta-parameter copy warnings (hundreds of lines, all expected).
 # Newer PyTorch prefixes the message with the layer name ("for X.Y: copying…"), so
 # the pattern needs .* to match at any position via re.match.
-warnings.filterwarnings("ignore", message=".*copying from a non-meta parameter", category=UserWarning)
+warnings.filterwarnings(
+    "ignore", message=".*copying from a non-meta parameter", category=UserWarning
+)
 # HF transformers deprecation / slow-processor notices.
 # These are emitted as FutureWarning (not UserWarning) in transformers ≥ 4.48,
 # so omit the category restriction so the filter matches both.
@@ -149,13 +152,18 @@ def _quiet_hf():
     orig_tf_verbosity = None
     try:
         import transformers
+
         orig_tf_verbosity = transformers.logging.get_verbosity()
         transformers.logging.set_verbosity_error()
     except Exception:
         pass
     sink = io.StringIO()
     try:
-        with warnings.catch_warnings(), contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+        with (
+            warnings.catch_warnings(),
+            contextlib.redirect_stdout(sink),
+            contextlib.redirect_stderr(sink),
+        ):
             warnings.filterwarnings("ignore", message=".*copying from a non-meta parameter")
             warnings.filterwarnings("ignore", message=".*Using a slow image processor")
             warnings.filterwarnings("ignore", message=".*use_fast.*will be the default")
@@ -166,6 +174,7 @@ def _quiet_hf():
         if orig_tf_verbosity is not None:
             try:
                 import transformers
+
                 transformers.logging.set_verbosity(orig_tf_verbosity)
             except Exception:
                 pass
@@ -194,11 +203,12 @@ _SCENETOK_CACHE_DIR = Path.home() / ".cache" / "selfsuvis" / "scenetok"
 _SCENETOK_CHECKPOINT_URLS: dict = {
     "va-videodc_re10k": "https://nextcloud.mpi-klsb.mpg.de/index.php/s/6Y7EsosfbnpcRxj/download",
     "va-videodc_dl3dv": "https://nextcloud.mpi-klsb.mpg.de/index.php/s/aYBX7atFNKkmdSE/download",
-    "va-wan_dl3dv":     "https://nextcloud.mpi-klsb.mpg.de/index.php/s/X7yzk7QANtwawPc/download",
+    "va-wan_dl3dv": "https://nextcloud.mpi-klsb.mpg.de/index.php/s/X7yzk7QANtwawPc/download",
 }
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _has_ollama_installed() -> bool:
     return shutil.which("ollama") is not None
@@ -228,7 +238,9 @@ def _resolve_unidrive_backend(requested_backend: str, model_id: str) -> str:
         raise ValueError(f"Unsupported UniDrive backend: {requested_backend}")
     if backend == "ollama":
         if not have_ollama:
-            raise RuntimeError("UniDrive backend 'ollama' requested, but 'ollama' is not installed on this machine.")
+            raise RuntimeError(
+                "UniDrive backend 'ollama' requested, but 'ollama' is not installed on this machine."
+            )
         return "ollama"
     if backend == "vllm":
         if not have_vllm:
@@ -301,7 +313,9 @@ def _download_ollama_model(model: str) -> None:
         )
     log.info("  ✓ Ollama model ready  (%.1fs)", time.monotonic() - t0)
 
+
 # ── Auth error detection & interactive retry ──────────────────────────────────
+
 
 def _is_auth_error(exc: Exception):
     """Return (is_auth_error: bool, kind: str) where kind includes repo-not-found."""
@@ -362,7 +376,8 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
             print(f"{bar}", flush=True)
 
             if kind == "gated":
-                print(f"""
+                print(
+                    f"""
   This model is gated.  You must accept its license on HuggingFace before
   the weights can be downloaded.
 
@@ -378,9 +393,12 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
        or leave blank if you already ran  huggingface-cli login.
 
     4. The download will retry automatically.
-""", flush=True)
+""",
+                    flush=True,
+                )
             else:
-                print(f"""
+                print(
+                    f"""
   This model requires a HuggingFace account / token.
 
     1. Create an account (if needed):
@@ -394,7 +412,9 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
 
     4. Enter your token at the prompt below (it will be set for this session),
        or leave blank if you already ran  huggingface-cli login.
-""", flush=True)
+""",
+                    flush=True,
+                )
 
             if not sys.stdin.isatty():
                 print(
@@ -407,6 +427,7 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
 
             try:
                 import getpass
+
                 token_input = getpass.getpass(
                     "  HF token (leave blank to skip token entry, 's' to skip model): "
                 ).strip()
@@ -423,6 +444,7 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
                 # Also propagate to huggingface_hub so it picks up the token immediately.
                 try:
                     from huggingface_hub import login as hf_login
+
                     hf_login(token=token_input, add_to_git_credential=False)
                     log.info("HuggingFace token accepted.")
                 except Exception:
@@ -432,6 +454,7 @@ def _with_auth_retry(label: str, model_id: str, download_fn) -> None:
 
 
 # ── flash-attn installation ───────────────────────────────────────────────────
+
 
 def _install_flash_attn() -> None:
     """Install flash-attn using prebuilt PyPI wheel or compile from source.
@@ -444,12 +467,14 @@ def _install_flash_attn() -> None:
     log.info("flash-attn — checking installation …")
     try:
         import flash_attn
+
         log.info("  ✓ flash-attn already installed  (version %s)", flash_attn.__version__)
         return
     except ImportError:
         pass
 
     import torch
+
     if not torch.cuda.is_available():
         log.warning(
             "  CUDA not available — skipping flash-attn installation.\n"
@@ -462,11 +487,17 @@ def _install_flash_attn() -> None:
         "otherwise compiles from source — may take several minutes) …"
     )
     import subprocess as _sp
+
     # Ensure build tools are present (uv-created venvs omit wheel by default).
     _sp.run([sys.executable, "-m", "pip", "install", "wheel", "packaging", "-q"], check=True)
     cmd = [
-        sys.executable, "-m", "pip", "install",
-        "flash-attn", "--no-build-isolation", "-q",
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "flash-attn",
+        "--no-build-isolation",
+        "-q",
     ]
     t0 = time.monotonic()
     result = _sp.run(cmd, check=False)
@@ -488,6 +519,7 @@ def _download_openclip(model: str, pretrained: str, device: str) -> None:
         log.info("  ✓ OpenCLIP already cached — skipping load")
         return
     import open_clip
+
     t0 = time.monotonic()
     open_clip.create_model_and_transforms(model, pretrained=pretrained, device=device)
     log.info("  ✓ OpenCLIP ready  (%.1fs)", time.monotonic() - t0)
@@ -512,6 +544,7 @@ def _download_whisper(model_id: str) -> None:
     t0 = time.monotonic()
     try:
         from transformers import pipeline as _hf_pipeline
+
         _hf_pipeline("automatic-speech-recognition", model=model_id, device="cpu")
         log.info("  ✓ Whisper ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
@@ -527,12 +560,15 @@ def _download_florence(model_id: str = "microsoft/Florence-2-large") -> None:
     t0 = time.monotonic()
     try:
         from transformers import AutoModelForCausalLM, AutoProcessor
+
         # trust_remote_code is still required (model repo doesn't include processor_config.json
         # for native loading). transformers>=4.47 correctly handles Florence-2's conditional
         # flash_attn imports without requiring flash_attn to be installed.
         AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
         AutoModelForCausalLM.from_pretrained(
-            model_id, trust_remote_code=True, torch_dtype="auto",
+            model_id,
+            trust_remote_code=True,
+            torch_dtype="auto",
         )
         log.info("  ✓ Florence-2 ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
@@ -558,13 +594,17 @@ def _download_ocr(model_id: str) -> None:
     try:
         if model_id.startswith("microsoft/trocr-"):
             from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+
             TrOCRProcessor.from_pretrained(model_id)
             VisionEncoderDecoderModel.from_pretrained(model_id)
         elif model_id.startswith("ucaslcl/GOT-"):
             from transformers import AutoModel, AutoTokenizer
+
             AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
             AutoModel.from_pretrained(
-                model_id, trust_remote_code=True, use_safetensors=True,
+                model_id,
+                trust_remote_code=True,
+                use_safetensors=True,
                 low_cpu_mem_usage=True,
             )
         else:
@@ -572,9 +612,12 @@ def _download_ocr(model_id: str) -> None:
             # transformers>=4.47 handles Florence-2's conditional flash_attn imports correctly
             # without requiring flash_attn to be installed.
             from transformers import AutoModelForCausalLM, AutoProcessor
+
             AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
             AutoModelForCausalLM.from_pretrained(
-                model_id, trust_remote_code=True, torch_dtype="auto",
+                model_id,
+                trust_remote_code=True,
+                torch_dtype="auto",
                 low_cpu_mem_usage=True,
             )
         log.info("  ✓ OCR model ready  (%.1fs)", time.monotonic() - t0)
@@ -592,6 +635,7 @@ def _download_depth(model_id: str) -> None:
     t0 = time.monotonic()
     try:
         from transformers import pipeline as _hf_pipeline
+
         _hf_pipeline("depth-estimation", model=model_id, device="cpu")
         log.info("  ✓ Depth model ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
@@ -608,6 +652,7 @@ def _download_detection(model_id: str) -> None:
     t0 = time.monotonic()
     try:
         from transformers import pipeline as _hf_pipeline
+
         with _quiet_hf():
             _hf_pipeline("object-detection", model=model_id, device="cpu")
         log.info("  ✓ Detection model ready  (%.1fs)", time.monotonic() - t0)
@@ -635,13 +680,16 @@ def _download_yolo(model_id: str) -> None:
     try:
         from ultralytics import YOLO
     except ImportError:
-        log.warning("  ultralytics not installed — skipping YOLO download (pip install ultralytics)")
+        log.warning(
+            "  ultralytics not installed — skipping YOLO download (pip install ultralytics)"
+        )
         return
 
     ult_cache_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
     try:
         import numpy as np
+
         # Suppress ultralytics' repeated tqdm download lines and settings banner.
         # YOLO_VERBOSE=False turns off their internal VERBOSE flag; redirecting
         # stdout/stderr catches the tqdm progress bar that goes to stdout in non-TTY mode.
@@ -674,6 +722,7 @@ def _is_editable_installed(package_name: str) -> bool:
     """
     try:
         import importlib.metadata
+
         importlib.metadata.distribution(package_name)
         return True
     except importlib.metadata.PackageNotFoundError:
@@ -704,8 +753,7 @@ def _normalize_scenetok_checkpoint_name(checkpoint_name: str) -> str:
     if ckpt_key not in _SCENETOK_CHECKPOINT_URLS:
         known = ", ".join(_SCENETOK_CHECKPOINT_VARIANTS)
         raise ValueError(
-            f"Unknown SceneTok checkpoint {checkpoint_name!r}. "
-            f"Known checkpoints: {known}"
+            f"Unknown SceneTok checkpoint {checkpoint_name!r}. Known checkpoints: {known}"
         )
     return f"{ckpt_key}.ckpt"
 
@@ -769,7 +817,9 @@ def _download_scenetok(checkpoint_name: str) -> None:
                 f"  Manual fix: pip install -e {src_dir}"
             )
         if _importable_module("scenetok"):
-            log.info("  ✓ scenetok package installed  (%.1fs)  src=%s", time.monotonic() - t0, src_dir)
+            log.info(
+                "  ✓ scenetok package installed  (%.1fs)  src=%s", time.monotonic() - t0, src_dir
+            )
         else:
             log.warning(
                 "  scenetok source was installed as an editable distribution, but `import scenetok` still fails. "
@@ -786,6 +836,7 @@ def _download_scenetok(checkpoint_name: str) -> None:
             continue
         t0 = time.monotonic()
         from huggingface_hub import snapshot_download
+
         local_dir = snapshot_download(
             repo_id=hf_dep,
             ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
@@ -808,7 +859,9 @@ def _download_scenetok(checkpoint_name: str) -> None:
     log.info("  Downloading %s from MPI Nextcloud …", ckpt_file)
     try:
         import urllib.request
+
         _last_log = [0.0]
+
         def _reporthook(block_num, block_size, total_size):
             now = time.monotonic()
             if now - _last_log[0] >= 30.0:
@@ -818,19 +871,25 @@ def _download_scenetok(checkpoint_name: str) -> None:
                     log.info("    %.0f / %.0f MiB", downloaded_mb, total_size / 1_048_576)
                 else:
                     log.info("    %.0f MiB downloaded …", downloaded_mb)
+
         urllib.request.urlretrieve(url, tmp_path, reporthook=_reporthook)
         tmp_path.rename(ckpt_path)
         size_mb = ckpt_path.stat().st_size / 1_048_576
         log.info(
             "  ✓ checkpoint ready  (%.1fs  %.0f MiB)  path=%s",
-            time.monotonic() - t0, size_mb, ckpt_path,
+            time.monotonic() - t0,
+            size_mb,
+            ckpt_path,
         )
     except Exception as exc:
         tmp_path.unlink(missing_ok=True)
         log.warning(
             "  Checkpoint download failed: %s\n"
             "  Download %s manually from %s and place at:\n    %s",
-            exc, ckpt_file, _SCENETOK_GITHUB_URL, ckpt_path,
+            exc,
+            ckpt_file,
+            _SCENETOK_GITHUB_URL,
+            ckpt_path,
         )
         raise
 
@@ -844,6 +903,7 @@ def _sam3_accessible() -> bool:
     """
     try:
         from huggingface_hub import hf_hub_download
+
         hf_hub_download(
             repo_id="facebook/sam3",
             filename="model_index.json",
@@ -921,11 +981,11 @@ def _download_sam(model_id: str) -> None:
             action = _sam3_dialog()
             if action == "retry":
                 log.info("  Re-checking SAM3 access …")
-                continue          # loop back to _sam3_accessible()
+                continue  # loop back to _sam3_accessible()
             elif action == "skip":
                 log.info("SAM — skipped by user choice.")
                 return
-            else:                 # 'sam2'
+            else:  # 'sam2'
                 log.info("SAM — using %s (SAM3 access not granted)", SAM2_FALLBACK)
                 model_id = SAM2_FALLBACK
                 is_sam3 = False
@@ -939,6 +999,7 @@ def _download_sam(model_id: str) -> None:
     t0 = time.monotonic()
     try:
         from huggingface_hub import snapshot_download
+
         local_dir = snapshot_download(
             repo_id=model_id,
             ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
@@ -952,13 +1013,15 @@ def _download_sam(model_id: str) -> None:
                 return
             try:
                 from huggingface_hub import snapshot_download as _sd
+
                 local_dir = _sd(
                     repo_id=SAM2_FALLBACK,
                     ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
                 )
                 log.info(
                     "  ✓ SAM2 fallback ready  (%.1fs)  cache=%s",
-                    time.monotonic() - t0, local_dir,
+                    time.monotonic() - t0,
+                    local_dir,
                 )
                 return
             except Exception as exc2:
@@ -982,6 +1045,7 @@ def _download_world_model(model_id: str) -> None:
     try:
         from huggingface_hub import snapshot_download
         from transformers import AutoFeatureExtractor, AutoModel
+
         try:
             AutoFeatureExtractor.from_pretrained(model_id)
         except OSError as feat_exc:
@@ -1015,20 +1079,26 @@ def _download_unidrive(model_id: str) -> None:
     t0 = time.monotonic()
     try:
         from huggingface_hub import snapshot_download
+
         local_dir = snapshot_download(
             repo_id=model_id,
             ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
         )
         try:
             from transformers import AutoModelForCausalLM, AutoProcessor
+
             AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
             AutoModelForCausalLM.from_pretrained(
-                model_id, trust_remote_code=True, torch_dtype="auto", low_cpu_mem_usage=True,
+                model_id,
+                trust_remote_code=True,
+                torch_dtype="auto",
+                low_cpu_mem_usage=True,
             )
         except Exception as exc:
             log.info(
                 "  Transformers warmup skipped for %s (%s); repository cache is still ready",
-                model_id, exc,
+                model_id,
+                exc,
             )
         log.info("  ✓ UniDriveVLA ready  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
     except Exception as exc:
@@ -1073,8 +1143,11 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
     if hub_source == "local":
         log.info("  Hub archive cached at %s", repo_or_dir)
         # Check if pretrained weights are already on disk — if so skip the load.
-        hub_checkpoints = Path(os.getenv("TORCH_HOME",
-                                         str(Path.home() / ".cache" / "torch"))) / "hub" / "checkpoints"
+        hub_checkpoints = (
+            Path(os.getenv("TORCH_HOME", str(Path.home() / ".cache" / "torch")))
+            / "hub"
+            / "checkpoints"
+        )
         if any(hub_checkpoints.glob(f"{resolved}*pretrain*.pth")):
             _warmed.add(model_name)
             log.info("  ✓ DINO weights cached  %s  — skipping load", label)
@@ -1091,10 +1164,12 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
             import urllib.request as _req
 
             from tqdm import tqdm as _tqdm
+
             with _req.urlopen(url) as r:
                 total = int(r.headers.get("Content-Length", 0))
-            bar = _tqdm(total=total, unit="B", unit_scale=True,
-                        desc=f"    {Path(dst).name}", leave=True)
+            bar = _tqdm(
+                total=total, unit="B", unit_scale=True, desc=f"    {Path(dst).name}", leave=True
+            )
 
             def _hook(_blk, blk_sz, tot):
                 if tot > 0:
@@ -1111,8 +1186,7 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
     try:
         t0 = time.monotonic()
         if source == "hub":
-            model = torch.hub.load(repo_or_dir, resolved,
-                                   pretrained=True, source=hub_source)
+            model = torch.hub.load(repo_or_dir, resolved, pretrained=True, source=hub_source)
         else:
             model = hub_load_dino(model_name, pretrained=True)
         model.to(device)
@@ -1152,12 +1226,14 @@ def _hf_load_with_license_check(model_name: str, hf_repo: str):
 
 def _run_dummy(model, device: str) -> None:
     import torch as _torch
+
     dummy = _torch.zeros(1, 3, 224, 224, device=device)
     with _torch.no_grad():
         model(dummy)
 
 
 # ── Gemma open-weight model download ─────────────────────────────────────────
+
 
 def _download_gemma(model_id: str) -> None:
     """Download Gemma weights from HuggingFace and warm up the processor/tokenizer.
@@ -1174,12 +1250,14 @@ def _download_gemma(model_id: str) -> None:
     authentication instructions and retries on access errors.
     """
     from selfsuvis.pipeline.core.config import mask_secret
+
     token = os.environ.get("HUGGING_FACE_HUB_TOKEN") or os.environ.get("HF_TOKEN") or None
     log.info("Gemma — downloading %s  (token: %s) …", model_id, mask_secret(token or ""))
 
     def _do_download() -> None:
         import torch as _torch
         from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+
         # Try multimodal processor first; fall back to text-only tokenizer.
         log.info("  Downloading processor/tokenizer …")
         try:
@@ -1192,7 +1270,7 @@ def _download_gemma(model_id: str) -> None:
         AutoModelForCausalLM.from_pretrained(
             model_id,
             torch_dtype=_torch.bfloat16,
-            device_map="cpu",   # download to cache only; no GPU needed for prep
+            device_map="cpu",  # download to cache only; no GPU needed for prep
             trust_remote_code=True,
             token=token,
         )
@@ -1208,12 +1286,19 @@ def _is_gemma_cached(model_id: str) -> bool:
 
 # ── verify ────────────────────────────────────────────────────────────────────
 
+
 def _is_hf_cached(model_id: str) -> bool:
     """Return True if at least the config for *model_id* is in the local HF cache."""
     try:
         from huggingface_hub import try_to_load_from_cache
-        for fname in ("config.json", "model.safetensors", "pytorch_model.bin",
-                      "preprocessor_config.json", "tokenizer_config.json"):
+
+        for fname in (
+            "config.json",
+            "model.safetensors",
+            "pytorch_model.bin",
+            "preprocessor_config.json",
+            "tokenizer_config.json",
+        ):
             result = try_to_load_from_cache(repo_id=model_id, filename=fname)
             if result is not None:
                 return True
@@ -1235,6 +1320,7 @@ def _is_openclip_cached(model: str, pretrained: str) -> bool:
         if clip_cache.exists():
             try:
                 import open_clip as _oc
+
                 cfg = _oc.get_pretrained_cfg(model, pretrained)
                 url = (cfg or {}).get("url", "")
                 if url:
@@ -1253,6 +1339,7 @@ def _is_openclip_cached(model: str, pretrained: str) -> bool:
         hf_hub_id = None
         try:
             import open_clip as _oc
+
             cfg = _oc.get_pretrained_cfg(model, pretrained)
             hf_hub_id = (cfg or {}).get("hf_hub", "")
         except Exception:
@@ -1268,6 +1355,7 @@ def _is_dino_hub_cached(_model_name: str) -> bool:
     """Return True if the DINOv2 torch.hub archive is present."""
     try:
         import torch.hub as _hub
+
         hub_dir = Path(_hub.get_dir())
         repo_dir = hub_dir / "facebookresearch_dinov2_main"
         return repo_dir.exists()
@@ -1297,6 +1385,7 @@ def _verify_models(model_specs: list) -> tuple:
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Pre-download all model weights for selfsuvis",
@@ -1304,139 +1393,237 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--clip", action="store_true", help="Download OpenCLIP weights")
     p.add_argument("--dino", action="store_true", help="Download DINOv2/v3 hub weights")
-    p.add_argument("--gemma", action="store_true",
-                   help="Download Gemma open-weight model (step 03; requires HF_TOKEN for gated access)")
+    p.add_argument(
+        "--gemma",
+        action="store_true",
+        help="Download Gemma open-weight model (step 03; requires HF_TOKEN for gated access)",
+    )
     _default_gemma = os.getenv("GEMMA_MODEL_ID", "google/gemma-3-4b-it")
-    p.add_argument("--gemma-model", default=_default_gemma, metavar="MODEL_ID",
-                   help=(
-                       "Gemma model repo ID to cache (requires HF_TOKEN in .env and license accepted). "
-                       "Multimodal (vision+text): google/gemma-3-4b-it (~8 GiB, default), "
-                       "google/gemma-3-12b-it (~24 GiB). "
-                       "Text-only: google/gemma-3-1b-it (~2 GiB, no image encoding). "
-                       "Ollama sidecar: gemma4:e4b (set GEMMA_API_URL=http://localhost:11434/v1)."
-                   ))
-    p.add_argument("--flash-attn", action="store_true",
-                   help="Install flash-attn (CUDA required; uses prebuilt wheel or compiles)")
-    p.add_argument("--all",  action="store_true",
-                   help="Download/verify everything (default when no other flag is given)")
-    p.add_argument("--verify", action="store_true",
-                   help="Check cache status for all requested models without downloading")
+    p.add_argument(
+        "--gemma-model",
+        default=_default_gemma,
+        metavar="MODEL_ID",
+        help=(
+            "Gemma model repo ID to cache (requires HF_TOKEN in .env and license accepted). "
+            "Multimodal (vision+text): google/gemma-3-4b-it (~8 GiB, default), "
+            "google/gemma-3-12b-it (~24 GiB). "
+            "Text-only: google/gemma-3-1b-it (~2 GiB, no image encoding). "
+            "Ollama sidecar: gemma4:e4b (set GEMMA_API_URL=http://localhost:11434/v1)."
+        ),
+    )
+    p.add_argument(
+        "--flash-attn",
+        action="store_true",
+        help="Install flash-attn (CUDA required; uses prebuilt wheel or compiles)",
+    )
+    p.add_argument(
+        "--all",
+        action="store_true",
+        help="Download/verify everything (default when no other flag is given)",
+    )
+    p.add_argument(
+        "--verify",
+        action="store_true",
+        help="Check cache status for all requested models without downloading",
+    )
 
-    p.add_argument("--device", default=os.getenv("DEVICE", "auto"),
-                   choices=["cpu", "cuda", "auto"],
-                   help="Torch device for weight loading")
+    p.add_argument(
+        "--device",
+        default=os.getenv("DEVICE", "auto"),
+        choices=["cpu", "cuda", "auto"],
+        help="Torch device for weight loading",
+    )
     _default_dino = os.getenv("DINO_MODEL", "dinov2_vitb14,dinov3_vitb14").split(",")
-    p.add_argument("--dino-model", nargs="+", default=_default_dino, metavar="MODEL",
-                   help="DINO model names to warm up")
-    p.add_argument("--source", default="auto", choices=["auto", "hub", "hf"],
-                   help="DINO weight source: 'auto' = local → GitHub → HF")
+    p.add_argument(
+        "--dino-model",
+        nargs="+",
+        default=_default_dino,
+        metavar="MODEL",
+        help="DINO model names to warm up",
+    )
+    p.add_argument(
+        "--source",
+        default="auto",
+        choices=["auto", "hub", "hf"],
+        help="DINO weight source: 'auto' = local → GitHub → HF",
+    )
 
-    p.add_argument("--whisper", action="store_true",
-                   help="Download Whisper ASR model (step 05)")
+    p.add_argument("--whisper", action="store_true", help="Download Whisper ASR model (step 05)")
     _default_whisper = os.getenv("ASR_MODEL", "openai/whisper-large-v3-turbo")
-    p.add_argument("--whisper-model", default=_default_whisper, metavar="MODEL_ID",
-                   help="Whisper model ID to cache")
+    p.add_argument(
+        "--whisper-model",
+        default=_default_whisper,
+        metavar="MODEL_ID",
+        help="Whisper model ID to cache",
+    )
 
-    p.add_argument("--florence", action="store_true",
-                   help="Download Florence-2 captioning model (step 04)")
+    p.add_argument(
+        "--florence", action="store_true", help="Download Florence-2 captioning model (step 04)"
+    )
     _default_florence = os.getenv("FLORENCE_MODEL", "microsoft/Florence-2-large")
-    p.add_argument("--florence-model", default=_default_florence, metavar="MODEL_ID",
-                   help="Florence-2 model ID to cache")
+    p.add_argument(
+        "--florence-model",
+        default=_default_florence,
+        metavar="MODEL_ID",
+        help="Florence-2 model ID to cache",
+    )
 
-    p.add_argument("--ocr", action="store_true",
-                   help="Download OCR model (step 06; auto-selects by VRAM)")
-    p.add_argument("--ocr-model", default="", metavar="MODEL_ID",
-                   help=(
-                       "OCR model ID to cache. Empty = auto-select by VRAM. "
-                       "Examples: microsoft/trocr-base-printed, ucaslcl/GOT-OCR2_0, "
-                       "microsoft/Phi-3.5-vision-instruct"
-                   ))
+    p.add_argument(
+        "--ocr", action="store_true", help="Download OCR model (step 06; auto-selects by VRAM)"
+    )
+    p.add_argument(
+        "--ocr-model",
+        default="",
+        metavar="MODEL_ID",
+        help=(
+            "OCR model ID to cache. Empty = auto-select by VRAM. "
+            "Examples: microsoft/trocr-base-printed, ucaslcl/GOT-OCR2_0, "
+            "microsoft/Phi-3.5-vision-instruct"
+        ),
+    )
 
-    p.add_argument("--depth", action="store_true",
-                   help="Download depth estimation model (step 07; auto-selects by VRAM)")
-    p.add_argument("--depth-model", default="", metavar="MODEL_ID",
-                   help=(
-                       "Depth model ID to cache. Empty = auto-select by VRAM. "
-                       "Examples: depth-anything/Depth-Anything-V2-Small-hf, "
-                       "depth-anything/Depth-Anything-V2-Large-hf"
-                   ))
+    p.add_argument(
+        "--depth",
+        action="store_true",
+        help="Download depth estimation model (step 07; auto-selects by VRAM)",
+    )
+    p.add_argument(
+        "--depth-model",
+        default="",
+        metavar="MODEL_ID",
+        help=(
+            "Depth model ID to cache. Empty = auto-select by VRAM. "
+            "Examples: depth-anything/Depth-Anything-V2-Small-hf, "
+            "depth-anything/Depth-Anything-V2-Large-hf"
+        ),
+    )
 
-    p.add_argument("--detection", action="store_true",
-                   help="Download object detection model (step 08; auto-selects by VRAM)")
-    p.add_argument("--detection-model", default="", metavar="MODEL_ID",
-                   help=(
-                       "Detection model ID to cache. Empty = auto-select by VRAM. "
-                       "Examples: PekingU/rtdetr_r50vd, IDEA-Research/grounding-dino-base"
-                   ))
+    p.add_argument(
+        "--detection",
+        action="store_true",
+        help="Download object detection model (step 08; auto-selects by VRAM)",
+    )
+    p.add_argument(
+        "--detection-model",
+        default="",
+        metavar="MODEL_ID",
+        help=(
+            "Detection model ID to cache. Empty = auto-select by VRAM. "
+            "Examples: PekingU/rtdetr_r50vd, IDEA-Research/grounding-dino-base"
+        ),
+    )
 
-    p.add_argument("--world-model", action="store_true",
-                   help="Download world model for video embeddings (step 11; auto-selects by VRAM)")
-    p.add_argument("--world-model-id", default="", metavar="MODEL_ID",
-                   help=(
-                       "World model ID to cache. Empty = auto-select by VRAM. "
-                       "Examples: MCG-NJU/videomae-base, facebook/vjepa2-vitl-fpc64-256"
-                   ))
+    p.add_argument(
+        "--world-model",
+        action="store_true",
+        help="Download world model for video embeddings (step 11; auto-selects by VRAM)",
+    )
+    p.add_argument(
+        "--world-model-id",
+        default="",
+        metavar="MODEL_ID",
+        help=(
+            "World model ID to cache. Empty = auto-select by VRAM. "
+            "Examples: MCG-NJU/videomae-base, facebook/vjepa2-vitl-fpc64-256"
+        ),
+    )
     _default_unidrive = os.getenv("UNIDRIVE_MODEL", _UNIDRIVE_DEFAULT_MODEL)
-    p.add_argument("--unidrive", action="store_true",
-                   help="Download UniDriveVLA expert model assets (step 13)")
-    p.add_argument("--unidrive-model", default=_default_unidrive, metavar="MODEL_ID",
-                   help=(
-                       "UniDriveVLA model repo ID to cache for external bridge / sidecar use. "
-                       f"Default: {_UNIDRIVE_DEFAULT_MODEL}"
-                   ))
-    p.add_argument("--unidrive-backend", default=os.getenv("UNIDRIVE_BACKEND", "auto"),
-                   choices=["auto", "ollama", "vllm"],
-                   help=(
-                       "Backend used for UniDrive prep. "
-                       "'ollama' pulls an Ollama tag, 'vllm' caches HF weights, "
-                       "'auto' prefers vllm for HF UniDrive repos and Ollama for Ollama tags."
-                   ))
+    p.add_argument(
+        "--unidrive", action="store_true", help="Download UniDriveVLA expert model assets (step 13)"
+    )
+    p.add_argument(
+        "--unidrive-model",
+        default=_default_unidrive,
+        metavar="MODEL_ID",
+        help=(
+            "UniDriveVLA model repo ID to cache for external bridge / sidecar use. "
+            f"Default: {_UNIDRIVE_DEFAULT_MODEL}"
+        ),
+    )
+    p.add_argument(
+        "--unidrive-backend",
+        default=os.getenv("UNIDRIVE_BACKEND", "auto"),
+        choices=["auto", "ollama", "vllm"],
+        help=(
+            "Backend used for UniDrive prep. "
+            "'ollama' pulls an Ollama tag, 'vllm' caches HF weights, "
+            "'auto' prefers vllm for HF UniDrive repos and Ollama for Ollama tags."
+        ),
+    )
 
     _default_reasoning = os.getenv("REASONING_MODEL", _REASONING_DEFAULT_MODEL)
-    p.add_argument("--reasoning", action="store_true",
-                   help="Pull the Ollama reasoning model used by the agentic-flow audit (step 24)")
-    p.add_argument("--reasoning-model", default=_default_reasoning, metavar="OLLAMA_TAG",
-                   help=(
-                       "Ollama tag to pull for the reasoning/audit step. "
-                       f"Default: {_REASONING_DEFAULT_MODEL} (~8 GB). "
-                       "Alternative: deepseek-r1:14b (~9 GB). "
-                       "Set REASONING_MODEL env var to override the default."
-                   ))
+    p.add_argument(
+        "--reasoning",
+        action="store_true",
+        help="Pull the Ollama reasoning model used by the agentic-flow audit (step 24)",
+    )
+    p.add_argument(
+        "--reasoning-model",
+        default=_default_reasoning,
+        metavar="OLLAMA_TAG",
+        help=(
+            "Ollama tag to pull for the reasoning/audit step. "
+            f"Default: {_REASONING_DEFAULT_MODEL} (~8 GB). "
+            "Alternative: deepseek-r1:14b (~9 GB). "
+            "Set REASONING_MODEL env var to override the default."
+        ),
+    )
 
-    p.add_argument("--yolo", action="store_true",
-                   help="Download YOLO11 detection model (step 09; default model: yolo11l.pt ~48 MB)")
-    p.add_argument("--yolo-model", default="yolo11l", metavar="MODEL",
-                   help=(
-                       "YOLO model filename to cache (without .pt extension). "
-                       "Default: yolo11l (~48 MB, 25.3 M params). "
-                       "Options: yolo11n (6 MB) | yolo11s (18 MB) | yolo11m (38 MB) "
-                       "| yolo11l (48 MB) | yolo11x (109 MB)"
-                   ))
+    p.add_argument(
+        "--yolo",
+        action="store_true",
+        help="Download YOLO11 detection model (step 09; default model: yolo11l.pt ~48 MB)",
+    )
+    p.add_argument(
+        "--yolo-model",
+        default="yolo11l",
+        metavar="MODEL",
+        help=(
+            "YOLO model filename to cache (without .pt extension). "
+            "Default: yolo11l (~48 MB, 25.3 M params). "
+            "Options: yolo11n (6 MB) | yolo11s (18 MB) | yolo11m (38 MB) "
+            "| yolo11l (48 MB) | yolo11x (109 MB)"
+        ),
+    )
 
-    p.add_argument("--sam", action="store_true",
-                   help="Download SAM3/SAM2 segmentation model (step 09; tries sam3 then sam2 fallback)")
-    p.add_argument("--sam-model", default="facebook/sam3", metavar="MODEL_ID",
-                   help=(
-                       "SAM model repo ID to cache. "
-                       "Default: facebook/sam3 (falls back to facebook/sam2-hiera-large if access not granted). "
-                       "Options: facebook/sam3 | facebook/sam2-hiera-large | "
-                       "facebook/sam2-hiera-base-plus"
-                   ))
+    p.add_argument(
+        "--sam",
+        action="store_true",
+        help="Download SAM3/SAM2 segmentation model (step 09; tries sam3 then sam2 fallback)",
+    )
+    p.add_argument(
+        "--sam-model",
+        default="facebook/sam3",
+        metavar="MODEL_ID",
+        help=(
+            "SAM model repo ID to cache. "
+            "Default: facebook/sam3 (falls back to facebook/sam2-hiera-large if access not granted). "
+            "Options: facebook/sam3 | facebook/sam2-hiera-large | "
+            "facebook/sam2-hiera-base-plus"
+        ),
+    )
 
     _default_scenetok = os.getenv("SCENETOK_CHECKPOINT", _SCENETOK_DEFAULT_CHECKPOINT)
-    p.add_argument("--scenetok", action="store_true",
-                   help=(
-                       "Install scenetok package, download HF dependencies, and cache checkpoint "
-                       "(step 14 — streaming scene encoder + segmentation decoder; "
-                       "requires ~24 GB VRAM to run)"
-                   ))
-    p.add_argument("--scenetok-checkpoint", default=_default_scenetok, metavar="CHECKPOINT",
-                   help=(
-                       "SceneTok checkpoint variant to cache. "
-                       f"Default: {_SCENETOK_DEFAULT_CHECKPOINT} (RealEstate10K). "
-                       f"Options: {' | '.join(_SCENETOK_CHECKPOINT_VARIANTS)}. "
-                       "Set SCENETOK_CHECKPOINT env var to override the default."
-                   ))
+    p.add_argument(
+        "--scenetok",
+        action="store_true",
+        help=(
+            "Install scenetok package, download HF dependencies, and cache checkpoint "
+            "(step 14 — streaming scene encoder + segmentation decoder; "
+            "requires ~24 GB VRAM to run)"
+        ),
+    )
+    p.add_argument(
+        "--scenetok-checkpoint",
+        default=_default_scenetok,
+        metavar="CHECKPOINT",
+        help=(
+            "SceneTok checkpoint variant to cache. "
+            f"Default: {_SCENETOK_DEFAULT_CHECKPOINT} (RealEstate10K). "
+            f"Options: {' | '.join(_SCENETOK_CHECKPOINT_VARIANTS)}. "
+            "Set SCENETOK_CHECKPOINT env var to override the default."
+        ),
+    )
 
     return p
 
@@ -1447,6 +1634,7 @@ def _resolve_hf_model(task: str, override: str) -> str:
     if mid:
         return mid
     from selfsuvis.pipeline.vision.registry import auto_select, detect_resources
+
     selected = auto_select(task, detect_resources())
     if selected:
         log.info("%s auto-selected model: %s", task, selected)
@@ -1455,9 +1643,21 @@ def _resolve_hf_model(task: str, override: str) -> str:
 
 def _default_all_if_no_selection(args: argparse.Namespace) -> argparse.Namespace:
     selected = (
-        args.clip or args.dino or args.gemma or args.flash_attn or args.whisper
-        or args.florence or args.ocr or args.depth or args.detection or args.world_model
-        or args.unidrive or args.reasoning or args.yolo or args.sam or args.scenetok
+        args.clip
+        or args.dino
+        or args.gemma
+        or args.flash_attn
+        or args.whisper
+        or args.florence
+        or args.ocr
+        or args.depth
+        or args.detection
+        or args.world_model
+        or args.unidrive
+        or args.reasoning
+        or args.yolo
+        or args.sam
+        or args.scenetok
         or args.all
     )
     if not selected:
@@ -1467,25 +1667,26 @@ def _default_all_if_no_selection(args: argparse.Namespace) -> argparse.Namespace
 
 def main() -> None:
     args = _default_all_if_no_selection(_build_parser().parse_args())
-    do_clip        = args.clip        or args.all
-    do_dino        = args.dino        or args.all
-    do_gemma       = args.gemma       or args.all
-    do_flash_attn  = args.flash_attn  or args.all
-    do_whisper     = args.whisper     or args.all
-    do_florence    = args.florence    or args.all
-    do_ocr         = args.ocr         or args.all
-    do_depth       = args.depth       or args.all
-    do_detection   = args.detection   or args.all
+    do_clip = args.clip or args.all
+    do_dino = args.dino or args.all
+    do_gemma = args.gemma or args.all
+    do_flash_attn = args.flash_attn or args.all
+    do_whisper = args.whisper or args.all
+    do_florence = args.florence or args.all
+    do_ocr = args.ocr or args.all
+    do_depth = args.depth or args.all
+    do_detection = args.detection or args.all
     do_world_model = args.world_model or args.all
-    do_unidrive    = args.unidrive    or args.all
-    do_reasoning   = args.reasoning   or args.all
-    do_yolo        = args.yolo        or args.all
-    do_sam         = args.sam         or args.all
-    do_scenetok    = args.scenetok    or args.all
+    do_unidrive = args.unidrive or args.all
+    do_reasoning = args.reasoning or args.all
+    do_yolo = args.yolo or args.all
+    do_sam = args.sam or args.all
+    do_scenetok = args.scenetok or args.all
 
     device = args.device
     if device == "auto":
         import torch
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
         log.info("Auto device → %s", device)
 
@@ -1493,12 +1694,12 @@ def main() -> None:
 
     # ── Resolve all HF model IDs up front ────────────────────────────────────
     errors: list = []
-    whisper_id    = args.whisper_model
-    florence_id   = args.florence_model
-    ocr_id        = _resolve_hf_model("ocr",         args.ocr_model)      if do_ocr         else ""
-    depth_id      = _resolve_hf_model("depth",       args.depth_model)    if do_depth       else ""
-    detection_id  = _resolve_hf_model("detection",   args.detection_model) if do_detection  else ""
-    world_id      = _resolve_hf_model("world_model", args.world_model_id) if do_world_model else ""
+    whisper_id = args.whisper_model
+    florence_id = args.florence_model
+    ocr_id = _resolve_hf_model("ocr", args.ocr_model) if do_ocr else ""
+    depth_id = _resolve_hf_model("depth", args.depth_model) if do_depth else ""
+    detection_id = _resolve_hf_model("detection", args.detection_model) if do_detection else ""
+    world_id = _resolve_hf_model("world_model", args.world_model_id) if do_world_model else ""
     unidrive_backend = ""
     unidrive_id = ""
     if do_unidrive:
@@ -1515,10 +1716,14 @@ def main() -> None:
         log.info("Verifying model cache (no downloads) …")
         specs = []
         if do_clip:
-            specs.append((
-                f"OpenCLIP {settings.OPENCLIP_MODEL}/{settings.OPENCLIP_PRETRAINED}",
-                lambda: _is_openclip_cached(settings.OPENCLIP_MODEL, settings.OPENCLIP_PRETRAINED),
-            ))
+            specs.append(
+                (
+                    f"OpenCLIP {settings.OPENCLIP_MODEL}/{settings.OPENCLIP_PRETRAINED}",
+                    lambda: _is_openclip_cached(
+                        settings.OPENCLIP_MODEL, settings.OPENCLIP_PRETRAINED
+                    ),
+                )
+            )
         if do_dino:
             for dm in args.dino_model:
                 dm_copy = dm
@@ -1540,9 +1745,16 @@ def main() -> None:
             specs.append((f"WorldModel {world_id}", lambda m=world_id: _is_hf_cached(m)))
         if do_unidrive and unidrive_id:
             if unidrive_backend == "ollama":
-                specs.append((f"UniDriveVLA(Ollama) {unidrive_id}", lambda m=unidrive_id: _is_ollama_model_cached(m)))
+                specs.append(
+                    (
+                        f"UniDriveVLA(Ollama) {unidrive_id}",
+                        lambda m=unidrive_id: _is_ollama_model_cached(m),
+                    )
+                )
             else:
-                specs.append((f"UniDriveVLA(vLLM) {unidrive_id}", lambda m=unidrive_id: _is_hf_cached(m)))
+                specs.append(
+                    (f"UniDriveVLA(vLLM) {unidrive_id}", lambda m=unidrive_id: _is_hf_cached(m))
+                )
         if do_reasoning:
             rm = args.reasoning_model
             specs.append((f"Reasoning(Ollama) {rm}", lambda m=rm: _is_ollama_model_cached(m)))
@@ -1552,8 +1764,10 @@ def main() -> None:
         if do_sam:
             sm = args.sam_model
             _SAM2_FALLBACK = "facebook/sam2-hiera-large"
+
             def _sam_cached(m=sm, fb=_SAM2_FALLBACK):
                 return _is_hf_cached(m) or _is_hf_cached(fb)
+
             label = f"SAM {sm} (or {_SAM2_FALLBACK} fallback)"
             specs.append((label, _sam_cached))
         if do_scenetok:
@@ -1567,7 +1781,9 @@ def main() -> None:
             log.warning("  ✗ MISSING   %s", label)
 
         if missing:
-            log.error("%d model(s) not cached — run without --verify to download them.", len(missing))
+            log.error(
+                "%d model(s) not cached — run without --verify to download them.", len(missing)
+            )
             sys.exit(1)
         log.info("All %d model(s) verified in cache.", len(ok))
         return
@@ -1594,6 +1810,7 @@ def main() -> None:
             except Exception as exc:
                 log.error("DINO [%s] download failed: %s", dino_model, exc)
                 import torch as _t
+
                 hub_dir = _t.hub.get_dir()
                 log.error(
                     "  Recovery options:\n"
@@ -1649,41 +1866,59 @@ def main() -> None:
 
     if do_detection:
         if not detection_id:
-            log.error("Detection: could not determine a model ID — pass --detection-model explicitly")
+            log.error(
+                "Detection: could not determine a model ID — pass --detection-model explicitly"
+            )
             errors.append(("Detection", ValueError("no model ID")))
         else:
             try:
-                _with_auth_retry(f"Detection ({detection_id})", detection_id,
-                                 lambda: _download_detection(detection_id))
+                _with_auth_retry(
+                    f"Detection ({detection_id})",
+                    detection_id,
+                    lambda: _download_detection(detection_id),
+                )
             except Exception as exc:
                 log.error("Detection model [%s] download failed: %s", detection_id, exc)
                 errors.append(("Detection", exc))
 
     if do_world_model:
         if not world_id:
-            log.error("WorldModel: could not determine a model ID — pass --world-model-id explicitly")
+            log.error(
+                "WorldModel: could not determine a model ID — pass --world-model-id explicitly"
+            )
             errors.append(("WorldModel", ValueError("no model ID")))
         else:
             try:
-                _with_auth_retry(f"WorldModel ({world_id})", world_id,
-                                 lambda: _download_world_model(world_id))
+                _with_auth_retry(
+                    f"WorldModel ({world_id})", world_id, lambda: _download_world_model(world_id)
+                )
             except Exception as exc:
                 log.error("World model [%s] download failed: %s", world_id, exc)
                 errors.append(("WorldModel", exc))
 
     if do_unidrive:
         if not unidrive_id:
-            log.error("UniDriveVLA: could not determine a model ID — pass --unidrive-model explicitly")
+            log.error(
+                "UniDriveVLA: could not determine a model ID — pass --unidrive-model explicitly"
+            )
             errors.append(("UniDriveVLA", ValueError("no model ID")))
         else:
             try:
                 if unidrive_backend == "ollama":
                     _download_ollama_model(unidrive_id)
                 else:
-                    _with_auth_retry(f"UniDriveVLA ({unidrive_id})", unidrive_id,
-                                     lambda: _download_unidrive(unidrive_id))
+                    _with_auth_retry(
+                        f"UniDriveVLA ({unidrive_id})",
+                        unidrive_id,
+                        lambda: _download_unidrive(unidrive_id),
+                    )
             except Exception as exc:
-                log.error("UniDriveVLA [%s via %s] download failed: %s", unidrive_id, unidrive_backend or "unknown", exc)
+                log.error(
+                    "UniDriveVLA [%s via %s] download failed: %s",
+                    unidrive_id,
+                    unidrive_backend or "unknown",
+                    exc,
+                )
                 errors.append(("UniDriveVLA", exc))
 
     if do_reasoning:

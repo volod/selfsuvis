@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+
 from tests.unit.app.test_realtime_router import FakeConn, FakePool, _app
 
 
@@ -22,7 +23,11 @@ async def test_pose_estimate_endpoint_returns_latest_pose():
                 f"/realtime/session/{session_id}/pose/estimate",
                 json={
                     "packets": [
-                        {"sensor_type": "gps", "t_device": 2.0, "payload": {"east": 3.0, "north": 4.0}},
+                        {
+                            "sensor_type": "gps",
+                            "t_device": 2.0,
+                            "payload": {"east": 3.0, "north": 4.0},
+                        },
                         {"sensor_type": "imu", "t_device": 2.01, "payload": {"yaw": 0.2}},
                     ]
                 },

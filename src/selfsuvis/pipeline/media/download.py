@@ -1,4 +1,3 @@
-
 from selfsuvis.pipeline.core import settings
 
 from .fs_common import ensure_parent_dir, remove_if_exists
@@ -18,7 +17,9 @@ def download_url(
         r.raise_for_status()
         content_length = r.headers.get("Content-Length")
         if content_length and int(content_length) > max_bytes:
-            raise ValueError(f"Content-Length {content_length} exceeds max download size {max_bytes}")
+            raise ValueError(
+                f"Content-Length {content_length} exceeds max download size {max_bytes}"
+            )
         written = 0
         try:
             with open(dest_path, "wb") as f:

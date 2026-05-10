@@ -29,21 +29,24 @@ def conn():
 
 # ── upsert_mission ────────────────────────────────────────────────────────────
 
+
 def test_upsert_mission_creates_record(conn):
     from selfsuvis.pipeline.storage.missions import upsert_mission
 
-    run(upsert_mission(
-        conn,
-        mission_id="m1",
-        video_id="v1",
-        video_path="/data/v1.mp4",
-        job_id="j1",
-        robot_id="r1",
-        status="indexing",
-        frame_count=42,
-        duration_sec=120.0,
-        gps_origin={"lat": 47.0, "lon": 8.0, "alt": 400.0},
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="m1",
+            video_id="v1",
+            video_path="/data/v1.mp4",
+            job_id="j1",
+            robot_id="r1",
+            status="indexing",
+            frame_count=42,
+            duration_sec=120.0,
+            gps_origin={"lat": 47.0, "lon": 8.0, "alt": 400.0},
+        )
+    )
 
     m = conn._missions["m1"]
     assert m["id"] == "m1"
@@ -57,17 +60,35 @@ def test_upsert_mission_creates_record(conn):
 def test_upsert_mission_updates_existing(conn):
     from selfsuvis.pipeline.storage.missions import upsert_mission
 
-    run(upsert_mission(
-        conn, mission_id="m1", video_id="v1", video_path="/v1.mp4",
-        job_id="j1", robot_id="r1", status="indexing",
-        frame_count=10, duration_sec=30.0, gps_origin=None,
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="m1",
+            video_id="v1",
+            video_path="/v1.mp4",
+            job_id="j1",
+            robot_id="r1",
+            status="indexing",
+            frame_count=10,
+            duration_sec=30.0,
+            gps_origin=None,
+        )
+    )
     # Second call with same mission_id and updated frame_count
-    run(upsert_mission(
-        conn, mission_id="m1", video_id="v1", video_path="/v1.mp4",
-        job_id="j1", robot_id="r1", status="done",
-        frame_count=99, duration_sec=30.0, gps_origin=None,
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="m1",
+            video_id="v1",
+            video_path="/v1.mp4",
+            job_id="j1",
+            robot_id="r1",
+            status="done",
+            frame_count=99,
+            duration_sec=30.0,
+            gps_origin=None,
+        )
+    )
 
     assert conn._missions["m1"]["frame_count"] == 99
     assert conn._missions["m1"]["status"] == "done"
@@ -76,17 +97,27 @@ def test_upsert_mission_updates_existing(conn):
 def test_upsert_mission_null_gps_origin(conn):
     from selfsuvis.pipeline.storage.missions import upsert_mission
 
-    run(upsert_mission(
-        conn, mission_id="m2", video_id="v2", video_path="/v2.mp4",
-        job_id="j2", robot_id="r1", status="indexing",
-        frame_count=0, duration_sec=None, gps_origin=None,
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="m2",
+            video_id="v2",
+            video_path="/v2.mp4",
+            job_id="j2",
+            robot_id="r1",
+            status="indexing",
+            frame_count=0,
+            duration_sec=None,
+            gps_origin=None,
+        )
+    )
 
     assert conn._missions["m2"]["gps_origin_json"] is None
     assert conn._missions["m2"]["duration_sec"] is None
 
 
 # ── replace_frames ────────────────────────────────────────────────────────────
+
 
 def test_replace_frames_inserts_new_records(conn):
     from selfsuvis.pipeline.storage.missions import replace_frames
@@ -161,14 +192,24 @@ def test_replace_frames_stores_al_tag(conn):
 
 # ── mark_mission_finished ─────────────────────────────────────────────────────
 
+
 def test_mark_mission_finished_sets_done_status(conn):
     from selfsuvis.pipeline.storage.missions import mark_mission_finished, upsert_mission
 
-    run(upsert_mission(
-        conn, mission_id="m1", video_id="v1", video_path="/v.mp4",
-        job_id="j1", robot_id="r1", status="indexing",
-        frame_count=5, duration_sec=10.0, gps_origin=None,
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="m1",
+            video_id="v1",
+            video_path="/v.mp4",
+            job_id="j1",
+            robot_id="r1",
+            status="indexing",
+            frame_count=5,
+            duration_sec=10.0,
+            gps_origin=None,
+        )
+    )
     run(mark_mission_finished(conn, "m1", status="done"))
 
     assert conn._missions["m1"]["status"] == "done"
@@ -177,11 +218,20 @@ def test_mark_mission_finished_sets_done_status(conn):
 def test_mark_mission_finished_with_error_message(conn):
     from selfsuvis.pipeline.storage.missions import mark_mission_finished, upsert_mission
 
-    run(upsert_mission(
-        conn, mission_id="m1", video_id="v1", video_path="/v.mp4",
-        job_id="j1", robot_id="r1", status="indexing",
-        frame_count=0, duration_sec=None, gps_origin=None,
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="m1",
+            video_id="v1",
+            video_path="/v.mp4",
+            job_id="j1",
+            robot_id="r1",
+            status="indexing",
+            frame_count=0,
+            duration_sec=None,
+            gps_origin=None,
+        )
+    )
     run(mark_mission_finished(conn, "m1", status="error", error="ffmpeg crashed"))
 
     m = conn._missions["m1"]
@@ -192,11 +242,20 @@ def test_mark_mission_finished_with_error_message(conn):
 def test_mark_mission_finished_sets_pose_status(conn):
     from selfsuvis.pipeline.storage.missions import mark_mission_finished, upsert_mission
 
-    run(upsert_mission(
-        conn, mission_id="m1", video_id="v1", video_path="/v.mp4",
-        job_id="j1", robot_id="r1", status="indexing",
-        frame_count=3, duration_sec=5.0, gps_origin=None,
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="m1",
+            video_id="v1",
+            video_path="/v.mp4",
+            job_id="j1",
+            robot_id="r1",
+            status="indexing",
+            frame_count=3,
+            duration_sec=5.0,
+            gps_origin=None,
+        )
+    )
     run(mark_mission_finished(conn, "m1", status="done", pose_status="success"))
 
     assert conn._missions["m1"]["pose_status"] == "success"
@@ -204,19 +263,29 @@ def test_mark_mission_finished_sets_pose_status(conn):
 
 # ── apply_gps_registration ────────────────────────────────────────────────────
 
+
 def test_apply_gps_registration_updates_enu_origin(conn):
     from selfsuvis.pipeline.storage.missions import apply_gps_registration, upsert_mission
 
-    run(upsert_mission(
-        conn, mission_id="m1", video_id="v1", video_path="/v.mp4",
-        job_id="j1", robot_id="r1", status="done",
-        frame_count=2, duration_sec=5.0, gps_origin=None,
-    ))
-    run(apply_gps_registration(
-        conn, "m1",
-        enu_origin={"lat": 47.0, "lon": 8.0, "alt": 400.0},
-        global_poses={}
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="m1",
+            video_id="v1",
+            video_path="/v.mp4",
+            job_id="j1",
+            robot_id="r1",
+            status="done",
+            frame_count=2,
+            duration_sec=5.0,
+            gps_origin=None,
+        )
+    )
+    run(
+        apply_gps_registration(
+            conn, "m1", enu_origin={"lat": 47.0, "lon": 8.0, "alt": 400.0}, global_poses={}
+        )
+    )
 
     assert conn._missions["m1"]["gps_origin_json"]["lat"] == pytest.approx(47.0)
 
@@ -224,10 +293,16 @@ def test_apply_gps_registration_updates_enu_origin(conn):
 def test_apply_gps_registration_propagates_frame_poses(conn):
     from selfsuvis.pipeline.storage.missions import apply_gps_registration, replace_frames
 
-    run(replace_frames(conn, "m1", [
-        make_frame_record("f1", "m1"),
-        make_frame_record("f2", "m1"),
-    ]))
+    run(
+        replace_frames(
+            conn,
+            "m1",
+            [
+                make_frame_record("f1", "m1"),
+                make_frame_record("f2", "m1"),
+            ],
+        )
+    )
     global_poses = {
         "f1": {"tx": 1.0, "ty": 0.0, "tz": 0.0},
         "f2": {"tx": 2.0, "ty": 0.0, "tz": 0.0},
@@ -239,6 +314,7 @@ def test_apply_gps_registration_propagates_frame_poses(conn):
 
 
 # ── list_frames_after ─────────────────────────────────────────────────────────
+
 
 def test_list_frames_after_no_cursor_returns_first_page(conn):
     from selfsuvis.pipeline.storage.missions import list_frames_after, replace_frames
@@ -293,6 +369,7 @@ def test_list_frames_after_empty_table_returns_empty(conn):
 
 # ── Full mission lifecycle ────────────────────────────────────────────────────
 
+
 def test_full_mission_lifecycle(conn):
     """pending → indexing → done, with frames and GPS registration."""
     from selfsuvis.pipeline.storage.jobs import create_job, fetch_and_claim_next_pending, update_job
@@ -311,16 +388,26 @@ def test_full_mission_lifecycle(conn):
     assert claimed["status"] == "running"
 
     # 2. Upsert mission to "indexing"
-    run(upsert_mission(
-        conn, mission_id="m1", video_id="v1", video_path="/v.mp4",
-        job_id="j1", robot_id="robot-a", status="indexing",
-        frame_count=3, duration_sec=30.0,
-        gps_origin={"lat": 47.0, "lon": 8.0, "alt": 400.0},
-    ))
+    run(
+        upsert_mission(
+            conn,
+            mission_id="m1",
+            video_id="v1",
+            video_path="/v.mp4",
+            job_id="j1",
+            robot_id="robot-a",
+            status="indexing",
+            frame_count=3,
+            duration_sec=30.0,
+            gps_origin={"lat": 47.0, "lon": 8.0, "alt": 400.0},
+        )
+    )
 
     # 3. Persist frames
-    frames = [make_frame_record(f"f{i}", "m1", t_sec=float(i * 5), gps_lat=47.0, gps_lon=8.0)
-              for i in range(3)]
+    frames = [
+        make_frame_record(f"f{i}", "m1", t_sec=float(i * 5), gps_lat=47.0, gps_lon=8.0)
+        for i in range(3)
+    ]
     run(replace_frames(conn, "m1", frames))
     assert len([f for f in conn._frames.values() if f["mission_id"] == "m1"]) == 3
 
@@ -334,8 +421,7 @@ def test_full_mission_lifecycle(conn):
     assert conn._missions["m1"]["status"] == "done"
 
     # 6. Finalize job
-    run(update_job(conn, "j1", status="finished", finished_at=9999.0,
-                   progress={"frames": 3}))
+    run(update_job(conn, "j1", status="finished", finished_at=9999.0, progress={"frames": 3}))
     job = run(conn.fetchrow("SELECT * FROM jobs WHERE id = $1", "j1"))
     assert job["status"] == "finished"
 

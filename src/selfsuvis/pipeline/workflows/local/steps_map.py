@@ -1,6 +1,5 @@
 """3D map step and GPU/VRAM memory helpers."""
 
-
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +20,7 @@ def step_create_3d_map(
     depth_results: list[dict[str, Any]] | None = None,
     yolo_detection_results: list[dict[str, Any]] | None = None,
     tracking_results: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+) -> dict[str, Any]:
     """Step 15: build sparse 3D map + 3D Gaussian Splat."""
     return build_sparse_map(
         video_path=str(video_path),
