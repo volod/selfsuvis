@@ -32,7 +32,7 @@ from selfsuvis.app.db import get_db_pool_optional
 from selfsuvis.app.deps import rate_limit, require_api_key
 from selfsuvis.app.state import clip_model, qdrant_store
 from selfsuvis.pipeline.core import get_logger, settings
-from selfsuvis.pipeline.workflows import latlon_bbox
+from selfsuvis.pipeline.analysis.change_detection import latlon_bbox
 
 logger = get_logger(__name__)
 
@@ -162,9 +162,7 @@ async def _get_last_visits(
     Returns visits sorted by created_at DESC (most recent first).
     Returns empty list if the table is empty or DB unavailable.
     """
-    from selfsuvis.pipeline.analysis.change_detection import latlon_bbox as _bbox
-
-    min_lat, max_lat, min_lon, max_lon = _bbox(lat, lon, radius_m)
+    min_lat, max_lat, min_lon, max_lon = latlon_bbox(lat, lon, radius_m)
     try:
         rows = await db_pool.fetch(
             """

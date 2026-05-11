@@ -192,7 +192,7 @@ def run_graph_pipeline(
     Called from runner.py when SELFSUVIS_USE_GRAPH=1 is set.
     Returns the per-video stats dict (same contract as the monolith).
     """
-    from .graph_state import PipelineState
+    from .graph_state import PipelineState, SerializableNamespace
     from .steps_caption import reset_runtime_telemetry
 
     reset_runtime_telemetry()
@@ -208,7 +208,7 @@ def run_graph_pipeline(
         thread_id = resume_thread
 
     initial_state: PipelineState = {
-        "args": args,
+        "args": SerializableNamespace(vars(args)),
         "video_path": str(video_path),
         "video_name": video_name,
         "video_id": video_name.replace(" ", "_").lower(),
