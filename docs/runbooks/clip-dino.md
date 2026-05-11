@@ -63,7 +63,7 @@ MODEL_NAME=dinov3 selfsuvis --mode local
 OPENCLIP_MODEL=ViT-L-14 OPENCLIP_PRETRAINED=openai selfsuvis --mode local
 
 # Download / warm model cache
-python scripts/prepare_models.py --clip --dino
+python -m selfsuvis.scripts.prepare_models --clip --dino
 ```
 
 ---
@@ -103,7 +103,7 @@ Switching `MODEL_NAME`, `OPENCLIP_MODEL`, or `OPENCLIP_PRETRAINED` invalidates a
 existing vector data. Reset before re-indexing:
 
 ```bash
-scripts/selfsuvis-reset-qdrant.sh
+scripts/ssv/ssv-reset-qdrant.sh
 ```
 
 The script drops and recreates the collection. All frames must be re-indexed from
@@ -119,5 +119,5 @@ vectors are dropped).
 | `ModuleNotFoundError: open_clip` | openclip not installed | `pip install open-clip-torch` |
 | `CUDA out of memory` | Both CLIP and DINO loaded at once | Switch to CPU: `DEVICE=cpu` or free other models first |
 | `cosine similarity always near 0` | FP16 underflow on very old GPU | `USE_FP16=false` |
-| Search returns wrong results after model change | Old vectors still in Qdrant | Run `scripts/selfsuvis-reset-qdrant.sh` and re-index |
-| DINOv3 not found | Model not downloaded | `python scripts/prepare_models.py --dino` |
+| Search returns wrong results after model change | Old vectors still in Qdrant | Run `scripts/ssv/ssv-reset-qdrant.sh` and re-index |
+| DINOv3 not found | Model not downloaded | `python -m selfsuvis.scripts.prepare_models --dino` |

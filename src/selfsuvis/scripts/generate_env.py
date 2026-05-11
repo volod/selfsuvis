@@ -10,6 +10,7 @@ from importlib import resources
 from pathlib import Path
 
 from selfsuvis.pipeline.vision.registry import detect_resources
+from selfsuvis.pipeline.core.env import project_roots
 
 _ENV_NAMES = ("dev", "test", "prod")
 _PROFILE_NAMES = ("minimal", "balanced", "full")
@@ -51,7 +52,7 @@ class EnvPlan:
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return project_roots(__file__)[1]
 
 
 def _parse_env_lines(lines: Iterable[str]) -> dict[str, str]:

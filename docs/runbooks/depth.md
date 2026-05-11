@@ -67,7 +67,7 @@ DEPTH_ENABLED=true DEPTH_AUTO_PROFILE=quality selfsuvis --mode local
 DEPTH_ENABLED=true DEPTH_MODEL=depth-anything/Depth-Anything-V2-Large-hf selfsuvis --mode local
 
 # Download weights
-python scripts/prepare_models.py --depth
+python -m selfsuvis.scripts.prepare_models --depth
 ```
 
 ---

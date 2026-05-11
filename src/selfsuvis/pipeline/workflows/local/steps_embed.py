@@ -62,9 +62,10 @@ def _embed_and_flush(
     clip_embeds = clip_model.encode_images(batch_pil)
     dino_embeds = dino_model.encode_images(batch_pil) if dino_model else None
     if is_qdrant:
-        from qdrant_client.http import models as qmodels
+        from selfsuvis.pipeline.core.optional_deps import require_qdrant_models
 
         from selfsuvis.pipeline.core.utils import stable_point_id
+        qmodels = require_qdrant_models()
 
         points = []
         for i, (fp, t_sec) in enumerate(batch_meta):
@@ -153,8 +154,9 @@ def _search(
         # candidate pool to avoid empty rankings on short near-duplicate clips.
         limit = max(limit + 8, top_k * 4)
     if is_qdrant:
-        from qdrant_client.http import models as qmodels
+        from selfsuvis.pipeline.core.optional_deps import require_qdrant_models
 
+        qmodels = require_qdrant_models()
         filt = qmodels.Filter(
             must=[
                 qmodels.FieldCondition(

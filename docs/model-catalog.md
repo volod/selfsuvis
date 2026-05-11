@@ -340,8 +340,8 @@ selfsuvis --mode local --unidrive-api-url http://localhost:8010/v1 --unidrive-mo
 selfsuvis --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-model owl10/UniDriveVLA_Nusc_Large_Stage3
 
 # Download model weights for local bridge
-python scripts/prepare_models.py --unidrive
-python scripts/prepare_models.py --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Large_Stage3
+python -m selfsuvis.scripts.prepare_models --unidrive
+python -m selfsuvis.scripts.prepare_models --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Large_Stage3
 
 # Env vars
 UNIDRIVE_ENABLED=true UNIDRIVE_API_URL=http://localhost:8010/v1 UNIDRIVE_MODEL=Qwen/Qwen2.5-VL-7B-Instruct UNIDRIVE_MAX_FRAMES=24

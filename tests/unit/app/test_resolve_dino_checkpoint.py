@@ -17,6 +17,7 @@ import pytest
 if "asyncpg" not in sys.modules:
     _asyncpg = types.ModuleType("asyncpg")
     _asyncpg.connect = MagicMock()  # patch.object requires attribute to pre-exist
+    _asyncpg.Pool = MagicMock()  # type: ignore[attr-defined]
     sys.modules["asyncpg"] = _asyncpg
 
 _asyncpg_mod = sys.modules["asyncpg"]

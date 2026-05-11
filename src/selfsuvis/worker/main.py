@@ -156,7 +156,7 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
     mission's own local first-frame origin.
     """
     try:
-        from selfsuvis.pipeline.gps_extractor import extract_gps
+        from selfsuvis.pipeline.media.gps import extract_gps
 
         # Request GPS at t=1s; extract_gps will return the nearest available fix
         gps_list = extract_gps(video_path, [1_000.0])
@@ -169,7 +169,10 @@ def _resolve_site_origin(video_path: str, logger) -> tuple:
         return None, None
 
     try:
-        from selfsuvis.pipeline.global_map_db import get_global_map_origin, get_or_create_global_map
+        from selfsuvis.pipeline.storage.global_maps import (
+            get_global_map_origin,
+            get_or_create_global_map,
+        )
 
         async def _lookup():
             conn = await asyncpg.connect(settings.DATABASE_URL)
@@ -214,7 +217,7 @@ def _run_pass_a(
     unreachable containers (nerfstudio, mapper, postgres) are logged and skipped.
     """
     try:
-        from selfsuvis.pipeline.sfm import run_sfm
+        from selfsuvis.pipeline.mapping.sfm import run_sfm
     except ImportError:
         logger.debug("Pass A: pycolmap not installed — skipping SfM")
         return
@@ -235,7 +238,7 @@ def _run_pass_a(
     )
 
     try:
-        from selfsuvis.pipeline.gps_registration import register_mission_gps
+        from selfsuvis.pipeline.mapping.gps_registration import register_mission_gps
 
         keyed_frames = sfm_results
         if index_result.get("frame_records"):
@@ -260,14 +263,14 @@ def _run_pass_a(
 
     # 3DGS mapper (requires nerfstudio container — soft skip on ConnectionError)
     try:
-        from selfsuvis.pipeline.global_map_db import (
+        from selfsuvis.pipeline.storage.global_maps import (
             get_global_map_splats,
             get_or_create_global_map,
             register_mission,
             update_global_map_splat,
             update_mission_splat_path,
         )
-        from selfsuvis.pipeline.mapper import run_mapper
+        from selfsuvis.pipeline.mapping.mapper import run_mapper
     except ImportError as exc:
         logger.debug("Pass A: mapper deps unavailable (%s) — skipping 3DGS", exc)
         return
@@ -643,7 +646,9 @@ def _load_batch_images(batch, logger) -> tuple:
 
 def _build_reembed_points(valid_rows, dino_vecs, clip_vecs):
     """Assemble Qdrant PointStructs from embedding vectors and frame metadata."""
-    from qdrant_client.http import models as qmodels
+    from selfsuvis.pipeline.core.optional_deps import require_qdrant_models
+
+    qmodels = require_qdrant_models()
 
     return [
         qmodels.PointStruct(

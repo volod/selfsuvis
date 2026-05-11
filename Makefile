@@ -44,7 +44,7 @@ help:
 	@echo "  Troubleshooting"
 	@echo "  ----------------"
 	@echo "  Docker permission denied:  sudo usermod -aG docker \$$USER  then log out and back in (or newgrp docker)"
-	@echo "  GPU driver error:           sudo ./scripts/install_nvidia_docker.sh  or  make test-no-gpu"
+	@echo "  GPU driver error:           sudo ./scripts/install/install_nvidia_docker.sh  or  make test-no-gpu"
 	@echo "  Unable to open database:   sudo chown -R \$$(id -u):\$$(id -g) data cache_test"
 	@echo "  Root-owned data/cache:    make fix-data"
 	@echo ""
@@ -82,11 +82,11 @@ venv:
 				echo "Removing existing .venv..."; \
 				rm -rf .venv; \
 				uv venv .venv; \
-				./scripts/install_requirements.sh vision,dev .venv \
+				./scripts/install/install_requirements.sh vision,dev .venv \
 				;; \
 			u|U) \
 				echo "Updating requirements in existing .venv..."; \
-				./scripts/install_requirements.sh vision,dev .venv \
+				./scripts/install/install_requirements.sh vision,dev .venv \
 				;; \
 			*) \
 				echo "Invalid choice '$$choice'. Run  make venv  again and enter r or u."; \
@@ -95,13 +95,13 @@ venv:
 		esac \
 	else \
 		uv venv .venv; \
-		./scripts/install_requirements.sh vision,dev .venv; \
+		./scripts/install/install_requirements.sh vision,dev .venv; \
 	fi
 
 # Force CUDA torch wheels regardless of nvidia-smi detection (use when GPU is present but nvidia-smi absent)
 venv-cuda:
 	uv venv .venv
-	FORCE_CUDA=1 ./scripts/install_requirements.sh vision,dev .venv
+	FORCE_CUDA=1 ./scripts/install/install_requirements.sh vision,dev .venv
 
 # Rebuild xformers from source targeting the GPU present on this machine.
 # Auto-detects compute capability via nvidia-smi; falls back to a safe multi-arch
@@ -200,10 +200,10 @@ lint:
 	ruff format --check .
 
 utlz-install:
-	./scripts/install_utilyze.sh
+	./scripts/install/install_utilyze.sh
 
 utlz:
-	./scripts/selfsuvis-utilyze.sh
+	./scripts/ssv/ssv-utilyze.sh
 
 utlz-endpoints:
-	./scripts/selfsuvis-utilyze.sh --endpoints
+	./scripts/ssv/ssv-utilyze.sh --endpoints

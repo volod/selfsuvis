@@ -5,12 +5,10 @@ import os
 import shutil
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import cv2
 import numpy as np
 from PIL import Image
-from qdrant_client.http import models as qmodels
 
 from selfsuvis.models.dino_model import DINOEmbedder
 from selfsuvis.models.openclip_model import OpenCLIPEmbedder
@@ -23,6 +21,7 @@ from selfsuvis.pipeline.core import (
     settings,
     stable_point_id,
 )
+from selfsuvis.pipeline.core.optional_deps import require_cv2, require_qdrant_models
 from selfsuvis.pipeline.fusion import run_platform_state_fusion
 from selfsuvis.pipeline.mapping import build_semantic_environment_graph
 from selfsuvis.pipeline.media import extract_audio, extract_frames, map_subtitles_to_frames
@@ -51,6 +50,9 @@ from selfsuvis.pipeline.vision import (
     WorldModel,
     YOLODetector,
 )
+
+if TYPE_CHECKING:
+    from qdrant_client.http import models as qmodels  # pragma: no cover
 
 
 @dataclass
@@ -196,8 +198,9 @@ class VideoIndexer:
         enu: dict[str, float] | None = None,
         robot_id: str | None = None,
         global_map_id: int | None = None,
-    ) -> qmodels.PointStruct:
+    ) -> "qmodels.PointStruct":
         """Build a Qdrant point for one keyframe."""
+        qmodels = require_qdrant_models()
         vectors: dict[str, Any] = {"clip": clip_embed.tolist()}
         if self.dino_model:
             vectors["dino"] = self.dino_model.encode_images([frame_pil], batch_size=1)[0].tolist()
@@ -243,7 +246,7 @@ class VideoIndexer:
         robot_id: str | None = None,
         global_map_id: int | None = None,
     ) -> tuple[
-        tuple[dict[str, Any], dict[str, Any], list[qmodels.PointStruct], int] | None,
+        tuple[dict[str, Any], dict[str, Any], list["qmodels.PointStruct"], int] | None,
         "_IndexFrameState",
     ]:
         """Process one frame. Returns (result, new_state); result is None if frame is skipped."""
@@ -261,6 +264,7 @@ class VideoIndexer:
             return None, new_state
 
         hist_d, ssim_d = self._visual_diffs(state.last_kept_small, small_for_diff)
+        cv2 = require_cv2()
         frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         embed = self.clip_model.encode_images([frame_pil], batch_size=1)[0]
         drift = (
@@ -316,7 +320,7 @@ class VideoIndexer:
             "qdrant_id": qdrant_id,
         }
 
-        tile_points: list[qmodels.PointStruct] = []
+        tile_points: list["qmodels.PointStruct"] = []
         tile_count = 0
         if self.enable_tiles or drift > settings.TILE_INDEX_IF_EMBED_DRIFT_GT:
             tile_points, tile_count = self._index_tiles(
@@ -398,12 +402,13 @@ class VideoIndexer:
         )
         segments: list[dict[str, Any]] = []
         frame_records: list[dict[str, Any]] = []
-        points: list[qmodels.PointStruct] = []
+        points: list["qmodels.PointStruct"] = []
         cell_state: dict[tuple[int, int], tuple[float, float]] = {}
         tiles_indexed = 0
         frames_indexed = 0
         frame_timer = RateTimer()
         embed_timer = RateTimer()
+        cv2 = require_cv2()
 
         idx = 0
         while idx < len(frames):
@@ -1506,9 +1511,11 @@ class VideoIndexer:
         mission_id: str | None = None,
         robot_id: str | None = None,
         global_map_id: int | None = None,
-    ) -> tuple[list[qmodels.PointStruct], int]:
+    ) -> tuple[list["qmodels.PointStruct"], int]:
+        qmodels = require_qdrant_models()
+        cv2 = require_cv2()
         h, w, _ = frame.shape
-        tile_points: list[qmodels.PointStruct] = []
+        tile_points: list["qmodels.PointStruct"] = []
         count = 0
 
         ys = range(0, h - settings.TILE_SIZE + 1, settings.STRIDE)

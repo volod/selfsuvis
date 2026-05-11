@@ -26,7 +26,7 @@ selfsuvis-realtime-bridge --backend ros
 Shell wrapper:
 
 ```bash
-./scripts/selfsuvis-realtime-bridge.sh --backend mavsdk
+./scripts/ssv/ssv-realtime-bridge.sh --backend mavsdk
 ```
 
 Docker compose module:

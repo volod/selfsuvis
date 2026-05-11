@@ -1,4 +1,4 @@
-"""Unit tests for pipeline.processed_db."""
+"""Unit tests for pipeline.storage.processed."""
 
 import asyncio
 import importlib
@@ -10,13 +10,14 @@ from unittest.mock import AsyncMock
 if "asyncpg" not in sys.modules:
     _asyncpg = types.ModuleType("asyncpg")
     _asyncpg.connect = AsyncMock()
+    _asyncpg.Pool = AsyncMock()  # type: ignore[attr-defined]
     sys.modules["asyncpg"] = _asyncpg
 
-mod = sys.modules.get("selfsuvis.pipeline.processed_db")
+mod = sys.modules.get("selfsuvis.pipeline.storage.processed")
 if mod is not None and not hasattr(mod, "aget_by_hash"):
-    del sys.modules["selfsuvis.pipeline.processed_db"]
+    del sys.modules["selfsuvis.pipeline.storage.processed"]
 
-processed_db = importlib.import_module("selfsuvis.pipeline.processed_db")
+processed_db = importlib.import_module("selfsuvis.pipeline.storage.processed")
 aget_by_hash = processed_db.aget_by_hash
 aget_by_size = processed_db.aget_by_size
 aget_by_url = processed_db.aget_by_url

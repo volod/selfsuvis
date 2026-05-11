@@ -48,30 +48,29 @@ def _ensure_stub(name: str, **attrs) -> types.ModuleType:
 # asyncpg stub — use _ensure_stub so all test files share the same module
 # object. _make_stub would create a new object, breaking patches in files
 # (e.g. test_gpu_isolation.py) that captured sys.modules["asyncpg"] earlier.
-_asyncpg_stub = _ensure_stub("asyncpg", connect=AsyncMock())
+_asyncpg_stub = _ensure_stub("asyncpg", connect=AsyncMock(), Pool=MagicMock())
 
 # Import the REAL pipeline.global_map_db now (while asyncpg stub is in place)
 # so Groups A/B/C test the real code, not a stub.
 import selfsuvis.pipeline.storage.global_maps as _real_global_map_db  # noqa: E402
 
-# Stub pipeline.indexer to avoid cv2 import (worker.main imports it)
-_indexer_stub = _make_stub("selfsuvis.pipeline.indexer")
-_indexer_stub.VideoIndexer = MagicMock()  # type: ignore[attr-defined]
+# Stub pipeline.workflows to avoid heavy model imports (worker.main imports it)
+_workflows_stub = _make_stub("selfsuvis.pipeline.workflows")
+_workflows_stub.VideoIndexer = MagicMock()  # type: ignore[attr-defined]
 
-# Stub pipeline.job_db
+# Stub pipeline.storage.processed and pipeline.storage entrypoints used by worker.main
 _make_stub(
-    "selfsuvis.pipeline.job_db",
-    init_db=MagicMock(),
+    "selfsuvis.pipeline.storage.processed",
+    ainit_db=MagicMock(),
+    aget_by_hash=MagicMock(),
+    aupsert=MagicMock(),
+    get_by_hash=MagicMock(),
+)
+_make_stub(
+    "selfsuvis.pipeline.storage",
+    create_job=MagicMock(),
     fetch_and_claim_next_pending=MagicMock(),
     update_job=MagicMock(),
-)
-
-# Stub pipeline.processed_db
-_make_stub(
-    "selfsuvis.pipeline.processed_db",
-    init_db=MagicMock(),
-    get_by_hash=MagicMock(),
-    upsert=MagicMock(),
 )
 
 # Stub pipeline.utils
@@ -82,29 +81,21 @@ _ensure_stub("selfsuvis.pipeline.downloader", download_url=MagicMock())
 
 # Stub pipeline.gps_registration
 _ensure_stub(
-    "selfsuvis.pipeline.gps_registration", register_mission_gps=MagicMock(), gps_to_enu=MagicMock()
+    "selfsuvis.pipeline.mapping.gps_registration",
+    register_mission_gps=MagicMock(),
+    gps_to_enu=MagicMock(),
 )
 
-# NOTE: pipeline.global_map_db is already in sys.modules (real module imported above).
-# _ensure_stub will NOT overwrite it, so worker.main will use the real module too.
-_ensure_stub(
-    "selfsuvis.pipeline.global_map_db",
-    get_or_create_global_map=AsyncMock(),
-    get_global_map_splats=AsyncMock(),
-    register_mission=AsyncMock(),
-    get_global_map_origin=AsyncMock(),
-    list_global_maps=AsyncMock(),
-    update_mission_splat_path=AsyncMock(),
-    update_global_map_splat=AsyncMock(),
-)
+# NOTE: Do not stub selfsuvis.pipeline.storage.global_maps. It is dependency-light
+# and other tests rely on importing the real module.
 
 # Stub pipeline.sfm
-_ensure_stub("selfsuvis.pipeline.sfm", run_sfm=MagicMock())
+_ensure_stub("selfsuvis.pipeline.mapping.sfm", run_sfm=MagicMock())
 # pipeline.mapper is NOT stubbed at module level — worker.main imports it
 # lazily inside _run_pass_a, so no stub is needed here.
 
-# Stub pipeline.gps_extractor
-_ensure_stub("selfsuvis.pipeline.gps_extractor", extract_gps=MagicMock())
+# Stub pipeline.media.gps (used by worker.main _resolve_site_origin)
+_ensure_stub("selfsuvis.pipeline.media.gps", extract_gps=MagicMock())
 
 # Stub app.state to avoid live Qdrant connect (needed by robot router)
 _state_stub = MagicMock()
@@ -584,7 +575,7 @@ class TestResolveSiteOrigin(unittest.TestCase):
         """No GPS in video → returns (None, None)."""
         fn = self._get_fn()
         logger = self._make_logger()
-        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=[None, None]):
+        with patch("selfsuvis.pipeline.media.gps.extract_gps", return_value=[None, None]):
             result = fn("/tmp/vid.mp4", logger)
         self.assertEqual(result, (None, None))
         logger.debug.assert_called()
@@ -594,7 +585,8 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fn = self._get_fn()
         logger = self._make_logger()
         with patch(
-            "selfsuvis.pipeline.gps_extractor.extract_gps", side_effect=RuntimeError("ffprobe fail")
+            "selfsuvis.pipeline.media.gps.extract_gps",
+            side_effect=RuntimeError("ffprobe fail"),
         ):
             result = fn("/tmp/vid.mp4", logger)
         self.assertEqual(result, (None, None))
@@ -604,7 +596,7 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fn = self._get_fn()
         logger = self._make_logger()
         gps = [{"lat": 48.0, "lon": 11.0, "alt": 100.0}]
-        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.media.gps.extract_gps", return_value=gps):
             with patch("asyncpg.connect", side_effect=ConnectionRefusedError("no DB")):
                 result = fn("/tmp/vid.mp4", logger)
         self.assertEqual(result, (None, None))
@@ -617,15 +609,15 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fake_conn = AsyncMock()
         fake_conn.close = AsyncMock()
 
-        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.media.gps.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
                 with patch(
-                    "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                    "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                     new_callable=AsyncMock,
                     return_value=7,
                 ):
                     with patch(
-                        "selfsuvis.pipeline.global_map_db.get_global_map_origin",
+                        "selfsuvis.pipeline.storage.global_maps.get_global_map_origin",
                         new_callable=AsyncMock,
                         return_value=(48.0, 11.0, 100.0),
                     ):
@@ -643,15 +635,15 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fake_conn = AsyncMock()
         fake_conn.close = AsyncMock()
 
-        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.media.gps.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
                 with patch(
-                    "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                    "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                     new_callable=AsyncMock,
                     return_value=99,
                 ):
                     with patch(
-                        "selfsuvis.pipeline.global_map_db.get_global_map_origin",
+                        "selfsuvis.pipeline.storage.global_maps.get_global_map_origin",
                         new_callable=AsyncMock,
                         return_value=(48.0, 11.0, 0.0),
                     ):
@@ -668,15 +660,15 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fake_conn = AsyncMock()
         fake_conn.close = AsyncMock()
 
-        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.media.gps.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
                 with patch(
-                    "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                    "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                     new_callable=AsyncMock,
                     return_value=5,
                 ):
                     with patch(
-                        "selfsuvis.pipeline.global_map_db.get_global_map_origin",
+                        "selfsuvis.pipeline.storage.global_maps.get_global_map_origin",
                         new_callable=AsyncMock,
                         return_value=None,
                     ):
@@ -693,15 +685,15 @@ class TestResolveSiteOrigin(unittest.TestCase):
         fake_conn = AsyncMock()
         fake_conn.close = AsyncMock()
 
-        with patch("selfsuvis.pipeline.gps_extractor.extract_gps", return_value=gps):
+        with patch("selfsuvis.pipeline.media.gps.extract_gps", return_value=gps):
             with patch("asyncpg.connect", new_callable=AsyncMock, return_value=fake_conn):
                 with patch(
-                    "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                    "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                     new_callable=AsyncMock,
                     return_value=1,
                 ):
                     with patch(
-                        "selfsuvis.pipeline.global_map_db.get_global_map_origin",
+                        "selfsuvis.pipeline.storage.global_maps.get_global_map_origin",
                         new_callable=AsyncMock,
                         return_value=(1.0, 2.0, 3.0),
                     ):

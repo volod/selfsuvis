@@ -24,16 +24,10 @@ Warm-starting from an SSL checkpoint (recommended):
 """
 
 import argparse
-import sys
-from pathlib import Path
-
-# Allow running from repo root without installing the package
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from selfsuvis.pipeline.core.logging import configure_logging
+from selfsuvis.pipeline.core.logging import get_logger
 from selfsuvis.pipeline.training.supervised import SupervisedFinetuneConfig, run_supervised_finetune
 
-configure_logging()
+logger = get_logger(__name__)
 
 
 def parse_args() -> argparse.Namespace:

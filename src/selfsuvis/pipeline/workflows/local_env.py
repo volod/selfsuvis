@@ -41,12 +41,9 @@ def apply_local_env(args: Any) -> None:
     # Load the project-root .env FIRST so its values are visible to the
     # setdefault calls below.  Explicit CLI args (direct os.environ assignments
     # further down) still override .env values.
-    try:
-        from dotenv import load_dotenv as _load_dotenv  # noqa: PLC0415
+    from selfsuvis.pipeline.core.env import load_layered_env
 
-        _load_dotenv()
-    except ImportError:
-        pass
+    load_layered_env(anchor_file=__file__)
 
     if getattr(args, "scenetok", None) is None:
         _env_scenetok = os.environ.get("SCENETOK_ENABLED", "").strip().lower()

@@ -666,13 +666,13 @@ reading any other artifact. It gives the coverage picture in one place.
 
 ### Utilyze profiling
 
-`scripts/selfsuvis-utilyze.sh` wraps the `utlz` profiling tool with defaults
+`scripts/ssv/ssv-utilyze.sh` wraps the `utlz` profiling tool with defaults
 suited to selfsuvis local runs. It:
 - Disables upstream workload metrics (privacy/telemetry off by default)
 - Writes logs to `data/reports/utilyze.log`
 - Passes additional `utlz` flags through verbatim
 
-Install with `scripts/install_utilyze.sh` (first time only). Use Utilyze when
+Install with `scripts/install/install_utilyze.sh` (first time only). Use Utilyze when
 diagnosing slow local runs: it shows GPU utilisation, CPU wait, memory pressure, and
 per-process resource allocation. If a step that should be GPU-bound shows low GPU
 utilisation, Utilyze will reveal whether the bottleneck is CPU-side preprocessing,

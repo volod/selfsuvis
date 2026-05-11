@@ -20,11 +20,11 @@
 
 - Git
 - Docker Engine >= 24 with Compose v2
-- NVIDIA Container Toolkit (optional, for GPU support) — run `sudo ./scripts/install_nvidia_docker.sh` if not installed
+- NVIDIA Container Toolkit (optional, for GPU support) — run `sudo ./scripts/install/install_nvidia_docker.sh` if not installed
 
 **Local dev additional requirements:**
 - Python 3.10
-- ffmpeg, libgl1 (`sudo ./scripts/install_system_deps.sh --with-python`)
+- ffmpeg, libgl1 (`sudo ./scripts/install/install_system_deps.sh --with-python`)
 
 ---
 
@@ -48,7 +48,7 @@ The practical route is two stages:
 
 ```bash
 # 1. Prepare local venv, models, sample data, and backing services.
-bash scripts/selfsuvis-setup.sh
+bash scripts/ssv/ssv-setup.sh
 
 # 2. Run the local video pipeline. Use the exact command printed by setup,
 # or start with the minimal command below.
@@ -60,7 +60,7 @@ bash scripts/selfsuvis-setup.sh
 
 # 3. Install coop extras and start the IoT stack for learning-path Steps 37-43.
 .venv/bin/pip install -e ".[coop_pilot]"
-APP_ENV=test ./scripts/coop-bootstrap.sh up -d
+APP_ENV=test ./scripts/coop/coop-bootstrap.sh up -d
 
 # 4. Start the local API so /site/* endpoints can subscribe to coop MQTT.
 APP_ENV=dev COOP_MQTT_HOST=localhost COOP_MQTT_PORT=1883 COOP_MQTT_TLS=false \
@@ -81,7 +81,7 @@ curl -s http://localhost:8000/site/threat | python -m json.tool
 Stop the coop containers when done:
 
 ```bash
-APP_ENV=test ./scripts/coop-compose.sh down
+APP_ENV=test ./scripts/coop/coop-compose.sh down
 ```
 
 For the detailed command sequence, see [Quick Start — Learning Path Pipeline](quickstart-pipeline.md#optional-step-7--run-coop_pilot-steps-36-42).

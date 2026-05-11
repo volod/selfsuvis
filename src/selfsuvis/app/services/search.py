@@ -1,14 +1,14 @@
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import asyncpg
 from PIL import Image
 from pydantic import BaseModel
-from qdrant_client.http import models as qmodels
 
 from selfsuvis.app.state import dino_model, store
 from selfsuvis.pipeline.core import settings
 from selfsuvis.pipeline.core.logging import get_logger
+from selfsuvis.pipeline.core.optional_deps import require_qdrant_models
 
 logger = get_logger(__name__)
 
@@ -35,7 +35,12 @@ class SearchResult(BaseModel):
     bbox: dict | None = None
 
 
-def payload_filter(search_type: str) -> qmodels.Filter | None:
+if TYPE_CHECKING:
+    from qdrant_client.http import models as qmodels  # pragma: no cover
+
+
+def payload_filter(search_type: str) -> "qmodels.Filter | None":
+    qmodels = require_qdrant_models()
     if search_type == "both":
         return None
     return qmodels.Filter(
@@ -130,7 +135,7 @@ def _tile_bbox(payload: dict) -> dict | None:
     }
 
 
-def format_results(scored: list[qmodels.ScoredPoint]) -> list[dict]:
+def format_results(scored: list["qmodels.ScoredPoint"]) -> list[dict]:
     results = []
     for p in scored:
         payload = p.payload or {}

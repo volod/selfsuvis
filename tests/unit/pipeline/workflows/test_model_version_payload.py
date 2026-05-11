@@ -1,11 +1,11 @@
 """Unit tests for model_version_id in Qdrant frame payload.
 
-Verifies that pipeline.indexer.VideoIndexer._build_frame_point always
+Verifies that pipeline.workflows.indexer.VideoIndexer._build_frame_point always
 includes 'model_version_id' in the PointStruct payload, sourced from
-pipeline.config.settings.MODEL_VERSION_ID.
+pipeline.core.config.settings.MODEL_VERSION_ID.
 
 cv2 and skimage are stubbed because they fail to import under NumPy 2.x
-in this environment.  All other deps (qdrant_client, torch, PIL) are real.
+in this environment. All other deps (qdrant_client, torch, PIL) are real.
 """
 
 import importlib
@@ -18,7 +18,7 @@ import pytest
 # ── Stub cv2 / skimage (NumPy 2.x binary incompatibility) ────────────────────
 # Force-replace even if already imported (real cv2 is broken under NumPy 2.x;
 # another test file may have loaded it before us in the same pytest session).
-if "selfsuvis.pipeline.indexer" not in sys.modules:
+if "selfsuvis.pipeline.workflows.indexer" not in sys.modules:
     for _name in ("cv2", "skimage", "skimage.metrics"):
         _m = types.ModuleType(_name)
         _m.__spec__ = type(
@@ -36,11 +36,7 @@ if "selfsuvis.pipeline.indexer" not in sys.modules:
         sys.modules[_name] = _m
 
 # ── Now import the module under test ─────────────────────────────────────────
-_indexer_mod = sys.modules.get("selfsuvis.pipeline.indexer")
-if _indexer_mod is not None and not hasattr(_indexer_mod, "settings"):
-    del sys.modules["selfsuvis.pipeline.indexer"]
-
-indexer_mod = importlib.import_module("selfsuvis.pipeline.indexer")
+indexer_mod = importlib.import_module("selfsuvis.pipeline.workflows.indexer")
 VideoIndexer = indexer_mod.VideoIndexer  # noqa: E402
 
 

@@ -96,7 +96,9 @@ def build_map_cache(
     Raises:
         RuntimeError: if Qdrant is unreachable.
     """
-    from qdrant_client.http import models as qmodels  # type: ignore
+    from selfsuvis.pipeline.core.optional_deps import require_qdrant_models
+
+    qmodels = require_qdrant_models()
 
     must = [
         qmodels.FieldCondition(key="type", match=qmodels.MatchValue(value="frame")),

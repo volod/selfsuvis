@@ -92,6 +92,14 @@ class _RateLimiter:
 _rate_limiter = _RateLimiter()
 _sensor_rate_limiter = _RateLimiter(per_second=10.0, burst=10.0)
 
+# Backward-compatible exports used by tests and older call sites.
+_MAX_LIMITERS = _RateLimiter.MAX_CLIENTS
+_limiters = _rate_limiter._limiters
+
+
+def _evict_oldest_limiter() -> None:
+    _rate_limiter._evict_oldest()
+
 
 def rate_limit(request: Request) -> None:
     if settings.RATE_LIMIT_PER_MIN <= 0:

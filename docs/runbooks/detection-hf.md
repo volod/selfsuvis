@@ -67,7 +67,7 @@ DETECTION_ENABLED=true \
   selfsuvis --mode local
 
 # Download weights
-python scripts/prepare_models.py --detection
+python -m selfsuvis.scripts.prepare_models --detection
 ```
 
 ---

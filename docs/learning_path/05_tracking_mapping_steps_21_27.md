@@ -294,7 +294,7 @@ For missions involving road networks, vehicle behavior, and outdoor navigation, 
 - [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — `step_unidrive_analysis()`
 - [`pipeline/core/config.py`](../../src/selfsuvis/pipeline/core/config.py) — `UNIDRIVE_*` settings
 - [`pipeline/core/preflight.py`](../../src/selfsuvis/pipeline/core/preflight.py) — startup cache/dependency checks for local runs and production startup
-- Model prep: `python scripts/prepare_models.py --unidrive`
+- Model prep: `python -m selfsuvis.scripts.prepare_models --unidrive`
 
 **Key concepts:**
 

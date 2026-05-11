@@ -95,7 +95,7 @@ WORLD_MODEL_ENABLED=true WORLD_MODEL=MCG-NJU/videomae-large selfsuvis --mode loc
 WORLD_MODEL_ENABLED=true WORLD_MODEL_STORE_EMBED=true selfsuvis --mode local
 
 # Download world model weights
-python scripts/prepare_models.py --world-model
+python -m selfsuvis.scripts.prepare_models --world-model
 ```
 
 ---

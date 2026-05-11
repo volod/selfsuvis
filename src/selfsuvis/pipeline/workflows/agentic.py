@@ -3,11 +3,11 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import cv2
 import numpy as np
 from PIL import Image
 
 from selfsuvis.pipeline.core import ensure_dir, get_logger, now_iso, settings
+from selfsuvis.pipeline.core.optional_deps import require_cv2
 
 if TYPE_CHECKING:
     pass
@@ -41,6 +41,7 @@ def _dominant_color_name(rgb: tuple[int, int, int]) -> str:
 
 
 def _scene_description(frame_bgr: np.ndarray) -> str:
+    cv2 = require_cv2()
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     mean_val = float(gray.mean())
     edges = cv2.Canny(gray, 80, 160)
@@ -51,6 +52,7 @@ def _scene_description(frame_bgr: np.ndarray) -> str:
 
 
 def _segment_kmeans(frame_bgr: np.ndarray, k: int = 4) -> list[Segment]:
+    cv2 = require_cv2()
     h, w = frame_bgr.shape[:2]
     data = frame_bgr.reshape((-1, 3)).astype(np.float32)
     if data.shape[0] < k:

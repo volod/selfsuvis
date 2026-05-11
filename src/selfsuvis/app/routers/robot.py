@@ -227,9 +227,11 @@ async def query_pose(body: PoseQuery, request: Request) -> PoseQueryResponse:
     import numpy as np
 
     try:
-        from qdrant_client.http import models as qmodels  # type: ignore
-    except ImportError:
-        raise HTTPException(status_code=503, detail="qdrant_client not available")
+        from selfsuvis.pipeline.core.optional_deps import require_qdrant_models
+
+        qmodels = require_qdrant_models()
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
     radius_m = body.radius_m
     has_gps = body.lat is not None and body.lon is not None

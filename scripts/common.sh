@@ -60,7 +60,7 @@ project_load_env_optional() {
 }
 
 project_load_env_required() {
-  [[ -f "$PROJECT_ENV_FILE" ]] || project_die "data/.env not found. Run './scripts/coop-env.sh' first."
+  [[ -f "$PROJECT_ENV_FILE" ]] || project_die "data/.env not found. Run './scripts/coop/coop-env.sh' first."
   project_load_env_optional
 }
 

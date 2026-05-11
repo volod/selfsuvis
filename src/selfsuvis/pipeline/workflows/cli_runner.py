@@ -4,9 +4,8 @@ import argparse
 import os
 from typing import Any
 
-import cv2
-
 from selfsuvis.pipeline.core import get_logger, settings
+from selfsuvis.pipeline.core.optional_deps import require_cv2
 from selfsuvis.pipeline.media.frames import (
     FrameRecord,
     extract_frames_adaptive,
@@ -87,6 +86,7 @@ def _parse_steps(raw: str | None) -> list[str]:
 
 def _load_existing_frames(out_dir: str) -> list[FrameRecord]:
     """Load FrameRecords from existing frame_*.png files in out_dir."""
+    cv2 = require_cv2()
     frames: list[FrameRecord] = []
     if not os.path.isdir(out_dir):
         return frames

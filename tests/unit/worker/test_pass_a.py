@@ -3,11 +3,11 @@
 All external dependencies (pycolmap, asyncpg, nerfstudio, postgres) are mocked.
 Synthetic SfM frame data drives every test path without real video or GPU.
 
-Because asyncpg / pipeline.sfm / pipeline.mapper are optional and may not be
+Because asyncpg / pipeline.sfm / pipeline.mapping.mapper are optional and may not be
 installed in the unit-test environment, we inject fake stub modules into
 sys.modules before any test runs so that unittest.mock.patch can resolve them.
-worker.main transitively imports pipeline.indexer (cv2 dep) and pipeline.job_db;
-those are also stubbed out at the module level before the worker is imported.
+worker.main transitively imports pipeline.workflows (model code); that is stubbed
+out at the module level before the worker is imported.
 """
 
 import sys
@@ -40,31 +40,18 @@ def _ensure_stub(name: str, **attrs) -> types.ModuleType:
 # Must be injected BEFORE importing worker.main.
 # ---------------------------------------------------------------------------
 
-# Stub pipeline.indexer to avoid cv2 import
-_indexer_stub = _make_stub("selfsuvis.pipeline.indexer")
-_indexer_stub.VideoIndexer = MagicMock()  # type: ignore[attr-defined]
+# Stub pipeline.workflows to avoid heavy model imports (cv2 / torch / etc.)
+_workflows_stub = _make_stub("selfsuvis.pipeline.workflows")
+_workflows_stub.VideoIndexer = MagicMock()  # type: ignore[attr-defined]
 
-# Stub pipeline.job_db
-_job_db_stub = _make_stub(
-    "selfsuvis.pipeline.job_db",
-    init_db=MagicMock(),
-    fetch_and_claim_next_pending=MagicMock(),
-    update_job=MagicMock(),
-)
-
-# Stub pipeline.processed_db
-_processed_db_stub = _make_stub(
-    "selfsuvis.pipeline.processed_db",
-    init_db=MagicMock(),
+# Stub pipeline.storage.processed entrypoints used by worker.main.
+_make_stub(
+    "selfsuvis.pipeline.storage.processed",
+    ainit_db=MagicMock(),
+    aget_by_hash=MagicMock(),
+    aupsert=MagicMock(),
     get_by_hash=MagicMock(),
-    upsert=MagicMock(),
 )
-
-# Stub pipeline.utils (file_sha256)
-_ensure_stub("selfsuvis.pipeline.utils", file_sha256=MagicMock(), resolve_allowed_path=MagicMock())
-
-# Stub pipeline.downloader
-_ensure_stub("selfsuvis.pipeline.downloader", download_url=MagicMock())
 
 # ---------------------------------------------------------------------------
 # Stubs for optional pipeline deps (not installed in unit-test venv)
@@ -77,28 +64,22 @@ _ensure_stub("selfsuvis.pipeline.downloader", download_url=MagicMock())
 # when this stub replaces the real module before those files are imported.
 _asyncpg_stub = _ensure_stub("asyncpg", connect=AsyncMock(), Pool=MagicMock())
 
-# pipeline.sfm stub
-_sfm_stub = _make_stub("selfsuvis.pipeline.sfm", run_sfm=MagicMock())
+# pipeline.mapping.sfm stub
+_sfm_stub = _make_stub("selfsuvis.pipeline.mapping.sfm", run_sfm=MagicMock())
 
 # pipeline.mapper is NOT stubbed at module level — worker.main imports it
 # lazily inside _run_pass_a (not at the module top level), so no stub is
 # needed here.  Individual tests patch pipeline.mapper.run_mapper as needed.
 
-# pipeline.gps_registration stub
+# pipeline.mapping.gps_registration stub
 _ensure_stub(
-    "selfsuvis.pipeline.gps_registration", register_mission_gps=MagicMock(), gps_to_enu=MagicMock()
+    "selfsuvis.pipeline.mapping.gps_registration",
+    register_mission_gps=MagicMock(),
+    gps_to_enu=MagicMock(),
 )
 
-# pipeline.global_map_db stub
-_ensure_stub(
-    "selfsuvis.pipeline.global_map_db",
-    get_or_create_global_map=AsyncMock(),
-    get_global_map_splats=AsyncMock(),
-    register_mission=AsyncMock(),
-    update_mission_splat_path=AsyncMock(),
-    update_global_map_splat=AsyncMock(),
-    get_global_map_origin=AsyncMock(),
-)
+# NOTE: Do not stub selfsuvis.pipeline.storage.global_maps. It is dependency-light
+# and other tests rely on importing the real module.
 
 
 # ---------------------------------------------------------------------------
@@ -181,21 +162,24 @@ def _all_patches(conn, mapper_result=None, enu_reg=None):
         enu_reg = (_ENU_ORIGIN, _GLOBAL_POSES)
 
     return [
-        patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
-        patch("selfsuvis.pipeline.gps_registration.register_mission_gps", return_value=enu_reg),
-        patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
-        patch("selfsuvis.pipeline.mapper.run_mapper", return_value=mapper_result),
+        patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
         patch(
-            "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+            "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
+            return_value=enu_reg,
+        ),
+        patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
+        patch("selfsuvis.pipeline.mapping.mapper.run_mapper", return_value=mapper_result),
+        patch(
+            "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
             new_callable=AsyncMock,
             return_value=_GLOBAL_MAP_ID,
         ),
         patch(
-            "selfsuvis.pipeline.global_map_db.get_global_map_splats",
+            "selfsuvis.pipeline.storage.global_maps.get_global_map_splats",
             new_callable=AsyncMock,
             return_value=_SPLAT_PATHS,
         ),
-        patch("selfsuvis.pipeline.global_map_db.register_mission", new_callable=AsyncMock),
+        patch("selfsuvis.pipeline.storage.global_maps.register_mission", new_callable=AsyncMock),
     ]
 
 
@@ -234,21 +218,24 @@ class TestPassAHappyPath(unittest.TestCase):
             splat_paths = _SPLAT_PATHS
 
         patches = [
-            patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
-            patch("selfsuvis.pipeline.gps_registration.register_mission_gps", return_value=enu_reg),
-            patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
-            patch("selfsuvis.pipeline.mapper.run_mapper", return_value=mapper_result),
+            patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
+                return_value=enu_reg,
+            ),
+            patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
+            patch("selfsuvis.pipeline.mapping.mapper.run_mapper", return_value=mapper_result),
+            patch(
+                "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                 new_callable=AsyncMock,
                 return_value=_GLOBAL_MAP_ID,
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_global_map_splats",
+                "selfsuvis.pipeline.storage.global_maps.get_global_map_splats",
                 new_callable=AsyncMock,
                 return_value=splat_paths,
             ),
-            patch("selfsuvis.pipeline.global_map_db.register_mission", new_callable=AsyncMock),
+            patch("selfsuvis.pipeline.storage.global_maps.register_mission", new_callable=AsyncMock),
         ]
         if extra_patches:
             patches.extend(extra_patches)
@@ -343,8 +330,11 @@ class TestPassAHappyPath(unittest.TestCase):
 
 class TestPassASfMFailures(unittest.TestCase):
     def test_sfm_runtime_exception_returns_early(self):
-        with patch("selfsuvis.pipeline.sfm.run_sfm", side_effect=RuntimeError("colmap crash")):
-            with patch("selfsuvis.pipeline.mapper.run_mapper") as mock_mapper:
+        with patch(
+            "selfsuvis.pipeline.mapping.sfm.run_sfm",
+            side_effect=RuntimeError("colmap crash"),
+        ):
+            with patch("selfsuvis.pipeline.mapping.mapper.run_mapper") as mock_mapper:
                 logger = _make_logger()
                 _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
                 mock_mapper.assert_not_called()
@@ -352,13 +342,13 @@ class TestPassASfMFailures(unittest.TestCase):
                 self.assertIn("SfM failed", logger.warning.call_args[0][0])
 
     def test_sfm_value_error_returns_early(self):
-        with patch("selfsuvis.pipeline.sfm.run_sfm", side_effect=ValueError("bad video")):
+        with patch("selfsuvis.pipeline.mapping.sfm.run_sfm", side_effect=ValueError("bad video")):
             logger = _make_logger()
             _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
             logger.warning.assert_called()
 
     def test_sfm_exception_includes_mission_id_in_log(self):
-        with patch("selfsuvis.pipeline.sfm.run_sfm", side_effect=RuntimeError("crash")):
+        with patch("selfsuvis.pipeline.mapping.sfm.run_sfm", side_effect=RuntimeError("crash")):
             logger = _make_logger()
             _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
             # Second format arg should be the mission_id
@@ -375,22 +365,25 @@ class TestPassAGpsRegFailures(unittest.TestCase):
     def _run_with_gps_exc(self, exc):
         conn = _fake_asyncpg_conn()
         with (
-            patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
-            patch("selfsuvis.pipeline.gps_registration.register_mission_gps", side_effect=exc),
+            patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
+            patch(
+                "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
+                side_effect=exc,
+            ),
             patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
             patch(
-                "selfsuvis.pipeline.mapper.run_mapper",
+                "selfsuvis.pipeline.mapping.mapper.run_mapper",
                 return_value={"map_status": "success", "splat_paths": [], "icp_results": []},
             ) as mock_mapper,
             patch(
-                "selfsuvis.pipeline.global_map_db.get_or_create_global_map", new_callable=AsyncMock
+                "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map", new_callable=AsyncMock
             ) as mock_get_map,
             patch(
-                "selfsuvis.pipeline.global_map_db.get_global_map_splats",
+                "selfsuvis.pipeline.storage.global_maps.get_global_map_splats",
                 new_callable=AsyncMock,
                 return_value=[],
             ),
-            patch("selfsuvis.pipeline.global_map_db.register_mission", new_callable=AsyncMock),
+            patch("selfsuvis.pipeline.storage.global_maps.register_mission", new_callable=AsyncMock),
         ):
             logger = _make_logger()
             _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
@@ -434,20 +427,20 @@ class TestPassAMapperImportFailures(unittest.TestCase):
         mode for environments without a live PostgreSQL instance.
         """
         with (
-            patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
+            patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
             patch(
-                "selfsuvis.pipeline.gps_registration.register_mission_gps",
+                "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
                 return_value=(_ENU_ORIGIN, _GLOBAL_POSES),
             ),
             patch(
                 "asyncpg.connect", new_callable=AsyncMock, side_effect=OSError("connection refused")
             ),
-            patch("selfsuvis.pipeline.mapper.run_mapper", return_value=_MAPPER_RESULT),
+            patch("selfsuvis.pipeline.mapping.mapper.run_mapper", return_value=_MAPPER_RESULT),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_or_create_global_map", new_callable=AsyncMock
+                "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map", new_callable=AsyncMock
             ),
-            patch("selfsuvis.pipeline.global_map_db.get_global_map_splats", new_callable=AsyncMock),
-            patch("selfsuvis.pipeline.global_map_db.register_mission", new_callable=AsyncMock),
+            patch("selfsuvis.pipeline.storage.global_maps.get_global_map_splats", new_callable=AsyncMock),
+            patch("selfsuvis.pipeline.storage.global_maps.register_mission", new_callable=AsyncMock),
         ):
             logger = _make_logger()
             _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
@@ -455,13 +448,13 @@ class TestPassAMapperImportFailures(unittest.TestCase):
             logger.warning.assert_called()
 
     def test_mapper_hidden_returns_gracefully(self):
-        real_mapper = sys.modules.get("selfsuvis.pipeline.mapper")
-        sys.modules["selfsuvis.pipeline.mapper"] = None  # type: ignore[assignment]
+        real_mapper = sys.modules.get("selfsuvis.pipeline.mapping.mapper")
+        sys.modules["selfsuvis.pipeline.mapping.mapper"] = None  # type: ignore[assignment]
         try:
             with (
-                patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
+                patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
                 patch(
-                    "selfsuvis.pipeline.gps_registration.register_mission_gps",
+                    "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
                     return_value=(_ENU_ORIGIN, _GLOBAL_POSES),
                 ),
             ):
@@ -469,7 +462,7 @@ class TestPassAMapperImportFailures(unittest.TestCase):
                 _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
                 # Must not raise
         finally:
-            sys.modules["selfsuvis.pipeline.mapper"] = real_mapper  # type: ignore[assignment]
+            sys.modules["selfsuvis.pipeline.mapping.mapper"] = real_mapper  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -480,22 +473,22 @@ class TestPassAMapperImportFailures(unittest.TestCase):
 class TestPassAConnectionFailures(unittest.TestCase):
     def test_asyncpg_connect_exception_does_not_propagate(self):
         with (
-            patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
+            patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
             patch(
-                "selfsuvis.pipeline.gps_registration.register_mission_gps",
+                "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
                 return_value=(_ENU_ORIGIN, _GLOBAL_POSES),
             ),
             patch("asyncpg.connect", side_effect=ConnectionRefusedError("postgres down")),
-            patch("selfsuvis.pipeline.mapper.run_mapper", return_value=_MAPPER_RESULT),
+            patch("selfsuvis.pipeline.mapping.mapper.run_mapper", return_value=_MAPPER_RESULT),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_or_create_global_map", new_callable=AsyncMock
+                "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map", new_callable=AsyncMock
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_global_map_splats",
+                "selfsuvis.pipeline.storage.global_maps.get_global_map_splats",
                 new_callable=AsyncMock,
                 return_value=[],
             ),
-            patch("selfsuvis.pipeline.global_map_db.register_mission", new_callable=AsyncMock),
+            patch("selfsuvis.pipeline.storage.global_maps.register_mission", new_callable=AsyncMock),
         ):
             logger = _make_logger()
             _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
@@ -504,26 +497,27 @@ class TestPassAConnectionFailures(unittest.TestCase):
     def test_conn_closed_even_if_mapper_raises(self):
         conn = _fake_asyncpg_conn()
         with (
-            patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
+            patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
             patch(
-                "selfsuvis.pipeline.gps_registration.register_mission_gps",
+                "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
                 return_value=(_ENU_ORIGIN, _GLOBAL_POSES),
             ),
             patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
             patch(
-                "selfsuvis.pipeline.mapper.run_mapper", side_effect=RuntimeError("nerfstudio OOM")
+                "selfsuvis.pipeline.mapping.mapper.run_mapper",
+                side_effect=RuntimeError("nerfstudio OOM"),
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                 new_callable=AsyncMock,
                 return_value=_GLOBAL_MAP_ID,
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_global_map_splats",
+                "selfsuvis.pipeline.storage.global_maps.get_global_map_splats",
                 new_callable=AsyncMock,
                 return_value=_SPLAT_PATHS,
             ),
-            patch("selfsuvis.pipeline.global_map_db.register_mission", new_callable=AsyncMock),
+            patch("selfsuvis.pipeline.storage.global_maps.register_mission", new_callable=AsyncMock),
         ):
             logger = _make_logger()
             _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)
@@ -532,25 +526,25 @@ class TestPassAConnectionFailures(unittest.TestCase):
     def test_conn_closed_even_if_register_mission_raises(self):
         conn = _fake_asyncpg_conn()
         with (
-            patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
+            patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
             patch(
-                "selfsuvis.pipeline.gps_registration.register_mission_gps",
+                "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
                 return_value=(_ENU_ORIGIN, _GLOBAL_POSES),
             ),
             patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
-            patch("selfsuvis.pipeline.mapper.run_mapper", return_value=_MAPPER_RESULT),
+            patch("selfsuvis.pipeline.mapping.mapper.run_mapper", return_value=_MAPPER_RESULT),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                 new_callable=AsyncMock,
                 return_value=_GLOBAL_MAP_ID,
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_global_map_splats",
+                "selfsuvis.pipeline.storage.global_maps.get_global_map_splats",
                 new_callable=AsyncMock,
                 return_value=_SPLAT_PATHS,
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.register_mission",
+                "selfsuvis.pipeline.storage.global_maps.register_mission",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("DB write fail"),
             ),
@@ -574,25 +568,25 @@ class TestPassAIcpFiltering(unittest.TestCase):
             "icp_results": icp_results,
         }
         with (
-            patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
+            patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
             patch(
-                "selfsuvis.pipeline.gps_registration.register_mission_gps",
+                "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
                 return_value=(_ENU_ORIGIN, _GLOBAL_POSES),
             ),
             patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
-            patch("selfsuvis.pipeline.mapper.run_mapper", return_value=mapper_result),
+            patch("selfsuvis.pipeline.mapping.mapper.run_mapper", return_value=mapper_result),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                 new_callable=AsyncMock,
                 return_value=_GLOBAL_MAP_ID,
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_global_map_splats",
+                "selfsuvis.pipeline.storage.global_maps.get_global_map_splats",
                 new_callable=AsyncMock,
                 return_value=_SPLAT_PATHS,
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.register_mission", new_callable=AsyncMock
+                "selfsuvis.pipeline.storage.global_maps.register_mission", new_callable=AsyncMock
             ) as mock_reg,
         ):
             _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, _make_logger())
@@ -650,27 +644,27 @@ class TestPassASceneCount(unittest.TestCase):
     def _run_with_sfm_out(self, sfm_out):
         conn = _fake_asyncpg_conn()
         with (
-            patch("selfsuvis.pipeline.sfm.run_sfm", return_value=sfm_out),
+            patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=sfm_out),
             patch(
-                "selfsuvis.pipeline.gps_registration.register_mission_gps",
+                "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
                 return_value=(_ENU_ORIGIN, _GLOBAL_POSES),
             ),
             patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
             patch(
-                "selfsuvis.pipeline.mapper.run_mapper",
+                "selfsuvis.pipeline.mapping.mapper.run_mapper",
                 return_value={"map_status": "success", "splat_paths": [], "icp_results": []},
             ) as mock_mapper,
             patch(
-                "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                 new_callable=AsyncMock,
                 return_value=_GLOBAL_MAP_ID,
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_global_map_splats",
+                "selfsuvis.pipeline.storage.global_maps.get_global_map_splats",
                 new_callable=AsyncMock,
                 return_value=[],
             ),
-            patch("selfsuvis.pipeline.global_map_db.register_mission", new_callable=AsyncMock),
+            patch("selfsuvis.pipeline.storage.global_maps.register_mission", new_callable=AsyncMock),
         ):
             _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, _make_logger())
             return mock_mapper
@@ -704,24 +698,24 @@ class TestPassAGpsRegistrationSuccess(unittest.TestCase):
     def test_gps_registration_done_logged(self):
         conn = _fake_asyncpg_conn()
         with (
-            patch("selfsuvis.pipeline.sfm.run_sfm", return_value=_SFM_OUT),
+            patch("selfsuvis.pipeline.mapping.sfm.run_sfm", return_value=_SFM_OUT),
             patch(
-                "selfsuvis.pipeline.gps_registration.register_mission_gps",
+                "selfsuvis.pipeline.mapping.gps_registration.register_mission_gps",
                 return_value=(_ENU_ORIGIN, _GLOBAL_POSES),
             ),
             patch("asyncpg.connect", new_callable=AsyncMock, return_value=conn),
-            patch("selfsuvis.pipeline.mapper.run_mapper", return_value=_MAPPER_RESULT),
+            patch("selfsuvis.pipeline.mapping.mapper.run_mapper", return_value=_MAPPER_RESULT),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_or_create_global_map",
+                "selfsuvis.pipeline.storage.global_maps.get_or_create_global_map",
                 new_callable=AsyncMock,
                 return_value=_GLOBAL_MAP_ID,
             ),
             patch(
-                "selfsuvis.pipeline.global_map_db.get_global_map_splats",
+                "selfsuvis.pipeline.storage.global_maps.get_global_map_splats",
                 new_callable=AsyncMock,
                 return_value=_SPLAT_PATHS,
             ),
-            patch("selfsuvis.pipeline.global_map_db.register_mission", new_callable=AsyncMock),
+            patch("selfsuvis.pipeline.storage.global_maps.register_mission", new_callable=AsyncMock),
         ):
             logger = _make_logger()
             _get_run_pass_a()(VIDEO_PATH, VIDEO_ID, MISSION_ID, {}, logger)

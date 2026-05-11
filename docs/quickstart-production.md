@@ -11,7 +11,7 @@ Deploy SelfSuvis using Docker — the recommended path for production use. No ho
 - Docker Engine >= 24 with Compose v2
 
 **GPU (optional but recommended):**
-- NVIDIA Container Toolkit — run `sudo ./scripts/install_nvidia_docker.sh` if it is not installed
+- NVIDIA Container Toolkit — run `sudo ./scripts/install/install_nvidia_docker.sh` if it is not installed
 
 ---
 
