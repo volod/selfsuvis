@@ -60,6 +60,7 @@ sed -i "s|CHIRPSTACK_API_SECRET=REPLACE_ME|CHIRPSTACK_API_SECRET=$(openssl rand 
 sed -i "s|CHIRPSTACK_MQTT_PASSWORD=REPLACE_ME|CHIRPSTACK_MQTT_PASSWORD=$(generate_password 16)|"                   "$OUTPUT"
 sed -i "s|CHIRPSTACK_GWBRIDGE_MQTT_PASSWORD=REPLACE_ME|CHIRPSTACK_GWBRIDGE_MQTT_PASSWORD=$(generate_password 16)|" "$OUTPUT"
 sed -i "s|FRIGATE_MQTT_PASSWORD=REPLACE_ME|FRIGATE_MQTT_PASSWORD=$(generate_password 16)|"                         "$OUTPUT"
+sed -i "s|GRAFANA_ADMIN_PASSWORD=REPLACE_ME|GRAFANA_ADMIN_PASSWORD=$(generate_password 16)|"                       "$OUTPUT"
 
 project_log "Generated data/.env from env/${ENV}.env (APP_ENV=${ENV})"
 project_log "Print credentials with: ./scripts/coop-credentials.sh --list"

@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi
+.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi coop-up coop-up-min coop-up-video coop-down coop-logs coop-status coop-metrics-up coop-release coop-release-min coop-release-video coop-release-metrics
 
 # Default target: show help when no target is given
 help:
@@ -9,6 +9,17 @@ help:
 	@echo "  Stack (Docker)"
 	@echo "  ---------------"
 	@echo "  make up              Start main stack + mapper ICP service (docker-compose.override.yml auto-loaded)"
+	@echo "  make coop-up         Bootstrap + start coop IoT stack (LoRaWAN, Frigate, MQTT)"
+	@echo "  make coop-down       Stop coop IoT stack"
+	@echo "  make coop-logs       Stream coop stack logs"
+	@echo "  make coop-status     Show coop container status and resource usage"
+	@echo "  make coop-metrics-up      Start coop stack + Prometheus / Grafana / cAdvisor (profile: metrics)"
+	@echo "  make coop-up-min          Start min bundle (LoRaWAN + MQTT only, no video)"
+	@echo "  make coop-up-video        Start video bundle (MQTT + Frigate only)"
+	@echo "  make coop-release         Build standard offline bundle (amd64); set VERSION= to tag"
+	@echo "  make coop-release-min     Build min bundle (no Frigate images)"
+	@echo "  make coop-release-video   Build video-only bundle"
+	@echo "  make coop-release-metrics Build standard bundle + Prometheus/Grafana images"
 	@echo "  make cvat-up         Start CVAT annotation service (http://localhost:8091)"
 	@echo "  make cvat-down       Stop CVAT services"
 	@echo "  make cvat-admin      Create CVAT superuser (first-time setup)"
@@ -175,6 +186,42 @@ test-unit:
 # Unit tests excluding cv2-dependent tests (use when numpy 2.x breaks opencv)
 test-unit-no-cv2:
 	$(if $(wildcard .venv/bin/python),.venv/bin/python -m pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py,pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py)
+
+coop-up: docker-check
+	COMPOSE_PROFILES=lorawan,video ./scripts/coop-bootstrap.sh up -d
+
+coop-up-min: docker-check
+	COMPOSE_PROFILES=lorawan ./scripts/coop-bootstrap.sh up -d
+
+coop-up-video: docker-check
+	COMPOSE_PROFILES=video ./scripts/coop-bootstrap.sh up -d
+
+coop-down: docker-check
+	./scripts/coop-compose.sh down
+
+coop-logs: docker-check
+	./scripts/coop-compose.sh logs -f --tail=100
+
+coop-status: docker-check
+	./scripts/coop-compose.sh ps
+	@echo ""
+	@docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" \
+	  $$(./scripts/coop-compose.sh ps -q 2>/dev/null) 2>/dev/null || true
+
+coop-metrics-up: docker-check
+	COMPOSE_PROFILES=lorawan,video,metrics ./scripts/coop-bootstrap.sh up -d
+
+coop-release:
+	./scripts/coop-release.sh --arch amd64 --bundle standard $(if $(VERSION),--version $(VERSION),) --yes
+
+coop-release-min:
+	./scripts/coop-release.sh --arch amd64 --bundle min $(if $(VERSION),--version $(VERSION),) --yes
+
+coop-release-video:
+	./scripts/coop-release.sh --arch amd64 --bundle video $(if $(VERSION),--version $(VERSION),) --yes
+
+coop-release-metrics:
+	./scripts/coop-release.sh --arch amd64 --bundle standard --with-metrics $(if $(VERSION),--version $(VERSION),) --yes
 
 cvat-up: docker-check
 	docker compose -f docker/docker-compose.cvat.yml up -d
