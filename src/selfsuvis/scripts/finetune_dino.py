@@ -28,9 +28,9 @@ DINO_CHECKPOINT is set and the file exists.
 
 import argparse
 
-from selfsuvis.pipeline.core.logging import configure_logging
+from selfsuvis.pipeline.core.logging import get_logger
 
-configure_logging()
+logger = get_logger(__name__)
 
 
 def main() -> None:

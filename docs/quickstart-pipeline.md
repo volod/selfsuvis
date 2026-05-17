@@ -17,27 +17,27 @@ for live IoT site monitoring after the video pipeline run.
 
 ### Path A — One-shot bootstrap (recommended)
 
-`scripts/selfsuvis-setup.sh` automates **every manual step below** in a single command: it installs the venv, downloads model weights, starts Ollama, downloads a test video, generates sensor sidecars, starts Docker services, and runs the DB migration. It prints the exact `selfsuvis --mode local` run command at the end.
+`scripts/ssv/ssv-setup.sh` automates **every manual step below** in a single command: it installs the venv, downloads model weights, starts Ollama, downloads a test video, generates sensor sidecars, starts Docker services, and runs the DB migration. It prints the exact `selfsuvis --mode local` run command at the end.
 
 ```bash
-bash scripts/selfsuvis-setup.sh
+bash scripts/ssv/ssv-setup.sh
 ```
 
 Common variants:
 
 ```bash
 # CPU-only machine — skip Docker and Ollama:
-bash scripts/selfsuvis-setup.sh --no-docker --no-ollama
+bash scripts/ssv/ssv-setup.sh --no-docker --no-ollama
 
 # Already have models; only want fresh sensor sample data:
-bash scripts/selfsuvis-setup.sh --sensor-data-only
+bash scripts/ssv/ssv-setup.sh --sensor-data-only
 
 # With HuggingFace token for gated Gemma weights:
-HF_TOKEN=hf_xxxx bash scripts/selfsuvis-setup.sh
+HF_TOKEN=hf_xxxx bash scripts/ssv/ssv-setup.sh
 ```
 
-**Already ran `setup_local_full.sh`?** Skip directly to [Step 6 — Run the pipeline](#step-6--run-the-pipeline).
-That wrapper now also installs Utilyze by default on supported Linux/NVIDIA hosts; use `--no-utilyze` if you want to skip it.
+Already ran setup once? Skip directly to [Step 6 — Run the pipeline](#step-6--run-the-pipeline).
+Use `--no-utilyze` if you want to skip the optional Utilyze step.
 If you already completed the video pipeline and only want the coop extension, skip
 to [Optional Step 7 — Run coop_pilot Steps 37-43](#optional-step-7--run-coop_pilot-steps-37-43).
 
@@ -54,7 +54,7 @@ Follow Steps 1–5 below, then proceed to [Step 6 — Run the pipeline](#step-6-
 ### Step 1 — Install the venv
 
 ```bash
-sudo ./scripts/install_system_deps.sh --with-python
+sudo ./scripts/install/install_system_deps.sh --with-python
 make venv
 ```
 
@@ -222,21 +222,21 @@ To control training epochs:
 
 ```bash
 # Drone flyover from 200 m at 10 m/s — classic counter-UAS test case:
-./scripts/play_drone_sound.sh --scenario flyover --distance 200 --speed 10
+./scripts/audio/play_drone_sound.sh --scenario flyover --distance 200 --speed 10
 
 # Hovering drone at 30 m altitude:
-./scripts/play_drone_sound.sh --scenario hover --distance 30 --duration 15
+./scripts/audio/play_drone_sound.sh --scenario hover --distance 30 --duration 15
 
 # Override speaker/output calibration when auto-detected volume is not enough:
-./scripts/play_drone_sound.sh --scenario flyover --distance 80 \
+./scripts/audio/play_drone_sound.sh --scenario flyover --distance 80 \
   --speaker-ref-db 78 --system-volume 0.6
 
 # Ask for microphone/speaker placement guidance:
-./scripts/play_drone_sound.sh --placement-help \
+./scripts/audio/play_drone_sound.sh --placement-help \
   --mic-type headset --player-type laptop --probe-distance-m 0.3
 
 # Save to WAV instead of playing:
-./scripts/play_drone_sound.sh --scenario approach --distance 500 --speed 20 \
+./scripts/audio/play_drone_sound.sh --scenario approach --distance 500 --speed 20 \
   --output data/reports/sim_approach_500m.wav
 ```
 
@@ -286,7 +286,7 @@ If `SCENETOK_API_URL` is absent or unreachable, the pipeline falls back to loadi
 
 The pipeline needs at least one video in `data/videos/` and, for sensor fusion, matching sidecar files.
 
-> **Note on step labels in this section:** the "Step N" labels in the sensor tables below are *sensor-type identifiers* used by `prepare_sensor_data.sh` to name its output directories (`step09_rf/`, `step10_thermal/`, …). They are a data-organisation convention and are separate from the pipeline runner's execution steps (1–32).
+> **Note on step labels in this section:** the "Step N" labels in the sensor tables below are *sensor-type identifiers* used by `ssv-prepare-sensor-data.sh` to name its output directories (`step09_rf/`, `step10_thermal/`, ...). They are a data-organization convention and are separate from the pipeline runner's execution steps (1-32).
 
 #### Option A — Use your own footage
 
@@ -297,20 +297,20 @@ cp /path/to/mission.mp4 data/videos/
 Then generate sensor sidecars keyed to that video's basename (the script auto-detects the file):
 
 ```bash
-bash scripts/selfsuvis-prepare-sensor-data.sh data/sensors
+bash scripts/ssv/ssv-prepare-sensor-data.sh data/sensors
 ```
 
 #### Option B — Download a public-domain test video
 
-`setup_local_full.sh` handles download, trim, and sensor sidecar generation automatically:
+`ssv-setup.sh` handles download, trim, and sensor sidecar generation automatically:
 
 ```bash
-bash scripts/selfsuvis-setup.sh --sensor-data-only
+bash scripts/ssv/ssv-setup.sh --sensor-data-only
 ```
 
 This downloads the US Highway 60 drone flyover (~27 MB, no login), trims it to 10 s, and generates all sensor sidecars in one step. If the CDN is unreachable it falls back to a second archive.org clip, then generates a synthetic video with ffmpeg.
 
-#### What `prepare_sensor_data.sh` does
+#### What `ssv-prepare-sensor-data.sh` does
 
 The script creates one directory per sensor step under `data/sensors/` and generates synthetic sidecar files named after the video currently in `data/videos/` — so they are immediately usable by the pipeline without any renaming.
 
@@ -464,7 +464,7 @@ Use `APP_ENV=test` for a localhost-bound learning stack. Bootstrap creates
 they are missing.
 
 ```bash
-APP_ENV=test ./scripts/coop-bootstrap.sh up -d
+APP_ENV=test ./scripts/coop/coop-bootstrap.sh up -d
 ```
 
 Check container health:
@@ -542,7 +542,7 @@ For a broader check of the site-state API and realtime threat bridge:
 ### 7.6 Stop the coop stack
 
 ```bash
-APP_ENV=test ./scripts/coop-compose.sh down
+APP_ENV=test ./scripts/coop/coop-compose.sh down
 ```
 
 The short study sequence is in [Local Learning Path](local_path.md#coop_pilot-extension-steps).

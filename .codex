@@ -2,7 +2,6 @@
 
 - Never create a git commit unless the user explicitly asks for one.
 - Never add `from __future__ import annotations`, and replace those cases with explicit imports TYPE_CHECKING.
-- Keep project scripts flat under `scripts/`; do not introduce new script subdirectories.
 - Top-level `scripts/` should be shell entrypoints only. Put Python implementations under `src/selfsuvis/...` and call them from shell wrappers when needed.
 - Reuse `scripts/common.sh` for shared shell behavior instead of duplicating root/env/bootstrap logic.
 
@@ -18,8 +17,8 @@
 
 - Prefer `make venv`, `make test-unit`, `make lint`, `make up`, `make down`, `make logs`.
 - PostgreSQL migration: `python -m selfsuvis.scripts.migrate_postgres`
-- Qdrant reset: `scripts/reset_qdrant.sh`
-- Coop stack entrypoints use flat paths: `scripts/bootstrap.sh`, `scripts/compose.sh`, `scripts/gen-env.sh`, `scripts/ensure_data_dirs.sh`.
+- Qdrant reset: `scripts/ssv/ssv-reset-qdrant.sh`
+- Coop stack entrypoints: `scripts/coop/coop-bootstrap.sh`, `scripts/coop/coop-compose.sh`, `scripts/coop/coop-env.sh`, `scripts/coop/coop-data-dirs.sh`.
 
 # architecture shorthand
 

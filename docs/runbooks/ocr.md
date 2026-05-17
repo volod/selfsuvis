@@ -70,7 +70,7 @@ OCR_ENABLED=true selfsuvis --mode local
 OCR_ENABLED=true OCR_MODEL=ucaslcl/GOT-OCR2_0 selfsuvis --mode local
 
 # Download weights
-python scripts/prepare_models.py --ocr
+python -m selfsuvis.scripts.prepare_models --ocr
 ```
 
 ### vLLM sidecar (reuse Qwen endpoint)

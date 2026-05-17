@@ -55,7 +55,7 @@ help:
 	@echo "  Troubleshooting"
 	@echo "  ----------------"
 	@echo "  Docker permission denied:  sudo usermod -aG docker \$$USER  then log out and back in (or newgrp docker)"
-	@echo "  GPU driver error:           sudo ./scripts/install_nvidia_docker.sh  or  make test-no-gpu"
+	@echo "  GPU driver error:           sudo ./scripts/install/install_nvidia_docker.sh  or  make test-no-gpu"
 	@echo "  Unable to open database:   sudo chown -R \$$(id -u):\$$(id -g) data cache_test"
 	@echo "  Root-owned data/cache:    make fix-data"
 	@echo ""
@@ -93,11 +93,11 @@ venv:
 				echo "Removing existing .venv..."; \
 				rm -rf .venv; \
 				uv venv .venv; \
-				./scripts/install_requirements.sh vision,dev .venv \
+				./scripts/install/install_requirements.sh vision,dev .venv \
 				;; \
 			u|U) \
 				echo "Updating requirements in existing .venv..."; \
-				./scripts/install_requirements.sh vision,dev .venv \
+				./scripts/install/install_requirements.sh vision,dev .venv \
 				;; \
 			*) \
 				echo "Invalid choice '$$choice'. Run  make venv  again and enter r or u."; \
@@ -106,13 +106,13 @@ venv:
 		esac \
 	else \
 		uv venv .venv; \
-		./scripts/install_requirements.sh vision,dev .venv; \
+		./scripts/install/install_requirements.sh vision,dev .venv; \
 	fi
 
 # Force CUDA torch wheels regardless of nvidia-smi detection (use when GPU is present but nvidia-smi absent)
 venv-cuda:
 	uv venv .venv
-	FORCE_CUDA=1 ./scripts/install_requirements.sh vision,dev .venv
+	FORCE_CUDA=1 ./scripts/install/install_requirements.sh vision,dev .venv
 
 # Rebuild xformers from source targeting the GPU present on this machine.
 # Auto-detects compute capability via nvidia-smi; falls back to a safe multi-arch
@@ -188,28 +188,28 @@ test-unit-no-cv2:
 	$(if $(wildcard .venv/bin/python),.venv/bin/python -m pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py,pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py)
 
 coop-up: docker-check
-	COMPOSE_PROFILES=lorawan,video ./scripts/coop-bootstrap.sh up -d
+	COMPOSE_PROFILES=lorawan,video ./scripts/coop/coop-bootstrap.sh up -d
 
 coop-up-min: docker-check
-	COMPOSE_PROFILES=lorawan ./scripts/coop-bootstrap.sh up -d
+	COMPOSE_PROFILES=lorawan ./scripts/coop/coop-bootstrap.sh up -d
 
 coop-up-video: docker-check
-	COMPOSE_PROFILES=video ./scripts/coop-bootstrap.sh up -d
+	COMPOSE_PROFILES=video ./scripts/coop/coop-bootstrap.sh up -d
 
 coop-down: docker-check
-	./scripts/coop-compose.sh down
+	./scripts/coop/coop-compose.sh down
 
 coop-logs: docker-check
-	./scripts/coop-compose.sh logs -f --tail=100
+	./scripts/coop/coop-compose.sh logs -f --tail=100
 
 coop-status: docker-check
-	./scripts/coop-compose.sh ps
+	./scripts/coop/coop-compose.sh ps
 	@echo ""
 	@docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" \
-	  $$(./scripts/coop-compose.sh ps -q 2>/dev/null) 2>/dev/null || true
+	  $$(./scripts/coop/coop-compose.sh ps -q 2>/dev/null) 2>/dev/null || true
 
 coop-metrics-up: docker-check
-	COMPOSE_PROFILES=lorawan,video,metrics ./scripts/coop-bootstrap.sh up -d
+	COMPOSE_PROFILES=lorawan,video,metrics ./scripts/coop/coop-bootstrap.sh up -d
 
 coop-release:
 	./scripts/coop-release.sh --arch amd64 --bundle standard $(if $(VERSION),--version $(VERSION),) --yes
@@ -247,10 +247,10 @@ lint:
 	ruff format --check .
 
 utlz-install:
-	./scripts/install_utilyze.sh
+	./scripts/install/install_utilyze.sh
 
 utlz:
-	./scripts/selfsuvis-utilyze.sh
+	./scripts/ssv/ssv-utilyze.sh
 
 utlz-endpoints:
-	./scripts/selfsuvis-utilyze.sh --endpoints
+	./scripts/ssv/ssv-utilyze.sh --endpoints

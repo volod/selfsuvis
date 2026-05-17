@@ -1,20 +1,20 @@
 """Manage Frigate camera configuration from the coop_pilot package.
 
 Usage:
-  ./scripts/coop-camera.sh --name front_door --rtsp rtsp://user:pass@192.168.1.100:554/stream1
-  ./scripts/coop-camera.sh --name usb_cam --usb /dev/video0
-  ./scripts/coop-camera.sh --name usb_cam --usb /dev/video0 --restart
-  ./scripts/coop-camera.sh --list
+  ./scripts/coop/coop-camera.sh --name front_door --rtsp rtsp://user:pass@192.168.1.100:554/stream1
+  ./scripts/coop/coop-camera.sh --name usb_cam --usb /dev/video0
+  ./scripts/coop/coop-camera.sh --name usb_cam --usb /dev/video0 --restart
+  ./scripts/coop/coop-camera.sh --list
 """
-
-from __future__ import annotations
 
 import argparse
 import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+from selfsuvis.pipeline.core.env import project_roots
+
+ROOT = project_roots(__file__)[1]
 FRIGATE_CONFIG = ROOT / "config" / "coop" / "frigate" / "config.yml"
 
 
@@ -114,7 +114,7 @@ def add_usb_camera(
 
 def restart_frigate() -> bool:
     """Restart Frigate container. Returns True on success."""
-    compose_script = ROOT / "scripts" / "coop-compose.sh"
+    compose_script = ROOT / "scripts" / "coop" / "coop-compose.sh"
     try:
         subprocess.run(
             [str(compose_script), "restart", "frigate"],
@@ -180,7 +180,7 @@ def main() -> None:
         if restart_frigate():
             print("OK: Frigate restarted")
         else:
-            print("Run manually: ./scripts/coop-compose.sh restart frigate")
+            print("Run manually: ./scripts/coop/coop-compose.sh restart frigate")
 
 
 if __name__ == "__main__":

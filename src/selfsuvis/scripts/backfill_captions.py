@@ -19,17 +19,13 @@ Options:
 import argparse
 import asyncio
 import os
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncpg
 from PIL import Image
 
-from selfsuvis.pipeline.core.env import env_str, load_layered_env
+from selfsuvis.pipeline.core.env import env_str, load_script_env
 
-load_layered_env(anchor_file=__file__, app_env=os.getenv("APP_ENV", "prod"))
+load_script_env(anchor_file=__file__)
 
 from selfsuvis.pipeline.core.config import settings  # noqa: E402
 from selfsuvis.pipeline.core.logging import get_logger  # noqa: E402
@@ -153,8 +149,9 @@ def _set_qdrant_payload(
         return
 
     try:
-        from qdrant_client import QdrantClient
+        from selfsuvis.pipeline.core.optional_deps import require_qdrant_client
 
+        QdrantClient = require_qdrant_client()
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         collection = settings.QDRANT_COLLECTION
 

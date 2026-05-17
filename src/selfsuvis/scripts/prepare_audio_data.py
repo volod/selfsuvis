@@ -39,11 +39,7 @@ Environment
 
 import argparse
 import os
-import sys
 from pathlib import Path
-
-# Allow running without installing the package.
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def _default_data_dir() -> str:

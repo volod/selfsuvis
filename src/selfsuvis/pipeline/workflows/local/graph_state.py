@@ -21,6 +21,29 @@ from typing import Annotated, Any
 from typing_extensions import TypedDict
 
 
+class SerializableNamespace(dict):
+    """Dict subclass with attribute-style access, safe for LangGraph msgpack checkpointing.
+
+    Stores CLI args as a plain dict so the checkpointer can serialize them, while
+    keeping the ``args.field`` access pattern used across all graph nodes unchanged.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:
+        try:
+            del self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+
 def _merge_stats(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     """Merge two stats dicts — deep-merges the 'timings' sub-dict."""
     result = dict(a)

@@ -13,17 +13,17 @@ Set up the SelfSuvis API, worker, and UI for local development with hot-reload. 
 - Git
 - Docker Engine >= 24 with Compose v2
 - Python 3.10
-- ffmpeg, libgl1 (`sudo ./scripts/install_system_deps.sh --with-python`)
+- ffmpeg, libgl1 (`sudo ./scripts/install/install_system_deps.sh --with-python`)
 
 **GPU (optional but recommended):**
-- NVIDIA Container Toolkit — run `sudo ./scripts/install_nvidia_docker.sh` if it is not installed
+- NVIDIA Container Toolkit — run `sudo ./scripts/install/install_nvidia_docker.sh` if it is not installed
 
 ---
 
 ## 1. Install system dependencies and create the venv
 
 ```bash
-sudo ./scripts/install_system_deps.sh --with-python
+sudo ./scripts/install/install_system_deps.sh --with-python
 make venv
 ```
 
@@ -162,7 +162,7 @@ the localhost MQTT and Frigate ports:
 
 ```bash
 .venv/bin/pip install -e ".[coop_pilot]"
-APP_ENV=test ./scripts/coop-bootstrap.sh up -d
+APP_ENV=test ./scripts/coop/coop-bootstrap.sh up -d
 
 APP_ENV=dev \
 COOP_MQTT_HOST=localhost \
@@ -184,7 +184,7 @@ curl -s http://localhost:8000/site/threat | python -m json.tool
 Stop coop containers:
 
 ```bash
-APP_ENV=test ./scripts/coop-compose.sh down
+APP_ENV=test ./scripts/coop/coop-compose.sh down
 ```
 
 For the full local learning sequence, see

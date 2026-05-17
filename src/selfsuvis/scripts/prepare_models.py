@@ -6,45 +6,45 @@ that the API, worker, and local full-analysis pipeline can start without network
 Usage
 -----
     # Download everything (default):
-    python scripts/prepare_models.py                # all configured models
-    python scripts/prepare_models.py --all          # explicit form
+    python -m selfsuvis.scripts.prepare_models                # all configured models
+    python -m selfsuvis.scripts.prepare_models --all          # explicit form
 
     # Core models only:
-    python scripts/prepare_models.py --clip --dino
-    python scripts/prepare_models.py --clip         # OpenCLIP only
-    python scripts/prepare_models.py --dino         # DINOv2/v3 hub archive + weights only
+    python -m selfsuvis.scripts.prepare_models --clip --dino
+    python -m selfsuvis.scripts.prepare_models --clip         # OpenCLIP only
+    python -m selfsuvis.scripts.prepare_models --dino         # DINOv2/v3 hub archive + weights only
 
     # Gemma open-weight (downloads weights from HuggingFace — requires HF_TOKEN):
-    python scripts/prepare_models.py --gemma        # Step 03: google/gemma-3-4b-it (default, multimodal)
-    python scripts/prepare_models.py --gemma --gemma-model google/gemma-3-1b-it   # text-only, ~2 GiB
-    python scripts/prepare_models.py --gemma --gemma-model google/gemma-3-12b-it  # 12B, ~24 GiB
+    python -m selfsuvis.scripts.prepare_models --gemma        # Step 03: google/gemma-3-4b-it (default, multimodal)
+    python -m selfsuvis.scripts.prepare_models --gemma --gemma-model google/gemma-3-1b-it   # text-only, ~2 GiB
+    python -m selfsuvis.scripts.prepare_models --gemma --gemma-model google/gemma-3-12b-it  # 12B, ~24 GiB
 
     # Step-specific optional models:
-    python scripts/prepare_models.py --flash-attn   # Install flash-attn (CUDA required)
-    python scripts/prepare_models.py --whisper      # Step 05: Whisper ASR
-    python scripts/prepare_models.py --florence     # Step 04: Florence-2 scene captioning
-    python scripts/prepare_models.py --ocr          # Step 06: OCR (auto-selects by VRAM)
-    python scripts/prepare_models.py --depth        # Step 07: Depth estimation
-    python scripts/prepare_models.py --detection    # Step 08: Object detection
-    python scripts/prepare_models.py --world-model  # Step 11: World model video embeddings
-    python scripts/prepare_models.py --unidrive     # Step 13: UniDriveVLA expert model assets
-    python scripts/prepare_models.py --yolo         # Step 09: YOLO11l detection (~48 MB)
-    python scripts/prepare_models.py --sam          # Step 09: SAM3/SAM2 segmentation (tries sam3 first)
+    python -m selfsuvis.scripts.prepare_models --flash-attn   # Install flash-attn (CUDA required)
+    python -m selfsuvis.scripts.prepare_models --whisper      # Step 05: Whisper ASR
+    python -m selfsuvis.scripts.prepare_models --florence     # Step 04: Florence-2 scene captioning
+    python -m selfsuvis.scripts.prepare_models --ocr          # Step 06: OCR (auto-selects by VRAM)
+    python -m selfsuvis.scripts.prepare_models --depth        # Step 07: Depth estimation
+    python -m selfsuvis.scripts.prepare_models --detection    # Step 08: Object detection
+    python -m selfsuvis.scripts.prepare_models --world-model  # Step 11: World model video embeddings
+    python -m selfsuvis.scripts.prepare_models --unidrive     # Step 13: UniDriveVLA expert model assets
+    python -m selfsuvis.scripts.prepare_models --yolo         # Step 09: YOLO11l detection (~48 MB)
+    python -m selfsuvis.scripts.prepare_models --sam          # Step 09: SAM3/SAM2 segmentation (tries sam3 first)
 
     # Override auto-selected model for any step:
-    python scripts/prepare_models.py --ocr       --ocr-model       microsoft/trocr-base-printed
-    python scripts/prepare_models.py --depth     --depth-model     depth-anything/Depth-Anything-V2-Large-hf
-    python scripts/prepare_models.py --detection --detection-model IDEA-Research/grounding-dino-base
-    python scripts/prepare_models.py --world-model --world-model-id MCG-NJU/videomae-base
-    python scripts/prepare_models.py --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
-    python scripts/prepare_models.py --yolo        --yolo-model yolo11x
-    python scripts/prepare_models.py --sam         --sam-model facebook/sam2-hiera-large
+    python -m selfsuvis.scripts.prepare_models --ocr       --ocr-model       microsoft/trocr-base-printed
+    python -m selfsuvis.scripts.prepare_models --depth     --depth-model     depth-anything/Depth-Anything-V2-Large-hf
+    python -m selfsuvis.scripts.prepare_models --detection --detection-model IDEA-Research/grounding-dino-base
+    python -m selfsuvis.scripts.prepare_models --world-model --world-model-id MCG-NJU/videomae-base
+    python -m selfsuvis.scripts.prepare_models --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
+    python -m selfsuvis.scripts.prepare_models --yolo        --yolo-model yolo11x
+    python -m selfsuvis.scripts.prepare_models --sam         --sam-model facebook/sam2-hiera-large
 
     # Step 14: SceneTok streaming scene encoder + segmentation decoder (~24 GB VRAM to run):
     # Checkpoints are downloaded from MPI Nextcloud (public, no login required).
-    python scripts/prepare_models.py --scenetok                                    # default: va-videodc_re10k
-    python scripts/prepare_models.py --scenetok --scenetok-checkpoint va-videodc_dl3dv
-    python scripts/prepare_models.py --scenetok --scenetok-checkpoint va-wan_dl3dv
+    python -m selfsuvis.scripts.prepare_models --scenetok                                    # default: va-videodc_re10k
+    python -m selfsuvis.scripts.prepare_models --scenetok --scenetok-checkpoint va-videodc_dl3dv
+    python -m selfsuvis.scripts.prepare_models --scenetok --scenetok-checkpoint va-wan_dl3dv
 
     # Check what is already cached (no network):
     python scripts/prepare_models.py --verify          # verify all configured models
@@ -84,6 +84,7 @@ import contextlib
 import importlib.util
 import io
 import logging
+import re
 import os
 import shutil
 import subprocess
@@ -120,19 +121,15 @@ for _mod_name in list(sys.modules):
     if isinstance(reg, dict):
         reg.clear()
 
-# Allow running from repo root without installing the package.
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from selfsuvis.pipeline.core.env import load_script_env  # noqa: E402
+from selfsuvis.pipeline.core.logging import get_logger  # noqa: E402
 
-from selfsuvis.pipeline.core.env import load_layered_env  # noqa: E402
-from selfsuvis.pipeline.core.logging import configure_logging, get_logger  # noqa: E402
-
-load_layered_env(anchor_file=__file__, app_env=os.getenv("APP_ENV", "prod"))
+load_script_env(anchor_file=__file__)
 
 os.environ.setdefault("DEVICE", "auto")
 os.environ.setdefault("ALLOWED_INDEX_PATHS", "")
 os.environ.setdefault("API_KEY", "")
 
-configure_logging()
 log = get_logger("prepare_models")
 # Suppress httpx/httpcore request-level logs — they flood the output with
 # expected 404s from HF library probes for optional files (chat_template.jinja,
@@ -536,6 +533,60 @@ def _label(model_name: str, resolved: str) -> str:
     return model_name
 
 
+# Key prefixes present in the full SeamlessM4T checkpoint that are absent in the
+# SpeechToText variant — their absence is documented as safe to ignore.
+_SEAMLESS_EXPECTED_UNEXPECTED = ("text_encoder.", "t2u_model.", "vocoder.")
+
+
+@contextlib.contextmanager
+def _capture_hf_load_report(label: str):
+    """Capture the [transformers] LOAD REPORT printed to stdout on model load.
+
+    Replaces the noisy table with a single log line.  Three categories:
+      - known-UNEXPECTED (TTS/T2U components absent by design) -> INFO [ok]
+      - unknown-UNEXPECTED (weights outside expected absent set) -> WARNING
+      - MISSING (weights needed for the task are absent) -> WARNING
+    Non-report stdout is passed through unchanged.
+    """
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        yield
+    output = buf.getvalue()
+    if "LOAD REPORT" not in output:
+        if output.strip():
+            sys.stdout.write(output)
+        return
+    unexpected: list[str] = []
+    missing: list[str] = []
+    for line in output.splitlines():
+        m = re.match(r"^\s*([\w.{}, 0-9]+?)\s*\|\s*(UNEXPECTED|MISSING)\s*\|", line)
+        if m:
+            key, status = m.group(1).strip(), m.group(2)
+            (unexpected if status == "UNEXPECTED" else missing).append(key)
+    known = [k for k in unexpected if k.startswith(_SEAMLESS_EXPECTED_UNEXPECTED)]
+    unknown = [k for k in unexpected if not k.startswith(_SEAMLESS_EXPECTED_UNEXPECTED)]
+    if known:
+        log.info(
+            "  [ok] %s: %d TTS/T2U weights skipped (expected for speech-to-text task)",
+            label,
+            len(known),
+        )
+    if unknown:
+        log.warning(
+            "  [warn] %s: %d unexpected weights outside known absent set: %s",
+            label,
+            len(unknown),
+            unknown[:3],
+        )
+    if missing:
+        log.warning(
+            "  [warn] %s: %d missing weights — ASR output may be degraded: %s",
+            label,
+            len(missing),
+            missing[:3],
+        )
+
+
 def _download_whisper(model_id: str) -> None:
     log.info("Whisper ASR — model=%s", model_id)
     if _is_hf_cached(model_id):
@@ -545,7 +596,8 @@ def _download_whisper(model_id: str) -> None:
     try:
         from transformers import pipeline as _hf_pipeline
 
-        _hf_pipeline("automatic-speech-recognition", model=model_id, device="cpu")
+        with _capture_hf_load_report(model_id):
+            _hf_pipeline("automatic-speech-recognition", model=model_id, device="cpu")
         log.info("  [ok] Whisper ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
         log.warning("  Whisper download failed: %s", exc)
@@ -1451,12 +1503,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     p.add_argument("--whisper", action="store_true", help="Download Whisper ASR model (step 05)")
-    _default_whisper = os.getenv("ASR_MODEL", "openai/whisper-large-v3-turbo")
     p.add_argument(
         "--whisper-model",
-        default=_default_whisper,
+        default=os.getenv("ASR_MODEL", "auto"),
         metavar="MODEL_ID",
-        help="Whisper model ID to cache",
+        help="Whisper/ASR model ID to cache, or 'auto' to match runtime auto-selection",
     )
 
     p.add_argument(
@@ -1697,6 +1748,11 @@ def main() -> None:
     # -- Resolve all HF model IDs up front ------------------------------------
     errors: list = []
     whisper_id = args.whisper_model
+    if (whisper_id or "").strip().lower() in ("", "auto"):
+        from selfsuvis.pipeline.vision.registry import auto_select, detect_resources
+
+        whisper_id = auto_select("asr", detect_resources()) or "openai/whisper-large-v3-turbo"
+        log.info("ASR auto-selected model: %s", whisper_id)
     florence_id = args.florence_model
     ocr_id = _resolve_hf_model("ocr", args.ocr_model) if do_ocr else ""
     depth_id = _resolve_hf_model("depth", args.depth_model) if do_depth else ""

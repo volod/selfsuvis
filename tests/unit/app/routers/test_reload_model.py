@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 if "asyncpg" not in sys.modules:
     _asyncpg = types.ModuleType("asyncpg")
     _asyncpg.connect = MagicMock()
+    _asyncpg.Pool = MagicMock()  # type: ignore[attr-defined]
     sys.modules["asyncpg"] = _asyncpg
 
 # ── Stub app.state (heavy model loading side-effects) ────────────────────────

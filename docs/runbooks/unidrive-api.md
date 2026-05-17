@@ -81,8 +81,8 @@ selfsuvis --mode local \
 
 ```bash
 # Download weights (~4 GB for base, ~16 GB for large)
-python scripts/prepare_models.py --unidrive
-python scripts/prepare_models.py --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Large_Stage3
+python -m selfsuvis.scripts.prepare_models --unidrive
+python -m selfsuvis.scripts.prepare_models --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Large_Stage3
 
 # Serve via vLLM (requires Qwen3-VL support in your vLLM version)
 python -m vllm.entrypoints.openai.api_server \

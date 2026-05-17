@@ -55,7 +55,7 @@ selfsuvis --mode local
 FLORENCE_MODEL=microsoft/Florence-2-base selfsuvis --mode local
 
 # Download weights
-python scripts/prepare_models.py --florence
+python -m selfsuvis.scripts.prepare_models --florence
 ```
 
 ### vLLM sidecar

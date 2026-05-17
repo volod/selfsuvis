@@ -46,7 +46,7 @@ Legacy SQLite files are no longer part of the runtime path. Schema state lives i
 
 ## Sensor sidecar files
 
-Each sidecar sits beside the video with the same basename. `scripts/selfsuvis-setup.sh` generates synthetic test sidecars automatically when you run it against a test video.
+Each sidecar sits beside the video with the same basename. `scripts/ssv/ssv-setup.sh` generates synthetic test sidecars automatically when you run it against a test video.
 
 ```
 data/videos/mission.mp4
@@ -70,7 +70,7 @@ To regenerate sidecars for a different video:
 
 ```bash
 cp /path/to/my_mission.mp4 data/videos/
-bash scripts/selfsuvis-setup.sh --sensor-data-only
+bash scripts/ssv/ssv-setup.sh --sensor-data-only
 ```
 
 ---

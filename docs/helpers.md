@@ -1,9 +1,9 @@
 # Helpers
 
 ## Install scripts (run with sudo when noted)
-- `./scripts/install_system_deps.sh` — ffmpeg, OpenCV deps (Linux). Add `--with-python` for Python/venv.
-- `./scripts/install_nvidia_docker.sh` — NVIDIA Container Toolkit for Docker GPU
-- `./scripts/install_requirements.sh` — install Python deps from `pyproject.toml` extras into a venv (called by `make venv`)
+- `./scripts/install/install_system_deps.sh` — ffmpeg, OpenCV deps (Linux). Add `--with-python` for Python/venv.
+- `./scripts/install/install_nvidia_docker.sh` — NVIDIA Container Toolkit for Docker GPU
+- `./scripts/install/install_requirements.sh` — install Python deps from `pyproject.toml` extras into a venv (called by `make venv`)
 - `selfsuvis-env` — generate a resource-aware root `.env` from packaged presets
 
 ## Pre-download weights for offline use
@@ -67,7 +67,7 @@ curl -s \
 
 ## Reset Qdrant collection
 ```bash
-./scripts/selfsuvis-reset-qdrant.sh
+./scripts/ssv/ssv-reset-qdrant.sh
 ```
 
 ---

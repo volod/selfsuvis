@@ -10,7 +10,7 @@
 If the API or worker starts but job/frame queries fail, run:
 
 ```bash
-python scripts/migrate_postgres.py
+python -m selfsuvis.scripts.migrate_postgres
 ```
 
 ## Qdrant unavailable
@@ -45,12 +45,12 @@ If `/index/video path=...` or `/index/dir` returns path errors, set `ALLOWED_IND
 
 ## GPU container start failures
 
-- Install NVIDIA Container Toolkit with `sudo ./scripts/install_nvidia_docker.sh`
+- Install NVIDIA Container Toolkit with `sudo ./scripts/install/install_nvidia_docker.sh`
 - Use CPU-only or reduced-model workflows if GPU access is not available
 
 ## Model download or load failures
 
-- Pre-fetch required assets with `python scripts/prepare_models.py`
+- Pre-fetch required assets with `python -m selfsuvis.scripts.prepare_models --all`
 - Set `HF_TOKEN` for gated Hugging Face models
 - Lower batch sizes or disable optional multimodal stages if VRAM is insufficient
 

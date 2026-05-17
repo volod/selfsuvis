@@ -31,7 +31,7 @@ selfsuvis --mode local \
 ## Quick: download all model weights
 
 ```bash
-python scripts/prepare_models.py --all
+python -m selfsuvis.scripts.prepare_models --all
 ```
 
 ## Step-to-runbook map

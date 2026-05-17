@@ -11,7 +11,7 @@ Start the main stack:
 
 ```bash
 make up
-python scripts/migrate_postgres.py
+python -m selfsuvis.scripts.migrate_postgres
 ```
 
 `make up` creates writable `data/` and `cache/` directories, then starts `postgres`, `qdrant`, `api`, `worker`, `ui`, `nginx`, `mediamtx`, and any default compose services. Run `scripts/migrate_postgres.py` once after PostgreSQL is available to create the schema.
@@ -26,14 +26,14 @@ Optional helpers:
 - `make logs` to follow stack logs
 - `make down` to stop the stack
 
-If GPU containers fail to start, install the toolkit with `sudo ./scripts/install_nvidia_docker.sh` or use CPU-only workflows where possible.
+If GPU containers fail to start, install the toolkit with `sudo ./scripts/install/install_nvidia_docker.sh` or use CPU-only workflows where possible.
 
 ## Local development setup
 
 Install host dependencies:
 
 ```bash
-sudo ./scripts/install_system_deps.sh --with-python
+sudo ./scripts/install/install_system_deps.sh --with-python
 make venv
 ```
 
@@ -44,7 +44,7 @@ Then start the services you need. Typical split:
 
 ```bash
 docker compose -f docker/core/docker-compose.yml up -d postgres qdrant
-python scripts/migrate_postgres.py
+python -m selfsuvis.scripts.migrate_postgres
 .venv/bin/uvicorn selfsuvis.app.main:app --reload --host 0.0.0.0 --port 8000
 .venv/bin/python -m selfsuvis.worker
 python -m selfsuvis.ui --server.address 0.0.0.0 --server.port 8501

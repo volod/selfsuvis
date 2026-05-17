@@ -4,21 +4,17 @@
 Creates the full current schema (tables + indexes) on a fresh database.
 Run after PostgreSQL is available:
 
-    python scripts/migrate_postgres.py
+    python -m selfsuvis.scripts.migrate_postgres
 """
 
 import asyncio
 import os
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncpg
 
-from selfsuvis.pipeline.core.env import env_str, load_layered_env
+from selfsuvis.pipeline.core.env import env_str, load_script_env
 
-load_layered_env(anchor_file=__file__, app_env=os.getenv("APP_ENV", "prod"))
+load_script_env(anchor_file=__file__)
 
 DATABASE_URL = env_str(
     "DATABASE_URL",

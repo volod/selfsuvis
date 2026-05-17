@@ -11,13 +11,13 @@ from selfsuvis.pipeline.media.rtsp_ingest import record_rtsp, validate_rtsp_url
 
 
 def test_valid_rtsp_url_passes():
-    with patch("selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo") as mock_dns:
+    with patch("selfsuvis.pipeline.media.rtsp_ingest.socket.getaddrinfo") as mock_dns:
         mock_dns.return_value = [(None, None, None, None, ("93.184.216.34", 0))]
         validate_rtsp_url("rtsp://camera.example.com:554/stream")  # no exception
 
 
 def test_valid_rtmp_url_passes():
-    with patch("selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo") as mock_dns:
+    with patch("selfsuvis.pipeline.media.rtsp_ingest.socket.getaddrinfo") as mock_dns:
         mock_dns.return_value = [(None, None, None, None, ("93.184.216.34", 0))]
         validate_rtsp_url("rtmp://media.example.com/live/cam1")
 
@@ -38,21 +38,21 @@ def test_missing_hostname_rejected():
 
 
 def test_credentials_in_url_rejected():
-    with patch("selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo") as mock_dns:
+    with patch("selfsuvis.pipeline.media.rtsp_ingest.socket.getaddrinfo") as mock_dns:
         mock_dns.return_value = [(None, None, None, None, ("93.184.216.34", 0))]
         with pytest.raises(ValueError, match="credentials"):
             validate_rtsp_url("rtsp://user:pass@camera.example.com/stream")
 
 
 def test_private_ip_rejected_by_default():
-    with patch("selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo") as mock_dns:
+    with patch("selfsuvis.pipeline.media.rtsp_ingest.socket.getaddrinfo") as mock_dns:
         mock_dns.return_value = [(None, None, None, None, ("192.168.1.100", 0))]
         with pytest.raises(ValueError, match="private"):
             validate_rtsp_url("rtsp://192.168.1.100:554/stream")
 
 
 def test_loopback_ip_rejected():
-    with patch("selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo") as mock_dns:
+    with patch("selfsuvis.pipeline.media.rtsp_ingest.socket.getaddrinfo") as mock_dns:
         mock_dns.return_value = [(None, None, None, None, ("127.0.0.1", 0))]
         with pytest.raises(ValueError, match="private"):
             validate_rtsp_url("rtsp://localhost:554/stream")
@@ -62,7 +62,7 @@ def test_private_ip_allowed_with_flag(monkeypatch):
     from selfsuvis.pipeline.core import config
 
     monkeypatch.setattr(config.settings, "ALLOW_PRIVATE_URLS", True)
-    with patch("selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo") as mock_dns:
+    with patch("selfsuvis.pipeline.media.rtsp_ingest.socket.getaddrinfo") as mock_dns:
         mock_dns.return_value = [(None, None, None, None, ("192.168.1.100", 0))]
         validate_rtsp_url("rtsp://192.168.1.100:554/stream")  # no exception
 
@@ -71,7 +71,8 @@ def test_dns_failure_raises():
     import socket
 
     with patch(
-        "selfsuvis.pipeline.rtsp_ingest.socket.getaddrinfo", side_effect=socket.gaierror("NXDOMAIN")
+        "selfsuvis.pipeline.media.rtsp_ingest.socket.getaddrinfo",
+        side_effect=socket.gaierror("NXDOMAIN"),
     ):
         with pytest.raises(ValueError, match="Cannot resolve"):
             validate_rtsp_url("rtsp://does.not.exist/stream")

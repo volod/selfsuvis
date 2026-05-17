@@ -62,8 +62,8 @@ ASR_ENABLED=true selfsuvis --mode local
 ASR_ENABLED=true ASR_MODEL=openai/whisper-large-v3-turbo ASR_LANGUAGE=en selfsuvis --mode local
 
 # Download weights
-python scripts/prepare_models.py --asr
-python scripts/prepare_models.py --asr --asr-model openai/whisper-large-v3-turbo
+python -m selfsuvis.scripts.prepare_models --asr
+python -m selfsuvis.scripts.prepare_models --asr --asr-model openai/whisper-large-v3-turbo
 ```
 
 ---

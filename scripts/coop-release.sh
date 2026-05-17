@@ -64,14 +64,14 @@ METRICS_IMAGES=(
 # ── Scripts to bundle from scripts/ ──────────────────────────────────────────
 BUNDLE_SCRIPTS=(
   common.sh
-  coop-bootstrap.sh
-  coop-compose.sh
-  coop-credentials.sh
-  coop-data-dirs.sh
-  coop-env.sh
-  coop-mosquitto-tls.sh
-  coop-mqtt-users.sh
   coop-ctl.sh
+  coop/coop-bootstrap.sh
+  coop/coop-compose.sh
+  coop/coop-credentials.sh
+  coop/coop-data-dirs.sh
+  coop/coop-env.sh
+  coop/coop-mosquitto-tls.sh
+  coop/coop-mqtt-users.sh
 )
 
 log()  { printf '[release] %s\n' "$*"; }
@@ -266,9 +266,10 @@ cp "$PROJECT_ROOT/src/selfsuvis/coop_pilot/env/test.env" "$BUNDLE_DIR/env/"
 
 for SCRIPT in "${BUNDLE_SCRIPTS[@]}"; do
   SRC="$PROJECT_ROOT/scripts/$SCRIPT"
+  DEST="$BUNDLE_DIR/scripts/$(basename "$SCRIPT")"
   if [[ -f "$SRC" ]]; then
-    cp "$SRC" "$BUNDLE_DIR/scripts/$SCRIPT"
-    chmod +x "$BUNDLE_DIR/scripts/$SCRIPT"
+    cp "$SRC" "$DEST"
+    chmod +x "$DEST"
   else
     warn "Script not found, skipping: $SCRIPT"
   fi

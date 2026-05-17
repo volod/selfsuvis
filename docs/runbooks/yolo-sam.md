@@ -61,8 +61,8 @@ in the local CLI.
 
 Weights are cached in `~/.cache/ultralytics/` on first run. Pre-download with:
 ```bash
-python scripts/prepare_models.py --yolo
-python scripts/prepare_models.py --yolo --yolo-model yolo11x  # specific tier
+python -m selfsuvis.scripts.prepare_models --yolo
+python -m selfsuvis.scripts.prepare_models --yolo --yolo-model yolo11x  # specific tier
 ```
 
 ---
@@ -79,7 +79,7 @@ Auto-detection order: sam3 → sam2 → sam1 → disabled.
 
 Pre-download SAM2/SAM3:
 ```bash
-python scripts/prepare_models.py --sam
+python -m selfsuvis.scripts.prepare_models --sam
 ```
 
 ---

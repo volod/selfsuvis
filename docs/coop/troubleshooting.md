@@ -27,15 +27,15 @@ Common issues and solutions for Stack A Pilot.
 
 4. Ensure data directories exist (bind mounts):
    ```bash
-   ./scripts/coop-data-dirs.sh
+   ./scripts/coop/coop-data-dirs.sh
    ```
 
 5. If containers fail with "Operation not permitted" or "Unable to open" on data dirs:
    - PUID/PGID are set dynamically by `compose.sh` from your user
-   - For a fresh start: `./scripts/coop-clean-data.sh`, then `./scripts/coop-bootstrap.sh`
+   - For a fresh start: `./scripts/coop/coop-clean-data.sh`, then `./scripts/coop/coop-bootstrap.sh`
 
 6. If you cannot remove `./data/*` (permission denied):
-   - `./scripts/coop-clean-data.sh` fixes ownership and removes data
+   - `./scripts/coop/coop-clean-data.sh` fixes ownership and removes data
 
 ### Container Keeps Restarting
 
@@ -99,17 +99,17 @@ password_file /mosquitto/config/pwfile
 
 1. Run bootstrap (creates TLS and pwfile as your user when missing):
    ```bash
-   ./scripts/coop-bootstrap.sh
+   ./scripts/coop/coop-bootstrap.sh
    ```
 
 2. If data dirs have wrong ownership, run:
    ```bash
-   ./scripts/coop-data-dirs.sh
+   ./scripts/coop/coop-data-dirs.sh
    ```
 
 3. Ensure TLS and pwfile were created by your user (not sudo):
-   - `./scripts/coop-mosquitto-tls.sh` - run as normal user
-   - `./scripts/coop-mqtt-users.sh` - creates pwfile as your user
+   - `./scripts/coop/coop-mosquitto-tls.sh` - run as normal user
+   - `./scripts/coop/coop-mqtt-users.sh` - creates pwfile as your user
 
 ### MQTT Authentication Failures
 
@@ -124,7 +124,7 @@ password_file /mosquitto/config/pwfile
 
 2. Regenerate passwords:
    ```bash
-   ./scripts/coop-mqtt-users.sh
+   ./scripts/coop/coop-mqtt-users.sh
    docker compose restart mosquitto
    ```
 
