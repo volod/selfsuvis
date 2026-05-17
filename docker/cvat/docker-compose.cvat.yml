@@ -4,10 +4,10 @@
 #   make cvat-up
 #
 # Standalone:
-#   docker compose -f docker/docker-compose.cvat.yml up -d
+#   docker compose -f docker/cvat/docker-compose.cvat.yml up -d
 #
 # First-time setup (create admin user):
-#   docker compose -f docker/docker-compose.cvat.yml exec cvat_server \
+#   docker compose -f docker/cvat/docker-compose.cvat.yml exec cvat_server \
 #     python manage.py createsuperuser
 #
 # UI: http://localhost:8091
@@ -189,7 +189,7 @@ services:
     container_name: cvat_proxy
     restart: unless-stopped
     volumes:
-      - ./cvat-nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../config/cvat/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       - "8091:80"
     depends_on:

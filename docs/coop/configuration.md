@@ -159,7 +159,7 @@ detectors:
 
 ## Resource Limits
 
-Default resource limits in `docker/docker-compose.yml`:
+Default resource limits in `docker/core/docker-compose.yml`:
 
 | Service | CPU | Memory |
 |---------|-----|--------|
@@ -173,7 +173,7 @@ Default resource limits in `docker/docker-compose.yml`:
 | Redis | 0.25 | 256MB |
 | Frigate | 3.0 | 4GB |
 
-Adjust in `docker/docker-compose.yml` under `deploy.resources.limits`.
+Adjust in `docker/core/docker-compose.yml` under `deploy.resources.limits`.
 
 ## Enabling Prometheus Monitoring
 

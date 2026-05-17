@@ -5,7 +5,7 @@ FROM qdrant/qdrant:v1.7.4
 RUN apt-get update && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
 
-COPY docker/qdrant-entrypoint.sh /qdrant-entrypoint.sh
+COPY docker/qdrant/qdrant-entrypoint.sh /qdrant-entrypoint.sh
 RUN chmod +x /qdrant-entrypoint.sh
 
 ENTRYPOINT ["/qdrant-entrypoint.sh"]

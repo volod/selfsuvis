@@ -28,12 +28,12 @@ Keep realtime mapping modular and optional:
   not hidden inside the live API or a single opaque index stage
 
 Current implementation:
-- reference service: `docker/docker-compose.realtime.yml`,
+- reference service: `docker/realtime/docker-compose.realtime.yml`,
   `src/selfsuvis/mapper/realtime_main.py`
-- OSS sidecar module: `docker/docker-compose.realtime-engines.yml`
+- OSS sidecar module: `docker/realtime/docker-compose.realtime-engines.yml`
 - sidecar adapter catalog: `src/selfsuvis/realtime_pilot/adapters/`
 - telemetry bridge runtimes: `src/selfsuvis/realtime_pilot/bridge_runtime.py`,
-  `docker/docker-compose.realtime-bridge.yml`
+  `docker/realtime/docker-compose.realtime-bridge.yml`
 - post-flight jobs: `src/selfsuvis/worker/main.py`
 
 ## Consequences

@@ -67,13 +67,13 @@ data-dirs:
 	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/postgres data/qdrant/Snapshots data/videos cache && chown -R $$HOST_UID:$$HOST_GID data cache' 2>/dev/null && echo "Data directories data and cache are ready." || (mkdir -p data/postgres data/qdrant/Snapshots data/videos cache && echo "Created data and cache. If Qdrant fails with Permission denied, run: make fix-data")
 
 up: docker-check data-dirs
-	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml up --build
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml up --build
 
 down: docker-check
-	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml down
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml down
 
 logs: docker-check
-	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml logs -f --tail=100
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml logs -f --tail=100
 
 env:
 	$(if $(wildcard .venv/bin/python),.venv/bin/python -m selfsuvis.scripts.generate_env --env dev,python -m selfsuvis.scripts.generate_env --env dev)
@@ -162,13 +162,13 @@ test-dirs:
 
 # Integration tests (require API + worker + Qdrant). Runs docker-check first. Uses GPU by default.
 test: docker-check test-dirs
-	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
-	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml down --remove-orphans
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/core/docker-compose.yml -f docker/test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/core/docker-compose.yml -f docker/test/docker-compose.test.yml down --remove-orphans
 
 # Integration tests without GPU (use if NVIDIA Container Toolkit is not installed)
 test-no-gpu: docker-check test-dirs
-	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.no-gpu.yml -f docker/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
-	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.no-gpu.yml -f docker/docker-compose.test.yml down --remove-orphans
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/core/docker-compose.yml -f docker/core/docker-compose.no-gpu.yml -f docker/test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/core/docker-compose.yml -f docker/core/docker-compose.no-gpu.yml -f docker/test/docker-compose.test.yml down --remove-orphans
 
 # Directory integration test (same as test; set INDEX_DIR_PATH for custom path)
 test-dir:
@@ -224,22 +224,22 @@ coop-release-metrics:
 	./scripts/coop-release.sh --arch amd64 --bundle standard --with-metrics $(if $(VERSION),--version $(VERSION),) --yes
 
 cvat-up: docker-check
-	docker compose -f docker/docker-compose.cvat.yml up -d
+	docker compose -f docker/cvat/docker-compose.cvat.yml up -d
 	@echo ""
 	@echo "CVAT starting at http://localhost:8090"
 	@echo "First time? Run: make cvat-admin"
 
 cvat-down: docker-check
-	docker compose -f docker/docker-compose.cvat.yml down
+	docker compose -f docker/cvat/docker-compose.cvat.yml down
 
 cvat-logs: docker-check
-	docker compose -f docker/docker-compose.cvat.yml logs -f --tail=100
+	docker compose -f docker/cvat/docker-compose.cvat.yml logs -f --tail=100
 
 cvat-admin: docker-check
-	docker compose -f docker/docker-compose.cvat.yml exec cvat_server python manage.py createsuperuser
+	docker compose -f docker/cvat/docker-compose.cvat.yml exec cvat_server python manage.py createsuperuser
 
 mapper-logs: docker-check
-	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml -f docker/docker-compose.override.yml logs -f --tail=100 mapper
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml -f docker/core/docker-compose.override.yml logs -f --tail=100 mapper
 
 # Lint (requires: pip install ruff)
 lint:

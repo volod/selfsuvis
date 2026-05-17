@@ -131,7 +131,7 @@ This lists V4L2 devices and tests basic capture. Note the device path (e.g. `/de
 
 ### Step 2: Pass Device to Frigate
 
-Edit `docker/docker-compose.yml`, add USB camera to Frigate service:
+Edit `docker/core/docker-compose.yml`, add USB camera to Frigate service:
 
 ```yaml
   frigate:

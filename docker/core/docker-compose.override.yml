@@ -15,15 +15,15 @@
 services:
   mapper:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.mapper
+      context: ../..
+      dockerfile: docker/core/Dockerfile.mapper
     container_name: selfsuvis_mapper
     restart: unless-stopped
     environment:
       - DATA_DIR=/app/data
       - PORT=8000
     volumes:
-      - ../data:/app/data
+      - ../../data:/app/data
     ports:
       - "8100:8000"
     healthcheck:

@@ -118,8 +118,8 @@ Start the IoT infrastructure alongside the main selfsuvis stack:
 
 ```bash
 docker compose \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.coop.yml \
+  -f docker/core/docker-compose.yml \
+  -f docker/coop/docker-compose.coop.yml \
   up -d
 ```
 

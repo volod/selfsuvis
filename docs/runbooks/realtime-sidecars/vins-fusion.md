@@ -33,10 +33,10 @@ export REALTIME_VINS_FUSION_API_URL=http://realtime-vins-fusion:8101
 
 ```bash
 export REALTIME_VINS_FUSION_IMAGE=registry.example/vins-fusion-sidecar:latest
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-engines.yml up -d realtime-vins-fusion
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime-engines.yml up -d realtime-vins-fusion
 ```
 
-`docker/docker-compose.realtime-engines.yml` expects an image that already wraps `VINS-Fusion` behind the `selfsuvis` realtime HTTP contract.
+`docker/realtime/docker-compose.realtime-engines.yml` expects an image that already wraps `VINS-Fusion` behind the `selfsuvis` realtime HTTP contract.
 
 ## Integration contract
 

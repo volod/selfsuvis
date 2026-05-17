@@ -847,7 +847,7 @@ if $WITH_DOCKER; then
       log "Waiting for PostgreSQL to be ready at ${_PG_HOST}:${_PG_PORT} ..."
       _PG_READY=false
       for _i in $(seq 1 15); do
-        if docker compose -f docker/docker-compose.yml exec -T postgres \
+        if docker compose -f docker/core/docker-compose.yml exec -T postgres \
               pg_isready -U "$_PG_USER" -q 2>/dev/null; then
           _PG_READY=true; break
         elif command -v pg_isready >/dev/null 2>&1 && \

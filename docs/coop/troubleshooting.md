@@ -167,7 +167,7 @@ docker compose restart chirpstack
 
 **Cause:** Config directory mounted as read-only but Frigate needs write access.
 
-**Solution:** Remove `:ro` from volume mount in `docker/docker-compose.yml`:
+**Solution:** Remove `:ro` from volume mount in `docker/core/docker-compose.yml`:
 ```yaml
 volumes:
   - ./config/coop/frigate:/config  # Not :ro
@@ -297,7 +297,7 @@ CHIRPSTACK_UI_PORT=8081  # Instead of 8080
    free -h
    ```
 
-2. Reduce container limits in `docker/docker-compose.yml`
+2. Reduce container limits in `docker/core/docker-compose.yml`
 
 3. Add swap space:
    ```bash

@@ -16,7 +16,7 @@ python scripts/migrate_postgres.py
 
 `make up` creates writable `data/` and `cache/` directories, then starts `postgres`, `qdrant`, `api`, `worker`, `ui`, `nginx`, `mediamtx`, and any default compose services. Run `scripts/migrate_postgres.py` once after PostgreSQL is available to create the schema.
 
-`mediamtx` is configured from `docker/mediamtx.yml` with a publisher-friendly default path policy plus the internal control API on `:9997`. The compose stack publishes RTSP on `8554`, RTMP on `1935`, and HLS/WebRTC ports for live feeds.
+`mediamtx` is configured from `config/mediamtx/mediamtx.yml` with a publisher-friendly default path policy plus the internal control API on `:9997`. The compose stack publishes RTSP on `8554`, RTMP on `1935`, and HLS/WebRTC ports for live feeds.
 
 For the full live-stream and MediaMTX operator guide, see [MediaMTX streaming](streaming-mediamtx.md).
 
@@ -43,7 +43,7 @@ dependency groups as the single source of truth for Python requirements.
 Then start the services you need. Typical split:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d postgres qdrant
+docker compose -f docker/core/docker-compose.yml up -d postgres qdrant
 python scripts/migrate_postgres.py
 .venv/bin/uvicorn selfsuvis.app.main:app --reload --host 0.0.0.0 --port 8000
 .venv/bin/python -m selfsuvis.worker

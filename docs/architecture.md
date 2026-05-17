@@ -95,7 +95,7 @@ Frigate cameras ─────────────────────�
   - `camera_event_to_threat()` → `ThreatEvent(sensor_type="camera")`
   - Sector ID derived from GPS grid at ~110 m resolution
 
-Docker compose: `docker/docker-compose.coop.yml` joins `selfsuvis-net`.
+Docker compose: `docker/coop/docker-compose.coop.yml` joins `selfsuvis-net`.
 Full reference: [coop_pilot — Integration Guide](coop/integration.md).
 
 ### MediaMTX role

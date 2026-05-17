@@ -7,7 +7,7 @@ SelfSuvis uses MediaMTX as the production live-stream ingress layer. MediaMTX ac
 In the production compose stack:
 
 - `mediamtx` runs as a dedicated container from `bluenviron/mediamtx:1`
-- `docker/mediamtx.yml` enables a publisher-friendly default path policy plus the MediaMTX control API
+- `config/mediamtx/mediamtx.yml` enables a publisher-friendly default path policy plus the MediaMTX control API
 - the FastAPI container talks to MediaMTX over the internal compose network through `http://mediamtx:9997`
 - the host publishes MediaMTX stream ports for publishers and viewers
 
@@ -25,8 +25,8 @@ The MediaMTX control API port `9997` is intentionally kept internal to the compo
 
 Primary files:
 
-- `docker/docker-compose.yml` — production service wiring
-- `docker/mediamtx.yml` — MediaMTX runtime configuration
+- `docker/core/docker-compose.yml` — production service wiring
+- `config/mediamtx/mediamtx.yml` — MediaMTX runtime configuration
 - `src/selfsuvis/env/prod.env` — default production env values
 
 Relevant env vars:

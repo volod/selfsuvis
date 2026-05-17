@@ -144,7 +144,7 @@ log "Creating bundle directory..."
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$IMAGES_DIR" "$PKGS_DIR" \
   "$BUNDLE_DIR/scripts" \
-  "$BUNDLE_DIR/docker" \
+  "$BUNDLE_DIR/docker/coop" \
   "$BUNDLE_DIR/config" \
   "$BUNDLE_DIR/env"
 
@@ -258,7 +258,7 @@ fi
 # ── Copy project files ────────────────────────────────────────────────────────
 log "Copying project files..."
 
-cp "$PROJECT_ROOT/docker/docker-compose.coop.yml" "$BUNDLE_DIR/docker/"
+cp "$PROJECT_ROOT/docker/coop/docker-compose.coop.yml" "$BUNDLE_DIR/docker/coop/"
 cp -r "$PROJECT_ROOT/config/coop" "$BUNDLE_DIR/config/"
 cp "$PROJECT_ROOT/src/selfsuvis/coop_pilot/env/prod.env" "$BUNDLE_DIR/env/"
 cp "$PROJECT_ROOT/src/selfsuvis/coop_pilot/env/dev.env"  "$BUNDLE_DIR/env/"

@@ -30,7 +30,7 @@ export REALTIME_NVBLOX_API_URL=http://realtime-nvblox:8101
 
 ```bash
 export REALTIME_NVBLOX_IMAGE=registry.example/nvblox-sidecar:latest
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-engines.yml up -d realtime-nvblox
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime-engines.yml up -d realtime-nvblox
 ```
 
 ## Integration contract

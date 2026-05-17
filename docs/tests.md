@@ -55,7 +55,7 @@ make test          # with GPU
 make test-no-gpu   # without GPU (NVIDIA Container Toolkit not required)
 ```
 
-Runs `test-dirs` first to create `data` and `cache_test` with correct ownership. Then starts api, worker, qdrant, and a tests container. Uses `docker/docker-compose.test.yml` with `ALLOWED_INDEX_PATHS=/app/tests/assets` and `MAX_UPLOAD_BYTES=150000`.
+Runs `test-dirs` first to create `data` and `cache_test` with correct ownership. Then starts api, worker, qdrant, and a tests container. Uses `docker/test/docker-compose.test.yml` with `ALLOWED_INDEX_PATHS=/app/tests/assets` and `MAX_UPLOAD_BYTES=150000`.
 
 Directory-indexing tests:
 ```bash

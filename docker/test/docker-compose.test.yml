@@ -2,7 +2,7 @@ services:
   api:
     user: "${UID}:${GID}"
     env_file:
-      - ../src/selfsuvis/env/test.env
+      - ../../src/selfsuvis/env/test.env
     environment:
       - ALLOWED_INDEX_PATHS=/app/tests/assets
       - BLUR_LAPL_VAR_MIN_FRAME=0
@@ -13,13 +13,13 @@ services:
       - TORCH_HOME=/app/cache/torch
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
     volumes:
-      - ../data:/app/data
-      - ../tests/assets:/app/tests/assets:ro
-      - ../cache_test:/app/cache
+      - ../../data:/app/data
+      - ../../tests/assets:/app/tests/assets:ro
+      - ../../cache_test:/app/cache
   worker:
     user: "${UID}:${GID}"
     env_file:
-      - ../src/selfsuvis/env/test.env
+      - ../../src/selfsuvis/env/test.env
     environment:
       - BLUR_LAPL_VAR_MIN_FRAME=0
       - DATA_DIR=/app/data
@@ -28,14 +28,14 @@ services:
       - TORCH_HOME=/app/cache/torch
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
     volumes:
-      - ../data:/app/data
-      - ../tests/assets:/app/tests/assets:ro
-      - ../cache_test:/app/cache
+      - ../../data:/app/data
+      - ../../tests/assets:/app/tests/assets:ro
+      - ../../cache_test:/app/cache
   tests:
     user: "${UID}:${GID}"
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.tests
+      context: ../..
+      dockerfile: docker/test/Dockerfile.tests
     environment:
       - API_URL=http://api:8000
       - ASSETS_DIR=/app/tests/assets
@@ -46,7 +46,7 @@ services:
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
       - PYTEST_CACHE_DIR=/tmp/.pytest_cache
     volumes:
-      - ../cache_test:/app/cache
+      - ../../cache_test:/app/cache
     depends_on:
       - api
       - worker

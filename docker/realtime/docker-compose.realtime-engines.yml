@@ -1,10 +1,10 @@
-# docker-compose.realtime-engines.yml
+# docker/realtime/docker-compose.realtime-engines.yml
 #
 # Optional open-source SLAM / occupancy sidecars. This compose module is limited
 # to OSS engines and does not ship the project-owned reference mapper image.
 #
 # Usage:
-#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-engines.yml up -d
+#   docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime-engines.yml up -d
 
 networks:
   default:
@@ -21,7 +21,7 @@ services:
       REALTIME_ENGINE_NAME: vins_fusion
       REALTIME_ENGINE_ROLE: pose
     volumes:
-      - ../data:/data
+      - ../../data:/data
     ports:
       - "8111:8101"
 
@@ -35,7 +35,7 @@ services:
       REALTIME_ENGINE_NAME: orbslam3
       REALTIME_ENGINE_ROLE: pose
     volumes:
-      - ../data:/data
+      - ../../data:/data
     ports:
       - "8112:8101"
 
@@ -49,7 +49,7 @@ services:
       REALTIME_ENGINE_NAME: liosam
       REALTIME_ENGINE_ROLE: pose
     volumes:
-      - ../data:/data
+      - ../../data:/data
     ports:
       - "8113:8101"
 
@@ -63,7 +63,7 @@ services:
       REALTIME_ENGINE_NAME: nvblox
       REALTIME_ENGINE_ROLE: occupancy
     volumes:
-      - ../data:/data
+      - ../../data:/data
     ports:
       - "8114:8101"
 
@@ -77,6 +77,6 @@ services:
       REALTIME_ENGINE_NAME: voxblox
       REALTIME_ENGINE_ROLE: occupancy
     volumes:
-      - ../data:/data
+      - ../../data:/data
     ports:
       - "8115:8101"

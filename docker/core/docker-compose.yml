@@ -9,7 +9,7 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     command: redis-server --appendonly yes --appendfsync everysec
     volumes:
-      - ../data/redis:/data
+      - ../../data/redis:/data
     ports:
       - "6379:6379"
     healthcheck:
@@ -26,7 +26,7 @@ services:
       POSTGRES_PASSWORD: selfsuvis
       POSTGRES_DB: selfsuvis
     volumes:
-      - ../data/postgres:/var/lib/postgresql/data
+      - ../../data/postgres:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -37,8 +37,8 @@ services:
 
   qdrant:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.qdrant
+      context: ../..
+      dockerfile: docker/qdrant/Dockerfile.qdrant
     user: "0:0"
     environment:
       - UID=${UID:-1000}
@@ -46,18 +46,18 @@ services:
     ports:
       - "6333:6333"
     volumes:
-      - ../data/qdrant:/qdrant/storage
-      - ../docker/qdrant-config.yaml:/qdrant/config/config.yaml:ro
+      - ../../data/qdrant:/qdrant/storage
+      - ../../config/qdrant/qdrant.yaml:/qdrant/config/config.yaml:ro
 
   api:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.api
+      context: ../..
+      dockerfile: docker/core/Dockerfile.api
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
-      - path: ../src/selfsuvis/env/prod.env
+      - path: ../../src/selfsuvis/env/prod.env
         required: true
-      - path: ../.env
+      - path: ../../.env
         required: false
     environment:
       - QDRANT_HOST=qdrant
@@ -72,8 +72,8 @@ services:
       - TORCHINDUCTOR_CACHE_DIR=/app/cache/inductor
       - LOGNAME=app
     volumes:
-      - ../data:/app/data
-      - ../cache:/app/cache
+      - ../../data:/app/data
+      - ../../cache:/app/cache
     ports:
       - "8000:8000"
     depends_on:
@@ -91,13 +91,13 @@ services:
 
   worker:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.worker
+      context: ../..
+      dockerfile: docker/core/Dockerfile.worker
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
-      - path: ../src/selfsuvis/env/prod.env
+      - path: ../../src/selfsuvis/env/prod.env
         required: true
-      - path: ../.env
+      - path: ../../.env
         required: false
     environment:
       - QDRANT_HOST=qdrant
@@ -112,8 +112,8 @@ services:
       - TORCHINDUCTOR_CACHE_DIR=/app/cache/inductor
       - LOGNAME=app
     volumes:
-      - ../data:/app/data
-      - ../cache:/app/cache
+      - ../../data:/app/data
+      - ../../cache:/app/cache
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,19 +129,19 @@ services:
 
   ui:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.ui
+      context: ../..
+      dockerfile: docker/core/Dockerfile.ui
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
-      - path: ../src/selfsuvis/env/prod.env
+      - path: ../../src/selfsuvis/env/prod.env
         required: true
-      - path: ../.env
+      - path: ../../.env
         required: false
     environment:
       - API_URL=http://api:8000
       - DATA_DIR=/app/data
     volumes:
-      - ../data:/app/data
+      - ../../data:/app/data
     ports:
       - "8501:8501"
     depends_on:
@@ -151,8 +151,8 @@ services:
     image: nginx:1.25-alpine
     user: "0:0"
     volumes:
-      - ../docker/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ../data:/app/data:ro
+      - ../../config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../data:/app/data:ro
     ports:
       - "8080:8080"
     depends_on:
@@ -174,5 +174,5 @@ services:
       MTX_RTSPTRANSPORTS: tcp
       MTX_WEBRTCADDITIONALHOSTS: ${MEDIAMTX_WEBRTC_HOST:-127.0.0.1}
     volumes:
-      - ../docker/mediamtx.yml:/mediamtx.yml:ro
-      - ../data/mediamtx:/recordings
+      - ../../config/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ../../data/mediamtx:/recordings

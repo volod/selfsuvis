@@ -32,8 +32,8 @@ Shell wrapper:
 Docker compose module:
 
 ```bash
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-bridge.yml up -d realtime-mavsdk-bridge
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-bridge.yml up -d realtime-ros-bridge
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime-bridge.yml up -d realtime-mavsdk-bridge
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime-bridge.yml up -d realtime-ros-bridge
 ```
 
 Start only the bridge you actually use.

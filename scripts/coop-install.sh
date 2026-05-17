@@ -288,10 +288,10 @@ fi
 # ── Install directory ─────────────────────────────────────────────────────────
 step "Installing to $INSTALL_DIR"
 
-mkdir -p "$INSTALL_DIR"/{docker,config,env,scripts,logs}
+mkdir -p "$INSTALL_DIR"/{docker/coop,config,env,scripts,logs}
 mkdir -p "$DATA_DIR"
 
-cp "$BUNDLE_DIR/docker/docker-compose.coop.yml" "$INSTALL_DIR/docker/"
+cp "$BUNDLE_DIR/docker/coop/docker-compose.coop.yml" "$INSTALL_DIR/docker/coop/"
 cp -r "$BUNDLE_DIR/config/"*  "$INSTALL_DIR/config/"
 cp -r "$BUNDLE_DIR/env/"*     "$INSTALL_DIR/env/"
 

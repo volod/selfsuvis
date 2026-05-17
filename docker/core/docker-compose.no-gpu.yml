@@ -1,5 +1,5 @@
 # Override to run api and worker without GPU (e.g. CI or machines without NVIDIA).
-# Use: docker compose -f docker/docker-compose.yml -f docker/docker-compose.no-gpu.yml up
+# Use: docker compose -f docker/core/docker-compose.yml -f docker/core/docker-compose.no-gpu.yml up
 # Or: make test-no-gpu
 
 services:
