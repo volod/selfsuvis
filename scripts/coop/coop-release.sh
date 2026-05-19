@@ -3,7 +3,7 @@
 # Run on a machine WITH Docker and internet access (the build machine, not the target).
 #
 # Usage:
-#   ./scripts/coop-release.sh [options]
+#   ./scripts/coop/coop-release.sh [options]
 #
 # Options:
 #   --version VERSION      Bundle version tag (default: git describe --tags --always)
@@ -19,15 +19,15 @@
 #   --yes                  Skip confirmation prompt
 #
 # Examples:
-#   ./scripts/coop-release.sh --version 1.2.0 --arch amd64
-#   ./scripts/coop-release.sh --version 1.2.0 --arch arm64 --bundle min
-#   ./scripts/coop-release.sh --bundle standard --with-metrics --yes
-#   ./scripts/coop-release.sh --no-images --no-docker-pkgs  # config-only test bundle
+#   ./scripts/coop/coop-release.sh --version 1.2.0 --arch amd64
+#   ./scripts/coop/coop-release.sh --version 1.2.0 --arch arm64 --bundle min
+#   ./scripts/coop/coop-release.sh --bundle standard --with-metrics --yes
+#   ./scripts/coop/coop-release.sh --no-images --no-docker-pkgs  # config-only test bundle
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # ── Pinned versions (update deliberately) ────────────────────────────────────
 DOCKER_ENGINE_VERSION="27.5.1"
@@ -61,10 +61,10 @@ METRICS_IMAGES=(
   "prom/node-exporter:latest"
 )
 
-# ── Scripts to bundle from scripts/ ──────────────────────────────────────────
+# ── Scripts to bundle from scripts/ (paths relative to scripts/; structure preserved in bundle) ──
 BUNDLE_SCRIPTS=(
-  common.sh
-  coop-ctl.sh
+  shared/common.sh
+  coop/coop-ctl.sh
   coop/coop-bootstrap.sh
   coop/coop-compose.sh
   coop/coop-credentials.sh
@@ -266,8 +266,9 @@ cp "$PROJECT_ROOT/src/selfsuvis/coop_pilot/env/test.env" "$BUNDLE_DIR/env/"
 
 for SCRIPT in "${BUNDLE_SCRIPTS[@]}"; do
   SRC="$PROJECT_ROOT/scripts/$SCRIPT"
-  DEST="$BUNDLE_DIR/scripts/$(basename "$SCRIPT")"
+  DEST="$BUNDLE_DIR/scripts/$SCRIPT"
   if [[ -f "$SRC" ]]; then
+    mkdir -p "$(dirname "$DEST")"
     cp "$SRC" "$DEST"
     chmod +x "$DEST"
   else
@@ -276,7 +277,7 @@ for SCRIPT in "${BUNDLE_SCRIPTS[@]}"; do
 done
 
 # install.sh at bundle root is a copy of coop-install.sh
-cp "$PROJECT_ROOT/scripts/coop-install.sh" "$BUNDLE_DIR/install.sh"
+cp "$PROJECT_ROOT/scripts/coop/coop-install.sh" "$BUNDLE_DIR/install.sh"
 chmod +x "$BUNDLE_DIR/install.sh"
 
 # ── Release manifest ──────────────────────────────────────────────────────────

@@ -23,7 +23,7 @@ services:
       - DATA_DIR=/app/data
       - PORT=8000
     volumes:
-      - ../../data:/app/data
+      - ../../.data:/app/data
     ports:
       - "8100:8000"
     healthcheck:

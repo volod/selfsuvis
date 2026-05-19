@@ -94,7 +94,7 @@ Stack A Pilot is a containerized IoT infrastructure platform designed to run on 
 | coop-data-dirs.sh | `scripts/coop/coop-data-dirs.sh` | Creates all bind-mount directories under `$DATA_DIR` with correct ownership before first stack start. |
 | coop-mosquitto-tls.sh | `scripts/coop/coop-mosquitto-tls.sh` | Generates a self-signed CA and server TLS certificate for Mosquitto. |
 | coop-mqtt-users.sh | `scripts/coop/coop-mqtt-users.sh` | Creates and hashes MQTT user credentials in Mosquitto's password file from `.env` values. |
-| coop-camera.sh | `scripts/coop/coop-camera.sh` | Shell entrypoint that invokes the packaged camera CLI to add RTSP or USB/V4L2 cameras to `config/coop/frigate/config.yml` and optionally restart the Frigate container. |
+| coop-camera.sh | `scripts/coop/coop-camera.sh` | Shell entrypoint that invokes the packaged camera CLI to add RTSP or USB/V4L2 cameras to `data/coop/frigate/config.yml` and optionally restart the Frigate container. |
 | coop-clean-data.sh | `scripts/coop/coop-clean-data.sh` | Removes all data directories under `$DATA_DIR`; destructive — intended for development resets only. |
 | coop_stack_analytics | `coop_stack_analytics/` | Python package for log collection, service-specific parsing (Mosquitto, ChirpStack, Frigate, OpenRemote), statistics aggregation, and report generation in console, JSON, HTML, or Markdown formats. Invoked via `python -m coop_stack_analytics.cli`. |
 | tests | `tests/` | Pytest integration tests (container health checks, MQTT connectivity) and a Locust load-test file for stress-testing the stack. |

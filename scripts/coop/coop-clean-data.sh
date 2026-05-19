@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Remove coop stack bind-mounted data under `$DATA_DIR` while preserving `data/.env`.
+# Remove coop stack bind-mounted data under `$DATA_DIR` while preserving `.data/.env`.
 #
 # Usage:
 #   ./scripts/coop-clean-data.sh
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
 project_cd_root
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -14,7 +14,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage: ./scripts/coop-clean-data.sh
 
 Stops the coop stack and deletes bind-mounted runtime data under `$DATA_DIR`.
-Preserves `data/.env`.
+Preserves `.data/.env`.
 EOF
   exit 0
 fi

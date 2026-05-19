@@ -56,15 +56,15 @@ help:
 	@echo "  ----------------"
 	@echo "  Docker permission denied:  sudo usermod -aG docker \$$USER  then log out and back in (or newgrp docker)"
 	@echo "  GPU driver error:           sudo ./scripts/install/install_nvidia_docker.sh  or  make test-no-gpu"
-	@echo "  Unable to open database:   sudo chown -R \$$(id -u):\$$(id -g) data cache_test"
-	@echo "  Root-owned data/cache:    make fix-data"
+	@echo "  Unable to open database:   sudo chown -R \$$(id -u):\$$(id -g) .data"
+	@echo "  Root-owned data:           make fix-data"
 	@echo ""
 	@echo "  Run  make <target>  or  make help  to show this again."
 
-# Ensure data/cache dirs exist and are owned by current user (avoids root-owned files from containers)
+# Ensure .data dirs exist and are owned by current user (avoids root-owned files from containers)
 # Pre-create Qdrant Snapshots dir to avoid "Permission denied" when running as non-root
 data-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/postgres data/qdrant/Snapshots data/videos cache && chown -R $$HOST_UID:$$HOST_GID data cache' 2>/dev/null && echo "Data directories data and cache are ready." || (mkdir -p data/postgres data/qdrant/Snapshots data/videos cache && echo "Created data and cache. If Qdrant fails with Permission denied, run: make fix-data")
+	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p .data/postgres .data/qdrant/Snapshots .data/videos .data/.cache && chown -R $$HOST_UID:$$HOST_GID .data' 2>/dev/null && echo "Data directories ready (.data including .data/.cache)." || (mkdir -p .data/postgres .data/qdrant/Snapshots .data/videos .data/.cache && echo "Created .data. If Qdrant fails with Permission denied, run: make fix-data")
 
 up: docker-check data-dirs
 	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml up --build
@@ -136,10 +136,10 @@ venv-rebuild-xformers:
 venv-pip:
 	uv pip install --python .venv pip
 
-# Fix ownership of data and cache (run if Qdrant fails with "Permission denied" on Snapshots)
+# Fix ownership of .data (run if Qdrant fails with "Permission denied" on Snapshots)
 fix-data:
-	@echo "Fixing ownership of data/ and cache/..."
-	@sudo chown -R $$(id -u):$$(id -g) data cache 2>/dev/null && echo "Done. Run make up again." || echo "Run: sudo chown -R $$(id -u):$$(id -g) data cache"
+	@echo "Fixing ownership of .data/..."
+	@sudo chown -R $$(id -u):$$(id -g) .data 2>/dev/null && echo "Done. Run make up again." || echo "Run: sudo chown -R $$(id -u):$$(id -g) .data"
 
 # Verify Docker daemon is reachable (fixes permission-denied before running test/up)
 docker-check:
@@ -158,7 +158,7 @@ docker-check:
 # Ensure test data dirs exist and are owned by current user (avoids "unable to open database file")
 # Uses a one-off container so chown works even when dirs were previously created by Docker as root
 test-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/postgres data/qdrant/Snapshots data/videos cache cache_test && chown -R $$HOST_UID:$$HOST_GID data cache cache_test' 2>/dev/null && echo "Test directories data and cache_test are ready." || (mkdir -p data/postgres data cache_test && echo "Created data and cache_test. If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) data cache_test")
+	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p .data/postgres .data/qdrant/Snapshots .data/videos .data/.cache .data/cache_test && chown -R $$HOST_UID:$$HOST_GID .data' 2>/dev/null && echo "Test directories ready (.data including .data/.cache)." || (mkdir -p .data/postgres .data/.cache .data/cache_test && echo "Created .data. If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) .data")
 
 # Integration tests (require API + worker + Qdrant). Runs docker-check first. Uses GPU by default.
 test: docker-check test-dirs
@@ -212,16 +212,16 @@ coop-metrics-up: docker-check
 	COMPOSE_PROFILES=lorawan,video,metrics ./scripts/coop/coop-bootstrap.sh up -d
 
 coop-release:
-	./scripts/coop-release.sh --arch amd64 --bundle standard $(if $(VERSION),--version $(VERSION),) --yes
+	./scripts/coop/coop-release.sh --arch amd64 --bundle standard $(if $(VERSION),--version $(VERSION),) --yes
 
 coop-release-min:
-	./scripts/coop-release.sh --arch amd64 --bundle min $(if $(VERSION),--version $(VERSION),) --yes
+	./scripts/coop/coop-release.sh --arch amd64 --bundle min $(if $(VERSION),--version $(VERSION),) --yes
 
 coop-release-video:
-	./scripts/coop-release.sh --arch amd64 --bundle video $(if $(VERSION),--version $(VERSION),) --yes
+	./scripts/coop/coop-release.sh --arch amd64 --bundle video $(if $(VERSION),--version $(VERSION),) --yes
 
 coop-release-metrics:
-	./scripts/coop-release.sh --arch amd64 --bundle standard --with-metrics $(if $(VERSION),--version $(VERSION),) --yes
+	./scripts/coop/coop-release.sh --arch amd64 --bundle standard --with-metrics $(if $(VERSION),--version $(VERSION),) --yes
 
 cvat-up: docker-check
 	docker compose -f docker/cvat/docker-compose.cvat.yml up -d

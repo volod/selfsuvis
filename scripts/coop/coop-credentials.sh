@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print coop stack credentials from `data/.env`.
+# Print coop stack credentials from `.data/.env`.
 #
 # Usage:
 #   ./scripts/coop-credentials.sh
@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
 project_cd_root
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -15,7 +15,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage: ./scripts/coop-credentials.sh [--list]
 
 Prints the current coop stack credentials summary.
-If `data/.env` is missing, it is generated with prod defaults first.
+If `.data/.env` is missing, it is generated with prod defaults first.
 EOF
   exit 0
 fi
@@ -42,7 +42,7 @@ print_credentials() {
   echo "  ChirpStack API key:  ${CHIRPSTACK_API_SECRET:0:8}... (base64)"
   echo "  ChirpStack DB:       ${CHIRPSTACK_PG_USER:-chirpstack} / ${CHIRPSTACK_PG_PASSWORD:-<not set>}"
   echo ""
-  echo "Passwords stored in: data/.env"
+  echo "Passwords stored in: .data/.env"
   echo "=============================================="
   echo ""
 }
@@ -53,7 +53,7 @@ if [[ "${1:-}" == "--list" ]]; then
   exit 0
 fi
 
-# Generate data/.env if missing
+# Generate .data/.env if missing
 if [[ ! -f "$(project_env_file)" ]]; then
   "$PROJECT_ROOT_DIR/scripts/coop/coop-env.sh" "$(project_default_app_env)"
 fi

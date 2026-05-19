@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -eq 0 ]]; then
   cat <<'EOF'
 Usage: ./scripts/coop/coop-compose.sh <docker-compose-args...>
@@ -21,5 +21,5 @@ EOF
   [[ $# -eq 0 ]] && exit 1 || exit 0
 fi
 
-[[ -f "$(project_env_file)" ]] || project_die "data/.env not found. Run './scripts/coop/coop-env.sh' or './scripts/coop/coop-bootstrap.sh' first."
+[[ -f "$(project_env_file)" ]] || project_die ".data/.env not found. Run './scripts/coop/coop-env.sh' or './scripts/coop/coop-bootstrap.sh' first."
 project_coop_compose "$@"

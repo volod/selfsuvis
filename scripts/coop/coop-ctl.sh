@@ -30,11 +30,11 @@ _SCRIPTS_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 
 # COOP_INSTALL_DIR override (useful for multi-install or systemd ExecStart env)
 if [[ -n "${COOP_INSTALL_DIR:-}" ]]; then
-  _SCRIPTS_DIR="${COOP_INSTALL_DIR}/scripts"
+  _SCRIPTS_DIR="${COOP_INSTALL_DIR}/scripts/coop"
 fi
 
-# shellcheck source=scripts/common.sh
-source "$_SCRIPTS_DIR/common.sh"
+# shellcheck source=scripts/shared/common.sh
+source "$_SCRIPTS_DIR/../shared/common.sh"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 log()  { printf '[coop-ctl] %s\n' "$*"; }

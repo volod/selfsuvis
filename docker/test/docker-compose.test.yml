@@ -15,7 +15,7 @@ services:
     volumes:
       - ../../data:/app/data
       - ../../tests/assets:/app/tests/assets:ro
-      - ../../cache_test:/app/cache
+      - ../../.data/cache_test:/app/cache
   worker:
     user: "${UID}:${GID}"
     env_file:
@@ -30,7 +30,7 @@ services:
     volumes:
       - ../../data:/app/data
       - ../../tests/assets:/app/tests/assets:ro
-      - ../../cache_test:/app/cache
+      - ../../.data/cache_test:/app/cache
   tests:
     user: "${UID}:${GID}"
     build:
@@ -46,7 +46,7 @@ services:
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
       - PYTEST_CACHE_DIR=/tmp/.pytest_cache
     volumes:
-      - ../../cache_test:/app/cache
+      - ../../.data/cache_test:/app/cache
     depends_on:
       - api
       - worker

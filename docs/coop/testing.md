@@ -204,7 +204,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 
 ### MQTT Authentication Failures
 
-Verify passwords match between `.env` and `config/coop/mosquitto/pwfile`:
+Verify passwords match between `.env` and `data/coop/mosquitto/pwfile`:
 ```bash
 # Regenerate password file
 ./scripts/coop/coop-mqtt-users.sh

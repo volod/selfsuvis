@@ -119,7 +119,7 @@ password_file /mosquitto/config/pwfile
 
 1. Verify password file exists:
    ```bash
-   ls -la config/coop/mosquitto/pwfile
+   ls -la data/coop/mosquitto/pwfile
    ```
 
 2. Regenerate passwords:
@@ -170,14 +170,14 @@ docker compose restart chirpstack
 **Solution:** Remove `:ro` from volume mount in `docker/core/docker-compose.yml`:
 ```yaml
 volumes:
-  - ./config/coop/frigate:/config  # Not :ro
+  - ${DATA_DIR:-./data}/coop/frigate:/config  # Not :ro
 ```
 
 ### MQTT Password Not Working
 
 **Cause:** Frigate doesn't support environment variable substitution in config.
 
-**Solution:** Set password directly in `config/coop/frigate/config.yml`:
+**Solution:** Set password directly in `data/coop/frigate/config.yml`:
 ```yaml
 mqtt:
   password: "actual-password-here"
@@ -186,7 +186,7 @@ mqtt:
 Or use the setup script to inject it:
 ```bash
 PASS=$(grep FRIGATE_MQTT_PASSWORD .env | cut -d= -f2)
-sed -i "s/{FRIGATE_MQTT_PASSWORD}/$PASS/" config/coop/frigate/config.yml
+sed -i "s/{FRIGATE_MQTT_PASSWORD}/$PASS/" data/coop/frigate/config.yml
 ```
 
 ### Camera Connection Failures

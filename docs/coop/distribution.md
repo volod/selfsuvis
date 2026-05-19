@@ -146,7 +146,7 @@ All bundles land in `./dist/`.
 ### Full script options
 
 ```
-./scripts/coop-release.sh [options]
+./scripts/coop/coop-release.sh [options]
 
   --version VERSION      Version tag (default: git describe --tags --always)
   --arch ARCH            amd64 or arm64 (default: amd64)
@@ -161,14 +161,14 @@ All bundles land in `./dist/`.
 Example: ARM64 standard bundle for a Raspberry Pi 4 site:
 
 ```bash
-./scripts/coop-release.sh --version 1.3.0 --arch arm64 --bundle standard --yes
+./scripts/coop/coop-release.sh --version 1.3.0 --arch arm64 --bundle standard --yes
 ```
 
 ### Bundle contents
 
 ```
 coop-edge-1.3.0-amd64-standard/
-  install.sh              # entry point (copy of scripts/coop-install.sh)
+  install.sh              # entry point (copy of scripts/coop/coop-install.sh)
   release.manifest        # version, bundle config, SHA256 checksums
   docker/
     docker-compose.coop.yml
@@ -185,15 +185,17 @@ coop-edge-1.3.0-amd64-standard/
     dev.env
     test.env
   scripts/
-    common.sh
-    coop-bootstrap.sh
-    coop-compose.sh
-    coop-credentials.sh
-    coop-data-dirs.sh
-    coop-env.sh
-    coop-mosquitto-tls.sh
-    coop-mqtt-users.sh
-    coop-ctl.sh
+    shared/
+      common.sh
+    coop/
+      coop-ctl.sh
+      coop-bootstrap.sh
+      coop-compose.sh
+      coop-credentials.sh
+      coop-data-dirs.sh
+      coop-env.sh
+      coop-mosquitto-tls.sh
+      coop-mqtt-users.sh
   images/
     eclipse-mosquitto_2.tar.gz
     chirpstack_chirpstack_4.tar.gz
@@ -295,8 +297,8 @@ The installer generates a self-signed TLS certificate for MQTT over TLS (port 88
 
 ```bash
 # Replace server cert and key
-sudo cp your-server.crt /opt/coop/config/coop/mosquitto/certs/server.crt
-sudo cp your-server.key /opt/coop/config/coop/mosquitto/certs/server.key
+sudo cp your-server.crt /opt/coop/data/coop/mosquitto/certs/server.crt
+sudo cp your-server.key /opt/coop/data/coop/mosquitto/certs/server.key
 sudo coop-ctl restart mosquitto
 ```
 
@@ -322,7 +324,7 @@ After first start (bundle: min or standard):
 
 ### Frigate -- Configure cameras (bundle: standard, video)
 
-Edit `/opt/coop/config/coop/frigate/config.yml`. Each section has a camera entry that is disabled by default:
+Edit `/opt/coop/data/coop/frigate/config.yml`. Each section has a camera entry that is disabled by default:
 
 ```yaml
 cameras:
@@ -518,7 +520,7 @@ sudo sysctl -p /etc/sysctl.d/99-coop.conf
 Verify the TLS certificate subject matches the hostname clients connect to:
 
 ```bash
-openssl x509 -in /opt/coop/config/coop/mosquitto/certs/server.crt -noout -subject -dates
+openssl x509 -in /opt/coop/data/coop/mosquitto/certs/server.crt -noout -subject -dates
 ```
 
 Regenerate if needed:

@@ -7,7 +7,7 @@ Run Utilyze with defaults suited to selfsuvis local profiling.
 
 Defaults:
 - disables Utilyze upstream workload metrics API unless explicitly overridden
-- writes logs to data/reports/utilyze.log
+- writes logs to DATA_DIR/reports/utilyze.log
 - forwards any additional utlz flags verbatim
 
 Examples:
@@ -24,8 +24,10 @@ if ! command -v utlz >/dev/null 2>&1; then
   exit 1
 fi
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-log_dir="${repo_root}/data/reports"
+# shellcheck source=scripts/shared/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
+
+log_dir="$(project_data_dir)/reports"
 mkdir -p "${log_dir}"
 
 export UTLZ_DISABLE_METRICS="${UTLZ_DISABLE_METRICS:-1}"

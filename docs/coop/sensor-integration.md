@@ -81,7 +81,7 @@ curl -H "Grpc-Metadata-Authorization: Bearer $CHIRPSTACK_API_SECRET" \
 
 ### Integration Steps
 
-1. **Edit Frigate config**: `config/coop/frigate/config.yml`
+1. **Edit Frigate config**: `data/coop/frigate/config.yml`
 
 2. **Add camera**:
 
@@ -152,7 +152,7 @@ ls -la /dev/v4l/by-id/
 
 ### Step 3: Configure Frigate for USB
 
-Edit `config/coop/frigate/config.yml`:
+Edit `data/coop/frigate/config.yml`:
 
 ```yaml
 cameras:
@@ -201,7 +201,7 @@ docker compose --compatibility up -d
 ### Integration Steps
 
 1. **Add MQTT user** (if new sensor needs its own user):
-   - Edit `config/coop/mosquitto/pwfile` or use `mosquitto_passwd`
+   - Edit `data/coop/mosquitto/pwfile` or use `mosquitto_passwd`
    - Add ACL rules in `config/coop/mosquitto/aclfile` for allowed topics
 
 2. **Publish from sensor**:
@@ -294,8 +294,8 @@ Note: Frigate requires a restart to pick up new cameras. Use `--restart` to rest
 
 | File | Purpose |
 |------|---------|
-| `config/coop/frigate/config.yml` | Camera config |
+| `data/coop/frigate/config.yml` | Camera config |
 | `config/coop/mosquitto/aclfile` | MQTT ACL |
-| `config/coop/mosquitto/pwfile` | MQTT passwords |
+| `data/coop/mosquitto/pwfile` | MQTT passwords |
 | `config/coop/chirpstack/` | ChirpStack config |
 | `.env` | Passwords, ports |

@@ -4,8 +4,8 @@
 # and can also be run directly from the repo for development.
 #
 # Usage:
-#   sudo ./install.sh [options]               # from extracted bundle
-#   sudo ./scripts/coop-install.sh [options]  # from repo root
+#   sudo ./install.sh [options]                    # from extracted bundle
+#   sudo ./scripts/coop/coop-install.sh [options]  # from repo root
 #
 # Options:
 #   --install-dir DIR      Installation root (default: /opt/coop)
@@ -38,12 +38,9 @@ _SELF_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 if [[ -f "$_SELF_DIR/release.manifest" ]]; then
   # Running as install.sh at bundle root
   BUNDLE_DIR="$_SELF_DIR"
-elif [[ -f "$_SELF_DIR/../release.manifest" ]]; then
-  # Running as scripts/coop-install.sh inside bundle
-  BUNDLE_DIR="$(cd "$_SELF_DIR/.." && pwd)"
 else
-  # Running from the project repository (dev mode)
-  BUNDLE_DIR="$(cd "$_SELF_DIR/.." && pwd)"
+  # Running as scripts/coop/coop-install.sh inside bundle or from the project repo
+  BUNDLE_DIR="$(cd "$_SELF_DIR/../.." && pwd)"
 fi
 
 # ── Logging helpers ───────────────────────────────────────────────────────────
@@ -103,7 +100,7 @@ done
 [[ "$APP_ENV" == "prod" || "$APP_ENV" == "dev" || "$APP_ENV" == "test" ]] \
   || die "Invalid --env: $APP_ENV (use prod, dev, or test)"
 
-[[ -z "$DATA_DIR" ]] && DATA_DIR="${INSTALL_DIR}/data"
+[[ -z "$DATA_DIR" ]] && DATA_DIR="${INSTALL_DIR}/.data"
 
 require_root "$@"
 
@@ -288,21 +285,23 @@ fi
 # ── Install directory ─────────────────────────────────────────────────────────
 step "Installing to $INSTALL_DIR"
 
-mkdir -p "$INSTALL_DIR"/{docker/coop,config,env,scripts,logs}
+mkdir -p "$INSTALL_DIR"/{docker/coop,config,env,logs}
 mkdir -p "$DATA_DIR"
 
 cp "$BUNDLE_DIR/docker/coop/docker-compose.coop.yml" "$INSTALL_DIR/docker/coop/"
 cp -r "$BUNDLE_DIR/config/"*  "$INSTALL_DIR/config/"
 cp -r "$BUNDLE_DIR/env/"*     "$INSTALL_DIR/env/"
 
-for script in "$BUNDLE_DIR/scripts/"*.sh; do
-  [[ -f "$script" ]] || continue
-  install -m 0755 "$script" "$INSTALL_DIR/scripts/"
-done
+while IFS= read -r -d '' script; do
+  rel="${script#"$BUNDLE_DIR/scripts/"}"
+  dest_dir="$INSTALL_DIR/scripts/$(dirname "$rel")"
+  mkdir -p "$dest_dir"
+  install -m 0755 "$script" "$dest_dir/"
+done < <(find "$BUNDLE_DIR/scripts" -name "*.sh" -print0)
 
 # System-wide command
-ln -sf "$INSTALL_DIR/scripts/coop-ctl.sh" /usr/local/bin/coop-ctl
-log "Installed /usr/local/bin/coop-ctl -> $INSTALL_DIR/scripts/coop-ctl.sh"
+ln -sf "$INSTALL_DIR/scripts/coop/coop-ctl.sh" /usr/local/bin/coop-ctl
+log "Installed /usr/local/bin/coop-ctl -> $INSTALL_DIR/scripts/coop/coop-ctl.sh"
 
 # ── Kernel parameters ─────────────────────────────────────────────────────────
 step "Kernel parameters"
@@ -326,7 +325,7 @@ fi
 # ── Environment file ──────────────────────────────────────────────────────────
 step "Generating environment"
 
-ENV_FILE="$INSTALL_DIR/data/.env"
+ENV_FILE="$INSTALL_DIR/.data/.env"
 TEMPLATE="$INSTALL_DIR/env/${APP_ENV}.env"
 [[ -f "$TEMPLATE" ]] || die "Env template not found: $TEMPLATE"
 
@@ -460,9 +459,9 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${INSTALL_DIR}
 Environment=COOP_INSTALL_DIR=${INSTALL_DIR}
-ExecStart=${INSTALL_DIR}/scripts/coop-ctl.sh start
-ExecStop=${INSTALL_DIR}/scripts/coop-ctl.sh stop
-ExecReload=${INSTALL_DIR}/scripts/coop-ctl.sh restart
+ExecStart=${INSTALL_DIR}/scripts/coop/coop-ctl.sh start
+ExecStop=${INSTALL_DIR}/scripts/coop/coop-ctl.sh stop
+ExecReload=${INSTALL_DIR}/scripts/coop/coop-ctl.sh restart
 TimeoutStartSec=180
 TimeoutStopSec=60
 Restart=on-failure
@@ -488,7 +487,7 @@ _FIRST_PROFILES="$(grep -E '^COOP_COMPOSE_PROFILES=' "$ENV_FILE" | cut -d= -f2 |
 
 # bootstrap: checks .env, generates TLS certs + MQTT users, starts the stack.
 COOP_INSTALL_DIR="$INSTALL_DIR" \
-  "$INSTALL_DIR/scripts/coop-bootstrap.sh" up -d
+  "$INSTALL_DIR/scripts/coop/coop-bootstrap.sh" up -d
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 printf '\n'
@@ -500,7 +499,7 @@ log "  Data dir    : $DATA_DIR"
 log "  Bundle      : $BUNDLE"
 log "  HW profile  : $HW_PROFILE"
 log "  Profiles    : $_FIRST_PROFILES"
-log "  Env file    : $INSTALL_DIR/data/.env"
+log "  Env file    : $INSTALL_DIR/.data/.env"
 log ""
 log "  Endpoints:"
 log "    ChirpStack UI      http://localhost:8080"
@@ -518,5 +517,5 @@ log "  Control:"
 log "    coop-ctl start | stop | restart | status | logs | ps"
 log "    systemctl status coop-stack"
 log ""
-log "  Credentials: sudo cat $INSTALL_DIR/data/.env"
+log "  Credentials: sudo cat $INSTALL_DIR/.data/.env"
 log "================================================================"

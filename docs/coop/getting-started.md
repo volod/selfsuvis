@@ -77,7 +77,7 @@ Key variables to configure:
 ./scripts/coop/coop-camera.sh --list
 ```
 
-**Option B: Edit config manually** - see `config/coop/frigate/config.yml` and [Sensor Integration](sensor-integration.md).
+**Option B: Edit config manually** - see `data/coop/frigate/config.yml` (created by `coop-bootstrap.sh`) and [Sensor Integration](sensor-integration.md).
 
 ### 4. Start the Stack
 

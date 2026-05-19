@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 
 # Shared helpers for project shell scripts.
-# Source this file from scripts/*.sh.
+# Source this file from scripts/**/*.sh.
 
 if [[ -n "${SELFSUVIS_SCRIPTS_COMMON_SOURCED:-}" ]]; then
   return 0
 fi
 readonly SELFSUVIS_SCRIPTS_COMMON_SOURCED=1
 
-readonly PROJECT_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly PROJECT_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly PROJECT_ROOT_DIR="$(cd "$PROJECT_SCRIPTS_DIR/.." && pwd)"
-readonly PROJECT_ENV_FILE="$PROJECT_ROOT_DIR/data/.env"
+readonly PROJECT_ENV_FILE="$PROJECT_ROOT_DIR/.data/.env"
 readonly PROJECT_COOP_COMPOSE_FILE="$PROJECT_ROOT_DIR/docker/coop/docker-compose.coop.yml"
 
 project_root_dir() {
@@ -60,7 +60,7 @@ project_load_env_optional() {
 }
 
 project_load_env_required() {
-  [[ -f "$PROJECT_ENV_FILE" ]] || project_die "data/.env not found. Run './scripts/coop/coop-env.sh' first."
+  [[ -f "$PROJECT_ENV_FILE" ]] || project_die ".data/.env not found. Run './scripts/coop/coop-env.sh' first."
   project_load_env_optional
 }
 
@@ -69,7 +69,7 @@ project_default_app_env() {
 }
 
 project_data_dir() {
-  local data_dir="./data"
+  local data_dir="./.data"
   project_load_env_optional
   data_dir="${DATA_DIR:-$data_dir}"
   if [[ "$data_dir" != /* ]]; then

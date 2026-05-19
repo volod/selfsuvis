@@ -4,7 +4,7 @@
 # Usage:
 #   ./scripts/ssv/ssv-prepare-sensor-data.sh [OUTPUT_DIR]
 #
-# OUTPUT_DIR defaults to data/sensors/.  The script creates one subdirectory
+# OUTPUT_DIR defaults to .data/sensors/ (or DATA_DIR/sensors).  The script creates one subdirectory
 # per sensor step (step09_rf/, step10_thermal/, …) containing the downloaded
 # samples.  Each directory also gets a README.txt with the dataset licence and
 # the sidecar naming convention for selfsuvis.
@@ -24,7 +24,10 @@
 
 set -euo pipefail
 
-OUT="${1:-data/sensors}"
+# shellcheck source=scripts/shared/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
+
+OUT="${1:-"$(project_data_dir)/sensors"}"
 mkdir -p "$OUT"
 
 BOLD='\033[1m'
@@ -37,14 +40,13 @@ warn() { echo -e "${YELLOW}[WARN]${RESET} $*"; }
 note() { echo -e "${BOLD}[NOTE]${RESET} $*"; }
 
 # -- Video discovery: use the existing video basename as the sensor data key ---
-# Scan data/videos/ for a video file first.  If found, generated sidecar
+# Scan $_DATA_DIR/videos/ for a video file first.  If found, generated sidecar
 # files will share that basename so they are ready to use without renaming.
 # Falls back to "sample_mission_042" when no video is present yet.
-_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_REPO_ROOT="$(cd "$_SCRIPT_DIR/.." && pwd)"
-_SENSORS_DIR="$_REPO_ROOT/src/selfsuvis/scripts/sensors"
+_SENSORS_DIR="$PROJECT_ROOT_DIR/src/selfsuvis/scripts/sensors"
+_DATA_DIR="$(project_data_dir)"
 SENSOR_VIDEO_BASENAME="sample_mission_042"
-_VIDEO_DIR="$_REPO_ROOT/data/videos"
+_VIDEO_DIR="$_DATA_DIR/videos"
 if [[ -d "$_VIDEO_DIR" ]]; then
   _FOUND="$(ls "$_VIDEO_DIR"/*.mp4 "$_VIDEO_DIR"/*.mov "$_VIDEO_DIR"/*.avi \
               "$_VIDEO_DIR"/*.mkv 2>/dev/null | head -1 || true)"
@@ -82,7 +84,7 @@ Licence:     $licence
 Sidecar fmt: $sidecar
 
 Place sidecar next to the matching video:
-  data/videos/mission_042.<ext>
+  $_DATA_DIR/videos/mission_042.<ext>
 
 See local_path.md and docs/learning_path/03_sensor_steps_09_20.md for full integration details.
 EOF
@@ -98,7 +100,7 @@ note "Step 9 — RF / SDR"
 note "  DeepSig RadioML 2018.01a requires free account registration."
 note "  Manual download: https://www.deepsig.ai/datasets"
 note "  Place the .hdf5 shard at: $DIR/radioml_2018.01a.hdf5"
-note "  Then rename to match your video: data/videos/mission_042.iq (float32 I/Q)"
+note "  Then rename to match your video: $_DATA_DIR/videos/mission_042.iq (float32 I/Q)"
 echo ""
 write_readme "$DIR" "9" "DeepSig RadioML 2018.01a" \
   "CC BY-SA 4.0 — free for research" \
@@ -135,7 +137,7 @@ note "Step 10 — Thermal / Infrared"
 note "  FLIR ADAS Thermal Dataset requires registration."
 note "  Manual download: https://www.flir.com/oem/adas/adas-dataset-form/"
 note "  After download, place thermal frames at: $DIR/flir_adas/"
-note "  Sidecar: data/videos/mission_042.thermal.mp4 (GREY16-encoded radiometric video)"
+note "  Sidecar: $_DATA_DIR/videos/mission_042.thermal.mp4 (GREY16-encoded radiometric video)"
 echo ""
 write_readme "$DIR" "10" "FLIR ADAS Thermal Dataset" \
   "FLIR Research Use Licence (registration required)" \
@@ -173,7 +175,7 @@ log "Step 12 — Event Camera (neuromorphic)"
 note "  N-Caltech101 dataset: https://www.garrickorchard.com/datasets/n-caltech101"
 note "  DSEC dataset: https://dsec.ifi.uzh.ch/"
 note "  Both require manual download; place event files at: $DIR/"
-note "  Sidecar: data/videos/mission_042.events.raw (Prophesee RAW format)"
+note "  Sidecar: $_DATA_DIR/videos/mission_042.events.raw (Prophesee RAW format)"
 note "         or mission_042.events.h5 (iniVation DV format)"
 note ""
 note "  Install Prophesee MetavisionSDK for .raw decoding:"
@@ -194,7 +196,7 @@ note "  Register for free, then download sequence 00 velodyne.zip (~2.8 GB for f
 note "  For a quick start, download only the calibration + first 5 scans:"
 note "    sequence 00, frames 000000-000004 from the velodyne_points directory"
 note "  Place .bin scans at: $DIR/kitti_seq00/velodyne/"
-note "  Sidecar: data/videos/mission_042.lidar.pcd  (single merged scan)"
+note "  Sidecar: $_DATA_DIR/videos/mission_042.lidar.pcd  (single merged scan)"
 note "           or mission_042.lidar.mcap           (MCAP with PointCloud2 topics)"
 
 cp "$_SENSORS_DIR/visualise_pcd.py" "$DIR/"
@@ -211,7 +213,7 @@ note "Step 14 — Radar (FMCW / Doppler / SAR)"
 note "  RADIATE dataset: https://pro.hw.ac.uk/radiate/"
 note "  View-of-Delft: https://github.com/tudelft-iv/view-of-delft-dataset"
 note "  Both require manual download."
-note "  Sidecar: data/videos/mission_042.radar.bin  (TI DCA1000 raw ADC IQ)"
+note "  Sidecar: $_DATA_DIR/videos/mission_042.radar.bin  (TI DCA1000 raw ADC IQ)"
 note "           or mission_042.radar.csv           (pre-processed detections)"
 note ""
 note "  Install OpenRadar for FMCW signal processing:"
@@ -245,7 +247,7 @@ python3 "$DIR/generate_adsb_sidecar.py" "$SENSOR_VIDEO_BASENAME" "$DIR" && \
 note "  CYGNSS GNSS-R DDMs: https://podaac.jpl.nasa.gov/dataset/CYGNSS_L1_V3.1"
 note "  ESA SMOS: https://earth.esa.int/eogateway/missions/smos"
 note "  Both require NASA Earthdata / ESA EO Sign-In registration."
-note "  Sidecar: data/videos/mission_042.gnssr.bin (raw IQ for pyGNSSR)"
+note "  Sidecar: $_DATA_DIR/videos/mission_042.gnssr.bin (raw IQ for pyGNSSR)"
 note "           or mission_042.adsb.jsonl         (dump1090 aircraft per second)"
 
 write_readme "$DIR" "15" "CYGNSS GNSS-R + OpenSky ADS-B + MarineCadastre AIS" \
@@ -331,7 +333,7 @@ note ""
 note "  xeno-canto bird recordings: https://xeno-canto.org/"
 note "  FSD50K: https://zenodo.org/record/4060432"
 note ""
-note "  Sidecar: data/videos/mission_042.audio.wav (48 kHz mono/stereo)"
+note "  Sidecar: $_DATA_DIR/videos/mission_042.audio.wav (48 kHz mono/stereo)"
 note "           or mission_042.audio_array.h5     (channels × samples, float32)"
 
 cp "$_SENSORS_DIR/generate_acoustic_sidecar.py" "$DIR/"

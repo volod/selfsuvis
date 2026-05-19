@@ -485,5 +485,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="[local] DroneAudioCNN training epochs (default: DRONE_AUDIO_EPOCHS env var, or 10)",
     )
+    parser.add_argument(
+        "--drau-eval",
+        dest="drau_eval",
+        action="store_const",
+        const=True,
+        default=None,
+        help="[local] Run drau range-detection evaluation (step 33). Evaluates "
+        "DroneAudioCNN ONNX model at simulated distances using the drau physics "
+        "model (github.com/volod/drau). Requires --drone-audio to have produced "
+        "drone_audio_cnn.onnx. Exports drau_edge_test.py for edge deployment.",
+    )
+    parser.add_argument(
+        "--no-drau-eval",
+        dest="drau_eval",
+        action="store_const",
+        const=False,
+        help="[local] Skip drau range-detection evaluation (step 33)",
+    )
 
     return parser

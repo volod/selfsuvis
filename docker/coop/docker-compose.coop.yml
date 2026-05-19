@@ -55,8 +55,9 @@ services:
       - "8883:8883"      # MQTT over TLS (external sensors / Dragino LPS8N)
     volumes:
       - ./config/coop/mosquitto:/mosquitto/config:ro
-      - ${DATA_DIR:-./data}/mosquitto/data:/mosquitto/data
-      - ${DATA_DIR:-./data}/mosquitto/log:/mosquitto/log
+      - ${DATA_DIR:-./.data}/coop/mosquitto:/mosquitto/secrets:ro
+      - ${DATA_DIR:-./.data}/mosquitto/data:/mosquitto/data
+      - ${DATA_DIR:-./.data}/mosquitto/log:/mosquitto/log
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -u ${MOSQUITTO_HEALTH_USER:-health} -P ${MOSQUITTO_HEALTH_PASSWORD:-health} || exit 1"]
       interval: 30s
@@ -265,8 +266,8 @@ services:
     devices:
       - /dev/dri/renderD128      # remove if running CPU-only
     volumes:
-      - ./config/coop/frigate:/config
-      - ${DATA_DIR:-./data}/frigate-media:/media/frigate
+      - ${DATA_DIR:-./.data}/coop/frigate:/config
+      - ${DATA_DIR:-./.data}/frigate-media:/media/frigate
     environment:
       FRIGATE_RTSP_PASSWORD: ${FRIGATE_RTSP_PASSWORD:-}
       FRIGATE_MQTT_PASSWORD: ${FRIGATE_MQTT_PASSWORD:-}
@@ -304,7 +305,7 @@ services:
       - "127.0.0.1:9090:9090"
     volumes:
       - ./config/coop/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ${DATA_DIR:-./data}/prometheus:/prometheus
+      - ${DATA_DIR:-./.data}/prometheus:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"

@@ -7,7 +7,7 @@ This file provides compact repository guidance for coding agents.
 - Never create a git commit unless the user explicitly asks for one.
 - Never add `from __future__ import annotations`, and replace those cases with explicit imports TYPE_CHECKING.
 - Top-level `scripts/` must be shell entrypoints only. Put Python implementations under `src/selfsuvis/...` and call them from shell wrappers when needed.
-- Reuse `scripts/common.sh` for shared shell behavior instead of duplicating root/env/bootstrap logic.
+- Reuse `scripts/shared/common.sh` for shared shell behavior instead of duplicating root/env/bootstrap logic.
 - Use ASCII-only characters in all log messages, docstrings, comments, and documentation. No emoji, no Unicode box-drawing or symbol characters (no ✓ ▷ ═ ─ ℹ ⚠ ● or similar). Use plain ASCII equivalents: `[ok]`, `->`, `=`, `-`, `[info]`, `[warn]`, `*`.
 
 ## Project
