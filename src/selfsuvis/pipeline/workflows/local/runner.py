@@ -3461,10 +3461,10 @@ def run_local(args: Any) -> None:
 
     except KeyboardInterrupt:
         _log.warning("")
-        _log.warning("Interrupted by user (Ctrl-C) — shutting down gracefully …")
+        _log.warning("Interrupted by user (Ctrl-C) -- shutting down gracefully ...")
         _log.warning("  %d/%d video(s) completed.", len(per_video_stats), len(videos))
+        total_elapsed = time.time() - t_start
         if per_video_stats:
-            total_elapsed = time.time() - t_start
             stats_path = output_dir / "final_stats.md"
             from selfsuvis.pipeline.fusion import persist_threat_memory
 

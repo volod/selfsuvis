@@ -2809,16 +2809,16 @@ def step_qwen_captioning(
             )
             if _probe_res and _probe_res[0].get("parse_error"):
                 _log.warning(
-                    "  Qwen agentic probe: parse error on first frame — "
+                    "  Qwen agentic probe: parse error on first frame -- "
                     "falling back to non-agentic mode. "
                     "Model '%s' appears too small for structured JSON output; "
-                    "use qwen2.5vl:7b or larger to keep agentic mode.",
+                    "use qwen2.5vl:32b or larger to keep agentic mode.",
                     settings.QWEN_MODEL,
                 )
                 _use_agentic = False
 
     _log.info(
-        "Running Qwen detailed captioning on %d sampled frames (from %d total, model=%s  agentic=%s) …",
+        "Running Qwen detailed captioning on %d sampled frames (from %d total, model=%s  agentic=%s) ...",
         len(sampled_frame_list),
         len(frame_list),
         settings.QWEN_MODEL,
