@@ -70,14 +70,14 @@ Key variables to configure:
 # RTSP camera
 ./scripts/coop/coop-camera.sh --name front_door --rtsp rtsp://user:pass@192.168.1.100:554/stream1 --restart
 
-# USB camera (ensure device is passed to Frigate in docker/docker-compose.yml)
+# USB camera (ensure device is passed to Frigate in docker/core/docker-compose.yml)
 ./scripts/coop/coop-camera.sh --name usb_cam --usb /dev/video0 --restart
 
 # List configured cameras
 ./scripts/coop/coop-camera.sh --list
 ```
 
-**Option B: Edit config manually** - see `config/coop/frigate/config.yml` and [Sensor Integration](sensor-integration.md).
+**Option B: Edit config manually** - see `data/coop/frigate/config.yml` (created by `coop-bootstrap.sh`) and [Sensor Integration](sensor-integration.md).
 
 ### 4. Start the Stack
 
@@ -150,8 +150,8 @@ REASONING_MODEL=gemma3:12b
 
 ```bash
 docker compose \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.coop.yml \
+  -f docker/core/docker-compose.yml \
+  -f docker/coop/docker-compose.coop.yml \
   up -d
 ```
 

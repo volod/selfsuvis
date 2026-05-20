@@ -9,7 +9,7 @@
 #   Step 1a— Install sensor-specific Python packages (open3d, filterpy, …)
 #   Step 2 — Download HuggingFace model weights for each pipeline step
 #   Step 3 — Install Ollama and pull LLM/VLM sidecar models
-#   Step 4 — Create data/ layout, download test video, generate sensor sidecars
+#   Step 4 — Create .data/ layout, download test video, generate sensor sidecars
 #   Step 5 — Print instructions to start Docker stack + run DB migration
 #   Step 6 — Confirm test video path for run-command summary
 #   Summary— Print the exact run command(s) for your configuration
@@ -68,7 +68,7 @@
 #     make up
 #     python -m selfsuvis.scripts.migrate_postgres
 #   Then run the pipeline:
-#     selfsuvis --mode local --input data/videos/drone_mission.mp4 --no-qdrant
+#     selfsuvis --mode local --input .data/videos/drone_mission.mp4 --no-qdrant
 #
 # TROUBLESHOOTING:
 #   "Permission denied" on Docker:
@@ -85,6 +85,9 @@
 # =============================================================================
 
 set -euo pipefail
+
+# shellcheck source=scripts/shared/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   sed -n '2,70p' "$0" | sed 's/^# \{0,1\}//'
@@ -131,8 +134,7 @@ warn()    { echo -e "${YELLOW}[WARN]${RESET} $*"; }
 error()   { echo -e "${RED}[ERROR]${RESET} $*"; exit 1; }
 
 # Always run from the repo root regardless of where the script is invoked from
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT"
+project_cd_root
 
 # -- Load .env if present ------------------------------------------------------
 # Generate .env with `make env` / `make env-interactive` and set HF_TOKEN there.
@@ -210,6 +212,9 @@ HF_TOKEN="${HF_TOKEN:-}"
 PYTHON=".venv/bin/python"
 PIP=".venv/bin/pip"
 
+# Data directory — honoured by all sub-steps below
+_DATA_DIR="$(project_data_dir)"
+
 # =============================================================================
 # SENSOR-DATA-ONLY SHORT-CIRCUIT
 # When --sensor-data-only is passed, skip all model and environment steps.
@@ -218,15 +223,15 @@ PIP=".venv/bin/pip"
 # =============================================================================
 if $SENSOR_DATA_ONLY; then
   section "Sensor data only mode — skipping model and environment setup"
-  mkdir -p data/videos data/sensors data/frames \
-           data/tiles data/maps data/reports cache_test
-  bash scripts/ssv/ssv-prepare-sensor-data.sh data/sensors
+  mkdir -p "$_DATA_DIR/videos" "$_DATA_DIR/sensors" "$_DATA_DIR/frames" \
+           "$_DATA_DIR/tiles" "$_DATA_DIR/maps" "$_DATA_DIR/reports" "$_DATA_DIR/cache_test"
+  bash scripts/ssv/ssv-prepare-sensor-data.sh "$_DATA_DIR/sensors"
   echo ""
-  log "Done. Sensor sample data is in data/sensors/"
-  _VB="$(ls data/videos/*.mp4 data/videos/*.mov 2>/dev/null | head -1 || true)"
+  log "Done. Sensor sample data is in $_DATA_DIR/sensors/"
+  _VB="$(ls "$_DATA_DIR/videos"/*.mp4 "$_DATA_DIR/videos"/*.mov 2>/dev/null | head -1 || true)"
   _VB="${_VB:+$(basename "${_VB%.*}")}"
   _VB="${_VB:-<video-basename>}"
-  log "Sidecars are named after your video: data/sensors/step16_imu/${_VB}.imu.jsonl"
+  log "Sidecars are named after your video: $_DATA_DIR/sensors/step16_imu/${_VB}.imu.jsonl"
   exit 0
 fi
 
@@ -657,15 +662,15 @@ fi
 # to that video's basename.
 #
 # Directory layout created:
-#   data/videos/     — input video(s)
+#   .data/videos/     — input video(s)
 #   data/sensors/    — per-step sensor sidecars
 #   data/frames/     — keyframe output (written by pipeline)
 #   data/tiles/      — tile output (written by pipeline)
 #   data/maps/       — 3DGS / splat output (written by pipeline)
 #   data/reports/    — HTML mission summaries (written by pipeline)
-#   cache_test/           — integration-test cache volume
+#   data/cache_test/      — integration-test cache volume
 #
-# Test video (auto-downloaded if data/videos/ is empty):
+# Test video (auto-downloaded if .data/videos/ is empty):
 #   Primary:  US Highway 60 drone flyover — real vehicles on a divided highway,
 #             desert terrain, trees, road markings (~27 MB, archive.org, public domain)
 #   Fallback: Archer Lodge suburban aerial — roads, buildings, trees, carpark (~15 MB)
@@ -688,26 +693,26 @@ fi
 section "Step 4 — Test data (directories + video + sensor sidecars)"
 
 # -- 4a: Create the full data/ directory layout --------------------------------
-log "Creating data/ layout..."
+log "Creating $_DATA_DIR/ layout..."
 mkdir -p \
-  data/videos \
-  data/sensors \
-  data/frames \
-  data/tiles \
-  data/maps \
-  data/reports \
-  cache_test
+  "$_DATA_DIR/videos" \
+  "$_DATA_DIR/sensors" \
+  "$_DATA_DIR/frames" \
+  "$_DATA_DIR/tiles" \
+  "$_DATA_DIR/maps" \
+  "$_DATA_DIR/reports" \
+  "$_DATA_DIR/cache_test"
 log "Directories ready."
 
-# -- 4b: Download a test video if data/videos/ is empty -------------------------
-_FOUND_VIDEO="$(ls data/videos/*.mp4 data/videos/*.mov \
-                   data/videos/*.avi data/videos/*.mkv \
+# -- 4b: Download a test video if .data/videos/ is empty -------------------------
+_FOUND_VIDEO="$(ls "$_DATA_DIR/videos"/*.mp4 "$_DATA_DIR/videos"/*.mov \
+                   "$_DATA_DIR/videos"/*.avi "$_DATA_DIR/videos"/*.mkv \
                    2>/dev/null | head -1 || true)"
 
 if [[ -n "$_FOUND_VIDEO" ]]; then
   log "Test video found: $_FOUND_VIDEO"
 else
-  _DEST="data/videos/drone_mission.mp4"
+  _DEST="$_DATA_DIR/videos/drone_mission.mp4"
   _DOWNLOADED=false
 
   # Primary and fallback: real drone footage from Internet Archive (public domain).
@@ -745,11 +750,11 @@ else
             -t 10 -c:v libx264 -preset fast \
             "$_DEST" 2>/dev/null \
             && { _FOUND_VIDEO="$_DEST"; } \
-            || warn "ffmpeg generation failed — add a .mp4 to data/videos/ and re-run."
+            || warn "ffmpeg generation failed — add a .mp4 to $_DATA_DIR/videos/ and re-run."
         }
     else
       warn "ffmpeg not found — cannot generate a synthetic video."
-      warn "Add any .mp4 or .mov to data/videos/ and re-run."
+      warn "Add any .mp4 or .mov to $_DATA_DIR/videos/ and re-run."
     fi
   fi
 fi
@@ -780,12 +785,12 @@ if [[ -n "$_FOUND_VIDEO" ]] && command -v ffprobe >/dev/null 2>&1; then
 fi
 
 # -- 4c: Generate sensor sidecars keyed to the video's basename -----------------
-# prepare_sensor_data.sh auto-detects the video in data/videos/ and names
+# prepare_sensor_data.sh auto-detects the video in .data/videos/ and names
 # all generated sidecar files after its basename (e.g. drone_mission.imu.jsonl).
 # Steps requiring manual download print instructions and create empty placeholder dirs.
 log "Generating sensor sample data (Steps 9–19)..."
-bash scripts/ssv/ssv-prepare-sensor-data.sh data/sensors
-log "Sensor data ready in data/sensors/"
+bash scripts/ssv/ssv-prepare-sensor-data.sh "$_DATA_DIR/sensors"
+log "Sensor data ready in $_DATA_DIR/sensors/"
 
 # -- 4d: Drone audio dataset (Step 32 - DroneAudioCNN training) -----------------
 # Downloads geronimobasso/drone-audio-detection-samples from HuggingFace and
@@ -797,9 +802,9 @@ log "Sensor data ready in data/sensors/"
 # Dataset:  https://huggingface.co/datasets/geronimobasso/drone-audio-detection-samples
 section "Step 4d — Drone audio dataset (Step 32 training cache)"
 
-log "Preparing drone audio dataset → data/drone-audio-data/ ..."
+log "Preparing drone audio dataset → $_DATA_DIR/drone-audio-data/ ..."
 "$PYTHON" -m selfsuvis.scripts.prepare_audio_data \
-  --data-dir data/drone-audio-data \
+  --data-dir "$_DATA_DIR/drone-audio-data" \
   || warn "Drone audio dataset prep failed — Step 32 will download on first run instead."
 log "Drone audio dataset ready."
 
@@ -836,7 +841,7 @@ if $WITH_DOCKER; then
       warn "make up failed — Docker stack did not start."
       warn "Fix:  make docker-check"
       warn "      sudo usermod -aG docker \$USER   # if permission denied"
-      warn "      make fix-data                    # if data/ is root-owned"
+      warn "      make fix-data                    # if .data/ is root-owned"
     fi
 
     if $_STACK_OK; then
@@ -847,7 +852,7 @@ if $WITH_DOCKER; then
       log "Waiting for PostgreSQL to be ready at ${_PG_HOST}:${_PG_PORT} ..."
       _PG_READY=false
       for _i in $(seq 1 15); do
-        if docker compose -f docker/docker-compose.yml exec -T postgres \
+        if docker compose -f docker/core/docker-compose.yml exec -T postgres \
               pg_isready -U "$_PG_USER" -q 2>/dev/null; then
           _PG_READY=true; break
         elif command -v pg_isready >/dev/null 2>&1 && \
@@ -888,7 +893,7 @@ fi
 # final path so the summary section can print an accurate run command.
 #
 # To use your own footage instead:
-#   cp /path/to/drone_mission.mp4 data/videos/
+#   cp /path/to/drone_mission.mp4 .data/videos/
 #   ./scripts/ssv/ssv-setup.sh --sensor-data-only   # regenerate sidecars
 #
 # Free outdoor footage (no login):
@@ -897,15 +902,15 @@ fi
 # =============================================================================
 section "Step 6 — Confirm test video"
 
-TEST_VIDEO="$(ls data/videos/*.mp4 data/videos/*.mov \
-               data/videos/*.avi data/videos/*.mkv \
+TEST_VIDEO="$(ls "$_DATA_DIR/videos"/*.mp4 "$_DATA_DIR/videos"/*.mov \
+               "$_DATA_DIR/videos"/*.avi "$_DATA_DIR/videos"/*.mkv \
                2>/dev/null | head -1 || true)"
 
 if [[ -n "$TEST_VIDEO" ]]; then
   log "Test video: $TEST_VIDEO"
 else
-  warn "No video found in data/videos/ — run commands below will need --input updated."
-  TEST_VIDEO="data/videos/drone_mission.mp4"
+  warn "No video found in $_DATA_DIR/videos/ — run commands below will need --input updated."
+  TEST_VIDEO="$_DATA_DIR/videos/drone_mission.mp4"
 fi
 
 # =============================================================================
@@ -921,7 +926,7 @@ echo ""
 echo -e "${BOLD}Quick start:${RESET}"
 echo ""
 echo "   APP_ENV=dev .venv/bin/selfsuvis --mode local \\"
-echo "     --videos-dir data/videos \\"
+echo "     --videos-dir $_DATA_DIR/videos \\"
 echo "     --no-qdrant --no-sfm --no-gsplat"
 echo ""
 echo "Full run variants, flags reference, and sidecar naming:"

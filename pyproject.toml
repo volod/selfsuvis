@@ -129,6 +129,7 @@ where = ["src"]
 
 # ── pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
+cache_dir = ".data/.pytest_cache"
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
@@ -144,6 +145,7 @@ markers = [
 
 # ── ruff ─────────────────────────────────────────────────────────────────────
 [tool.ruff]
+cache-dir = ".data/.ruff_cache"
 line-length = 100
 src = ["src"]
 

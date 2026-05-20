@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Generate self-signed TLS certs for Mosquitto.
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../common.sh"
-CERT_DIR="$PROJECT_ROOT_DIR/config/coop/mosquitto/certs"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
+project_load_env_optional
+CERT_DIR="$(project_data_dir)/coop/mosquitto/certs"
 mkdir -p "$CERT_DIR"
 
 HOST="${1:-}"

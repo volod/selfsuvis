@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
 project_cd_root
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage: ./scripts/coop-mqtt-users.sh
 
-Builds `config/coop/mosquitto/pwfile` from credentials in `data/.env`.
+Builds `.data/coop/mosquitto/pwfile` from credentials in `.data/.env`.
 EOF
   exit 0
 fi
@@ -15,9 +15,10 @@ fi
 project_load_env_required
 project_require_cmd docker
 
-mkdir -p config/coop/mosquitto
-PWFILE="config/coop/mosquitto/pwfile"
-TMP="config/coop/mosquitto/pwfile.tmp"
+_SECRETS_DIR="$(project_data_dir)/coop/mosquitto"
+mkdir -p "$_SECRETS_DIR"
+PWFILE="$_SECRETS_DIR/pwfile"
+TMP="$_SECRETS_DIR/pwfile.tmp"
 rm -f "$TMP"
 
 add_user() {
@@ -28,11 +29,11 @@ add_user() {
     exit 1
   fi
   if [[ ! -f "$TMP" ]]; then
-    docker run --rm --user "$(id -u):$(id -g)" -v "$PROJECT_ROOT_DIR/config/coop/mosquitto:/mosquitto/config" eclipse-mosquitto:2 \
-      mosquitto_passwd -b -c /mosquitto/config/pwfile.tmp "$user" "$pass"
+    docker run --rm --user "$(id -u):$(id -g)" -v "$_SECRETS_DIR:/mosquitto/secrets" eclipse-mosquitto:2 \
+      mosquitto_passwd -b -c /mosquitto/secrets/pwfile.tmp "$user" "$pass"
   else
-    docker run --rm --user "$(id -u):$(id -g)" -v "$PROJECT_ROOT_DIR/config/coop/mosquitto:/mosquitto/config" eclipse-mosquitto:2 \
-      mosquitto_passwd -b /mosquitto/config/pwfile.tmp "$user" "$pass"
+    docker run --rm --user "$(id -u):$(id -g)" -v "$_SECRETS_DIR:/mosquitto/secrets" eclipse-mosquitto:2 \
+      mosquitto_passwd -b /mosquitto/secrets/pwfile.tmp "$user" "$pass"
   fi
 }
 

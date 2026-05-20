@@ -8,14 +8,17 @@ Usage:
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-from selfsuvis.pipeline.core.env import project_roots
+from selfsuvis.pipeline.core.env import load_script_env, project_roots
 
+load_script_env(anchor_file=__file__)
 ROOT = project_roots(__file__)[1]
-FRIGATE_CONFIG = ROOT / "config" / "coop" / "frigate" / "config.yml"
+_data_dir = Path(os.environ.get("DATA_DIR", str(ROOT / ".data")))
+FRIGATE_CONFIG = _data_dir / "coop" / "frigate" / "config.yml"
 
 
 def load_config() -> dict:

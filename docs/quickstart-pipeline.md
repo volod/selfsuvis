@@ -386,7 +386,7 @@ caption parse failures and usually produces better `detailed_captions.md`.
 
 ```bash
 # Start Qdrant if not already running:
-docker compose -f docker/docker-compose.yml up -d qdrant
+docker compose -f docker/core/docker-compose.yml up -d qdrant
 
 .venv/bin/selfsuvis --mode local \
   --videos-dir data/videos

@@ -34,7 +34,7 @@ def _render_results(results):
             if r.get("tile_path"):
                 st.caption(r.get("tile_path"))
             if r.get("video_id"):
-                st.code(f'mpv "./data/videos/{r["video_id"]}.mp4" --start={r["t_sec"]:.2f}')
+                st.code(f'mpv ".data/videos/{r["video_id"]}.mp4" --start={r["t_sec"]:.2f}')
 
 
 tab_index, tab_image, tab_text, tab_admin, tab_site = st.tabs(
@@ -205,7 +205,7 @@ with tab_admin:
         mission_id = selected_mission["id"]
         rel_path = os.path.relpath(
             chosen_splat,
-            env_str("MAPS_DIR", "data/maps"),
+            env_str("MAPS_DIR", "./.data/maps"),
         )
         splat_static_url = f"{static_url}/static/maps/{rel_path}"
         viewer_url = f"{supersplat_url}/?load={splat_static_url}"

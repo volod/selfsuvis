@@ -49,7 +49,7 @@ from ._common import (
 
 # -- Constants ------------------------------------------------------------------
 
-_TOTAL_STEPS = 33
+_TOTAL_STEPS = 34
 _VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 
 # Phase 3 SSL gate: skip distillation / ONNX / search comparison when the
@@ -3123,6 +3123,59 @@ def run_video_pipeline(
         )
     else:
         _step(32, _TOTAL_STEPS, "Drone audio training (skipped — pass --drone-audio to enable)")
+
+    # -- Step 33: drau range-detection evaluation (github.com/volod/drau) ------
+    _drau_enabled = getattr(args, "drau_eval", None)
+    if _drau_enabled is None:
+        # Auto: run if the ONNX from step 32 exists; skip otherwise.
+        _drau_onnx = video_dir / "drone_audio" / "drone_audio_cnn.onnx"
+        _drau_enabled = _drau_onnx.exists()
+    if _drau_enabled:
+        from .steps_drau_eval import step_drau_range_eval
+
+        _step(33, _TOTAL_STEPS, "drau range eval → drone_audio/drau_range_report.md")
+        _append_agentic_step(
+            agentic_trace,
+            step_id="33",
+            title="drau range-detection evaluation",
+            description=(
+                "Evaluate DroneAudioCNN ONNX model at simulated distances using "
+                "the drau physics model (github.com/volod/drau): inverse-square "
+                "amplitude scaling + ISO 9613-1 atmospheric absorption. "
+                "Exports drau_edge_test.py for numpy+scipy+onnxruntime-only inference."
+            ),
+            status="ok",
+            context_inputs=[
+                "drone_audio/drone_audio_cnn.onnx (from step 32)",
+                "synthetic quadcopter audio at 9 distances (1-200 m)",
+            ],
+            context_outputs=[
+                "drau_range_report.md (detection probability vs distance)",
+                "drau_edge_test.py (standalone edge script, no PyTorch)",
+            ],
+            risks=[
+                "synthetic signal is a simplification; real drone audio varies by model and rotor configuration",
+                "onnxruntime must be installed for inference; skips gracefully if absent",
+                "detection range estimate is a model characteristic, not a deployment guarantee",
+            ],
+            artifacts=[
+                "drone_audio/drau_range_report.md",
+                "drone_audio/drau_edge_test.py",
+            ],
+        )
+        with _Timer(T, "AC_drau_eval"):
+            drau_result = step_drau_range_eval(video_dir, output_dir, args)
+        stats["drau_eval"] = drau_result
+        if drau_result.get("skipped"):
+            _log.info("  drau eval: skipped (%s)", drau_result.get("reason", ""))
+        else:
+            _log.info(
+                "  drau eval: detection_range=%s m  elapsed=%.1fs",
+                drau_result.get("detection_range_m", "n/a"),
+                drau_result.get("elapsed_sec", 0.0),
+            )
+    else:
+        _step(33, _TOTAL_STEPS, "drau eval (skipped — ONNX not found; pass --drau-eval to force)")
 
     stats["pipeline_sec"] = sum(T.values())
     runtime_metrics = get_runtime_telemetry()

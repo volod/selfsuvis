@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi
+.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi coop-up coop-up-min coop-up-video coop-down coop-logs coop-status coop-metrics-up coop-release coop-release-min coop-release-video coop-release-metrics
 
 # Default target: show help when no target is given
 help:
@@ -9,6 +9,17 @@ help:
 	@echo "  Stack (Docker)"
 	@echo "  ---------------"
 	@echo "  make up              Start main stack + mapper ICP service (docker-compose.override.yml auto-loaded)"
+	@echo "  make coop-up         Bootstrap + start coop IoT stack (LoRaWAN, Frigate, MQTT)"
+	@echo "  make coop-down       Stop coop IoT stack"
+	@echo "  make coop-logs       Stream coop stack logs"
+	@echo "  make coop-status     Show coop container status and resource usage"
+	@echo "  make coop-metrics-up      Start coop stack + Prometheus / Grafana / cAdvisor (profile: metrics)"
+	@echo "  make coop-up-min          Start min bundle (LoRaWAN + MQTT only, no video)"
+	@echo "  make coop-up-video        Start video bundle (MQTT + Frigate only)"
+	@echo "  make coop-release         Build standard offline bundle (amd64); set VERSION= to tag"
+	@echo "  make coop-release-min     Build min bundle (no Frigate images)"
+	@echo "  make coop-release-video   Build video-only bundle"
+	@echo "  make coop-release-metrics Build standard bundle + Prometheus/Grafana images"
 	@echo "  make cvat-up         Start CVAT annotation service (http://localhost:8091)"
 	@echo "  make cvat-down       Stop CVAT services"
 	@echo "  make cvat-admin      Create CVAT superuser (first-time setup)"
@@ -45,24 +56,24 @@ help:
 	@echo "  ----------------"
 	@echo "  Docker permission denied:  sudo usermod -aG docker \$$USER  then log out and back in (or newgrp docker)"
 	@echo "  GPU driver error:           sudo ./scripts/install/install_nvidia_docker.sh  or  make test-no-gpu"
-	@echo "  Unable to open database:   sudo chown -R \$$(id -u):\$$(id -g) data cache_test"
-	@echo "  Root-owned data/cache:    make fix-data"
+	@echo "  Unable to open database:   sudo chown -R \$$(id -u):\$$(id -g) .data"
+	@echo "  Root-owned data:           make fix-data"
 	@echo ""
 	@echo "  Run  make <target>  or  make help  to show this again."
 
-# Ensure data/cache dirs exist and are owned by current user (avoids root-owned files from containers)
+# Ensure .data dirs exist and are owned by current user (avoids root-owned files from containers)
 # Pre-create Qdrant Snapshots dir to avoid "Permission denied" when running as non-root
 data-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/postgres data/qdrant/Snapshots data/videos cache && chown -R $$HOST_UID:$$HOST_GID data cache' 2>/dev/null && echo "Data directories data and cache are ready." || (mkdir -p data/postgres data/qdrant/Snapshots data/videos cache && echo "Created data and cache. If Qdrant fails with Permission denied, run: make fix-data")
+	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p .data/postgres .data/qdrant/Snapshots .data/videos .data/.cache && chown -R $$HOST_UID:$$HOST_GID .data' 2>/dev/null && echo "Data directories ready (.data including .data/.cache)." || (mkdir -p .data/postgres .data/qdrant/Snapshots .data/videos .data/.cache && echo "Created .data. If Qdrant fails with Permission denied, run: make fix-data")
 
 up: docker-check data-dirs
-	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml up --build
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml up --build
 
 down: docker-check
-	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml down
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml down
 
 logs: docker-check
-	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml logs -f --tail=100
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml logs -f --tail=100
 
 env:
 	$(if $(wildcard .venv/bin/python),.venv/bin/python -m selfsuvis.scripts.generate_env --env dev,python -m selfsuvis.scripts.generate_env --env dev)
@@ -125,10 +136,10 @@ venv-rebuild-xformers:
 venv-pip:
 	uv pip install --python .venv pip
 
-# Fix ownership of data and cache (run if Qdrant fails with "Permission denied" on Snapshots)
+# Fix ownership of .data (run if Qdrant fails with "Permission denied" on Snapshots)
 fix-data:
-	@echo "Fixing ownership of data/ and cache/..."
-	@sudo chown -R $$(id -u):$$(id -g) data cache 2>/dev/null && echo "Done. Run make up again." || echo "Run: sudo chown -R $$(id -u):$$(id -g) data cache"
+	@echo "Fixing ownership of .data/..."
+	@sudo chown -R $$(id -u):$$(id -g) .data 2>/dev/null && echo "Done. Run make up again." || echo "Run: sudo chown -R $$(id -u):$$(id -g) .data"
 
 # Verify Docker daemon is reachable (fixes permission-denied before running test/up)
 docker-check:
@@ -147,17 +158,17 @@ docker-check:
 # Ensure test data dirs exist and are owned by current user (avoids "unable to open database file")
 # Uses a one-off container so chown works even when dirs were previously created by Docker as root
 test-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p data/postgres data/qdrant/Snapshots data/videos cache cache_test && chown -R $$HOST_UID:$$HOST_GID data cache cache_test' 2>/dev/null && echo "Test directories data and cache_test are ready." || (mkdir -p data/postgres data cache_test && echo "Created data and cache_test. If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) data cache_test")
+	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p .data/postgres .data/qdrant/Snapshots .data/videos .data/.cache .data/cache_test && chown -R $$HOST_UID:$$HOST_GID .data' 2>/dev/null && echo "Test directories ready (.data including .data/.cache)." || (mkdir -p .data/postgres .data/.cache .data/cache_test && echo "Created .data. If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) .data")
 
 # Integration tests (require API + worker + Qdrant). Runs docker-check first. Uses GPU by default.
 test: docker-check test-dirs
-	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
-	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.test.yml down --remove-orphans
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/core/docker-compose.yml -f docker/test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/core/docker-compose.yml -f docker/test/docker-compose.test.yml down --remove-orphans
 
 # Integration tests without GPU (use if NVIDIA Container Toolkit is not installed)
 test-no-gpu: docker-check test-dirs
-	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.no-gpu.yml -f docker/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
-	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/docker-compose.yml -f docker/docker-compose.no-gpu.yml -f docker/docker-compose.test.yml down --remove-orphans
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/core/docker-compose.yml -f docker/core/docker-compose.no-gpu.yml -f docker/test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+	UID=$$(id -u) GID=$$(id -g) INDEX_DIR_PATH=/app/tests/assets docker compose -f docker/core/docker-compose.yml -f docker/core/docker-compose.no-gpu.yml -f docker/test/docker-compose.test.yml down --remove-orphans
 
 # Directory integration test (same as test; set INDEX_DIR_PATH for custom path)
 test-dir:
@@ -176,23 +187,59 @@ test-unit:
 test-unit-no-cv2:
 	$(if $(wildcard .venv/bin/python),.venv/bin/python -m pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py,pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py)
 
+coop-up: docker-check
+	COMPOSE_PROFILES=lorawan,video ./scripts/coop/coop-bootstrap.sh up -d
+
+coop-up-min: docker-check
+	COMPOSE_PROFILES=lorawan ./scripts/coop/coop-bootstrap.sh up -d
+
+coop-up-video: docker-check
+	COMPOSE_PROFILES=video ./scripts/coop/coop-bootstrap.sh up -d
+
+coop-down: docker-check
+	./scripts/coop/coop-compose.sh down
+
+coop-logs: docker-check
+	./scripts/coop/coop-compose.sh logs -f --tail=100
+
+coop-status: docker-check
+	./scripts/coop/coop-compose.sh ps
+	@echo ""
+	@docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" \
+	  $$(./scripts/coop/coop-compose.sh ps -q 2>/dev/null) 2>/dev/null || true
+
+coop-metrics-up: docker-check
+	COMPOSE_PROFILES=lorawan,video,metrics ./scripts/coop/coop-bootstrap.sh up -d
+
+coop-release:
+	./scripts/coop/coop-release.sh --arch amd64 --bundle standard $(if $(VERSION),--version $(VERSION),) --yes
+
+coop-release-min:
+	./scripts/coop/coop-release.sh --arch amd64 --bundle min $(if $(VERSION),--version $(VERSION),) --yes
+
+coop-release-video:
+	./scripts/coop/coop-release.sh --arch amd64 --bundle video $(if $(VERSION),--version $(VERSION),) --yes
+
+coop-release-metrics:
+	./scripts/coop/coop-release.sh --arch amd64 --bundle standard --with-metrics $(if $(VERSION),--version $(VERSION),) --yes
+
 cvat-up: docker-check
-	docker compose -f docker/docker-compose.cvat.yml up -d
+	docker compose -f docker/cvat/docker-compose.cvat.yml up -d
 	@echo ""
 	@echo "CVAT starting at http://localhost:8090"
 	@echo "First time? Run: make cvat-admin"
 
 cvat-down: docker-check
-	docker compose -f docker/docker-compose.cvat.yml down
+	docker compose -f docker/cvat/docker-compose.cvat.yml down
 
 cvat-logs: docker-check
-	docker compose -f docker/docker-compose.cvat.yml logs -f --tail=100
+	docker compose -f docker/cvat/docker-compose.cvat.yml logs -f --tail=100
 
 cvat-admin: docker-check
-	docker compose -f docker/docker-compose.cvat.yml exec cvat_server python manage.py createsuperuser
+	docker compose -f docker/cvat/docker-compose.cvat.yml exec cvat_server python manage.py createsuperuser
 
 mapper-logs: docker-check
-	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/docker-compose.yml -f docker/docker-compose.override.yml logs -f --tail=100 mapper
+	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml -f docker/core/docker-compose.override.yml logs -f --tail=100 mapper
 
 # Lint (requires: pip install ruff)
 lint:

@@ -1,6 +1,6 @@
 # Realtime Reference Sidecar
 
-`docker/docker-compose.realtime.yml` deploys the project-owned reference realtime service.
+`docker/realtime/docker-compose.realtime.yml` deploys the project-owned reference realtime service.
 
 ## Purpose
 
@@ -22,7 +22,7 @@ Do not treat it as a production SLAM or occupancy engine.
 
 Builds from:
 
-- `docker/Dockerfile.realtime_reference`
+- `docker/realtime/Dockerfile.realtime_reference`
 
 Starts:
 
@@ -31,7 +31,7 @@ Starts:
 ## Run
 
 ```bash
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime.yml up -d realtime-reference
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime.yml up -d realtime-reference
 ```
 
 ## Select it

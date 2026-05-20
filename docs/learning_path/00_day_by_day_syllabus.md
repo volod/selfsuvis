@@ -2,10 +2,10 @@
 
 A realistic study plan for a human who wants to understand the local pipeline and IoT edge
 monitoring layer deeply.
-The first 22 days build understanding from foundation to advanced.
-Days 23-29 are a practical application week: re-run, write, and verify.
-Days 30-36 cover advanced threat modeling and global inference (from the future directions docs).
-**Days 37-43 cover the coop_pilot IoT edge layer** — MQTT, LoRaWAN, Frigate, acoustic
+The first 23 days build understanding from foundation to advanced (Week 3 ends at Day 23 — Consolidation).
+Days 24-30 are a practical application week: re-run, write, and verify.
+Days 31-37 cover advanced threat modeling and global inference (from the future directions docs).
+**Days 38-44 cover the coop_pilot IoT edge layer** -- MQTT, LoRaWAN, Frigate, acoustic
 analysis, scene synthesis, and threat pipeline integration.
 
 **How to use this:**
@@ -487,7 +487,46 @@ Why is it risky to document a new training helper as "the pipeline step" before 
 
 ---
 
-### Day 19 — Evaluation And Cross-Model Comparison (Steps 32-34)
+### Day 19 — Drone Audio Detection and drau Range Evaluation (Steps 32-33)
+
+**Topics:**
+- Step 32: DroneAudioCNN training -- MFCC feature extraction (scipy STFT + mel filterbank + DCT-II), 2-D CNN architecture (~52k params), ONNX export for edge inference.
+- Step 33: drau range-detection evaluation -- inverse-square amplitude physics, ISO 9613-1 atmospheric absorption, detection probability vs distance curve.
+- Standalone edge script (`drau_edge_test.py`): running ONNX inference with only numpy, scipy, and onnxruntime (no PyTorch).
+- Read [19_drone_audio_detection.md](19_drone_audio_detection.md) and [20_drau_range_eval.md](20_drau_range_eval.md).
+- Read [`steps_drone_audio.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_audio.py) and [`steps_drau_eval.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drau_eval.py).
+
+**Pre-reading:**
+- What is an MFCC and why does it use the DCT-II rather than the raw log-mel spectrogram?
+- What is the inverse-square law for sound pressure amplitude? How does it differ from the irradiance inverse-square law for light?
+- ISO 9613-1: atmospheric sound absorption -- what physical properties of air govern high-frequency attenuation at outdoor ranges?
+- Review `geronimobasso/drone-audio-detection-samples` on HuggingFace to understand the dataset structure Step 32 uses.
+
+**Exercise:**
+After a run with `--drone-audio` enabled, open `drone_audio/drone_audio_report.md`:
+1. Record val_acc and val_F1 at the best epoch.
+2. Find the MFCC input shape (N_MFCC x T_FRAMES) and compute how many time frames cover 1 second of audio at 22050 Hz with hop_length=512.
+
+Then open `drone_audio/drau_range_report.md`:
+1. Find the estimated detection range (P >= 0.50) and the f_3dB lowpass cutoff at that distance.
+2. Explain in one sentence what the f_3dB value means physically for the model's input at that distance.
+3. Identify the distance at which P(drone) first drops below 0.5.
+
+Run the standalone edge script on a real val sample:
+```bash
+scripts/audio/drone_audio_edge_test.sh \
+  data/local_runs/<video>/drone_audio/drone_audio_cnn.onnx \
+  data/drone-audio-data/val/drone/<any>.wav --scan
+```
+
+**Concept checkpoint:**
+Why does the synthetic signal in the drau evaluation underestimate real-world detection range?
+What does the f_3dB column tell you about which MFCC frequency bands carry the most signal at 200 m vs at 10 m?
+Why is `drau_edge_test.py` exported with the ONNX model rather than importing from selfsuvis?
+
+---
+
+### Day 20 — Retrieval Evaluation And Cross-Model Comparison
 
 **Topics:**
 - Step 32: comparing baseline vs fine-tuned retrieval — P@K delta, rank shift, visual inspection.
@@ -511,7 +550,7 @@ What makes a well-designed retrieval test hard to game?
 
 ---
 
-### Day 20 — Synthesis And Audit (Steps 35-36)
+### Day 21 — Synthesis And Audit (Steps 35-36)
 
 **Topics:**
 - Step 35: synthesis structure, evidence sourcing, active learning tags, change detection.
@@ -534,13 +573,13 @@ Explain your reasoning.
 
 ---
 
-### Day 21 — End-To-End Review Run
+### Day 22 — End-To-End Review Run
 
 **Topics:**
 - End-to-end run of `selfsuvis --mode local` on a short video (1-5 minutes).
 
 **Exercise:**
-Before running: write down what you expect to find in the output for each of the 36 steps.
+Before running: write down what you expect to find in the output for each of the 33 per-video steps.
 After running: open each artifact in the expected order and check your predictions.
 Record: which predictions were right, which were wrong, and why.
 
@@ -550,10 +589,12 @@ Record: which predictions were right, which were wrong, and why.
 - Does `agentic_flow.md` show any skipped or failed steps?
 - Is the retrieval in `comparison.md` better after fine-tuning for at least one query?
 - Is `drone_detection_report.md` present and does mAP@50 look reasonable?
+- Is `drone_audio/drau_range_report.md` present? What is the estimated detection range?
+- Does `drone_audio/drau_edge_test.py` exist alongside `drone_audio_cnn.onnx`?
 
 ---
 
-### Day 22 — Consolidation
+### Day 23 — Consolidation
 
 **Exercise:**
 Write your own one-page explanation of the full local pipeline from memory.
@@ -576,7 +617,7 @@ or API endpoint that proves the technology is actually used in this repo.
 
 ---
 
-### Day 22 — Code Architecture Walkthrough
+### Day 24 — Code Architecture Walkthrough
 
 **Topics:**
 - Full walkthrough of `pipeline/workflows/local/runner.py` as an orchestrator.
@@ -589,7 +630,7 @@ For each: explain whether this is the right behavior or whether it should raise 
 
 ---
 
-### Day 23 — Adding A New Step
+### Day 25 — Adding A New Step
 
 **Exercise:**
 Design a new hypothetical Step 36: "Crowd density estimation from aerial footage."
@@ -604,19 +645,19 @@ You do not need to implement it — just design it and verify the design is cohe
 
 ---
 
-### Day 24 — Failure Mode Inventory
+### Day 26 — Failure Mode Inventory
 
 **Exercise:**
-Go through Steps 1-35 and for each step, write a one-sentence failure mode statement in this format:
+Go through Steps 1-33 (the full per-video pipeline) and for each step, write a one-sentence failure mode statement in this format:
 > "If [condition], then [step] produces [output], which causes [downstream effect]."
 
 Focus on silent failures (wrong output, no exception).
-You should have 35 sentences by the end.
+You should have 33 sentences by the end.
 This is the most practical debugging reference you can produce.
 
 ---
 
-### Day 25 — Custom Search Query Design
+### Day 27 — Custom Search Query Design
 
 **Exercise:**
 Design a retrieval evaluation suite for your specific mission domain (aerial survey, vehicle tracking, infrastructure inspection, etc.).
@@ -632,7 +673,7 @@ These failures are the learning opportunities for SSL fine-tuning (Step 28).
 
 ---
 
-### Day 26 — VideoKnowledge Extension
+### Day 28 — VideoKnowledge Extension
 
 **Exercise:**
 Extend `VideoKnowledge` to store sensor fusion results from a new sensor type.
@@ -648,7 +689,7 @@ Commit nothing — this is a study exercise in understanding the code structure.
 
 ---
 
-### Day 27 — Cross-Mission Change Detection
+### Day 29 — Cross-Mission Change Detection
 
 **Topics:**
 - `pipeline/change_detection.py`
@@ -664,7 +705,7 @@ Identify the embedding distance threshold that would suppress the false alarms w
 
 ---
 
-### Day 28 — Architecture Review And Personal Next Steps
+### Day 30 — Architecture Review And Personal Next Steps
 
 **Exercise:**
 Write a personal review of the pipeline covering:
@@ -685,10 +726,11 @@ realtime sensor-mesh threat analysis.
 
 **Prerequisites:** Weeks 1-4 complete.
 
-### Day 29 — Temporal Self-Supervised Vision
+### Day 31 — Temporal Self-Supervised Vision
 
 **Topics:**
 - Re-read Step 23 (RSSM surprise) and Step 28 (SSL DINO fine-tuning) as one temporal-learning story.
+- Re-read the drau range eval (Step 33) with temporal framing: why does repeated close-range audio improve detection robustness more than single-shot inference at distance?
 - Read [18_future_directions.md](18_future_directions.md) and
   [17_essential_technology_stack.md](17_essential_technology_stack.md) sections 7-9.
 - Focus on track-aware, clip-aware, and cross-view self-supervision.
@@ -710,7 +752,7 @@ For each case, write which temporal SSL signal would help most:
 **Concept checkpoint:**
 Why is temporal SSL a better next step than just swapping in a larger image encoder?
 
-### Day 30 — Cross-Modal Self-Supervision
+### Day 32 — Cross-Modal Self-Supervision
 
 **Topics:**
 - Treat sensor agreement as a training signal, not just a report signal.
@@ -726,7 +768,7 @@ For each pair, define:
 **Concept checkpoint:**
 What is the difference between using another sensor as a label source and using it as a noisy self-supervised constraint?
 
-### Day 31 — Physical Models And Field Models
+### Day 33 — Physical Models And Field Models
 
 **Topics:**
 - Move from semantic descriptions to state, flow, occupancy, and field estimates.
@@ -749,7 +791,7 @@ Write:
 **Concept checkpoint:**
 Why are many important hazards better modeled as fields than as detected objects?
 
-### Day 32 — Local Threat Inference
+### Day 34 — Local Threat Inference
 
 **Topics:**
 - Define a platform-centered local threat window.
@@ -771,7 +813,7 @@ Example primitives:
 **Concept checkpoint:**
 Why should local threat inference remain causal and low-latency instead of depending on a large reasoning model?
 
-### Day 33 — Global Threat Aggregation
+### Day 35 — Global Threat Aggregation
 
 **Topics:**
 - Sector-level risk maps, route advisories, and mission-wide hazard persistence.
@@ -791,7 +833,7 @@ Then describe how local threat outputs from multiple nodes would populate it.
 **Concept checkpoint:**
 Why is a global threat map mostly an aggregation and evidence-management problem, not a single-model prediction problem?
 
-### Day 34 — Realtime Sensor-Mesh Architecture Proposal
+### Day 36 — Realtime Sensor-Mesh Architecture Proposal
 
 **Topics:**
 - Draft a concrete extension of `selfsuvis` from current fusion outputs toward global threat inference and sensor-mesh operation.
@@ -818,7 +860,7 @@ For each layer, specify:
 **Concept checkpoint:**
 Which layer is the first one that must be trustworthy enough for operator action?
 
-### Day 35 — Personal Research And Build Plan
+### Day 37 — Personal Research And Build Plan
 
 **Exercise:**
 Write a concrete next-quarter plan for yourself:
@@ -838,14 +880,14 @@ Breadth is less useful than a coherent direction.
 **Prerequisites:** Completed Weeks 1-2 (pipeline basics + sensor fusion fundamentals).
 You do not need GPU hardware for this week — all coop_pilot components run on CPU.
 
-**Required reading before Day 36:**
+**Required reading before Day 38:**
 - [coop_pilot — IoT Edge Monitoring Deep Dive](16_coop_pilot_iot_edge_monitoring.md) — read sections 1-2.
 - [coop_pilot — Integration Guide](../coop/integration.md) — the API endpoint reference.
 - [coop_pilot — Getting Started](../coop/getting-started.md) — ensure you can start the stack.
 
 ---
 
-### Day 36 — MQTT and LoRaWAN Fundamentals
+### Day 38 — MQTT and LoRaWAN Fundamentals
 
 **Topics:**
 - What MQTT is: publish-subscribe messaging, topics, QoS levels, retained messages.
@@ -873,7 +915,7 @@ Why does a low `rssi` not necessarily mean the sensor reading is unreliable?
 
 ---
 
-### Day 37 — Rolling Window Aggregation and SiteState
+### Day 39 — Rolling Window Aggregation and SiteState
 
 **Topics:**
 - The `SiteStateAggregator` rolling deque model and timestamp-based eviction.
@@ -897,7 +939,7 @@ What would happen if it released the lock before returning — could a concurren
 
 ---
 
-### Day 38 — Sensor Mesh and GPS-Proximity Linking
+### Day 40 — Sensor Mesh and GPS-Proximity Linking
 
 **Topics:**
 - `SensorMeshFusion` and the `SiteMesh` / `MeshNode` graph model.
@@ -926,7 +968,7 @@ that may be static or mobile?
 
 ---
 
-### Day 39 — Acoustic Analysis: FFT Classification and Whisper
+### Day 41 — Acoustic Analysis: FFT Classification and Whisper
 
 **Topics:**
 - The `SoundAnalyzer` architecture: ffmpeg capture → FFT classification → Whisper transcription.
@@ -968,7 +1010,7 @@ What would happen to the thresholds if you used absolute spectral energy instead
 
 ---
 
-### Day 40 — RTSP Bridge: Frigate Cameras Into MediaMTX
+### Day 42 — RTSP Bridge: Frigate Cameras Into MediaMTX
 
 **Topics:**
 - `FrigateRtspBridge` discovery loop and per-camera startup sequence.
@@ -1001,7 +1043,7 @@ How would you detect and handle stale captions in `SceneSynthesizer`?
 
 ---
 
-### Day 41 — Scene Synthesis: Multi-Modal LLM Narrative
+### Day 43 — Scene Synthesis: Multi-Modal LLM Narrative
 
 **Topics:**
 - `SceneSynthesizer` input assembly: `SiteState` + `scene_timeline` captions.
@@ -1034,7 +1076,7 @@ How would you design a smarter cache invalidation strategy?
 
 ---
 
-### Day 42 — Threat Pipeline Integration
+### Day 44 — Threat Pipeline Integration
 
 **Topics:**
 - `CoopRealtimeIngestor` converting coop observations into `SensorEvent` / `ThreatEvent`.
@@ -1080,14 +1122,15 @@ events or with a few high-score events?
 | Can explain what each sensor adds | 12 | After Day 12 |
 | Can reconstruct a full `context_for_frame()` string | 12 | After Day 12 |
 | Can explain SSL and distillation without notes | 17 | After Day 17 |
-| Can trace a synthesis claim to its raw source | 19 | After Day 19 |
-| Can run a full pipeline and inspect all artifacts | 20 | After Day 20 |
-| Can identify and explain any step's failure modes | 24 | After Day 24 |
-| Can design a new step that fits the architecture | 23 | After Day 23 |
-| Can explain a credible next-stage SSL direction | 29 | After Day 29 |
-| Can define local vs global threat inference | 33 | After Day 33 |
-| Can propose a realtime sensor-mesh architecture | 34 | After Day 34 |
-| Can operate and debug the coop_pilot IoT edge layer | 42 | After Day 42 |
+| Can read and interpret drau range-detection report | 19 | After Day 19 |
+| Can trace a synthesis claim to its raw source | 21 | After Day 21 |
+| Can run a full pipeline and inspect all artifacts | 22 | After Day 22 |
+| Can design a new step that fits the architecture | 25 | After Day 25 |
+| Can identify and explain any step's failure modes | 26 | After Day 26 |
+| Can explain a credible next-stage SSL direction | 31 | After Day 31 |
+| Can define local vs global threat inference | 35 | After Day 35 |
+| Can propose a realtime sensor-mesh architecture | 36 | After Day 36 |
+| Can operate and debug the coop_pilot IoT edge layer | 44 | After Day 44 |
 
 ---
 
@@ -1140,7 +1183,7 @@ These are the papers that introduced the models and techniques used directly in 
 
 ### Tier 2b — IoT Edge Monitoring References (read during Week 6)
 
-These resources support the `coop_pilot` layer added in Days 36-42.
+These resources support the `coop_pilot` layer added in Days 38-44.
 
 | Resource | Covers |
 |---|---|

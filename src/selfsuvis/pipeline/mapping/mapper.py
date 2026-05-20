@@ -14,7 +14,7 @@ splatfacto) runs inside the nerfstudio container.
 
 ICP fusion (Phase 2): after splatfacto completes, each new splat.ply is
 optionally registered against an existing global-map splat via the mapper
-service (docker/docker-compose.override.yml, http://mapper:8000).  Pass
+service (docker/core/docker-compose.override.yml, http://mapper:8000).  Pass
 target_splat_paths to run_mapper; results are returned in icp_results and
 should be persisted to global_map_missions by the caller.
 

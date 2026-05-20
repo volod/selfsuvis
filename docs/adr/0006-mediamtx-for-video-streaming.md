@@ -14,8 +14,8 @@ directly into the FastAPI app.
 Use MediaMTX as the streaming edge and control-plane companion for live video ingest.
 
 Current integration:
-- `docker/mediamtx.yml`
-- `docker/docker-compose.yml`
+- `config/mediamtx/mediamtx.yml`
+- `docker/core/docker-compose.yml`
 - realtime / ingest paths in `src/selfsuvis/app/routers/realtime.py`
 - stream recording / validation helpers in `src/selfsuvis/pipeline/media/rtsp_ingest.py`
 

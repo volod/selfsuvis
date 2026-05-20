@@ -1,0 +1,420 @@
+# docker-compose.coop.yml
+#
+# Coop-pilot IoT edge services. Three bundle configurations supported:
+#
+#   min      -- MQTT hub + LoRaWAN (ChirpStack): sensor data, mechanical control
+#   standard -- min + Frigate NVR: adds video surveillance (default)
+#   video    -- MQTT hub + Frigate NVR: standalone video, no LoRaWAN
+#
+# Activated via COMPOSE_PROFILES (comma-separated):
+#   lorawan  -- chirpstack-* services (postgres, redis, server, gateway-bridge, rest-api)
+#   video    -- frigate NVR
+#   metrics  -- prometheus, grafana, cAdvisor, node-exporter
+#
+# mosquitto has no profile and always starts.
+#
+# Bundle -> profiles mapping:
+#   min       COMPOSE_PROFILES=lorawan
+#   standard  COMPOSE_PROFILES=lorawan,video        (default in prod.env)
+#   video     COMPOSE_PROFILES=video
+#   + metrics append ,metrics to any of the above
+#
+# Resource limits are parameterised via COOP_* variables in data/.env.
+# Defaults target the minimum supported spec: 4-core CPU, 8 GB RAM.
+# See src/selfsuvis/coop_pilot/env/prod.env for mid / high profile guidance.
+#
+# Usage (via scripts):
+#   ./scripts/coop-bootstrap.sh              -- first run: .env, certs, users, start
+#   ./scripts/coop-compose.sh up -d          -- subsequent starts
+#   coop-ctl start                           -- installed stack (reads .env profiles)
+#
+# Or via Makefile:
+#   make coop-up             (standard: lorawan + video)
+#   make coop-down
+#   make coop-up-min         (lorawan only)
+#   make coop-metrics-up     (standard + metrics)
+
+networks:
+  default:
+    name: selfsuvis-net
+
+volumes:
+  coop_chirpstack_pg_data:
+  coop_chirpstack_redis_data:
+  coop_grafana_data:
+
+services:
+
+  # ── MQTT Broker ─────────────────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: coop-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"      # plain MQTT (internal; restrict at firewall in production)
+      - "8883:8883"      # MQTT over TLS (external sensors / Dragino LPS8N)
+    volumes:
+      - ./config/coop/mosquitto:/mosquitto/config:ro
+      - ${DATA_DIR:-./.data}/coop/mosquitto:/mosquitto/secrets:ro
+      - ${DATA_DIR:-./.data}/mosquitto/data:/mosquitto/data
+      - ${DATA_DIR:-./.data}/mosquitto/log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -u ${MOSQUITTO_HEALTH_USER:-health} -P ${MOSQUITTO_HEALTH_PASSWORD:-health} || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_MOSQUITTO_CPUS:-0.15}"
+          memory: ${COOP_MOSQUITTO_MEMORY:-128M}
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+
+  # ── ChirpStack LoRaWAN Network Server ────────────────────────────────────────
+  # Active when COMPOSE_PROFILES contains 'lorawan' (bundle: min, standard)
+  chirpstack-postgres:
+    image: postgres:14-alpine
+    container_name: coop-cs-postgres
+    restart: unless-stopped
+    profiles:
+      - lorawan
+    environment:
+      POSTGRES_USER: ${CHIRPSTACK_PG_USER:-chirpstack}
+      POSTGRES_PASSWORD: ${CHIRPSTACK_PG_PASSWORD:-chirpstack}
+      POSTGRES_DB: ${CHIRPSTACK_PG_DB:-chirpstack}
+    volumes:
+      - coop_chirpstack_pg_data:/var/lib/postgresql/data
+      - ./config/coop/postgresql/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CHIRPSTACK_PG_USER:-chirpstack}"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_CS_POSTGRES_CPUS:-0.50}"
+          memory: ${COOP_CS_POSTGRES_MEMORY:-512M}
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+
+  chirpstack-redis:
+    image: redis:7-alpine
+    container_name: coop-cs-redis
+    restart: unless-stopped
+    profiles:
+      - lorawan
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - coop_chirpstack_redis_data:/data
+      - ./config/coop/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_CS_REDIS_CPUS:-0.10}"
+          memory: ${COOP_CS_REDIS_MEMORY:-96M}
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+
+  chirpstack:
+    image: chirpstack/chirpstack:4
+    container_name: coop-chirpstack
+    restart: unless-stopped
+    profiles:
+      - lorawan
+    command: --config /etc/chirpstack
+    depends_on:
+      chirpstack-postgres:
+        condition: service_healthy
+      chirpstack-redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"    # ChirpStack UI + gRPC API
+    volumes:
+      - ./config/coop/chirpstack:/etc/chirpstack:ro
+    environment:
+      POSTGRESQL_HOST: chirpstack-postgres
+      REDIS_HOST: chirpstack-redis
+      MQTT_BROKER_HOST: mosquitto
+      CHIRPSTACK_PG_USER: ${CHIRPSTACK_PG_USER:-chirpstack}
+      CHIRPSTACK_PG_PASSWORD: ${CHIRPSTACK_PG_PASSWORD:-chirpstack}
+      CHIRPSTACK_PG_DB: ${CHIRPSTACK_PG_DB:-chirpstack}
+      CHIRPSTACK_MQTT_USERNAME: ${CHIRPSTACK_MQTT_USERNAME:-chirpstack}
+      CHIRPSTACK_MQTT_PASSWORD: ${CHIRPSTACK_MQTT_PASSWORD:-chirpstack}
+      CHIRPSTACK_API_SECRET: ${CHIRPSTACK_API_SECRET:-change_me}
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_CHIRPSTACK_CPUS:-0.50}"
+          memory: ${COOP_CHIRPSTACK_MEMORY:-512M}
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+
+  # Semtech UDP packet forwarder bridge.
+  # Point the gateway "Server Address" to this host's IP in the gateway web UI.
+  chirpstack-gateway-bridge:
+    image: chirpstack/chirpstack-gateway-bridge:4
+    container_name: coop-cs-gwbridge
+    restart: unless-stopped
+    profiles:
+      - lorawan
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    ports:
+      - "1700:1700/udp"    # Semtech UDP packet forwarder (EU868 gateways)
+    environment:
+      INTEGRATION__MQTT__EVENT_TOPIC_TEMPLATE: "eu868/gateway/{{ .GatewayID }}/event/{{ .EventType }}"
+      INTEGRATION__MQTT__COMMAND_TOPIC_TEMPLATE: "eu868/gateway/{{ .GatewayID }}/command/#"
+      INTEGRATION__MQTT__AUTH__GENERIC__SERVER: "tcp://mosquitto:1883"
+      INTEGRATION__MQTT__AUTH__GENERIC__USERNAME: ${CHIRPSTACK_GWBRIDGE_MQTT_USERNAME:-chirpstack_gw}
+      INTEGRATION__MQTT__AUTH__GENERIC__PASSWORD: ${CHIRPSTACK_GWBRIDGE_MQTT_PASSWORD:-chirpstack_gw}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_CS_GWBRIDGE_CPUS:-0.10}"
+          memory: ${COOP_CS_GWBRIDGE_MEMORY:-64M}
+        reservations:
+          cpus: "0.05"
+          memory: 16M
+
+  chirpstack-rest-api:
+    image: chirpstack/chirpstack-rest-api:4
+    container_name: coop-cs-rest
+    restart: unless-stopped
+    profiles:
+      - lorawan
+    depends_on:
+      - chirpstack
+    ports:
+      - "127.0.0.1:8090:8090"
+    command: --server chirpstack:8080 --bind 0.0.0.0:8090 --insecure
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_CS_REST_CPUS:-0.10}"
+          memory: ${COOP_CS_REST_MEMORY:-64M}
+        reservations:
+          cpus: "0.05"
+          memory: 16M
+
+  # ── Frigate NVR ──────────────────────────────────────────────────────────────
+  # Active when COMPOSE_PROFILES contains 'video' (bundle: standard, video).
+  # Hardware decode: set FRIGATE_LIBVA_DRIVER_NAME and map /dev/dri/renderD128.
+  #   Intel QSV (iHD driver): FRIGATE_LIBVA_DRIVER_NAME=iHD  (Gen9+ / UHD 600+)
+  #   Intel VAAPI (i965):      FRIGATE_LIBVA_DRIVER_NAME=i965 (older Intel)
+  #   AMD VAAPI:               FRIGATE_LIBVA_DRIVER_NAME=radeonsi
+  #   CPU only (no GPU):       remove the devices section below and clear FRIGATE_LIBVA_DRIVER_NAME
+  # RTSP port 8555 on host avoids conflict with main stack mediamtx (8554).
+  # Audio: handled by coop_pilot SoundAnalyzer consuming RTSP re-streams on port 8555.
+  # Detector threads controlled via COOP_FRIGATE_DETECTOR_THREADS (passed into config).
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: coop-frigate
+    restart: unless-stopped
+    profiles:
+      - video
+    privileged: true    # needed for /dev/dri and some hwaccel paths
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8971:8971"    # Frigate Web UI + REST API
+      - "127.0.0.1:8555:8554"    # RTSP re-streams (host:8555 -> container:8554)
+    devices:
+      - /dev/dri/renderD128      # remove if running CPU-only
+    volumes:
+      - ${DATA_DIR:-./.data}/coop/frigate:/config
+      - ${DATA_DIR:-./.data}/frigate-media:/media/frigate
+    environment:
+      FRIGATE_RTSP_PASSWORD: ${FRIGATE_RTSP_PASSWORD:-}
+      FRIGATE_MQTT_PASSWORD: ${FRIGATE_MQTT_PASSWORD:-}
+      LIBVA_DRIVER_NAME: ${FRIGATE_LIBVA_DRIVER_NAME:-iHD}
+      COOP_FRIGATE_DETECTOR_THREADS: ${COOP_FRIGATE_DETECTOR_THREADS:-2}
+    shm_size: ${COOP_FRIGATE_SHM_SIZE:-256mb}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://127.0.0.1:8971/login -o /dev/null -w '%{http_code}' | grep -q '200'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_FRIGATE_CPUS:-2.00}"
+          memory: ${COOP_FRIGATE_MEMORY:-2560M}
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+
+  # ── Prometheus (optional) ─────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: coop-prometheus
+    restart: unless-stopped
+    profiles:
+      - metrics
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./config/coop/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${DATA_DIR:-./.data}/prometheus:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_PROMETHEUS_CPUS:-0.25}"
+          memory: ${COOP_PROMETHEUS_MEMORY:-256M}
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+
+  # ── Grafana (optional) ─────────────────────────────────────────────────────
+  # Dashboard UI. Access at http://127.0.0.1:3000 (admin / GRAFANA_ADMIN_PASSWORD).
+  grafana:
+    image: grafana/grafana:11-alpine
+    container_name: coop-grafana
+    restart: unless-stopped
+    profiles:
+      - metrics
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./config/coop/grafana/provisioning:/etc/grafana/provisioning:ro
+      - coop_grafana_data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_USER: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: "http://127.0.0.1:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_GRAFANA_CPUS:-0.25}"
+          memory: ${COOP_GRAFANA_MEMORY:-256M}
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+
+  # ── cAdvisor (optional) ────────────────────────────────────────────────────
+  # Per-container CPU / memory / network metrics scraped by Prometheus.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: coop-cadvisor
+    restart: unless-stopped
+    profiles:
+      - metrics
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_CADVISOR_CPUS:-0.15}"
+          memory: ${COOP_CADVISOR_MEMORY:-128M}
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+
+  # ── Node Exporter (optional) ───────────────────────────────────────────────
+  # Host-level CPU / memory / disk / network metrics. Runs on host network.
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: coop-node-exporter
+    restart: unless-stopped
+    profiles:
+      - metrics
+    network_mode: host
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    deploy:
+      resources:
+        limits:
+          cpus: "${COOP_NODE_EXPORTER_CPUS:-0.05}"
+          memory: ${COOP_NODE_EXPORTER_MEMORY:-32M}
+        reservations:
+          cpus: "0.02"
+          memory: 8M

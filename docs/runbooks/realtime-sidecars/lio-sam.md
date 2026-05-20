@@ -32,7 +32,7 @@ export REALTIME_LIOSAM_API_URL=http://realtime-liosam:8101
 
 ```bash
 export REALTIME_LIOSAM_IMAGE=registry.example/lio-sam-sidecar:latest
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-engines.yml up -d realtime-liosam
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime-engines.yml up -d realtime-liosam
 ```
 
 ## Integration contract

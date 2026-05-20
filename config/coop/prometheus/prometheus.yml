@@ -1,12 +1,46 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    site: coop
 
 scrape_configs:
-  - job_name: "openremote-proxy"
+  # Container resource metrics (CPU, memory, network per container)
+  - job_name: cadvisor
     static_configs:
-      - targets: ["proxy:8404"]
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      # Drop high-cardinality per-device metrics to save storage on J4105
+      - source_labels: [__name__]
+        regex: "container_blkio.*"
+        action: drop
 
-  - job_name: "openremote-manager"
+  # Host-level metrics (CPU, memory, disk, network) from node-exporter on host network
+  - job_name: node
     static_configs:
-      - targets: ["manager:8405"]
+      - targets: ["localhost:9100"]
+
+  # Mosquitto broker metrics via $SYS topic bridge
+  # Note: Mosquitto does not expose native Prometheus metrics.
+  # Deploy mosquitto-exporter as an optional sidecar to add MQTT broker metrics:
+  #   image: sapcc/mosquitto-exporter  pointing to tcp://mosquitto:1883
+  # Uncomment when mosquitto-exporter is added to the compose file:
+  # - job_name: mosquitto
+  #   static_configs:
+  #     - targets: ["mosquitto-exporter:9234"]
+
+  # Frigate NVR stats (JSON endpoint, not native Prometheus)
+  # Use the Frigate Grafana plugin or a custom exporter for dashboard integration.
+  # The frigate API is available at http://frigate:8971/api/stats
+
+  # ChirpStack metrics -- gRPC/REST only, no native Prometheus endpoint.
+  # Use chirpstack-prometheus-exporter if needed:
+  # - job_name: chirpstack
+  #   static_configs:
+  #     - targets: ["chirpstack-exporter:9315"]
+
+  # Selfsuvis API metrics (when running combined stack on same network)
+  # - job_name: selfsuvis_api
+  #   static_configs:
+  #     - targets: ["api:8000"]
+  #   metrics_path: /metrics

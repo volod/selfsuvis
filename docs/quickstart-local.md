@@ -99,7 +99,7 @@ Replace `<GEMMA_API_MODEL>` / `<QWEN_MODEL>` / `<REASONING_MODEL>` with the valu
 ## 4. Start backing services only
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d postgres qdrant
+docker compose -f docker/core/docker-compose.yml up -d postgres qdrant
 ```
 
 ---

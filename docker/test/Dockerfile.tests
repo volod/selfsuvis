@@ -17,7 +17,7 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 COPY --from=builder /opt/venv /opt/venv
 COPY tests ./tests
-COPY docker/pytest.ini /app/pytest.ini
+COPY docker/test/pytest.ini /app/pytest.ini
 
 ENV PYTEST_CACHE_DIR=/tmp/.pytest_cache
 

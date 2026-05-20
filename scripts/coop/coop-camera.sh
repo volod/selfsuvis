@@ -8,5 +8,5 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
 project_run_python_module selfsuvis.coop_pilot.camera_cli "$@"

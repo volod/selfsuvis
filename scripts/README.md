@@ -15,6 +15,9 @@ Project scripts are organized under `scripts/` subdirectories. The `scripts/` ro
 
 ## Coop stack commands
 
+- `coop/coop-ctl.sh` — control the coop IoT edge stack (start, stop, restart, status, logs); installed as `/usr/local/bin/coop-ctl`
+- `coop/coop-install.sh` — install the coop stack on a target system from a release bundle; also the entry point (`install.sh`) inside a built bundle
+- `coop/coop-release.sh` — build a self-contained offline bundle (Docker images + configs + scripts) for deployment to air-gapped targets
 - `coop/coop-bootstrap.sh` — one-shot coop stack bootstrap and startup
 - `coop/coop-compose.sh` — canonical coop `docker compose` wrapper with runtime `PUID` and `PGID`
 - `coop/coop-env.sh` — generate `data/.env` from the coop env templates
@@ -26,6 +29,10 @@ Project scripts are organized under `scripts/` subdirectories. The `scripts/` ro
 - `coop/coop-test-usb-cameras.sh` — inspect V4L2 devices and optionally test capture
 - `coop/coop-camera.sh` — update the Frigate camera config and optionally restart Frigate
 - `coop/add_sensor_key.sh` — provision a sensor API key for ingestion
+
+## Audio and edge inference
+
+- `audio/drone_audio_edge_test.sh` — run DroneAudioCNN ONNX inference on a WAV file; supports `--scan` for full detection-range table and `--distance M` for drau physics simulation
 
 ## Project utility
 
@@ -44,4 +51,4 @@ Shell entrypoints reuse `common.sh` for:
 - canonical coop `docker compose` invocation
 - package-backed Python module execution via the project venv or `python3`
 
-New shell scripts should source `scripts/common.sh` instead of duplicating path or environment bootstrapping logic.
+New shell scripts should source `scripts/shared/common.sh` instead of duplicating path or environment bootstrapping logic.

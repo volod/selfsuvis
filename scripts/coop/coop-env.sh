@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Generate coop stack `data/.env` from the coop env templates.
+# Generate coop stack `.data/.env` from the coop env templates.
 #
 # Usage:
 #   ./scripts/coop-env.sh [prod|dev|test] [--force]
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
 
 ENV="prod"
 FORCE=false
@@ -15,7 +15,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage: ./scripts/coop/coop-env.sh [prod|dev|test] [--force]
 
-Generates `data/.env` for the coop stack only.
+Generates `.data/.env` for the coop stack only.
 This is separate from root `.env` used by the main selfsuvis app setup.
 EOF
   exit 0
@@ -38,7 +38,7 @@ if [[ ! -f "$TEMPLATE" ]]; then
 fi
 
 if [[ -f "$OUTPUT" ]] && [[ "$FORCE" != true ]]; then
-  echo "ERROR: data/.env already exists. Pass --force to overwrite." >&2
+  echo "ERROR: .data/.env already exists. Pass --force to overwrite." >&2
   exit 1
 fi
 
@@ -47,8 +47,7 @@ generate_password() {
   openssl rand -base64 "$len" | tr -d '\n/+=' | head -c "$len"
 }
 
-# data/ must exist before we can write into it
-mkdir -p "$PROJECT_ROOT_DIR/data"
+mkdir -p "$(dirname "$(project_env_file)")"
 
 cp "$TEMPLATE" "$OUTPUT"
 
@@ -60,6 +59,7 @@ sed -i "s|CHIRPSTACK_API_SECRET=REPLACE_ME|CHIRPSTACK_API_SECRET=$(openssl rand 
 sed -i "s|CHIRPSTACK_MQTT_PASSWORD=REPLACE_ME|CHIRPSTACK_MQTT_PASSWORD=$(generate_password 16)|"                   "$OUTPUT"
 sed -i "s|CHIRPSTACK_GWBRIDGE_MQTT_PASSWORD=REPLACE_ME|CHIRPSTACK_GWBRIDGE_MQTT_PASSWORD=$(generate_password 16)|" "$OUTPUT"
 sed -i "s|FRIGATE_MQTT_PASSWORD=REPLACE_ME|FRIGATE_MQTT_PASSWORD=$(generate_password 16)|"                         "$OUTPUT"
+sed -i "s|GRAFANA_ADMIN_PASSWORD=REPLACE_ME|GRAFANA_ADMIN_PASSWORD=$(generate_password 16)|"                       "$OUTPUT"
 
-project_log "Generated data/.env from env/${ENV}.env (APP_ENV=${ENV})"
+project_log "Generated .data/.env from env/${ENV}.env (APP_ENV=${ENV})"
 project_log "Print credentials with: ./scripts/coop/coop-credentials.sh --list"

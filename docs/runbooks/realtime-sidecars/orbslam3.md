@@ -30,7 +30,7 @@ export REALTIME_ORBSLAM3_API_URL=http://realtime-orbslam3:8101
 
 ```bash
 export REALTIME_ORBSLAM3_IMAGE=registry.example/orbslam3-sidecar:latest
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-engines.yml up -d realtime-orbslam3
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime-engines.yml up -d realtime-orbslam3
 ```
 
 ## Integration contract

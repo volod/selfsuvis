@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../shared/common.sh"
 project_cd_root
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -25,6 +25,8 @@ DIRS=(
   "$DATA_DIR/proxy"
   "$DATA_DIR/mosquitto/data"
   "$DATA_DIR/mosquitto/log"
+  "$DATA_DIR/coop/mosquitto/certs"
+  "$DATA_DIR/coop/frigate"
   "$DATA_DIR/chirpstack-postgres"
   "$DATA_DIR/chirpstack-redis"
   "$DATA_DIR/frigate-media"

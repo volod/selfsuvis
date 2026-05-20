@@ -6,11 +6,11 @@ This guide covers how to choose realtime pose and occupancy sidecars for `selfsu
 
 There are now two separate deployment surfaces:
 
-- `docker/docker-compose.realtime.yml`
+- `docker/realtime/docker-compose.realtime.yml`
   - project-owned reference service
   - good for local API bring-up and contract validation
   - not a production SLAM or volumetric mapping engine
-- `docker/docker-compose.realtime-engines.yml`
+- `docker/realtime/docker-compose.realtime-engines.yml`
   - open-source sidecars only
   - limited to `VINS-Fusion`, `ORB-SLAM3`, `LIO-SAM`, `nvblox`, `voxblox`
   - requires engine-specific image references via env vars
@@ -114,7 +114,7 @@ Use the reference sidecar only for bring-up, replay development, and API verific
 Reference service:
 
 ```bash
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime.yml up -d realtime-reference
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime.yml up -d realtime-reference
 ```
 
 OSS sidecars:
@@ -122,7 +122,7 @@ OSS sidecars:
 ```bash
 export REALTIME_VINS_FUSION_IMAGE=registry.example/vins-fusion-sidecar:latest
 export REALTIME_NVBLOX_IMAGE=registry.example/nvblox-sidecar:latest
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-engines.yml up -d \
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime-engines.yml up -d \
   realtime-vins-fusion realtime-nvblox
 ```
 

@@ -29,7 +29,7 @@ export REALTIME_VOXBLOX_API_URL=http://realtime-voxblox:8101
 
 ```bash
 export REALTIME_VOXBLOX_IMAGE=registry.example/voxblox-sidecar:latest
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.realtime-engines.yml up -d realtime-voxblox
+docker compose -f docker/core/docker-compose.yml -f docker/realtime/docker-compose.realtime-engines.yml up -d realtime-voxblox
 ```
 
 ## Integration contract
