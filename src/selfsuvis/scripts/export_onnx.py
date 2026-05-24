@@ -4,21 +4,21 @@
 Usage:
     # Export with validation
     python scripts/export_onnx.py \\
-        --checkpoint data/checkpoints/dino_ssl_best.pt \\
-        --output data/models/dino_edge.onnx \\
+        --checkpoint .data/checkpoints/dino_ssl_best.pt \\
+        --output .data/models/dino_edge.onnx \\
         --validate
 
     # Export and quantize to INT8
     python scripts/export_onnx.py \\
-        --checkpoint data/checkpoints/dino_ssl_best.pt \\
-        --output data/models/dino_edge.onnx \\
+        --checkpoint .data/checkpoints/dino_ssl_best.pt \\
+        --output .data/models/dino_edge.onnx \\
         --quantize \\
-        --calibration-dir data/frames \\
+        --calibration-dir .data/frames \\
         --calibration-samples 500
 
     # Use the ONNX model on robot:
     from selfsuvis.pipeline.training.edge_inference import EdgeClassifier
-    clf = EdgeClassifier("data/models/dino_edge_int8.onnx", "data/gallery/mission_objects.npz")
+    clf = EdgeClassifier(".data/models/dino_edge_int8.onnx", ".data/gallery/mission_objects.npz")
     results = clf.classify(frame_pil)   # [(label, score), ...]
 """
 
@@ -192,8 +192,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--output",
-        default="data/models/dino_edge.onnx",
-        help="Output ONNX path (default: data/models/dino_edge.onnx)",
+        default=".data/models/dino_edge.onnx",
+        help="Output ONNX path (default: .data/models/dino_edge.onnx)",
     )
     parser.add_argument(
         "--image-size",
@@ -275,7 +275,7 @@ def main() -> None:
     print(
         f"To classify on robot:\n"
         f"  from pipeline.training.edge_inference import EdgeClassifier\n"
-        f"  clf = EdgeClassifier('{args.output}', 'data/gallery/mission_objects.npz')\n"
+        f"  clf = EdgeClassifier('{args.output}', '.data/gallery/mission_objects.npz')\n"
         f"  labels = clf.classify(frame_pil)"
     )
 

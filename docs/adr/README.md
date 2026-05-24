@@ -28,5 +28,5 @@ present architecture.
 
 ## Related
 
-- [Overview](../overview.md)
-- [Architecture](../architecture.md)
+- [Overview](../README.md)
+- [Architecture](../reference/architecture.md)

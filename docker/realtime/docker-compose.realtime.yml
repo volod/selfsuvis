@@ -9,6 +9,6 @@ services:
       REALTIME_POSE_BACKEND: ${REALTIME_POSE_BACKEND:-stub}
       REALTIME_OCCUPANCY_BACKEND: ${REALTIME_OCCUPANCY_BACKEND:-stub}
     volumes:
-      - ../../data:/data
+      - ../../.data:/data
     ports:
       - "8101:8101"

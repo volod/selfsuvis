@@ -5,7 +5,7 @@ __pycache__/
 *.swp
 *.egg-info/
 .venv/
-.env
+.venv-sslm/
 .mypy_cache/
 .ruff_cache/
 .cache/
@@ -13,6 +13,7 @@ __pycache__/
 
 # runtime data
 /.data/
+/data/
 
 # model weight files (never commit; cache lives in ~/.cache/ultralytics)
 *.pt
@@ -23,3 +24,25 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .gstack/
+
+# --- Secrets (NEVER commit any of these) ------------------------------------
+.env
+.env.local
+.env.*.local
+.env.secrets
+.env.secrets.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+jwt_secret*
+*_secret.txt
+*_token.txt
+*credentials*.json
+*service_account*.json
+# ChirpStack / Mosquitto generated certs and passwords
+config/coop/mosquitto/certs/
+config/coop/chirpstack/certs/
+config/coop/*/passwords
+config/coop/*/.secrets

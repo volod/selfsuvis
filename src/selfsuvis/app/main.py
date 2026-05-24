@@ -28,11 +28,11 @@ logger = get_logger(__name__)
 def _start_coop_pilot(app: FastAPI) -> "asyncio.Task | None":
     """Start the coop_pilot MQTT subscriber, site state aggregator, and threat pipeline."""
     try:
-        from selfsuvis.coop_pilot.config import settings as coop_settings
-        from selfsuvis.coop_pilot.mesh.fusion import SensorMeshFusion
-        from selfsuvis.coop_pilot.mesh.scene_synthesis import SceneSynthesizer
-        from selfsuvis.coop_pilot.mesh.site_state import SiteStateAggregator
-        from selfsuvis.coop_pilot.sensors.mqtt_subscriber import MqttSubscriber
+        from selfsuvis.coop.config import settings as coop_settings
+        from selfsuvis.coop.mesh.fusion import SensorMeshFusion
+        from selfsuvis.coop.mesh.scene_synthesis import SceneSynthesizer
+        from selfsuvis.coop.mesh.site_state import SiteStateAggregator
+        from selfsuvis.coop.sensors.mqtt_subscriber import MqttSubscriber
         from selfsuvis.pipeline.realtime.aggregator import RealtimeThreatAggregator
         from selfsuvis.pipeline.realtime.coop_ingest import CoopRealtimeIngestor
 

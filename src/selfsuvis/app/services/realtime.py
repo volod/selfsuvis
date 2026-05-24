@@ -35,7 +35,7 @@ from selfsuvis.pipeline.storage.realtime import (
     upsert_realtime_frame,
 )
 from selfsuvis.pipeline.vision.depth import DepthModel
-from selfsuvis.realtime_pilot.adapters import describe_occupancy_backends, describe_pose_backends
+from selfsuvis.realtime.adapters import describe_occupancy_backends, describe_pose_backends
 
 
 async def _require_realtime_state(conn, session_id: str) -> dict[str, Any]:

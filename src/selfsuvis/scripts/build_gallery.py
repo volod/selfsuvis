@@ -9,23 +9,23 @@ Usage:
 
     # Using an ONNX model (preferred for edge pipelines):
     python scripts/build_gallery.py \\
-        --onnx data/models/dino_edge.onnx \\
-        --labels "vehicle:data/frames/vid1/frame_0010.jpg,vehicle:data/frames/vid1/frame_0020.jpg" \\
-        --labels "barrier:data/frames/vid2/frame_0005.jpg" \\
-        --output data/gallery/mission_objects.npz
+        --onnx .data/models/dino_edge.onnx \\
+        --labels "vehicle:.data/frames/vid1/frame_0010.jpg,vehicle:.data/frames/vid1/frame_0020.jpg" \\
+        --labels "barrier:.data/frames/vid2/frame_0005.jpg" \\
+        --output .data/gallery/mission_objects.npz
 
     # Using a labels-file (JSON):
     python scripts/build_gallery.py \\
-        --onnx data/models/dino_edge.onnx \\
-        --labels-file data/gallery/labels.json \\
-        --output data/gallery/mission_objects.npz
+        --onnx .data/models/dino_edge.onnx \\
+        --labels-file .data/gallery/labels.json \\
+        --output .data/gallery/mission_objects.npz
 
     # Using a PyTorch checkpoint (when ONNX not yet exported):
     python scripts/build_gallery.py \\
-        --checkpoint data/checkpoints/dino_ssl_best.pt \\
+        --checkpoint .data/checkpoints/dino_ssl_best.pt \\
         --model-name dinov3_vitb14 \\
-        --labels-file data/gallery/labels.json \\
-        --output data/gallery/mission_objects.npz
+        --labels-file .data/gallery/labels.json \\
+        --output .data/gallery/mission_objects.npz
 
 labels-file JSON format:
     {
@@ -147,8 +147,8 @@ def main() -> None:
 
     parser.add_argument(
         "--output",
-        default="data/gallery/mission_objects.npz",
-        help="Output gallery NPZ path (default: data/gallery/mission_objects.npz)",
+        default=".data/gallery/mission_objects.npz",
+        help="Output gallery NPZ path (default: .data/gallery/mission_objects.npz)",
     )
     parser.add_argument(
         "--image-size",

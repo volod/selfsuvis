@@ -25,7 +25,7 @@ Related docs:
 - [Sensor fusion fundamentals](03_sensor_fusion_fundamentals.md)
 - [Threat primitives and local inference](15_threat_primitives_local_inference.md)
 - [coop_pilot integration guide](../coop/integration.md)
-- [Architecture](../architecture.md)
+- [Architecture](../reference/architecture.md)
 
 ---
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from selfsuvis.pipeline.core import ensure_dir, settings
 from selfsuvis.pipeline.realtime.sidecar import RealtimeSidecarClient
-from selfsuvis.realtime_pilot.adapters import create_occupancy_adapter
+from selfsuvis.realtime.adapters import create_occupancy_adapter
 
 
 def normalize_map_tile(tile: dict[str, Any]) -> dict[str, Any]:

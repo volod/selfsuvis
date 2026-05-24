@@ -1,7 +1,7 @@
 # Learning Path Deep Dives
 
-This directory is the human-oriented companion to [`local_path.md`](../local_path.md),
-[architecture.md](../architecture.md), and [pipeline.md](../pipeline.md).
+This directory is the human-oriented companion to [`local_path.md`](../quickstart/local_path.md),
+[architecture.md](../reference/architecture.md), and [pipeline.md](../reference/pipeline.md).
 
 Use these docs when you want to understand the system as a person, not just run it.
 They are written to answer:
@@ -103,7 +103,7 @@ Supporting sessions (not tied to a specific pipeline step number):
 
 1. Start with [01_runtime_and_study_guide.md](01_runtime_and_study_guide.md).
 2. Skim [00_day_by_day_syllabus.md](00_day_by_day_syllabus.md) if you want a paced study plan instead of a reference manual.
-3. Skim [`local_path.md`](../local_path.md) for the fast path.
+3. Skim [`local_path.md`](../quickstart/local_path.md) for the fast path.
 4. Read the matching deep-dive file for the phase you care about.
 5. Open the implementation modules linked from that file and compare code to the prose.
 6. Inspect real output artifacts while you read. This repo makes more sense from outputs back to code than from code outward.
@@ -145,11 +145,11 @@ branching into adaptation, physical-world modeling, and advanced global-threat w
 
 ## Related Repo Docs
 
-- [Pipeline architecture](../pipeline.md)
-- [Architecture](../architecture.md)
+- [Pipeline architecture](../reference/pipeline.md)
+- [Architecture](../reference/architecture.md)
 - [coop_pilot getting started](../coop/getting-started.md)
 - [coop_pilot integration](../coop/integration.md)
-- [Configuration](../configuration.md)
-- [Setup](../setup.md)
-- [3D Gaussian Splat](../gaussian_splat.md)
+- [Configuration](../reference/configuration.md)
+- [Setup](../quickstart/setup.md)
+- [3D Gaussian Splat](../reference/gaussian_splat.md)
 - [ADRs](../adr/README.md)

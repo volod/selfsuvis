@@ -27,7 +27,7 @@ services:
       REALTIME_MAVSDK_SYSTEM_ADDRESS: ${REALTIME_MAVSDK_SYSTEM_ADDRESS:-udp://:14540}
       DATA_DIR: /app/data
     volumes:
-      - ../../data:/app/data
+      - ../../.data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,7 +50,7 @@ services:
       REALTIME_ROS_DOMAIN_ID: ${REALTIME_ROS_DOMAIN_ID:-}
       DATA_DIR: /app/data
     volumes:
-      - ../../data:/app/data
+      - ../../.data:/app/data
     depends_on:
       postgres:
         condition: service_healthy

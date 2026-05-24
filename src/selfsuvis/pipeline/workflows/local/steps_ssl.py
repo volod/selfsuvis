@@ -926,3 +926,110 @@ def step_ssl_finetune(
         "metrics_path": str(metrics_path),
         "pair_mining": pair_mining_stats,
     }
+
+
+def step_dae_finetune(
+    video_id: str,
+    video_name: str,
+    video_dir: Path,
+    frame_list: list,
+    device: str,
+    epochs: int,
+    batch_size: int,
+) -> dict[str, Any]:
+    """Train a Denoising Autoencoder on mission frames (no labels required).
+
+    Implements the reconstruction-based self-supervised pretext task derived
+    from the denoising autoencoder approach (Vincent et al., 2008).  The trained
+    model is used by DAEAnomalyScorer to assign per-frame reconstruction MSE
+    scores, which are incorporated into the active-learning scoring formula.
+
+    Skips gracefully when fewer frames are available than two batches, or when
+    torch is unavailable.
+
+    Returns a result dict with:
+        checkpoint      -- path to the best DAE checkpoint (or "" if skipped)
+        best_mse        -- best epoch reconstruction MSE
+        elapsed_sec     -- wall-clock training time
+        ckpt_mb         -- checkpoint file size in MB
+        n_frames        -- number of frames used
+        skipped         -- True when training was not possible
+    """
+    from selfsuvis.pipeline.training.dae import DAEFinetuneConfig, run_dae_finetune
+
+    n_frames = len(frame_list)
+    ckpt_dir = video_dir / "checkpoints"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    min_frames = batch_size * 2
+    if n_frames < min_frames:
+        _log.info(
+            "  DAE skip: only %d frames (need >= %d for reconstruction training)",
+            n_frames,
+            min_frames,
+        )
+        return {"checkpoint": "", "best_mse": float("nan"), "elapsed_sec": 0.0,
+                "ckpt_mb": 0.0, "n_frames": n_frames, "skipped": True}
+
+    frames_dir = str(Path(frame_list[0][0]).parent) if frame_list else ""
+    if not frames_dir:
+        return {"checkpoint": "", "best_mse": float("nan"), "elapsed_sec": 0.0,
+                "ckpt_mb": 0.0, "n_frames": n_frames, "skipped": True}
+
+    cfg = DAEFinetuneConfig(
+        frames_dir=frames_dir,
+        output_dir=str(ckpt_dir),
+        image_size=224,
+        latent_ch=256,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=1e-3,
+        weight_decay=1e-4,
+        corruption_mode="both",
+        noise_std=0.2,
+        patch_size=16,
+        mask_frac=0.15,
+        num_workers=0,
+        save_every=max(1, epochs // 3),
+        device=device,
+        seed=42,
+    )
+    _log.info(
+        "  DAE fine-tuning: %d frames | epochs=%d | corruption=%s | device=%s",
+        n_frames, epochs, cfg.corruption_mode, device,
+    )
+    t0 = time.time()
+    try:
+        best_path = run_dae_finetune(cfg)
+    except Exception as exc:
+        _log.warning("  DAE training failed (%s) -- skipping", exc)
+        return {"checkpoint": "", "best_mse": float("nan"), "elapsed_sec": 0.0,
+                "ckpt_mb": 0.0, "n_frames": n_frames, "skipped": True}
+
+    elapsed = time.time() - t0
+    ckpt_mb = os.path.getsize(best_path) / 1e6 if os.path.exists(best_path) else 0.0
+
+    metrics_path = video_dir / "dae_training_metrics.json"
+    write_json_artifact(metrics_path, {
+        "video_id": video_id,
+        "n_frames": n_frames,
+        "epochs": epochs,
+        "corruption_mode": cfg.corruption_mode,
+        "device": device,
+        "elapsed_sec": round(elapsed, 2),
+        "ckpt_mb": round(ckpt_mb, 2),
+    })
+
+    _log.info(
+        "  [ok] DAE training complete in %.1fs | checkpoint: %s (%.1f MB)",
+        elapsed, best_path, ckpt_mb,
+    )
+    return {
+        "checkpoint": best_path,
+        "best_mse": float("nan"),  # populated by run_dae_finetune logs; not re-read here
+        "elapsed_sec": elapsed,
+        "ckpt_mb": ckpt_mb,
+        "n_frames": n_frames,
+        "skipped": False,
+        "metrics_path": str(metrics_path),
+    }

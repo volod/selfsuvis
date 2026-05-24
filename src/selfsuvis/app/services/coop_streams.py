@@ -51,7 +51,7 @@ class CoopStreamService:
     async def start(self) -> None:
         """Start the RTSP bridge (and optionally per-camera sound analysis)."""
         try:
-            from selfsuvis.coop_pilot.sensors.rtsp_bridge import FrigateRtspBridge
+            from selfsuvis.coop.sensors.rtsp_bridge import FrigateRtspBridge
 
             self._bridge = FrigateRtspBridge(
                 mediamtx_client=self._mtx,
@@ -96,7 +96,7 @@ class CoopStreamService:
         if self._bridge is None:
             return
         try:
-            from selfsuvis.coop_pilot.sensors.sound_analyzer import SoundAnalyzer
+            from selfsuvis.coop.sensors.sound_analyzer import SoundAnalyzer
 
             for cam_info in self._bridge.active_cameras():
                 camera = cam_info["camera"]
@@ -129,7 +129,7 @@ class CoopStreamService:
                 # they appear in the site mesh and scene synthesis prompt.
                 for ae in observation.acoustic_events:
                     try:
-                        from selfsuvis.coop_pilot.sensors.frigate_events import CameraEvent
+                        from selfsuvis.coop.sensors.frigate_events import CameraEvent
 
                         synth = CameraEvent(
                             event_id=f"acoustic:{camera}:{ae['event']}",

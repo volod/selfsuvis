@@ -37,7 +37,7 @@ def _make_request(pool=None):
 
 
 def test_load_batch_images_skips_unreadable_with_warning(caplog, tmp_path):
-    from selfsuvis.worker.main import _load_batch_images
+    from selfsuvis.worker.handlers.reembed import _load_batch_images
 
     good_path = tmp_path / "good.jpg"
     from PIL import Image
@@ -61,7 +61,7 @@ def test_load_batch_images_skips_unreadable_with_warning(caplog, tmp_path):
 
 
 def test_load_batch_images_all_unreadable(caplog, tmp_path):
-    from selfsuvis.worker.main import _load_batch_images
+    from selfsuvis.worker.handlers.reembed import _load_batch_images
 
     batch = [
         {"id": "x1", "frame_path": "/missing/a.jpg"},
@@ -82,7 +82,7 @@ def test_load_batch_images_all_unreadable(caplog, tmp_path):
 
 @pytest.mark.asyncio
 async def test_load_reembed_cursor_restores_from_progress():
-    from selfsuvis.worker.main import _load_reembed_cursor
+    from selfsuvis.worker.handlers.reembed import _load_reembed_cursor
 
     stored_progress = json.dumps(
         {"last_cursor": [1234567890.0, "abc123"], "frames_reembedded": 512}
@@ -98,7 +98,7 @@ async def test_load_reembed_cursor_restores_from_progress():
 
 @pytest.mark.asyncio
 async def test_load_reembed_cursor_returns_none_when_no_progress():
-    from selfsuvis.worker.main import _load_reembed_cursor
+    from selfsuvis.worker.handlers.reembed import _load_reembed_cursor
 
     conn = AsyncMock()
     conn.fetchrow = AsyncMock(return_value={"progress_json": None})
@@ -111,7 +111,7 @@ async def test_load_reembed_cursor_returns_none_when_no_progress():
 
 @pytest.mark.asyncio
 async def test_load_reembed_cursor_empty_job_row():
-    from selfsuvis.worker.main import _load_reembed_cursor
+    from selfsuvis.worker.handlers.reembed import _load_reembed_cursor
 
     conn = AsyncMock()
     conn.fetchrow = AsyncMock(return_value=None)
@@ -130,7 +130,7 @@ async def test_run_reembed_checkpoints_after_each_batch(tmp_path):
     """After each batch, update_job is called with updated cursor and frame count."""
     import datetime
 
-    from selfsuvis.worker.main import _run_reembed
+    from selfsuvis.worker.handlers.reembed import _run_reembed
 
     ts = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
     frame_rows = [
@@ -172,10 +172,10 @@ async def test_run_reembed_checkpoints_after_each_batch(tmp_path):
     qdrant.upsert_points = MagicMock()
 
     with (
-        patch("selfsuvis.worker.main.list_frames_after", new_callable=AsyncMock) as mock_lfa,
-        patch("selfsuvis.worker.main.update_job", side_effect=_fake_update_job),
+        patch("selfsuvis.worker.handlers.reembed.list_frames_after", new_callable=AsyncMock) as mock_lfa,
+        patch("selfsuvis.worker.handlers.reembed.update_job", side_effect=_fake_update_job),
         patch(
-            "selfsuvis.worker.main._load_reembed_cursor",
+            "selfsuvis.worker.handlers.reembed._load_reembed_cursor",
             new_callable=AsyncMock,
             return_value=(None, 0),
         ),

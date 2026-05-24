@@ -1,52 +1,135 @@
-# selfsuvis — Outdoor Autonomy Perception Stack
+# selfsuvis
 
-Spatial memory engine for outdoor robotics. Ingest mission video from drones, rovers, or vehicles → extract frames → estimate camera poses (pycolmap SfM) → build dense 3D maps (nerfstudio splatfacto) → embed frames (OpenCLIP + DINOv3) → caption with Florence-2 → store in PostgreSQL + Qdrant → search by text or image query.
+Spatial memory engine for outdoor autonomy. Three interconnected playgrounds that
+feed each other: a production server that answers queries, a local research pipeline
+that builds world-model understanding, and an IoT sensor mesh that collects ground
+truth from the physical world.
 
-Self-improvement loop: each mission auto-tags uncertain and novel frames for annotation, building training data for future self-supervised model fine-tuning and edge distillation.
+---
 
-## Local run pipeline
+## Three Playgrounds
 
-The local pipeline is a 36-step research and training workflow that goes well beyond the Docker stack. It processes a mission video end-to-end through four phases:
+### 1. Production Server
+`src/selfsuvis/app/` + `src/selfsuvis/worker/` + `src/selfsuvis/ui/`
+
+FastAPI server + Streamlit UI + background worker. Ingest mission video, embed frames
+with CLIP and DINOv3, caption with Florence-2, store in PostgreSQL + Qdrant, and answer
+text and image search queries in real time. Optionally bridges to live RTSP streams via
+MediaMTX and integrates coop sensor state into threat synthesis.
+
+**When to use:** Deploy this to get a running search service over your mission archive.
+Start here if you want to index videos and search them.
+
+```bash
+make up          # start api + worker + ui + qdrant
+```
+
+---
+
+### 2. Local Research Pipeline
+`src/selfsuvis/pipeline/`
+
+36-step research and training workflow that processes a single mission video end to end.
+Goes far beyond what the production server does: sensor fusion for physical SIGINT,
+world-model video embeddings, 3D reconstruction, SSL pretraining (DAE + contrastive),
+edge distillation, Qwen3 reasoning audit, and active-learning frame tagging.
+
+This is where world-model investigation happens. Output feeds back into the production
+server as fine-tuned embedders and annotated training data.
 
 | Phase | Steps | What happens |
 |---|---|---|
-| **Perception core** | 1–8 | Frame extraction, CLIP+DINOv3 embedding, Gemma scene analysis, Florence-2 captioning, Whisper ASR, OCR, depth estimation, object detection |
-| **Sensor fusion** | 9–20 | Optional physical sensor sidecars — RF/SDR, thermal, multispectral, event camera, LiDAR, radar, GNSS-R, IMU, barometer, atmospheric, gas/radiation, acoustic — fused into a single time-aligned context block |
-| **Tracking and 3D mapping** | 21–27 | YOLO+SAM segmentation, Gemma-directed RF-DETR tracking, world model video embeddings, Qwen+UniDriveVLA dense captioning, pycolmap SfM + nerfstudio 3D Gaussian Splat |
-| **Adaptation and evaluation** | 28–36 | SSL fine-tuning, two-stage edge model distillation (ViT-S/14 + EfficientViT-B1 ONNX), multi-model comparison, Qwen3 reasoning audit, aggregate statistics |
+| **Perception core** | 1-8 | Frame extraction, CLIP+DINOv3 embedding, Gemma scene analysis, Florence-2 captioning, Whisper ASR, OCR, depth, object detection |
+| **Physical SIGINT** | 9-20 | RF/SDR, thermal, multispectral, event camera, LiDAR, radar, GNSS-R, IMU, atmospheric, gas/radiation, acoustic sidecars fused into time-aligned context |
+| **Tracking and 3D** | 21-27 | YOLO+SAM segmentation, RF-DETR tracking, world-model embeddings, Qwen+UniDriveVLA captioning, pycolmap SfM, nerfstudio Gaussian Splat |
+| **Adaptation** | 28-36 | DAE + contrastive SSL, edge distillation (ViT-S/14 + EfficientViT-B1 ONNX), multi-model comparison, Qwen3 audit, active-learning tagging |
 
-The local pipeline is the primary path for understanding how the system works, building training datasets, and adapting models to a new domain. The Docker stack runs steps 1, 2, 4, and 7–8 continuously as a production service. See the [local learning path](docs/local_path.md) for step-by-step guidance.
+**When to use:** Run this locally to investigate a mission, adapt models to a new domain,
+or build training data for the next production embedder.
 
-Recent local-run builds also apply adaptive runtime controls by default to keep single-video analysis practical on 16 GiB GPUs:
+```bash
+selfsuvis --mode local --video /data/missions/my_mission.mp4
+```
 
-- OCR is prescreened from Florence caption confidence before invoking the OCR sidecar.
-- Qwen detailed captioning uses bounded sampled-frame selection instead of captioning every frame.
-- Depth `auto` now prefers a fast local profile unless you explicitly switch back to a quality-oriented model.
-- The final reasoning audit uses a simple-first flow and only falls back to a second attempt when the first output is incomplete.
+See [local learning path](docs/quickstart/local_path.md) for the step-by-step guide.
+
+---
+
+### 3. Coop Stack — IoT Sensor Mesh
+`src/selfsuvis/coop_pilot/` | `docker/coop/` | `config/coop/`
+
+Continuous site-awareness layer that ingests live sensor streams: LoRaWAN telemetry via
+ChirpStack, RTSP camera feeds via Frigate NVR, MQTT acoustic and RF events, and
+OpenRemote device state. Maintains a rolling-window site state (300 s sensors, 120 s
+camera events) and fuses them into a unified scene synthesis.
+
+The coop stack feeds the production server's threat synthesis (`app.state.coop_threat_aggregator`)
+and the local pipeline's sensor-fusion phases (steps 9-20). Without real sensor data the
+pipeline can still run with mock sidecars; with the coop stack running it ingests live feeds.
+
+**When to use:** Run this on a gateway node alongside physical sensors to build continuous
+coverage between discrete mission runs.
+
+```bash
+scripts/coop/coop-bootstrap.sh   # first-time setup
+scripts/coop/coop-ctl.sh up      # start MQTT, ChirpStack, Frigate, Keycloak, etc.
+```
+
+See [coop docs](docs/coop/getting-started.md) for full setup.
+
+---
+
+## How the Three Connect
+
+```
+Coop stack (live sensors)
+    |  MQTT / Frigate events
+    v
+Production server ----[REST / Qdrant]---- Client (robot, operator)
+    ^
+    | re-embed + fine-tune artifacts
+    |
+Local pipeline (per-mission analysis)
+    ^
+    | raw video + sensor logs
+    |
+Mission recordings (coop cameras / drone footage)
+```
+
+The coop stack collects. The pipeline understands. The server serves. A physical world
+that can't be labelled by hand is progressively understood through the SSL loop.
+
+---
+
+## Quick Start
+
+```bash
+make up                      # production server (Docker)
+selfsuvis --mode local ...   # local pipeline (Python venv)
+scripts/coop/coop-ctl.sh up  # coop sensor mesh (Docker)
+```
+
+---
+
+## Large Model Benchmarking
+
+For large-model benchmarking and sidecar-based reasoning LLM comparisons, see the
+[SSLM playground](src/sslm/README.md).
 
 ---
 
 ## Documents
 
-| Document | Contents |
+| Section | Where |
 |---|---|
-| [Quick start](docs/quickstart.md) | Run the stack with Docker or locally, step by step |
-| [Setup](docs/setup.md) | Detailed setup options, GPU, CVAT |
-| [Configuration](docs/configuration.md) | All env vars with defaults and security notes |
-| [API reference](docs/api.md) | HTTP endpoints, robot pose API |
-| [MediaMTX streaming](docs/streaming-mediamtx.md) | Production live-stream ingress, MediaMTX control, and realtime stream API |
-| [UI guide](docs/ui.md) | Streamlit UI usage |
-| [Architecture](docs/architecture.md) | System components and service topology |
-| [Pipeline](docs/pipeline.md) | Agentic pipeline architecture and data flow |
-| [Data layout](docs/data_layout.md) | Directory structure, sensor sidecars, output artifacts |
-| [Examples](docs/examples.md) | Example queries and workflows |
-| [Performance](docs/performance.md) | Latency targets and tuning |
-| [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
-| [Tests](docs/tests.md) | Unit and integration test guide |
-| [Development](docs/develop.md) | Contributing, code style, project conventions |
-| [Runbooks](docs/runbooks/README.md) | Per-component operational runbooks |
-| [Local learning path](docs/local_path.md) | 36-step essentials + day-by-day syllabus |
-| [Learning path deep dives](docs/learning_path/README.md) | Detailed study set per pipeline phase |
-| [Analytics and visualization](docs/analytics.md) | Post-run artifact analysis, charts, HTML report, and CLI usage |
+| [Docs index](docs/README.md) | Full documentation index |
+| [Quick start](docs/quickstart/quickstart.md) | Run any of the three stacks |
+| [Local learning path](docs/quickstart/local_path.md) | 36-step essentials |
+| [Architecture](docs/reference/architecture.md) | Component topology |
+| [Pipeline reference](docs/reference/pipeline.md) | Pipeline data flow |
+| [Configuration](docs/reference/configuration.md) | All env vars |
+| [Secrets management](docs/reference/secrets-management.md) | Secrets separation and rotation |
+| [Model catalog](docs/reference/model-catalog.md) | VRAM budgets, SSL models |
+| [Coop stack](docs/coop/getting-started.md) | IoT sensor mesh setup |
+| [Runbooks](docs/runbooks/README.md) | Per-component runbooks |
 | [Architecture decisions](docs/adr/README.md) | ADR log |
-| [Model catalog](docs/model-catalog.md) | Model options, VRAM budgets, and GPU resource guide |

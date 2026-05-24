@@ -3093,12 +3093,12 @@ def run_video_pipeline(
             description=(
                 "Train DroneAudioCNN (small 2-D CNN on MFCC features) on "
                 "geronimobasso/drone-audio-detection-samples cached in "
-                "data/drone-audio-data/; export ONNX for edge inference."
+                ".data/drone-audio-data/; export ONNX for edge inference."
             ),
             status="ok",
             context_inputs=[
-                "data/drone-audio-data/train/drone/*.wav",
-                "data/drone-audio-data/train/no_drone/*.wav",
+                ".data/drone-audio-data/train/drone/*.wav",
+                ".data/drone-audio-data/train/no_drone/*.wav",
             ],
             context_outputs=[
                 "drone_audio_cnn.pt",

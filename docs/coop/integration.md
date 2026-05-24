@@ -136,7 +136,7 @@ COOP_FRIGATE_TOPIC_PREFIX=frigate
 ```
 
 See [getting-started.md](getting-started.md) for the full setup procedure and
-[configuration.md](configuration.md) for all available env vars.
+[configuration.md](../reference/configuration.md) for all available env vars.
 
 ---
 
@@ -175,6 +175,6 @@ live human-readable dashboard without requiring any robot or drone.
 
 - [getting-started.md](getting-started.md) — first-time setup
 - [sensor-integration.md](sensor-integration.md) — adding new sensor types
-- [analytics.md](analytics.md) — log analytics CLI (`coop-analytics`)
-- [architecture.md](architecture.md) — coop_pilot component diagram
+- [analytics.md](../reference/analytics.md) — log analytics CLI (`coop-analytics`)
+- [architecture.md](../reference/architecture.md) — coop_pilot component diagram
 - [testing.md](testing.md) — MQTT integration tests and load testing

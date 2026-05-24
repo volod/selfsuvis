@@ -731,7 +731,7 @@ That exercise produces much better understanding than memorizing sensor catalogs
 - [Perception core: Steps 1-8](02_perception_core_steps_01_08.md)
 - [Agentic knowledge flow](07_agentic_knowledge_flow.md)
 - [Tracking and mapping: Steps 21-27](05_tracking_mapping_steps_21_27.md)
-- [Pipeline architecture](../pipeline.md)
+- [Pipeline architecture](../reference/pipeline.md)
 - [Day-by-day syllabus](00_day_by_day_syllabus.md)
 
 ---

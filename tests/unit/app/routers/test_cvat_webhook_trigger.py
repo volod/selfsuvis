@@ -8,9 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # Stub app.state before the cvat router is imported to avoid live Qdrant connect.
+# Always install a real asyncio.Lock for _finetune_lock: an earlier test file
+# (test_automation_roi.py) may have already set app.state to a MagicMock whose
+# .locked() returns a truthy MagicMock, causing _maybe_trigger_finetune to
+# return early and never call create_job.
 if "selfsuvis.app.state" not in sys.modules:
-    _state_stub = types.SimpleNamespace(_finetune_lock=asyncio.Lock())
-    sys.modules["selfsuvis.app.state"] = _state_stub
+    sys.modules["selfsuvis.app.state"] = types.SimpleNamespace()
+sys.modules["selfsuvis.app.state"]._finetune_lock = asyncio.Lock()
 
 
 def run(coro):

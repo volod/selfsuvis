@@ -607,7 +607,7 @@ With an audit trail:
 
 **Implementation:**
 - [`pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py)
-- [`docs/pipeline.md`](../pipeline.md)
+- [`docs/pipeline.md`](../reference/pipeline.md)
 
 **Key concepts:**
 
@@ -674,7 +674,7 @@ Good engineering requires all four.
 - [Tracking and mapping: Steps 21-27](05_tracking_mapping_steps_21_27.md)
 - [Agentic knowledge flow](07_agentic_knowledge_flow.md)
 - [Runtime and study guide](01_runtime_and_study_guide.md)
-- [Pipeline architecture](../pipeline.md)
+- [Pipeline architecture](../reference/pipeline.md)
 - [Drone detection runbook](../runbooks/drone-detection.md)
 
 ---

@@ -6,8 +6,7 @@ Synthetic SfM frame data drives every test path without real video or GPU.
 Because asyncpg / pipeline.sfm / pipeline.mapping.mapper are optional and may not be
 installed in the unit-test environment, we inject fake stub modules into
 sys.modules before any test runs so that unittest.mock.patch can resolve them.
-worker.main transitively imports pipeline.workflows (model code); that is stubbed
-out at the module level before the worker is imported.
+worker.handlers.postflight imports pipeline.storage (stubbed below).
 """
 
 import sys
@@ -143,9 +142,9 @@ def _fake_asyncpg_conn():
 
 
 def _get_run_pass_a():
-    import selfsuvis.worker.main as wm
+    import selfsuvis.worker.handlers.postflight as ph
 
-    return wm._run_pass_a
+    return ph._run_pass_a
 
 
 # ---------------------------------------------------------------------------

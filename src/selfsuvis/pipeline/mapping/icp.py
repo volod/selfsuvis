@@ -9,8 +9,8 @@ refines it to sub-metre accuracy when the scenes overlap sufficiently.
 
 Typical usage (called by mapper/main.py):
     result = register_splats(
-        source_path="data/maps/mission_b/splat.ply",
-        target_path="data/maps/mission_a/splat.ply",
+        source_path=".data/maps/mission_b/splat.ply",
+        target_path=".data/maps/mission_a/splat.ply",
         source_meta={"origin_lat": ..., "origin_lon": ..., "origin_alt": ...},
         target_meta={"origin_lat": ..., "origin_lon": ..., "origin_alt": ...},
         max_correspondence_m=2.0,

@@ -220,7 +220,7 @@ def build_env_plan(
     values["GPU_FREE_GB_HINT"] = _format_float(options.resources.free_vram_gb)
     values.setdefault("HF_TOKEN", "")
     values.setdefault("API_KEY", "")
-    values.setdefault("ALLOWED_INDEX_PATHS", "./data/videos")
+    values.setdefault("ALLOWED_INDEX_PATHS", "./.data/videos")
     values.setdefault("DATABASE_URL", _default_database_url(options.env_name))
     values.setdefault("MODEL_NAME", "openclip")
     values.setdefault("OPENCLIP_MODEL", "ViT-B-16")
@@ -669,7 +669,7 @@ def _print_sidecar_next_steps(plan: EnvPlan, values: dict[str, str]) -> None:
         for cmd in vllm_cmds:
             print(f"    {cmd}\n")
 
-    print("\n  Edit .env and set API_KEY, then drop videos into data/videos/ and run:")
+    print("\n  Edit .env and set API_KEY, then drop videos into .data/videos/ and run:")
     print("    make up  (Docker)  or  make venv && uvicorn selfsuvis.app.main:app  (local)")
     print("------------------------------------------------------------------\n")
 

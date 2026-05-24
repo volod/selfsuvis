@@ -27,12 +27,12 @@ No specialized knowledge required.
 
 **Topics:**
 - Read `README.md` end-to-end.
-- Read [`local_path.md`](../local_path.md): the fast study map of the current pipeline.
+- Read [`local_path.md`](../quickstart/local_path.md): the fast study map of the current pipeline.
 - Inspect one output directory from a previous run (or ask someone to share one).
 
 **Exercise:**
 List every artifact you find in the output directory and guess which step produced it.
-Check against [`pipeline.md`](../pipeline.md) and [`architecture.md`](../architecture.md).
+Check against [`pipeline.md`](../reference/pipeline.md) and [`architecture.md`](../reference/architecture.md).
 
 **Concept checkpoint:**
 Can you describe the pipeline in two sentences — what goes in and what comes out?
@@ -178,7 +178,7 @@ What distinguishes it from a LiDAR range measurement?
 ### Interlude — Post-Run Artifact Analysis
 
 **Topics:**
-- Read [`analytics.md`](../analytics.md).
+- Read [`analytics.md`](../reference/analytics.md).
 - Read [`08_local_run_artifact_analysis.md`](08_local_run_artifact_analysis.md).
 - Learn how to move from a completed run directory back to the originating code.
 
@@ -382,7 +382,7 @@ How is it injected into the next frame's context?
 **Topics:**
 - Step 26: search test design — Precision@K, Recall@K, hard positives vs hard negatives.
 - Step 27: SfM (Structure-from-Motion) requirements, 3DGS (Gaussian Splat), scale ambiguity.
-- Read [`docs/gaussian_splat.md`](../gaussian_splat.md).
+- Read [`docs/gaussian_splat.md`](../reference/gaussian_splat.md).
 
 **Pre-reading:**
 - Mildenhall et al., "NeRF: Representing Scenes as Neural Radiance Fields" (2020) — Sections 1-3 (implicit radiance field, volume rendering). [arxiv.org/abs/2003.08934](https://arxiv.org/abs/2003.08934)
@@ -600,7 +600,7 @@ Record: which predictions were right, which were wrong, and why.
 Write your own one-page explanation of the full local pipeline from memory.
 Structure it as: input → evidence extraction → sensor expansion → structured reasoning → adaptation → audit → output.
 
-Then: compare your write-up to [`local_path.md`](../local_path.md) and [`01_runtime_and_study_guide.md`](01_runtime_and_study_guide.md).
+Then: compare your write-up to [`local_path.md`](../quickstart/local_path.md) and [`01_runtime_and_study_guide.md`](01_runtime_and_study_guide.md).
 Note the gaps — these are the areas where you should go back and re-read.
 
 **Technology-stack checkpoint:**

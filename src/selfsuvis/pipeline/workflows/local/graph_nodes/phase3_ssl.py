@@ -346,6 +346,80 @@ def node_p3_ft_search(state: PipelineState) -> dict[str, Any]:
     return {"ft_results": ft_results, "stats": stats, "agentic_trace": agentic_trace}
 
 
+def node_p3_dae_finetune(state: PipelineState) -> dict[str, Any]:
+    """Phase 3 DAE node: train a Denoising Autoencoder on mission frames.
+
+    Runs after the DINO SSL step as an orthogonal self-supervised pretext task.
+    The resulting checkpoint is stored in dae_result and used downstream by
+    the active-learning scorer to add reconstruction-error novelty signals.
+
+    Gracefully skips when fewer frames than two batches are available, or when
+    the SSL gate did not pass (no point training a second model if the first
+    did not converge).
+    """
+    from ..steps_ssl import step_dae_finetune
+
+    args = state["args"]
+    device = state["device"]
+    stats = dict(state.get("stats", {}))
+    agentic_trace = list(state.get("agentic_trace", []))
+
+    frame_list = state.get("frame_list", [])
+    if not frame_list:
+        dae_result: dict[str, Any] = {"skipped": True, "reason": "no frames"}
+        stats.setdefault("timings", {})["D2_dae"] = 0.0
+        _append_agentic_step(
+            agentic_trace,
+            step_id="17b",
+            title="DAE self-supervised pretraining",
+            description="Train denoising autoencoder for reconstruction-error anomaly scoring.",
+            status="skipped",
+            context_inputs=["no frames available"],
+            context_outputs=["no DAE checkpoint"],
+            risks=[],
+            artifacts=[],
+        )
+        return {"dae_result": dae_result, "stats": stats, "agentic_trace": agentic_trace}
+
+    import time
+
+    t0 = time.monotonic()
+    dae_result = step_dae_finetune(
+        state["video_id"],
+        state["video_name"],
+        Path(state["video_dir"]),
+        frame_list,
+        device,
+        epochs=getattr(args, "dae_epochs", max(5, getattr(args, "epochs", 10))),
+        batch_size=getattr(args, "batch_size", 16),
+    )
+    elapsed = time.monotonic() - t0
+    stats.setdefault("timings", {})["D2_dae"] = elapsed
+    if not dae_result.get("skipped"):
+        stats["dae_ckpt_mb"] = dae_result.get("ckpt_mb", 0.0)
+
+    _append_agentic_step(
+        agentic_trace,
+        step_id="17b",
+        title="DAE self-supervised pretraining",
+        description="Train denoising autoencoder for reconstruction-error anomaly scoring.",
+        status="skipped" if dae_result.get("skipped") else "ok",
+        context_inputs=["mission frame sequence (unlabeled)"],
+        context_outputs=[
+            f"DAE checkpoint {dae_result.get('ckpt_mb', 0):.1f} MB",
+            "per-frame reconstruction MSE available for anomaly scoring",
+        ]
+        if not dae_result.get("skipped")
+        else ["not enough frames or training failed"],
+        risks=["small dataset may cause DAE to memorise rather than generalise"],
+        artifacts=["checkpoints/dae_best.pt", "dae_training_metrics.json"]
+        if not dae_result.get("skipped")
+        else [],
+    )
+
+    return {"dae_result": dae_result, "stats": stats, "agentic_trace": agentic_trace}
+
+
 def node_p3_compare(state: PipelineState) -> dict[str, Any]:
     from ..runner import step_compare_and_describe
 

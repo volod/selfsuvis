@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--input", help="Video file path")
     parser.add_argument("--dir", help="Directory containing videos")
-    parser.add_argument("--output-dir", default="data/local_runs", help="Output directory")
+    parser.add_argument("--output-dir", default=".data/local_runs", help="Output directory")
 
     parser.add_argument("--interval", type=float, default=1.0, help="Fixed interval in seconds")
     parser.add_argument(
@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--run-dir",
-        help="[analyse] Path to a local run output directory (e.g. data/local_runs/drone_mission)",
+        help="[analyse] Path to a local run output directory (e.g. .data/local_runs/drone_mission)",
     )
     parser.add_argument(
         "--charts-dir",
@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     # -- Local orchestration args (used when --mode local) ---------------------
     parser.add_argument(
         "--videos-dir",
-        default="data/videos",
+        default=".data/videos",
         help="[local] Directory containing input .mp4/.mov/.mkv files",
     )
     parser.add_argument(
@@ -469,7 +469,7 @@ def build_parser() -> argparse.ArgumentParser:
         const=True,
         default=None,
         help="[local] Train DroneAudioCNN on drone-audio-detection-samples "
-        "and export ONNX (step 32). Dataset cached in data/drone-audio-data/. "
+        "and export ONNX (step 32). Dataset cached in .data/drone-audio-data/. "
         "Prepare with: scripts/split_drone_audio_data.sh",
     )
     parser.add_argument(

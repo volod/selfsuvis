@@ -15,28 +15,50 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ── Stub cv2 / skimage (NumPy 2.x binary incompatibility) ────────────────────
-# Force-replace even if already imported (real cv2 is broken under NumPy 2.x;
-# another test file may have loaded it before us in the same pytest session).
+# ── Import the module under test ─────────────────────────────────────────────
+# cv2 4.13+ works with NumPy 2.x — stubs are not needed. If cv2 is missing
+# entirely, temporarily stub it so the indexer import succeeds, then restore
+# sys.modules so subsequent tests that need the real cv2 are not affected.
 if "selfsuvis.pipeline.workflows.indexer" not in sys.modules:
-    for _name in ("cv2", "skimage", "skimage.metrics"):
-        _m = types.ModuleType(_name)
-        _m.__spec__ = type(
-            "S",
-            (),
-            {
-                "name": _name,
-                "origin": None,
-                "loader": None,
-                "submodule_search_locations": None,
-                "parent": _name.rsplit(".", 1)[0] if "." in _name else "",
-                "has_location": False,
-            },
-        )()
-        sys.modules[_name] = _m
+    _stub_names = ("cv2", "skimage", "skimage.metrics")
+    _saved = {n: sys.modules.get(n) for n in _stub_names}
+    _cv2_missing = False
+    try:
+        import cv2 as _cv2_probe  # noqa: F401
+    except Exception:
+        _cv2_missing = True
 
-# ── Now import the module under test ─────────────────────────────────────────
-indexer_mod = importlib.import_module("selfsuvis.pipeline.workflows.indexer")
+    if _cv2_missing:
+        for _name in _stub_names:
+            _m = types.ModuleType(_name)
+            _m.__spec__ = type(
+                "S",
+                (),
+                {
+                    "name": _name,
+                    "origin": None,
+                    "loader": None,
+                    "submodule_search_locations": None,
+                    "parent": _name.rsplit(".", 1)[0] if "." in _name else "",
+                    "has_location": False,
+                },
+            )()
+            sys.modules[_name] = _m
+
+    indexer_mod = importlib.import_module("selfsuvis.pipeline.workflows.indexer")
+
+    if _cv2_missing:
+        for _name in _stub_names:
+            _orig = _saved[_name]
+            if _orig is None:
+                sys.modules.pop(_name, None)
+            else:
+                sys.modules[_name] = _orig
+
+    del _stub_names, _saved, _cv2_missing
+else:
+    indexer_mod = importlib.import_module("selfsuvis.pipeline.workflows.indexer")
+
 VideoIndexer = indexer_mod.VideoIndexer  # noqa: E402
 
 

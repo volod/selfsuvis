@@ -239,7 +239,22 @@ async def test_integrate_frame_creates_pose_tile_and_semantic():
     conn = FakeConn()
     app = _app()
 
-    with patch("selfsuvis.app.routers.realtime.get_db_pool", return_value=FakePool(conn)):
+    def _stub_tile(*, session_id, t_sec, frame_id, map_type="occupancy", **_):
+        from selfsuvis.pipeline.realtime.occupancy import default_tile_key
+        return {
+            "tile_key": default_tile_key(t_sec=t_sec, frame_id=frame_id),
+            "map_type": map_type,
+            "storage_path": "/dev/null",
+            "resolution_m": 0.2,
+            "bounds": {},
+            "stats": {},
+            "global_map_id": None,
+        }
+
+    with (
+        patch("selfsuvis.app.routers.realtime.get_db_pool", return_value=FakePool(conn)),
+        patch("selfsuvis.app.services.realtime.write_stub_map_tile", side_effect=_stub_tile),
+    ):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             start = await client.post("/realtime/session/start", json={"robot_id": "drone_frame"})

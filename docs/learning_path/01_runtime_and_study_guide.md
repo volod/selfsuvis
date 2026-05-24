@@ -12,7 +12,7 @@ This guide is for a person who needs one of these outcomes:
 - explain the pipeline to another engineer or operator
 - learn the perception stack without reading every file in order
 
-If you only want to run the system, use [`README.md`](../README.md) and [`local_path.md`](../local_path.md).
+If you only want to run the system, use [`README.md`](../../README.md) and [`local_path.md`](../quickstart/local_path.md).
 If you want to understand the system, start here.
 
 ## Source Of Truth
@@ -82,8 +82,8 @@ Do not start by reading every file.
 Use this order instead:
 
 1. Generate or inspect one real local mission output directory.
-2. Read [`architecture.md`](../architecture.md) and [`pipeline.md`](../pipeline.md).
-3. Read [`local_path.md`](../local_path.md).
+2. Read [`architecture.md`](../reference/architecture.md) and [`pipeline.md`](../reference/pipeline.md).
+3. Read [`local_path.md`](../quickstart/local_path.md).
 4. Read the deep-dive doc for the phase you care about.
 5. Open the code modules only after you know what question you are trying to answer.
 

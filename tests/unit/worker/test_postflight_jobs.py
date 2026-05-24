@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from selfsuvis.worker import main as worker_main
+import selfsuvis.worker.handlers.postflight as postflight_mod
 
 
 class _AcquireCtx:
@@ -43,8 +43,8 @@ async def test_enqueue_postflight_jobs_creates_first_stage_only():
     async def _fake_create_job(conn_arg, job_id, payload, job_type=None):
         created.append({"id": job_id, "payload": payload, "type": job_type})
 
-    with patch.object(worker_main, "create_job", side_effect=_fake_create_job):
-        result = await worker_main._enqueue_postflight_jobs(
+    with patch.object(postflight_mod, "create_job", side_effect=_fake_create_job):
+        result = await postflight_mod._enqueue_postflight_jobs(
             object(),
             {
                 "video_id": "v1",
@@ -68,19 +68,19 @@ def test_handle_postflight_mapping_job_marks_mission_done_without_followup():
     logger = MagicMock()
 
     with (
-        patch.object(worker_main.os.path, "exists", return_value=True),
-        patch.object(worker_main, "_resolve_site_origin", return_value=(7, (0.0, 0.0, 0.0))),
-        patch.object(worker_main, "_run_pass_a") as run_pass_a,
+        patch.object(postflight_mod.os.path, "exists", return_value=True),
+        patch.object(postflight_mod, "_resolve_site_origin", return_value=(7, (0.0, 0.0, 0.0))),
+        patch.object(postflight_mod, "_run_pass_a") as run_pass_a,
         patch.object(
-            worker_main, "list_mission_frames", new_callable=AsyncMock, return_value=[{"id": "f1"}]
+            postflight_mod, "list_mission_frames", new_callable=AsyncMock, return_value=[{"id": "f1"}]
         ),
-        patch.object(worker_main, "update_job", new_callable=AsyncMock),
+        patch.object(postflight_mod, "update_job", new_callable=AsyncMock),
         patch.object(
-            worker_main, "_enqueue_postflight_jobs", new_callable=AsyncMock, return_value=[]
+            postflight_mod, "_enqueue_postflight_jobs", new_callable=AsyncMock, return_value=[]
         ),
-        patch.object(worker_main, "mark_mission_finished", new_callable=AsyncMock) as mark_finished,
+        patch.object(postflight_mod, "mark_mission_finished", new_callable=AsyncMock) as mark_finished,
     ):
-        worker_main.handle_postflight_mapping_job(
+        postflight_mod.handle_postflight_mapping_job(
             "job-map",
             {
                 "video_id": "v1",
@@ -111,9 +111,9 @@ def test_handle_postflight_semantic_graph_job_builds_graph_and_marks_done():
     ]
 
     with (
-        patch.object(worker_main, "fetch_mission", new_callable=AsyncMock, return_value=mission),
+        patch.object(postflight_mod, "fetch_mission", new_callable=AsyncMock, return_value=mission),
         patch.object(
-            worker_main, "list_mission_frames", new_callable=AsyncMock, return_value=frames
+            postflight_mod, "list_mission_frames", new_callable=AsyncMock, return_value=frames
         ),
         patch(
             "selfsuvis.pipeline.mapping.build_semantic_environment_graph",
@@ -122,13 +122,13 @@ def test_handle_postflight_semantic_graph_job_builds_graph_and_marks_done():
         patch(
             "selfsuvis.pipeline.mapping.write_semantic_graph_markdown", return_value="/tmp/graph.md"
         ),
-        patch.object(worker_main, "update_job", new_callable=AsyncMock),
+        patch.object(postflight_mod, "update_job", new_callable=AsyncMock),
         patch.object(
-            worker_main, "_enqueue_postflight_jobs", new_callable=AsyncMock, return_value=[]
+            postflight_mod, "_enqueue_postflight_jobs", new_callable=AsyncMock, return_value=[]
         ),
-        patch.object(worker_main, "mark_mission_finished", new_callable=AsyncMock) as mark_finished,
+        patch.object(postflight_mod, "mark_mission_finished", new_callable=AsyncMock) as mark_finished,
     ):
-        worker_main.handle_postflight_semantic_graph_job(
+        postflight_mod.handle_postflight_semantic_graph_job(
             "job-graph",
             {"mission_id": "m1", "next_postflight_jobs": []},
             pool,

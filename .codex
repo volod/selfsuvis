@@ -1,36 +1,28 @@
-# selfsuvis project rules
+# selfsuvis agent guardrails
 
-- Never create a git commit unless the user explicitly asks for one.
-- Never add `from __future__ import annotations`, and replace those cases with explicit imports TYPE_CHECKING.
-- Top-level `scripts/` should be shell entrypoints only. Put Python implementations under `src/selfsuvis/...` and call them from shell wrappers when needed.
-- Reuse `scripts/common.sh` for shared shell behavior instead of duplicating root/env/bootstrap logic.
+- Do not create git commits unless explicitly asked.
+- Do not revert user changes or unrelated dirty files while fixing an issue.
+- Do not add `from __future__ import annotations`; use normal annotations and `TYPE_CHECKING` imports when needed.
+- Keep top-level `scripts/` as shell entrypoints. Put Python implementations under `src/selfsuvis/...`.
+- Reuse `scripts/shared/common.sh` for shared shell root/env/bootstrap behavior.
+- Runtime data belongs under `.data/`; avoid recreating root `data/` unless a file explicitly still requires it.
+- Use ASCII in logs, docs, comments, and generated shell output.
 
-# repo map
-
-- Main Python source: `src/selfsuvis/`
-- Coop / IoT integration: `src/selfsuvis/coop_pilot/`
-- Docker configs: `docker/`
-- Docs: `docs/`
-- Project shell entrypoints: `scripts/`
-
-# practical commands
-
-- Prefer `make venv`, `make test-unit`, `make lint`, `make up`, `make down`, `make logs`.
-- PostgreSQL migration: `python -m selfsuvis.scripts.migrate_postgres`
-- Qdrant reset: `scripts/ssv/ssv-reset-qdrant.sh`
-- Coop stack entrypoints: `scripts/coop/coop-bootstrap.sh`, `scripts/coop/coop-compose.sh`, `scripts/coop/coop-env.sh`, `scripts/coop/coop-data-dirs.sh`.
-
-# architecture shorthand
+# current layout
 
 - API: `src/selfsuvis/app/`
 - Worker: `src/selfsuvis/worker/`
 - UI: `src/selfsuvis/ui/`
-- Local/LangGraph pipeline: `src/selfsuvis/pipeline/workflows/local/`
-- Mapping: `src/selfsuvis/pipeline/mapping/`
-- Fusion: `src/selfsuvis/pipeline/fusion/`
-- Training/adaptation: `src/selfsuvis/pipeline/training/`
+- Pipeline: `src/selfsuvis/pipeline/`
+- Local workflow: `src/selfsuvis/pipeline/workflows/local/`
+- Coop/IoT: `src/selfsuvis/coop_pilot/`
+- Runtime config: `src/selfsuvis/pipeline/core/config/`
+- Docker and shell ops: `docker/`, `scripts/`
 
-# config reminders
+# usual commands
 
-- Runtime settings live in `src/selfsuvis/pipeline/core/config.py`.
-- Python target is 3.10+.
+- `make venv`, `make test-unit`, `make lint`
+- `make up`, `make down`, `make logs`
+- `python -m selfsuvis.scripts.migrate_postgres`
+- `scripts/ssv/ssv-reset-qdrant.sh`
+- `scripts/coop/coop-bootstrap.sh`

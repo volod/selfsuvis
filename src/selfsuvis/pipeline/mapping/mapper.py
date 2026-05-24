@@ -25,7 +25,7 @@ poses are skipped (map_status='skipped').
 Environment variables:
     NERFSTUDIO_API_URL   Base URL of the nerfstudio wrapper (default: http://nerfstudio:8000)
     MAPPER_API_URL       Base URL of the ICP mapper service (default: http://mapper:8000)
-    MAPS_DIR             Root for splat.ply output (default: data/maps)
+    MAPS_DIR             Root for splat.ply output (default: .data/maps)
 """
 
 import os

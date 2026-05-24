@@ -82,7 +82,7 @@ mapper = [
     "uvicorn[standard]>=0.27",
     "asyncpg>=0.29",
 ]
-coop_pilot = [
+coop = [
     # MQTT client
     "aiomqtt>=2.3",
     # Analytics reporting
@@ -91,6 +91,8 @@ coop_pilot = [
     "jinja2>=3.1",
     "rich>=13.0",
 ]
+# backward-compat alias
+coop_pilot = ["selfsuvis[coop]"]
 audio = [
     # HuggingFace dataset download (drone-audio-detection-samples)
     "datasets>=2.18",
@@ -115,8 +117,8 @@ selfsuvis-gallery = "selfsuvis.scripts.build_gallery:main"
 selfsuvis-split-audio    = "selfsuvis.scripts.split_drone_audio_data:main"
 selfsuvis-play-drone     = "selfsuvis.scripts.play_drone_sound:main"
 selfsuvis-prepare-audio  = "selfsuvis.scripts.prepare_audio_data:main"
-selfsuvis-realtime-bridge = "selfsuvis.realtime_pilot.bridge_runtime:main"
-coop-analytics   = "selfsuvis.coop_pilot.analytics.cli:main"
+selfsuvis-realtime-bridge = "selfsuvis.realtime.bridge_runtime:main"
+coop-analytics   = "selfsuvis.coop.analytics.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -124,8 +126,8 @@ where = ["src"]
 [tool.setuptools.package-data]
 "selfsuvis.app" = ["templates/**/*"]
 "selfsuvis" = ["env/*.env"]
-"selfsuvis.coop_pilot.analytics" = ["templates/*.j2"]
-"selfsuvis.coop_pilot" = ["env/*.env"]
+"selfsuvis.coop.analytics" = ["templates/*.j2"]
+"selfsuvis.coop" = ["env/*.env"]
 
 # ── pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]

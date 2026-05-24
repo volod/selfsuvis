@@ -14,7 +14,7 @@ from typing import Any
 
 from selfsuvis.pipeline.core import settings
 from selfsuvis.pipeline.realtime.sidecar import RealtimeSidecarClient
-from selfsuvis.realtime_pilot.adapters import create_pose_adapter
+from selfsuvis.realtime.adapters import create_pose_adapter
 
 
 def _coerce_float(value: Any) -> float | None:

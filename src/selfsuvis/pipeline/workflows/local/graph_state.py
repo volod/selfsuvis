@@ -109,6 +109,7 @@ class PipelineState(TypedDict, total=False):
     export_result: dict[str, Any]
     ft_results: list[dict[str, Any]]
     compare_result: dict[str, Any]
+    dae_result: dict[str, Any]  # DAE reconstruction pretraining output
 
     # -- Phase 4 outputs -------------------------------------------------------
     multi_model_result: dict[str, Any]

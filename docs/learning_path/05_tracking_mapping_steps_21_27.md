@@ -7,7 +7,7 @@ The core move is from frame-wise snapshots to temporal continuity and spatial ge
 
 Note: these step numbers are part of the broader conceptual learning path.
 In the current local runner, the corresponding capabilities are grouped into the 23
-top-level execution steps documented in [`pipeline.md`](../pipeline.md).
+top-level execution steps documented in [`pipeline.md`](../reference/pipeline.md).
 
 ---
 
@@ -427,7 +427,7 @@ A 3D map enables:
 **Implementation:**
 - [`pipeline/workflows/local/steps_map.py`](../../src/selfsuvis/pipeline/workflows/local/steps_map.py)
 - [`pipeline/mapping/`](../../src/selfsuvis/pipeline/mapping)
-- [`docs/gaussian_splat.md`](../gaussian_splat.md)
+- [`docs/gaussian_splat.md`](../reference/gaussian_splat.md)
 
 **Key concepts:**
 
@@ -591,7 +591,7 @@ Adaptation is only valuable if you know what the baseline is and where it fails.
 - [Sensors and fusion: Steps 9-20](04_sensor_steps_09_20.md)
 - [Adaptation and audit: Steps 28-35](06_adaptation_eval_steps_28_35.md)
 - [Agentic knowledge flow](07_agentic_knowledge_flow.md)
-- [3D Gaussian Splat](../gaussian_splat.md)
+- [3D Gaussian Splat](../reference/gaussian_splat.md)
 
 ---
 

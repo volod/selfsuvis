@@ -23,17 +23,10 @@ if "asyncpg" not in sys.modules:
 
 _asyncpg_mod = sys.modules["asyncpg"]
 
-# ── Stub cv2 / skimage (numpy 2.x incompatibility) ───────────────────────────
-# Force-replace: real cv2 is broken under NumPy 2.x; another test may have
-# loaded it already.  Guard only on whether worker.main is already cached.
-if "worker.main" not in sys.modules:
-    for _name in ("cv2", "skimage", "skimage.metrics"):
-        _m = types.ModuleType(_name)
-        _m.__spec__ = type("S", (), {"name": _name, "origin": None})()
-        sys.modules[_name] = _m
-
-# ── Import worker.main AFTER stubs are in place ───────────────────────────────
-import selfsuvis.worker.main as wm  # noqa: E402
+# ── Import worker.gpu ────────────────────────────────────────────────────────
+# worker.gpu only imports asyncpg, pipeline.core, and worker._run — it does
+# not transitively import cv2 or skimage, so no stubs are needed for those.
+import selfsuvis.worker.gpu as wm  # noqa: E402
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

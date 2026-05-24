@@ -554,15 +554,15 @@ class TestIndexVideoSiteEnuOrigin(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Group F: _resolve_site_origin in worker.main
+# Group F: _resolve_site_origin in worker.handlers.postflight
 # ---------------------------------------------------------------------------
 
 
 class TestResolveSiteOrigin(unittest.TestCase):
     def _get_fn(self):
-        import selfsuvis.worker.main as wm
+        import selfsuvis.worker.handlers.postflight as ph
 
-        return wm._resolve_site_origin
+        return ph._resolve_site_origin
 
     def _make_logger(self):
         logger = MagicMock()

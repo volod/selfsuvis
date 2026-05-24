@@ -185,7 +185,7 @@ dependencies used by the MQTT subscriber, log analytics, and reporting CLI.
 
 - [Integration Guide](integration.md) — API endpoints, MQTT topics, scene synthesis, threat pipeline
 - [Sensor Integration](sensor-integration.md) — adding LoRaWAN devices and IP cameras
-- [Configuration Guide](configuration.md) — all env vars and tuning options
-- [Analytics Guide](analytics.md) — log analytics CLI (`coop-analytics`)
+- [Configuration Guide](../reference/configuration.md) — all env vars and tuning options
+- [Analytics Guide](../reference/analytics.md) — log analytics CLI (`coop-analytics`)
 - [Testing Guide](testing.md) — run tests to verify your setup
-- [Troubleshooting](troubleshooting.md) — common issues and solutions
+- [Troubleshooting](../operations/troubleshooting.md) — common issues and solutions
