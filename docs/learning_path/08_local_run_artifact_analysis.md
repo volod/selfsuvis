@@ -60,13 +60,13 @@ This changes how you read a failed run:
 Generate a report:
 
 ```bash
-selfsuvis --mode analyse --run-dir data/local_runs/drone_mission
+selfsuvis --mode analyse --run-dir .data/local_runs/drone_mission
 ```
 
 Module form:
 
 ```bash
-python -m selfsuvis --mode analyse --run-dir data/local_runs/drone_mission
+python -m selfsuvis --mode analyse --run-dir .data/local_runs/drone_mission
 ```
 
 This gives you:

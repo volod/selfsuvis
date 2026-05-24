@@ -51,12 +51,12 @@ The interactive flow:
 3. Asks for profile — `minimal` / `balanced` (default) / `full`
 4. Asks for environment name and output path
 
-Both commands write to `repo_root/.env`. The config loader reads it after the packaged `src/selfsuvis/env/dev.env` defaults, so `DATABASE_URL`, `QDRANT_HOST=localhost`, `DEVICE`, and sidecar URLs are all set for you.
+Both commands write to `repo_root/.data/.env`. The config loader reads it after the packaged `src/selfsuvis/env/dev.env` defaults, so `DATABASE_URL`, `QDRANT_HOST=localhost`, `DEVICE`, and sidecar URLs are all set for you.
 
 After generation, set the remaining values:
 
 ```bash
-$EDITOR .env
+$EDITOR .data/.env
 ```
 
 ```
@@ -64,7 +64,7 @@ API_KEY=<choose-a-secret>   # leave empty for unauthenticated dev use
 HF_TOKEN=hf_xxx             # optional — gated HuggingFace models only
 ```
 
-`ALLOWED_INDEX_PATHS` is pre-set to `./data/videos` by the generator. Drop mission videos there and the path-based indexing API will accept them. Change it if your videos live elsewhere.
+`ALLOWED_INDEX_PATHS` is pre-set to `./.data/videos` by the generator. Drop mission videos there and the path-based indexing API will accept them. Change it if your videos live elsewhere.
 
 ---
 
@@ -155,13 +155,13 @@ See the [Production Quick Start](quickstart-production.md) for full pipeline and
 
 ---
 
-## Optional: run coop_pilot locally
+## Optional: run coop locally
 
 For learning-path Steps 37-43, run the coop Docker stack and point the local API at
 the localhost MQTT and Frigate ports:
 
 ```bash
-.venv/bin/pip install -e ".[coop_pilot]"
+.venv/bin/pip install -e ".[coop]"
 APP_ENV=test ./scripts/coop/coop-bootstrap.sh up -d
 
 APP_ENV=dev \
@@ -188,7 +188,7 @@ APP_ENV=test ./scripts/coop/coop-compose.sh down
 ```
 
 For the full local learning sequence, see
-[Quick Start — Learning Path Pipeline](quickstart-pipeline.md#optional-step-7--run-coop_pilot-steps-36-42).
+[Quick Start — Learning Path Pipeline](quickstart-pipeline.md#optional-step-7--run-coop-steps-36-42).
 
 ---
 

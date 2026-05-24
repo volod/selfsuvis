@@ -19,9 +19,9 @@
 #   video     COMPOSE_PROFILES=video
 #   + metrics append ,metrics to any of the above
 #
-# Resource limits are parameterised via COOP_* variables in data/.env.
+# Resource limits are parameterised via COOP_* variables in .data/.env.
 # Defaults target the minimum supported spec: 4-core CPU, 8 GB RAM.
-# See src/selfsuvis/coop_pilot/env/prod.env for mid / high profile guidance.
+# See src/selfsuvis/coop/env/prod.env for mid / high profile guidance.
 #
 # Usage (via scripts):
 #   ./scripts/coop-bootstrap.sh              -- first run: .env, certs, users, start
@@ -248,7 +248,7 @@ services:
   #   AMD VAAPI:               FRIGATE_LIBVA_DRIVER_NAME=radeonsi
   #   CPU only (no GPU):       remove the devices section below and clear FRIGATE_LIBVA_DRIVER_NAME
   # RTSP port 8555 on host avoids conflict with main stack mediamtx (8554).
-  # Audio: handled by coop_pilot SoundAnalyzer consuming RTSP re-streams on port 8555.
+  # Audio: handled by coop SoundAnalyzer consuming RTSP re-streams on port 8555.
   # Detector threads controlled via COOP_FRIGATE_DETECTOR_THREADS (passed into config).
   frigate:
     image: ghcr.io/blakeblackshear/frigate:stable

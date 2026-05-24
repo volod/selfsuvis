@@ -64,7 +64,7 @@ switches to interactive mode: it prints step-by-step instructions and waits for
 you to complete authentication before retrying automatically.
 
 If you need to pre-authenticate non-interactively:
-    huggingface-cli login           # stores token in ~/.cache/huggingface/token
+    huggingface-cli login           # stores token in HF_HOME (default .data/.cache/huggingface)
     export HF_TOKEN=<your_token>    # or set this env var
 
 Environment
@@ -84,8 +84,8 @@ import contextlib
 import importlib.util
 import io
 import logging
-import re
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -129,6 +129,16 @@ load_script_env(anchor_file=__file__)
 os.environ.setdefault("DEVICE", "auto")
 os.environ.setdefault("ALLOWED_INDEX_PATHS", "")
 os.environ.setdefault("API_KEY", "")
+
+_DATA_DIR = Path(os.getenv("DATA_DIR", "./.data"))
+_CACHE_DIR = Path(os.getenv("CACHE_DIR", str(_DATA_DIR / ".cache")))
+os.environ.setdefault("XDG_CACHE_HOME", str(_CACHE_DIR))
+os.environ.setdefault("HF_HOME", str(_CACHE_DIR / "huggingface"))
+os.environ.setdefault("TORCH_HOME", str(_CACHE_DIR / "torch"))
+os.environ.setdefault("CLIP_CACHE", str(_CACHE_DIR / "clip"))
+os.environ.setdefault("OPENCLIP_CACHE_DIR", str(_CACHE_DIR / "open_clip"))
+os.environ.setdefault("UV_CACHE_DIR", str(_CACHE_DIR / "uv"))
+os.environ.setdefault("PIP_CACHE_DIR", str(_CACHE_DIR / "pip"))
 
 log = get_logger("prepare_models")
 # Suppress httpx/httpcore request-level logs — they flood the output with
@@ -194,7 +204,7 @@ _SCENETOK_HF_DEPS = [
 _SCENETOK_DEFAULT_CHECKPOINT = "va-videodc_re10k"
 _SCENETOK_CHECKPOINT_VARIANTS = ["va-videodc_re10k", "va-videodc_dl3dv", "va-wan_dl3dv"]
 # Checkpoint cache dir matches _checkpoint_path() in scenetok_server.py.
-_SCENETOK_CACHE_DIR = Path.home() / ".cache" / "selfsuvis" / "scenetok"
+_SCENETOK_CACHE_DIR = _CACHE_DIR / "selfsuvis" / "scenetok"
 # Checkpoints are hosted on MPI Nextcloud — not on HuggingFace.
 # Append /download to each share link to get a direct binary download.
 _SCENETOK_CHECKPOINT_URLS: dict = {
@@ -716,14 +726,14 @@ def _download_detection(model_id: str) -> None:
 def _download_yolo(model_id: str) -> None:
     """Download YOLO11 weights via ultralytics auto-download.
 
-    Weights are stored in ``~/.cache/ultralytics/`` — the full path is passed
+    Weights are stored in ``.data/.cache/ultralytics/`` — the full path is passed
     to the YOLO constructor so ultralytics downloads there instead of cwd.
     """
     model_file = model_id if model_id.endswith(".pt") else f"{model_id}.pt"
     log.info("YOLO11 — model=%s", model_file)
 
-    # Canonical cache location: ~/.cache/ultralytics/<model_file>
-    ult_cache_dir = Path.home() / ".cache" / "ultralytics"
+    # Canonical cache location: .data/.cache/ultralytics/<model_file>
+    ult_cache_dir = _CACHE_DIR / "ultralytics"
     ult_cache = ult_cache_dir / model_file
     if ult_cache.exists():
         log.info("  [ok] YOLO11 already cached at %s — skipping download", ult_cache)
@@ -760,7 +770,7 @@ def _download_yolo(model_id: str) -> None:
 
 def _is_yolo_cached(model_id: str) -> bool:
     model_file = model_id if model_id.endswith(".pt") else f"{model_id}.pt"
-    return (Path.home() / ".cache" / "ultralytics" / model_file).exists()
+    return (_CACHE_DIR / "ultralytics" / model_file).exists()
 
 
 def _is_editable_installed(package_name: str) -> bool:
@@ -813,7 +823,7 @@ def _normalize_scenetok_checkpoint_name(checkpoint_name: str) -> str:
 def _download_scenetok(checkpoint_name: str) -> None:
     """Install the scenetok package, download HF dependencies, and cache the checkpoint.
 
-    Checkpoint is stored at ``~/.cache/selfsuvis/scenetok/<name>.ckpt`` — the
+    Checkpoint is stored at ``.data/.cache/selfsuvis/scenetok/<name>.ckpt`` — the
     same path that ``scenetok_server.py:_checkpoint_path()`` resolves at runtime.
     """
     ckpt_file = _normalize_scenetok_checkpoint_name(checkpoint_name)
@@ -1198,9 +1208,7 @@ def _download_dino(model_name: str, device: str, source: str = "auto") -> None:
         log.info("  Hub archive cached at %s", repo_or_dir)
         # Check if pretrained weights are already on disk — if so skip the load.
         hub_checkpoints = (
-            Path(os.getenv("TORCH_HOME", str(Path.home() / ".cache" / "torch")))
-            / "hub"
-            / "checkpoints"
+            Path(os.getenv("TORCH_HOME", str(_CACHE_DIR / "torch"))) / "hub" / "checkpoints"
         )
         if any(hub_checkpoints.glob(f"{resolved}*pretrain*.pth")):
             _warmed.add(model_name)
@@ -1364,13 +1372,13 @@ def _is_hf_cached(model_id: str) -> bool:
 def _is_openclip_cached(model: str, pretrained: str) -> bool:
     """Return True if open_clip weights are in the local cache.
 
-    open_clip downloads weights to $CLIP_CACHE (~/.cache/clip by default),
+    open_clip downloads weights to $CLIP_CACHE (.data/.cache/clip by default),
     naming each file after the URL basename (e.g. ViT-B-16.pt).
     HuggingFace-hosted pretrained models land in the HF hub cache instead.
     """
     try:
-        # Primary: $CLIP_CACHE / ~/.cache/clip — URL basename (e.g. ViT-B-16.pt)
-        clip_cache = Path(os.getenv("CLIP_CACHE", str(Path.home() / ".cache" / "clip")))
+        # Primary: $CLIP_CACHE / .data/.cache/clip — URL basename (e.g. ViT-B-16.pt)
+        clip_cache = Path(os.getenv("CLIP_CACHE", str(_CACHE_DIR / "clip")))
         if clip_cache.exists():
             try:
                 import open_clip as _oc

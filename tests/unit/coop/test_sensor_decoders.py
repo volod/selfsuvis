@@ -1,7 +1,7 @@
 from datetime import timezone
 
-from selfsuvis.coop_pilot.sensors.frigate_events import FrigateEventConsumer
-from selfsuvis.coop_pilot.sensors.lorawan_decoder import decode_chirpstack_uplink
+from selfsuvis.coop.sensors.frigate_events import FrigateEventConsumer
+from selfsuvis.coop.sensors.lorawan_decoder import decode_chirpstack_uplink
 
 
 def test_decode_chirpstack_uplink_normalizes_types_and_timestamp() -> None:

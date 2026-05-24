@@ -21,4 +21,4 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 fi
 
 project_cd_root
-project_run_python_module selfsuvis.realtime_pilot.bridge_runtime "$@"
+project_run_python_module selfsuvis.realtime.bridge_runtime "$@"

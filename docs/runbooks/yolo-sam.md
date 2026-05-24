@@ -10,7 +10,7 @@
 ```
 VideoIndexer / step_yolo_sam (step P2)
   ├─ YOLO11 detection
-  │    YOLOTracker.detect_frame()         ← ultralytics, weights in ~/.cache/ultralytics/
+  │    YOLOTracker.detect_frame()         ← ultralytics, weights in .data/.cache/ultralytics/
   │    → bounding boxes + class labels + confidence
   │    → YOLO_SSG_ENABLED: builds 3D semantic scene graph (frame_facts_json["ssg"])
   │
@@ -59,7 +59,7 @@ in the local CLI.
 | `yolo11l` | yolo11l.pt | 25.3 M | ~0.5 GB | **53.4** | **Default** |
 | `yolo11x` | yolo11x.pt | 56.9 M | ~1.1 GB | 54.7 | Slower |
 
-Weights are cached in `~/.cache/ultralytics/` on first run. Pre-download with:
+Weights are cached in `.data/.cache/ultralytics/` on first run. Pre-download with:
 ```bash
 python -m selfsuvis.scripts.prepare_models --yolo
 python -m selfsuvis.scripts.prepare_models --yolo --yolo-model yolo11x  # specific tier
@@ -158,7 +158,7 @@ run report. Disable if frame-level detection is sufficient: `YOLO_SSG_ENABLED=fa
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `yolo11l.pt` appears in project root | YOLO downloaded to cwd instead of cache | Check `pipeline/vision/yolo.py` `_get_model()` uses `~/.cache/ultralytics/` path |
+| `yolo11l.pt` appears in project root | YOLO downloaded to cwd instead of cache | Check `pipeline/vision/yolo.py` `_get_model()` uses `.data/.cache/ultralytics/` path |
 | SAM not producing masks | `SAM_ENABLED=false` or no backend installed | Set `SAM_ENABLED=true`; `pip install sam2` |
 | Low detection count on aerial footage | Objects too small for YOLO11l | Try `yolo11x` or lower `YOLO_CONFIDENCE=0.15` |
 | `CUDA out of memory` during SAM | SAM + YOLO + CLIP all loaded | Switch to `sam2-hiera-tiny` or disable SAM |

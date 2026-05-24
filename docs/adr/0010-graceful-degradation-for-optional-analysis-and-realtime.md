@@ -27,8 +27,8 @@ Current implementation examples:
 - rerank suppression during re-embedding in `src/selfsuvis/app/services/search.py`
 - optional coop startup in `src/selfsuvis/app/main.py`
 - reference realtime mapper fallback in `docker/realtime/docker-compose.realtime.yml`
-- optional MAVSDK / ROS bridge runtimes in `src/selfsuvis/realtime_pilot/bridge_runtime.py`
-- open-source realtime sidecar selection via `src/selfsuvis/realtime_pilot/adapters/`
+- optional MAVSDK / ROS bridge runtimes in `src/selfsuvis/realtime/bridge_runtime.py`
+- open-source realtime sidecar selection via `src/selfsuvis/realtime/adapters/`
 
 ## Consequences
 

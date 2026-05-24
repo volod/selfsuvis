@@ -19,7 +19,7 @@ Compact guidance for Claude Code in this repository.
 - UI: `src/selfsuvis/ui/`
 - Pipeline: `src/selfsuvis/pipeline/`
 - Local workflow: `src/selfsuvis/pipeline/workflows/local/`
-- Coop/IoT: `src/selfsuvis/coop_pilot/`
+- Coop/IoT: `src/selfsuvis/coop/`
 - Runtime config: `src/selfsuvis/pipeline/core/config/`
 - Docker and shell ops: `docker/`, `scripts/`
 

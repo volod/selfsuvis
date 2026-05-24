@@ -4,7 +4,7 @@ Usage:
     subscriber = MqttSubscriber(on_sensor=handle_reading, on_camera=handle_event)
     await subscriber.run()   # blocks until cancelled
 
-Requires the `aiomqtt` package (listed in the coop_pilot optional dep group).
+Requires the `aiomqtt` package (listed in the coop optional dep group).
 """
 
 import asyncio
@@ -50,7 +50,7 @@ class MqttSubscriber:
         except ImportError as exc:
             raise ImportError(
                 "aiomqtt is required for MqttSubscriber. "
-                "Install it with: pip install 'selfsuvis[coop_pilot]'"
+                "Install it with: pip install 'selfsuvis[coop]'"
             ) from exc
 
         import aiomqtt

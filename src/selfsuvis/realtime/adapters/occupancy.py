@@ -26,7 +26,7 @@ class StubOccupancyAdapter(RealtimeEngineAdapter):
             "No TSDF / ESDF / occupancy fusion quality guarantees.",
         ),
         integration_doc="docs/runbooks/realtime-reference-sidecar.md",
-        notes="Local stub tile writer under data/maps/realtime/.",
+        notes="Local stub tile writer under .data/maps/realtime/.",
     )
 
 

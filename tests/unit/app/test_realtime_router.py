@@ -392,7 +392,7 @@ async def test_finalize_session_creates_mission_and_optional_job():
 
             finalize = await client.post(
                 f"/realtime/session/{session_id}/finalize",
-                json={"recording_path": "/data/videos/live.mp4", "enqueue_index_job": True},
+                json={"recording_path": "/.data/videos/live.mp4", "enqueue_index_job": True},
             )
             assert finalize.status_code == 200
             data = finalize.json()

@@ -727,7 +727,7 @@ def write_finetune_stats_md(
         "",
         "```bash",
         f"export DINO_CHECKPOINT={checkpoint_path}",
-        "python main.py --mode local --videos-dir data/videos",
+        "python main.py --mode local --videos-dir .data/videos",
         "```",
         "",
         "---",

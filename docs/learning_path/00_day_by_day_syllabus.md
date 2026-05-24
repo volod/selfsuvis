@@ -5,7 +5,7 @@ monitoring layer deeply.
 The first 23 days build understanding from foundation to advanced (Week 3 ends at Day 23 — Consolidation).
 Days 24-30 are a practical application week: re-run, write, and verify.
 Days 31-37 cover advanced threat modeling and global inference (from the future directions docs).
-**Days 38-44 cover the coop_pilot IoT edge layer** -- MQTT, LoRaWAN, Frigate, acoustic
+**Days 38-44 cover the coop IoT edge layer** -- MQTT, LoRaWAN, Frigate, acoustic
 analysis, scene synthesis, and threat pipeline integration.
 
 **How to use this:**
@@ -472,7 +472,7 @@ After a run with `--drone-detection`, open `drone_detection_report.md`.
 - Trace Step 30 from `runner.py` and write down which code path actually ran: `steps_drone_detection.py` or `pipeline/training/drone_detector.py`.
 - In `pipeline/training/drone_detector.py`, list the new public entrypoints and state whether each one is currently exercised by the local pipeline.
 
-Then open `data/local_runs/model_run_advisor.md`.
+Then open `.data/local_runs/model_run_advisor.md`.
 - Find the `## Edge Deployment — Drone Detection` section. Does it report `✓ generated` for Cortex-A76 and RV1106G3?
 - Find the `## Sequential VLLM Graph Profile` section. List the four VLLM steps in recommended order and the model assigned to each.
 - Check `## Recommended .env Updates` — which model was recommended for Qwen, and why (find the rationale in the `## Rationale` section)?
@@ -515,8 +515,8 @@ Then open `drone_audio/drau_range_report.md`:
 Run the standalone edge script on a real val sample:
 ```bash
 scripts/audio/drone_audio_edge_test.sh \
-  data/local_runs/<video>/drone_audio/drone_audio_cnn.onnx \
-  data/drone-audio-data/val/drone/<any>.wav --scan
+  .data/local_runs/<video>/drone_audio/drone_audio_cnn.onnx \
+  .data/drone-audio-data/val/drone/<any>.wav --scan
 ```
 
 **Concept checkpoint:**
@@ -875,15 +875,15 @@ Breadth is less useful than a coherent direction.
 
 ---
 
-## Week 6: IoT Edge Monitoring With coop_pilot
+## Week 6: IoT Edge Monitoring With coop
 
 **Prerequisites:** Completed Weeks 1-2 (pipeline basics + sensor fusion fundamentals).
-You do not need GPU hardware for this week — all coop_pilot components run on CPU.
+You do not need GPU hardware for this week — all coop components run on CPU.
 
 **Required reading before Day 38:**
-- [coop_pilot — IoT Edge Monitoring Deep Dive](16_coop_pilot_iot_edge_monitoring.md) — read sections 1-2.
-- [coop_pilot — Integration Guide](../coop/integration.md) — the API endpoint reference.
-- [coop_pilot — Getting Started](../coop/getting-started.md) — ensure you can start the stack.
+- [coop — IoT Edge Monitoring Deep Dive](16_coop_iot_edge_monitoring.md) — read sections 1-2.
+- [coop — Integration Guide](../coop/integration.md) — the API endpoint reference.
+- [coop — Getting Started](../coop/getting-started.md) — ensure you can start the stack.
 
 ---
 
@@ -893,7 +893,7 @@ You do not need GPU hardware for this week — all coop_pilot components run on 
 - What MQTT is: publish-subscribe messaging, topics, QoS levels, retained messages.
 - What LoRaWAN adds: long-range low-power radio, the gateway-to-network-server path.
 - How ChirpStack decodes device payloads and publishes uplinks as JSON to Mosquitto.
-- Read [`coop_pilot/sensors/lorawan_decoder.py`](../../src/selfsuvis/coop_pilot/sensors/lorawan_decoder.py).
+- Read [`coop/sensors/lorawan_decoder.py`](../../src/selfsuvis/coop/sensors/lorawan_decoder.py).
 
 **Pre-reading:**
 - MQTT specification v5.0 §4 (Topic Names and Filters) — single/multi-level wildcards.
@@ -921,7 +921,7 @@ Why does a low `rssi` not necessarily mean the sensor reading is unreliable?
 - The `SiteStateAggregator` rolling deque model and timestamp-based eviction.
 - `asyncio.Lock` for safe concurrent access from MQTT callback and API handlers.
 - The `SiteState`, `SensorSummary`, and `CameraEventSummary` Pydantic models.
-- Read [`coop_pilot/mesh/site_state.py`](../../src/selfsuvis/coop_pilot/mesh/site_state.py).
+- Read [`coop/mesh/site_state.py`](../../src/selfsuvis/coop/mesh/site_state.py).
 
 **Exercise:**
 Write a test that inserts 10 `SensorReading` objects with timestamps spanning 8 minutes
@@ -945,7 +945,7 @@ What would happen if it released the lock before returning — could a concurren
 - `SensorMeshFusion` and the `SiteMesh` / `MeshNode` graph model.
 - Haversine distance formula and why great-circle distance matters for GPS coordinates.
 - The `_GRID_DEG` constant in `coop_ingest.py` and how sector IDs are derived.
-- Read [`coop_pilot/mesh/fusion.py`](../../src/selfsuvis/coop_pilot/mesh/fusion.py) and
+- Read [`coop/mesh/fusion.py`](../../src/selfsuvis/coop/mesh/fusion.py) and
   [`pipeline/realtime/coop_ingest.py`](../../src/selfsuvis/pipeline/realtime/coop_ingest.py).
 
 **Exercise:**
@@ -974,10 +974,10 @@ that may be static or mobile?
 - The `SoundAnalyzer` architecture: ffmpeg capture → FFT classification → Whisper transcription.
 - How `rfft` and `rfftfreq` map audio samples to frequency bins.
 - Energy ratio thresholding and the four built-in acoustic signatures.
-- Read [`coop_pilot/sensors/sound_analyzer.py`](../../src/selfsuvis/coop_pilot/sensors/sound_analyzer.py).
+- Read [`coop/sensors/sound_analyzer.py`](../../src/selfsuvis/coop/sensors/sound_analyzer.py).
 
 **Pre-reading:**
-- [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) §5 (Acoustic Analysis).
+- [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md) §5 (Acoustic Analysis).
 - Numpy FFT documentation: `np.fft.rfft` and `np.fft.rfftfreq`.
 
 **Exercise (no hardware required):**
@@ -1016,7 +1016,7 @@ What would happen to the thresholds if you used absolute spectral energy instead
 - `FrigateRtspBridge` discovery loop and per-camera startup sequence.
 - Why MediaMTX sits between Frigate and `RtspCaptioner` (decoupling, multi-consumer).
 - How `RtspCaptioner` writes to `scene_timeline` and what fields it populates.
-- Read [`coop_pilot/sensors/rtsp_bridge.py`](../../src/selfsuvis/coop_pilot/sensors/rtsp_bridge.py) and
+- Read [`coop/sensors/rtsp_bridge.py`](../../src/selfsuvis/coop/sensors/rtsp_bridge.py) and
   [`app/services/coop_streams.py`](../../src/selfsuvis/app/services/coop_streams.py).
 
 **Exercise:**
@@ -1050,10 +1050,10 @@ How would you detect and handle stale captions in `SceneSynthesizer`?
 - Prompt construction in `_build_prompt()` and the JSON schema constraint.
 - LLM call with OpenAI-compatible API, timeout handling, and cache logic.
 - `_parse_llm_response()` JSON extraction and fallback strategy.
-- Read [`coop_pilot/mesh/scene_synthesis.py`](../../src/selfsuvis/coop_pilot/mesh/scene_synthesis.py).
+- Read [`coop/mesh/scene_synthesis.py`](../../src/selfsuvis/coop/mesh/scene_synthesis.py).
 
 **Pre-reading:**
-- [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) §7 (Scene Synthesis).
+- [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md) §7 (Scene Synthesis).
 
 **Exercise:**
 Build a synthetic `SiteState` with:
@@ -1087,7 +1087,7 @@ How would you design a smarter cache invalidation strategy?
   [`pipeline/realtime/aggregator.py`](../../src/selfsuvis/pipeline/realtime/aggregator.py).
 
 **Pre-reading:**
-- [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) §8 (Threat Pipeline Integration).
+- [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md) §8 (Threat Pipeline Integration).
 - [Threat primitives and local inference](15_threat_primitives_local_inference.md) §2 (The primitive schema).
 
 **Exercise:**
@@ -1130,7 +1130,7 @@ events or with a few high-score events?
 | Can explain a credible next-stage SSL direction | 31 | After Day 31 |
 | Can define local vs global threat inference | 35 | After Day 35 |
 | Can propose a realtime sensor-mesh architecture | 36 | After Day 36 |
-| Can operate and debug the coop_pilot IoT edge layer | 44 | After Day 44 |
+| Can operate and debug the coop IoT edge layer | 44 | After Day 44 |
 
 ---
 
@@ -1183,7 +1183,7 @@ These are the papers that introduced the models and techniques used directly in 
 
 ### Tier 2b — IoT Edge Monitoring References (read during Week 6)
 
-These resources support the `coop_pilot` layer added in Days 38-44.
+These resources support the `coop` layer added in Days 38-44.
 
 | Resource | Covers |
 |---|---|

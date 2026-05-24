@@ -49,7 +49,7 @@ Three named bundles are supported. Choose based on site requirements.
                     +-------------+-------------+
                     |             |             |
              chirpstack    selfsuvis API   external MQTT
-             UI :8080       (coop_pilot)    clients
+             UI :8080       (coop)    clients
 ```
 
 ---
@@ -235,7 +235,7 @@ The installer:
 5. Creates `/opt/coop/` directory tree
 6. Applies kernel parameters (`vm.overcommit_memory=1`, `fs.inotify` limits)
 7. Sets the system timezone
-8. Generates `data/.env` with random secrets
+8. Generates `.data/.env` with random secrets
 9. Applies the chosen hardware resource profile to `.env`
 10. Sets `COOP_COMPOSE_PROFILES` in `.env` to match the bundle
 11. Configures log rotation and Docker daemon log limits
@@ -286,7 +286,7 @@ After installation, services start automatically. Several settings require manua
 All secrets are generated randomly during install. View them:
 
 ```bash
-sudo cat /opt/coop/data/.env
+sudo cat /opt/coop/.data/.env
 # or
 sudo /opt/coop/scripts/coop-credentials.sh --list
 ```
@@ -351,7 +351,7 @@ Frigate UI is at `https://<edge-ip>:8971` (self-signed cert; accept the browser 
 If the edge computer has an Intel GPU (Gen 9.5+):
 
 ```bash
-# In /opt/coop/data/.env
+# In /opt/coop/.data/.env
 FRIGATE_LIBVA_DRIVER_NAME=iHD
 ```
 
@@ -369,11 +369,11 @@ Prometheus datasource is auto-provisioned. Import dashboards from `grafana.com` 
 
 ## Resource Tuning
 
-Hardware resource limits are set in `/opt/coop/data/.env` as `COOP_*` variables. All limits are Docker Compose `deploy.resources.limits` -- containers share unused capacity, these are ceilings not reservations.
+Hardware resource limits are set in `/opt/coop/.data/.env` as `COOP_*` variables. All limits are Docker Compose `deploy.resources.limits` -- containers share unused capacity, these are ceilings not reservations.
 
 ```bash
 # Edit limits
-sudo nano /opt/coop/data/.env
+sudo nano /opt/coop/.data/.env
 
 # Apply (no restart needed for limits; recreate containers to apply immediately)
 coop-ctl restart
@@ -427,14 +427,14 @@ journalctl -u coop-stack -f
 To switch from standard to min (remove Frigate):
 
 ```bash
-sudo sed -i 's/^COOP_COMPOSE_PROFILES=.*/COOP_COMPOSE_PROFILES=lorawan/' /opt/coop/data/.env
+sudo sed -i 's/^COOP_COMPOSE_PROFILES=.*/COOP_COMPOSE_PROFILES=lorawan/' /opt/coop/.data/.env
 coop-ctl restart
 ```
 
 To add metrics:
 
 ```bash
-sudo sed -i 's/^COOP_COMPOSE_PROFILES=lorawan,video/COOP_COMPOSE_PROFILES=lorawan,video,metrics/' /opt/coop/data/.env
+sudo sed -i 's/^COOP_COMPOSE_PROFILES=lorawan,video/COOP_COMPOSE_PROFILES=lorawan,video,metrics/' /opt/coop/.data/.env
 coop-ctl restart
 ```
 
@@ -483,7 +483,7 @@ cd coop-edge-1.4.0-amd64-standard
 sudo ./install.sh --bundle standard --no-docker --yes
 ```
 
-Passing `--no-docker` skips Docker Engine reinstallation. The installer preserves `data/.env` if it already exists (no secret regeneration).
+Passing `--no-docker` skips Docker Engine reinstallation. The installer preserves `.data/.env` if it already exists (no secret regeneration).
 
 ---
 

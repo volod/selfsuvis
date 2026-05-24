@@ -1,4 +1,4 @@
-"""Engine adapter registry for realtime_pilot."""
+"""Engine adapter registry for realtime."""
 
 from .registry import (
     available_occupancy_backends,

@@ -20,7 +20,7 @@ Project scripts are organized under `scripts/` subdirectories. The `scripts/` ro
 - `coop/coop-release.sh` — build a self-contained offline bundle (Docker images + configs + scripts) for deployment to air-gapped targets
 - `coop/coop-bootstrap.sh` — one-shot coop stack bootstrap and startup
 - `coop/coop-compose.sh` — canonical coop `docker compose` wrapper with runtime `PUID` and `PGID`
-- `coop/coop-env.sh` — generate `data/.env` from the coop env templates
+- `coop/coop-env.sh` — generate `.data/.env` from the coop env templates
 - `coop/coop-credentials.sh` — print coop service URLs and generated credentials
 - `coop/coop-data-dirs.sh` — create coop bind-mount directories under `$DATA_DIR`
 - `coop/coop-mqtt-users.sh` — build the Mosquitto password file from `.env`
@@ -44,7 +44,7 @@ Project scripts are organized under `scripts/` subdirectories. The `scripts/` ro
 Shell entrypoints reuse `common.sh` for:
 
 - project-root resolution
-- `data/.env` loading
+- `.data/.env` loading
 - `$DATA_DIR` resolution
 - consistent logging and fatal errors
 - runtime `PUID` and `PGID`

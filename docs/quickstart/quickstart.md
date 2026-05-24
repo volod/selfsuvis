@@ -11,7 +11,7 @@
 - Services run individually or via Docker for backing services only
 - Hot-reload on API changes
 - Full local learning pipeline with fine-tuning and ONNX export
-- Optional coop_pilot Steps 37-43 for live IoT site monitoring
+- Optional coop Steps 37-43 for live IoT site monitoring
 - Best for: development, research, model experimentation, custom pipeline modifications
 
 ---
@@ -34,7 +34,7 @@ Choose your path based on your use case:
 |---|---|---|
 | **Production (Docker)** | Deploy the full stack with all services — recommended for production, no host Python needed | [Quick Start — Production](quickstart-production.md) |
 | **Local Development** | Hot-reload development, working on pipeline code, or running the local learning pipeline (`selfsuvis --mode local`) | [Quick Start — Local](quickstart-local.md) |
-| **IoT / coop monitoring** | Add LoRaWAN sensors + Frigate cameras for live multi-modal site awareness and LLM scene synthesis | [coop_pilot — Getting Started](../coop/getting-started.md) |
+| **IoT / coop monitoring** | Add LoRaWAN sensors + Frigate cameras for live multi-modal site awareness and LLM scene synthesis | [coop — Getting Started](../coop/getting-started.md) |
 
 ---
 
@@ -43,7 +43,7 @@ Choose your path based on your use case:
 The practical route is two stages:
 
 1. Run the local video pipeline (`selfsuvis --mode local`) for the core learning path.
-2. Start `coop_pilot` for Steps 37-43: MQTT, LoRaWAN, Frigate, rolling site state,
+2. Start `coop` for Steps 37-43: MQTT, LoRaWAN, Frigate, rolling site state,
    scene synthesis, and realtime threat sectors.
 
 ```bash
@@ -53,13 +53,13 @@ bash scripts/ssv/ssv-setup.sh
 # 2. Run the local video pipeline. Use the exact command printed by setup,
 # or start with the minimal command below.
 .venv/bin/selfsuvis --mode local \
-  --videos-dir data/videos \
+  --videos-dir .data/videos \
   --no-qdrant \
   --no-sfm \
   --no-gsplat
 
 # 3. Install coop extras and start the IoT stack for learning-path Steps 37-43.
-.venv/bin/pip install -e ".[coop_pilot]"
+.venv/bin/pip install -e ".[coop]"
 APP_ENV=test ./scripts/coop/coop-bootstrap.sh up -d
 
 # 4. Start the local API so /site/* endpoints can subscribe to coop MQTT.
@@ -84,7 +84,7 @@ Stop the coop containers when done:
 APP_ENV=test ./scripts/coop/coop-compose.sh down
 ```
 
-For the detailed command sequence, see [Quick Start — Learning Path Pipeline](quickstart-pipeline.md#optional-step-7--run-coop_pilot-steps-36-42).
+For the detailed command sequence, see [Quick Start — Learning Path Pipeline](quickstart-pipeline.md#optional-step-7--run-coop-steps-36-42).
 
 ---
 
@@ -98,9 +98,9 @@ After completing your chosen quick start:
 - [API reference](../reference/api.md) — HTTP endpoints including the robot pose API
 - [Troubleshooting](../operations/troubleshooting.md) — common errors and fixes
 
-### IoT edge monitoring (coop_pilot)
+### IoT edge monitoring (coop)
 
-selfsuvis ships a built-in IoT edge layer (`coop_pilot`) for monitoring physical
+selfsuvis ships a built-in IoT edge layer (`coop`) for monitoring physical
 sites with LoRaWAN sensors and IP cameras:
 
 - **Site state API** (`/site/*`) — rolling-window aggregation of LoRaWAN sensor
@@ -112,4 +112,4 @@ sites with LoRaWAN sensors and IP cameras:
 - **Realtime audio analysis** — per-camera `SoundAnalyzer` running faster-whisper and
   FFT acoustic event classification (alarm, engine, impact, glass break)
 
-See [coop_pilot — Integration Guide](../coop/integration.md) for the full picture.
+See [coop — Integration Guide](../coop/integration.md) for the full picture.

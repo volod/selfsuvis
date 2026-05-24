@@ -176,4 +176,4 @@ This is the intended workflow for validating the ONNX model's real-world detecti
 - [Drone detection runbook](../runbooks/drone-detection.md) -- Step 30 YOLOv8n visual detection
 - [Drone detection edge targets](../runbooks/drone-detection.md) -- ONNX fp32 / int8 / RKNN targets
 - [Threat primitives and local inference](15_threat_primitives_local_inference.md) -- how acoustic detection feeds the threat layer
-- [coop_pilot IoT edge monitoring](16_coop_pilot_iot_edge_monitoring.md) -- acoustic event detection in the live edge stack (SoundAnalyzer)
+- [coop IoT edge monitoring](16_coop_iot_edge_monitoring.md) -- acoustic event detection in the live edge stack (SoundAnalyzer)

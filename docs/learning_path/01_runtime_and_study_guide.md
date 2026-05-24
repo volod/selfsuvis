@@ -138,7 +138,7 @@ If you are returning to the repo after an older version, these are the changes t
   - UniDriveVLA expert analysis
   - resource-aware `.env` generation
   - realtime bridge runtimes for pose and occupancy sidecars
-  - coop_pilot MQTT/RTSP site monitoring
+  - coop MQTT/RTSP site monitoring
 
 ## What To Inspect After A Real Run
 

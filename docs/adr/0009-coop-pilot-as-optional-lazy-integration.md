@@ -1,4 +1,4 @@
-# ADR-0009: Keep coop_pilot as an Optional, Lazy-Started Integration Layer
+# ADR-0009: Keep coop as an Optional, Lazy-Started Integration Layer
 
 Date: 2026-05-02  
 Status: Accepted
@@ -15,13 +15,13 @@ brokers, or cameras are absent.
 
 ## Decision
 
-Treat `coop_pilot` as an optional integration layer that is imported and started
+Treat `coop` as an optional integration layer that is imported and started
 lazily from the main app lifecycle.
 
 Current implementation:
 - startup wiring in `src/selfsuvis/app/main.py`
 - background lifecycle management in `src/selfsuvis/app/services/coop_streams.py`
-- coop runtime under `src/selfsuvis/coop_pilot/`
+- coop runtime under `src/selfsuvis/coop/`
 
 Startup failures in MQTT, Frigate discovery, or optional coop modules are logged
 and do not block the base API process.

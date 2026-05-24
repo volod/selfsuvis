@@ -428,7 +428,8 @@ def resolve_local_videos(args: Any) -> tuple[str, list[Path]]:
     videos_dir = Path(dir_path)
     if not videos_dir.is_dir():
         _log.error("Videos directory does not exist: %s", videos_dir)
-        _log.error("Create it with:  mkdir -p %s", videos_dir)
+        _log.error("Use the local data directory:  --videos-dir .data/videos")
+        _log.error("Create it with:  mkdir -p .data/videos")
         sys.exit(1)
 
     videos = find_videos(videos_dir)

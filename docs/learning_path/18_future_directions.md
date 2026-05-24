@@ -2,7 +2,7 @@
 
 This document covers the advanced themes that are **not yet implemented** in the
 current codebase. It is the final stop on the learning path, after you understand
-the current 32-step local runner, the fusion math, and the coop_pilot IoT layer.
+the current 32-step local runner, the fusion math, and the coop IoT layer.
 
 Read this when you want to reason about where the system should go next, not when
 you want to understand what it does today.
@@ -19,7 +19,7 @@ already exists:
 | Track-aware SSL fine-tuning | Implemented | [14_temporal_ssl_physical_state.md](14_temporal_ssl_physical_state.md) |
 | Threat primitives with two-source gate | Implemented | [15_threat_primitives_local_inference.md](15_threat_primitives_local_inference.md) |
 | Probabilistic Kalman/RTS/SfM fusion | Implemented | [12_probabilistic_fusion_deep_dive.md](12_probabilistic_fusion_deep_dive.md) |
-| coop_pilot MQTT/LoRaWAN/Frigate realtime | Implemented | [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) |
+| coop MQTT/LoRaWAN/Frigate realtime | Implemented | [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md) |
 | Knowledge distillation and ONNX edge export | Implemented | [06_adaptation_eval_steps_28_35.md](06_adaptation_eval_steps_28_35.md) |
 
 The themes below are genuinely open. They are not design-document placeholders —
@@ -207,7 +207,7 @@ current system cannot distinguish these cases.
 
 Each video run produces a local threat assessment: primitives scoped to the current
 clip, a clip-level threat level, and a fixed-vocabulary action recommendation. The
-coop_pilot layer produces a site-level threat summary from live sensor feeds.
+coop layer produces a site-level threat summary from live sensor feeds.
 
 ### What is not implemented
 
@@ -215,7 +215,7 @@ coop_pilot layer produces a site-level threat summary from live sensor feeds.
 
 - A track anomaly in mission A and a similar track anomaly in mission B at the same
   GPS sector two days later are two independent events. Neither the local pipeline
-  nor coop_pilot currently links them into a cross-mission pattern.
+  nor coop currently links them into a cross-mission pattern.
 - Global threat inference would maintain a persistent threat map across missions:
   for each spatial sector, a history of observed threat primitive types, scores, and
   timestamps. A new mission that activates the same primitive in the same sector
@@ -229,7 +229,7 @@ coop_pilot layer produces a site-level threat summary from live sensor feeds.
 - Bayesian filter over discrete states: treating sector threat level as a hidden
   variable with transitions governed by prior decay and updates from new mission
   evidence.
-- The coop_pilot rolling site state (already implemented) is the closest existing
+- The coop rolling site state (already implemented) is the closest existing
   analogue. The difference is time horizon: rolling state covers minutes; global
   threat maps cover days or weeks.
 - The Qdrant vector database can serve as the backing store for mission-indexed
@@ -272,9 +272,9 @@ to debug, not a better one.
   what is already implemented in structured evidence gating
 - [Probabilistic fusion deep dive](12_probabilistic_fusion_deep_dive.md) — the math
   foundation required before any calibration or field-model work
-- [coop_pilot IoT edge monitoring](16_coop_pilot_iot_edge_monitoring.md) — the live
+- [coop IoT edge monitoring](16_coop_iot_edge_monitoring.md) — the live
   site-state layer that global threat inference would extend
 
 ---
 
-[← coop_pilot IoT edge monitoring](16_coop_pilot_iot_edge_monitoring.md) | [Essential technology stack →](17_essential_technology_stack.md)
+[← coop IoT edge monitoring](16_coop_iot_edge_monitoring.md) | [Essential technology stack →](17_essential_technology_stack.md)

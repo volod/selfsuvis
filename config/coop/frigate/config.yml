@@ -1,17 +1,17 @@
 # Frigate NVR configuration
-# Resource tuning is driven by COOP_FRIGATE_* variables in data/.env.
+# Resource tuning is driven by COOP_FRIGATE_* variables in .data/.env.
 # Detector thread count: COOP_FRIGATE_DETECTOR_THREADS (default: 2 for 4-core minimum spec).
 # Cameras: 5 IP/PoE cameras, one per section (enabled: false until RTSP URLs are set).
-# Audio: handled by coop_pilot SoundAnalyzer consuming Frigate RTSP re-streams (port 8555).
+# Audio: handled by coop SoundAnalyzer consuming Frigate RTSP re-streams (port 8555).
 #
 # Before enabling cameras:
 #   1. Replace placeholder RTSP URLs below with real camera IPs.
-#   2. Set COOP_FRIGATE_HWACCEL_PRESET in data/.env or edit hwaccel_args below:
+#   2. Set COOP_FRIGATE_HWACCEL_PRESET in .data/.env or edit hwaccel_args below:
 #        Intel QSV H.264:  preset-intel-qsv-h264  (default)
 #        Intel QSV H.265:  preset-intel-qsv-h265
 #        AMD/Intel VAAPI:  preset-vaapi
 #        CPU only:         remove hwaccel_args entirely
-#   3. Set FRIGATE_MQTT_PASSWORD in data/.env.
+#   3. Set FRIGATE_MQTT_PASSWORD in .data/.env.
 #   4. Verify /dev/dri/renderD128 is accessible: ls -la /dev/dri/
 
 mqtt:
@@ -40,7 +40,7 @@ ffmpeg:
     record: preset-record-generic-audio-copy
 
 detectors:
-  # CPU detector. Thread count comes from COOP_FRIGATE_DETECTOR_THREADS in data/.env.
+  # CPU detector. Thread count comes from COOP_FRIGATE_DETECTOR_THREADS in .data/.env.
   # Minimum spec (4-core): 2 threads. Mid spec (6-8-core): 4 threads.
   # For better performance add a Google Coral USB TPU and switch to type: edgetpu.
   cpu1:

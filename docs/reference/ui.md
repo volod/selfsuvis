@@ -36,7 +36,7 @@ The current UI is a single Streamlit app in [`ui/app.py`](/home/vola/src/selfsuv
 
 ## Result rendering
 
-Search results show score, video ID, timestamp, frame/tile paths when present, and an `mpv` command for local playback from `data/videos`.
+Search results show score, video ID, timestamp, frame/tile paths when present, and an `mpv` command for local playback from `.data/videos`.
 
 ---
 [← API](api.md) | [Helpers →](../development/helpers.md)

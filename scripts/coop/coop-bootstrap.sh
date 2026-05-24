@@ -41,7 +41,7 @@ fi
 project_load_env_optional
 _DATA_DIR="$(project_data_dir)"
 
-# Copy Frigate config template to data/coop/frigate/ on first run
+# Copy Frigate config template to .data/coop/frigate/ on first run
 _FRIGATE_LIVE="$_DATA_DIR/coop/frigate/config.yml"
 if [[ ! -f "$_FRIGATE_LIVE" ]]; then
   project_log "Copying Frigate config template to $_FRIGATE_LIVE"

@@ -136,12 +136,12 @@ error()   { echo -e "${RED}[ERROR]${RESET} $*"; exit 1; }
 # Always run from the repo root regardless of where the script is invoked from
 project_cd_root
 
-# -- Load .env if present ------------------------------------------------------
-# Generate .env with `make env` / `make env-interactive` and set HF_TOKEN there.
-if [[ -f .env ]]; then
+# -- Load .data/.env if present ------------------------------------------------
+# Generate .data/.env with `make env` / `make env-interactive` and set HF_TOKEN there.
+if [[ -f .data/.env ]]; then
   set -a   # export every variable defined from this point
   # shellcheck source=/dev/null
-  source .env
+  source .data/.env
   set +a
 fi
 
@@ -663,11 +663,11 @@ fi
 #
 # Directory layout created:
 #   .data/videos/     — input video(s)
-#   data/sensors/    — per-step sensor sidecars
-#   data/frames/     — keyframe output (written by pipeline)
+#   .data/sensors/    — per-step sensor sidecars
+#   .data/frames/     — keyframe output (written by pipeline)
 #   data/tiles/      — tile output (written by pipeline)
 #   data/maps/       — 3DGS / splat output (written by pipeline)
-#   data/reports/    — HTML mission summaries (written by pipeline)
+#   .data/reports/    — HTML mission summaries (written by pipeline)
 #   data/cache_test/      — integration-test cache volume
 #
 # Test video (auto-downloaded if .data/videos/ is empty):
@@ -678,8 +678,8 @@ fi
 #
 # Sensor sidecars (Steps 9–19) are generated with the video's basename so they
 # are immediately usable without renaming:
-#   data/sensors/step16_imu/<video>.imu.jsonl
-#   data/sensors/step17_atmospheric/<video>.env.jsonl
+#   .data/sensors/step16_imu/<video>.imu.jsonl
+#   .data/sensors/step17_atmospheric/<video>.env.jsonl
 #   … etc.
 #
 # Steps requiring manual dataset download (free, registration only):
@@ -794,7 +794,7 @@ log "Sensor data ready in $_DATA_DIR/sensors/"
 
 # -- 4d: Drone audio dataset (Step 32 - DroneAudioCNN training) -----------------
 # Downloads geronimobasso/drone-audio-detection-samples from HuggingFace and
-# splits it into data/drone-audio-data/{train,val,test}/{drone,no_drone}/.
+# splits it into .data/drone-audio-data/{train,val,test}/{drone,no_drone}/.
 # Step 32 in the local pipeline runner trains DroneAudioCNN from this cache.
 # Re-running is safe — already-split files are skipped.
 #

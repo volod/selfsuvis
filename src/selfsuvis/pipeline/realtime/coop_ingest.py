@@ -1,4 +1,4 @@
-"""Bridge coop_pilot sensor readings into the selfsuvis realtime threat pipeline.
+"""Bridge coop sensor readings into the selfsuvis realtime threat pipeline.
 
 Converts ``SensorReading`` (LoRaWAN) and ``CameraEvent`` (Frigate) objects into
 ``SensorEvent`` / ``ThreatEvent`` envelopes consumed by ``RealtimeThreatAggregator``.
@@ -103,7 +103,7 @@ def camera_event_to_threat(event: Any) -> ThreatEvent | None:
 
 
 class CoopRealtimeIngestor:
-    """Feed coop_pilot observations into a ``RealtimeThreatAggregator``.
+    """Feed coop observations into a ``RealtimeThreatAggregator``.
 
     Typically wired at app startup:
 

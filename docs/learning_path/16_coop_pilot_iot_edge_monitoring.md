@@ -1,6 +1,6 @@
-# coop_pilot — IoT Edge Monitoring Deep Dive
+# coop — IoT Edge Monitoring Deep Dive
 
-This document explains the `coop_pilot` subpackage and how it extends selfsuvis
+This document explains the `coop` subpackage and how it extends selfsuvis
 from a mission-indexing system into a continuous stationary site-awareness platform.
 
 It covers:
@@ -15,7 +15,7 @@ It covers:
 9. What to inspect and common failure modes
 
 Related code:
-- `src/selfsuvis/coop_pilot/` — full IoT edge subpackage
+- `src/selfsuvis/coop/` — full IoT edge subpackage
 - `src/selfsuvis/pipeline/realtime/coop_ingest.py` — sensor→event bridge
 - `src/selfsuvis/app/services/coop_streams.py` — RTSP bridge lifecycle
 - `src/selfsuvis/app/routers/site_state.py` — API endpoints
@@ -24,7 +24,7 @@ Related code:
 Related docs:
 - [Sensor fusion fundamentals](03_sensor_fusion_fundamentals.md)
 - [Threat primitives and local inference](15_threat_primitives_local_inference.md)
-- [coop_pilot integration guide](../coop/integration.md)
+- [coop integration guide](../coop/integration.md)
 - [Architecture](../reference/architecture.md)
 
 ---
@@ -35,7 +35,7 @@ The core selfsuvis pipeline is **retrospective**: a video file arrives, the pipe
 indexes it, and results land in PostgreSQL and Qdrant. Queries answer "what did the
 robot see on mission X?"
 
-The coop_pilot layer is **prospective**: physical sensors transmit continuously and
+The coop layer is **prospective**: physical sensors transmit continuously and
 the system must answer "what is happening right now?" with sub-minute latency.
 
 The consequences of this distinction are significant:
@@ -66,7 +66,7 @@ MQTT is the message bus connecting all IoT edge devices to selfsuvis. A Mosquitt
 broker runs as a Docker container on `selfsuvis-net`. All three sensor sources —
 ChirpStack, Frigate, and any direct MQTT devices — publish to this broker.
 
-The `MqttSubscriber` class (`coop_pilot/sensors/mqtt_subscriber.py`) subscribes to
+The `MqttSubscriber` class (`coop/sensors/mqtt_subscriber.py`) subscribes to
 two topic patterns:
 
 ```
@@ -173,7 +173,7 @@ shorter window prevents the deque growing too large while keeping recency.
 
 All mutations go through `asyncio.Lock`. `get_state()` also holds the lock while
 building the snapshot. This is safe because all callers are on the same event loop
-— there is no thread-level parallelism in the coop_pilot stack.
+— there is no thread-level parallelism in the coop stack.
 
 ### SiteState snapshot
 
@@ -460,7 +460,7 @@ trigger synthesis only when they want a human-readable summary.
 
 ## 8. Threat Pipeline Integration
 
-`CoopRealtimeIngestor` (`pipeline/realtime/coop_ingest.py`) bridges coop_pilot
+`CoopRealtimeIngestor` (`pipeline/realtime/coop_ingest.py`) bridges coop
 observations into the selfsuvis `RealtimeThreatAggregator`.
 
 ### GPS grid sectors
@@ -680,4 +680,4 @@ Then call `GET /site/synthesis` and inspect the narrative.
 | Cohen et al., "Environmental Sound Classification on Microcontrollers" (2022) | Why simple FFT classifiers work for constrained edge deployments |
 | [Sensor fusion fundamentals](03_sensor_fusion_fundamentals.md) | Clocks, calibration, and uncertainty — applies directly to LoRaWAN timestamp alignment |
 | [Threat primitives and local inference](15_threat_primitives_local_inference.md) | The two-source gate and evidence-gated scoring used by the threat aggregator |
-| [coop_pilot integration guide](../coop/integration.md) | Operator reference: MQTT topics, docker-compose, env vars, API endpoints |
+| [coop integration guide](../coop/integration.md) | Operator reference: MQTT topics, docker-compose, env vars, API endpoints |

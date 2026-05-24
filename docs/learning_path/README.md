@@ -34,7 +34,7 @@ They are written to answer:
 | 13 | [13_local_analytics_math_methodology.md](13_local_analytics_math_methodology.md) | The math and interpretation rules behind local-run diagnostics |
 | 14 | [14_temporal_ssl_physical_state.md](14_temporal_ssl_physical_state.md) | Track-aware SSL: why frame augmentation is insufficient, how RF-DETR track IDs produce identity-consistent positive pairs, and how cycle-consistency loss prevents embedding drift along long tracks |
 | 15 | [15_threat_primitives_local_inference.md](15_threat_primitives_local_inference.md) | Threat primitive layer: structured evidence-gated threat signals from physical state + fusion; schema design, the two-source gate, and why free-text hazards are insufficient |
-| 16 | [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) | IoT edge monitoring deep dive: MQTT, LoRaWAN/ChirpStack, Frigate, MediaMTX RTSP bridge, acoustic analysis, rolling site state, scene synthesis, and realtime threat ingestion |
+| 16 | [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md) | IoT edge monitoring deep dive: MQTT, LoRaWAN/ChirpStack, Frigate, MediaMTX RTSP bridge, acoustic analysis, rolling site state, scene synthesis, and realtime threat ingestion |
 | 17 | [17_essential_technology_stack.md](17_essential_technology_stack.md) | Extended human guide to every essential technology in the stack: pipeline.core shared modules, API/worker/DB/Qdrant service flow, security boundaries, FFmpeg and sidecar JSONL, CLIP/DINO embeddings, all vision/language models, temporal state and fusion, 33-step local runner, SSL fine-tuning, distillation, ONNX/RKNN edge export, drone detection training, drone audio CNN training, and realtime/coop stack |
 | 18 | [18_future_directions.md](18_future_directions.md) | Not-yet-implemented advanced themes: full cross-modal temporal SSL, environmental field models, calibration and contradiction handling, global cross-mission threat inference |
 | 19 | [19_drone_audio_detection.md](19_drone_audio_detection.md) | Step 32 deep dive: DroneAudioCNN binary classifier, MFCC feature extraction (scipy-only STFT + mel filterbank + DCT), Conv2d/BN/ReLU/AdaptiveAvgPool architecture (~52k params), ONNX export for edge inference, dataset split, inference example, physics-based audio simulation |
@@ -80,7 +80,7 @@ is a separate top-level function call in the current runner.
 | Drone visual detection (step 30) | 30 | [Drone detection runbook](../runbooks/drone-detection.md) |
 | Drone audio training (step 32) | 32 | [19_drone_audio_detection.md](19_drone_audio_detection.md) |
 | drau range evaluation (step 33) | 33 | [20_drau_range_eval.md](20_drau_range_eval.md) |
-| coop_pilot IoT edge monitoring | 37-43 | [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) |
+| coop IoT edge monitoring | 37-43 | [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md) |
 
 Supporting sessions (not tied to a specific pipeline step number):
 
@@ -139,7 +139,7 @@ branching into adaptation, physical-world modeling, and advanced global-threat w
 13. [12_probabilistic_fusion_deep_dive.md](12_probabilistic_fusion_deep_dive.md) -- math
 14. [14_temporal_ssl_physical_state.md](14_temporal_ssl_physical_state.md) -- temporal SSL
 15. [15_threat_primitives_local_inference.md](15_threat_primitives_local_inference.md)
-16. [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md) -- IoT edge
+16. [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md) -- IoT edge
 17. [17_essential_technology_stack.md](17_essential_technology_stack.md) -- full reference
 18. [18_future_directions.md](18_future_directions.md) -- where to go next
 
@@ -147,8 +147,8 @@ branching into adaptation, physical-world modeling, and advanced global-threat w
 
 - [Pipeline architecture](../reference/pipeline.md)
 - [Architecture](../reference/architecture.md)
-- [coop_pilot getting started](../coop/getting-started.md)
-- [coop_pilot integration](../coop/integration.md)
+- [coop getting started](../coop/getting-started.md)
+- [coop integration](../coop/integration.md)
 - [Configuration](../reference/configuration.md)
 - [Setup](../quickstart/setup.md)
 - [3D Gaussian Splat](../reference/gaussian_splat.md)

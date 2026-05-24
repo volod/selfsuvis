@@ -56,7 +56,7 @@ See [local learning path](docs/quickstart/local_path.md) for the step-by-step gu
 ---
 
 ### 3. Coop Stack — IoT Sensor Mesh
-`src/selfsuvis/coop_pilot/` | `docker/coop/` | `config/coop/`
+`src/selfsuvis/coop/` | `docker/coop/` | `config/coop/`
 
 Continuous site-awareness layer that ingests live sensor streams: LoRaWAN telemetry via
 ChirpStack, RTSP camera feeds via Frigate NVR, MQTT acoustic and RF events, and

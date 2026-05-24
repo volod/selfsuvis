@@ -1,4 +1,4 @@
-from selfsuvis.realtime_pilot.adapters import (
+from selfsuvis.realtime.adapters import (
     available_occupancy_backends,
     available_pose_backends,
     create_occupancy_adapter,

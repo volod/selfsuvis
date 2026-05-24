@@ -27,7 +27,7 @@
 #
 #   # Save to file for offline testing / model validation
 #   ./scripts/play_drone_sound.sh --scenario flyover --distance 100 --speed 15 \
-#       --output data/reports/sim_flyover_100m.wav
+#       --output .data/reports/sim_flyover_100m.wav
 #
 # Options:
 #   --scenario   flyover|approach|hover|circle  (default: flyover)
@@ -43,9 +43,9 @@
 #   --placement-help print mic/speaker placement guidance and exit
 #   --c          speed of sound m/s (default: 343)
 #   --atm-db     atmospheric absorption dB/100m (default: 0.5)
-#   --sample     path to a drone WAV file (default: first file in data/drone-audio-data)
+#   --sample     path to a drone WAV file (default: first file in .data/drone-audio-data)
 #   --output     save to WAV file instead of playing
-#   --data-dir   dataset cache directory (default: data/drone-audio-data)
+#   --data-dir   dataset cache directory (default: .data/drone-audio-data)
 #
 # Playback requires:  pip install sounddevice
 # Save to WAV uses scipy (already a project dependency)

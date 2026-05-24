@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from selfsuvis.realtime_pilot import bridge_runtime
+from selfsuvis.realtime import bridge_runtime
 
 
 class _AcquireCtx:

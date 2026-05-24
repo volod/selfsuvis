@@ -1,6 +1,6 @@
 """Stack analytics — log collection, parsing and reporting for coop-pilot services.
 
-LogCollector and LogAnalyzer require the `docker` package (selfsuvis[coop_pilot]).
+LogCollector and LogAnalyzer require the `docker` package (selfsuvis[coop]).
 Parsers and ReportRenderer have no heavy dependencies and can be imported freely.
 """
 

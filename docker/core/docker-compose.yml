@@ -1,6 +1,6 @@
 # Run all services as current host user so data/cache dirs are owned by you.
 # Requires: UID and GID env vars (make up sets these automatically).
-# Container env priority: shell `environment:` > repo-root .env (optional) >
+# Container env priority: shell `environment:` > .data/.env (optional) >
 # packaged prod defaults in src/selfsuvis/env/prod.env.
 
 services:
@@ -57,7 +57,7 @@ services:
     env_file:
       - path: ../../src/selfsuvis/env/prod.env
         required: true
-      - path: ../../.env
+      - path: ../../.data/.env
         required: false
     environment:
       - QDRANT_HOST=qdrant
@@ -97,7 +97,7 @@ services:
     env_file:
       - path: ../../src/selfsuvis/env/prod.env
         required: true
-      - path: ../../.env
+      - path: ../../.data/.env
         required: false
     environment:
       - QDRANT_HOST=qdrant
@@ -135,7 +135,7 @@ services:
     env_file:
       - path: ../../src/selfsuvis/env/prod.env
         required: true
-      - path: ../../.env
+      - path: ../../.data/.env
         required: false
     environment:
       - API_URL=http://api:8000

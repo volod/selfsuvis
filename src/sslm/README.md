@@ -120,7 +120,7 @@ Generate a starter QLoRA/SFT recipe for reasoning-model adaptation:
 ```bash
 .venv-sslm/bin/sslm write-finetune-config \
   --base-model Qwen/Qwen3-8B \
-  --dataset jsonl://data/reasoning_sft.jsonl
+  --dataset jsonl://.data/reasoning_sft.jsonl
 ```
 
 The generated config is a reviewable starting point, not an automatic training launch.

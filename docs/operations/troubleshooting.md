@@ -66,7 +66,7 @@ installed and that the required model weights are already cached.
   - `python -m selfsuvis.scripts.prepare_models --world-model`
   - `python -m selfsuvis.scripts.prepare_models --scenetok`
 - If Step 31 is enabled, also make sure `onnxslim` is installed and `yolov8n.pt` has
-  already been downloaded into `~/.cache/ultralytics/`
+  already been downloaded into `.data/.cache/ultralytics/`
 
 For API/worker startup, preflight findings are logged by default. To make startup fail
 on preflight errors, set `STARTUP_PREFLIGHT_STRICT=true`.

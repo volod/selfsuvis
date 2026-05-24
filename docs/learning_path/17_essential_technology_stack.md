@@ -28,7 +28,7 @@ sub-packages are:
 - `src/selfsuvis/scripts/` — packaged helper CLIs such as env generation, model
   preparation, migrations, and sidecar helpers.
 - `src/selfsuvis/analytics/` — post-run artifact inspection and quality scoring.
-- `src/selfsuvis/coop_pilot/` — IoT edge integration, MQTT/LoRaWAN ingestion, and
+- `src/selfsuvis/coop/` — IoT edge integration, MQTT/LoRaWAN ingestion, and
   rolling site-state management.
 
 ### Where to start reading
@@ -112,7 +112,7 @@ FastAPI routes are organised under `app/routers/`:
 - `query.py` — vector search over Qdrant
 - `jobs.py` — job queue status
 - `realtime.py` — realtime frame and event ingestion
-- `site.py` — coop_pilot site-state queries
+- `site.py` — coop site-state queries
 - `cvat.py` — CVAT annotation webhook receiver
 
 ### PostgreSQL and asyncpg
@@ -669,7 +669,7 @@ reading any other artifact. It gives the coverage picture in one place.
 `scripts/ssv/ssv-utilyze.sh` wraps the `utlz` profiling tool with defaults
 suited to selfsuvis local runs. It:
 - Disables upstream workload metrics (privacy/telemetry off by default)
-- Writes logs to `data/reports/utilyze.log`
+- Writes logs to `.data/reports/utilyze.log`
 - Passes additional `utlz` flags through verbatim
 
 Install with `scripts/install/install_utilyze.sh` (first time only). Use Utilyze when
@@ -750,7 +750,7 @@ base weights, and was false positive rate on hard negatives acceptable?"
 
 ---
 
-## 10. Realtime And coop_pilot
+## 10. Realtime And coop
 
 ### MediaMTX (RTSP/RTMP broker)
 
@@ -764,7 +764,7 @@ can be tuned for number of concurrent streams and protocol compatibility.
 
 MQTT is a publish-subscribe messaging protocol for constrained IoT devices.
 Mosquitto is the MQTT broker: it receives messages from field sensors and makes them
-available to subscribers. In SelfSuvis, the coop_pilot module subscribes to MQTT
+available to subscribers. In SelfSuvis, the coop module subscribes to MQTT
 topics from:
 - Environmental sensors (temperature, humidity, gas concentration)
 - Acoustic sensors (sound event detection)
@@ -772,7 +772,7 @@ topics from:
 - LoRaWAN gateway forwarded messages
 
 MQTT topics follow a tree structure (`site/sensor_id/reading_type`). The subscriber
-in `coop_pilot/sensors/mqtt_subscriber.py` handles connection, reconnection, and
+in `coop/sensors/mqtt_subscriber.py` handles connection, reconnection, and
 message dispatch. Always configure `MQTT_BROKER_HOST` and `MQTT_BROKER_PORT` in
 `.env`; the default localhost port is 1883.
 
@@ -783,7 +783,7 @@ protocol for field sensors that need to transmit small payloads over long distan
 with battery-only power. ChirpStack decodes the LoRaWAN uplinks (raw radio payloads)
 into JSON application payloads, which are then forwarded to the MQTT broker.
 
-The chain is: sensor → LoRa radio → ChirpStack → MQTT → coop_pilot. A learner
+The chain is: sensor → LoRa radio → ChirpStack → MQTT → coop. A learner
 should understand that LoRaWAN imposes strict duty-cycle limits (sensors transmit
 infrequently, typically every 30–300 seconds) so rolling site state must be designed
 for sparse, intermittent updates rather than high-frequency streaming.
@@ -793,15 +793,15 @@ for sparse, intermittent updates rather than high-frequency streaming.
 Frigate is an open-source NVR (network video recorder) with integrated object
 detection. It receives RTSP camera streams, runs detection on them locally, and
 publishes object detection events to MQTT. In SelfSuvis, Frigate events are one of
-the input streams to coop_pilot's rolling site state.
+the input streams to coop's rolling site state.
 
 The event format includes camera name, detected object class, confidence, bounding
-box, and snapshot frame path. coop_pilot maps these to site sectors using the camera
+box, and snapshot frame path. coop maps these to site sectors using the camera
 geometry configuration.
 
-### coop_pilot rolling site state
+### coop rolling site state
 
-coop_pilot aggregates inputs from all active IoT and camera sources and maintains a
+coop aggregates inputs from all active IoT and camera sources and maintains a
 rolling site state: a time-windowed summary of sensor readings, object detections,
 acoustic events, and threat signals for each geographic sector of the monitored site.
 
@@ -815,14 +815,14 @@ state, but they remain in the PostgreSQL sensor table for retrospective analysis
 
 ### Scene synthesis and realtime threat
 
-coop_pilot's scene synthesiser combines the rolling site state with VLM-based scene
+coop's scene synthesiser combines the rolling site state with VLM-based scene
 interpretation to produce natural-language situation reports for operators. Threat
 sector analysis maps sensor evidence to site sectors and produces per-sector threat
 levels using the same two-source gate logic as the local pipeline threat primitive
 layer.
 
 The operational significance: a local mission video run produces a mission-level
-threat assessment after the fact; coop_pilot produces a live site-level threat
+threat assessment after the fact; coop produces a live site-level threat
 assessment in near real time. They share the same primitive scoring logic but
 different execution paths.
 
@@ -857,8 +857,8 @@ For a human starting from limited background, learn in this order:
 12. **SSL, distillation, ONNX, and edge model evaluation.** Understand what
     "successful adaptation" means from `analysis_summary.json`, not from training
     loss alone.
-13. **Realtime streams, MQTT, coop_pilot, and operational security boundaries.**
-    Read [16_coop_pilot_iot_edge_monitoring.md](16_coop_pilot_iot_edge_monitoring.md).
+13. **Realtime streams, MQTT, coop, and operational security boundaries.**
+    Read [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md).
 
 Do not try to learn every model first. Learn what each artifact means, what
 produced it, and what later stage consumes it. The pipeline makes more sense read

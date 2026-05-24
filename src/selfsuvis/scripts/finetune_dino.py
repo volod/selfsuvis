@@ -6,20 +6,20 @@ Usage:
 
 Minimal example (CPU, for smoke-testing):
     python scripts/finetune_dino.py \\
-        --frames-dir data/frames \\
-        --output-dir data/checkpoints \\
+        --frames-dir .data/frames \\
+        --output-dir .data/checkpoints \\
         --epochs 2 --batch-size 8 --device cpu
 
 GPU example (recommended):
     python scripts/finetune_dino.py \\
-        --frames-dir data/frames \\
-        --output-dir data/checkpoints \\
+        --frames-dir .data/frames \\
+        --output-dir .data/checkpoints \\
         --approach temporal \\
         --epochs 10 --batch-size 64 \\
         --device cuda
 
 After training, point the worker/API at the fine-tuned weights:
-    export DINO_CHECKPOINT=data/checkpoints/dino_ssl_best.pt
+    export DINO_CHECKPOINT=.data/checkpoints/dino_ssl_best.pt
     make up
 
 The fine-tuned backbone will be loaded by DINOEmbedder automatically when

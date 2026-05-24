@@ -6,7 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from locust import HttpUser, between, events, task
 
-load_dotenv(Path(__file__).resolve().parent.parent / "data" / ".env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".data" / ".env")
 
 
 class ChirpStackUser(HttpUser):

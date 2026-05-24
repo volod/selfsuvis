@@ -91,8 +91,6 @@ coop = [
     "jinja2>=3.1",
     "rich>=13.0",
 ]
-# backward-compat alias
-coop_pilot = ["selfsuvis[coop]"]
 audio = [
     # HuggingFace dataset download (drone-audio-detection-samples)
     "datasets>=2.18",

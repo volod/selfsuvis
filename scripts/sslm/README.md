@@ -38,5 +38,5 @@ Generate a starter fine-tuning recipe:
 ```bash
 .venv-sslm/bin/sslm write-finetune-config \
   --base-model Qwen/Qwen3-8B \
-  --dataset jsonl://data/reasoning_sft.jsonl
+  --dataset jsonl://.data/reasoning_sft.jsonl
 ```

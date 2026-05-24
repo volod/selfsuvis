@@ -8,12 +8,25 @@ Modes:
 """
 
 import warnings
+from pathlib import Path
 
 warnings.filterwarnings(
     "ignore",
     message="Importing from timm.models.layers is deprecated",
     category=FutureWarning,
 )
+
+
+def _validate_local_inputs(args) -> None:
+    videos_dir = Path(getattr(args, "videos_dir", ".data/videos"))
+    if videos_dir.is_dir():
+        return
+    parser_error = (
+        f"Videos directory does not exist: {videos_dir}\n"
+        "Use the local data directory:  --videos-dir .data/videos\n"
+        "Create it with:  mkdir -p .data/videos"
+    )
+    raise SystemExit(parser_error)
 
 
 def main() -> None:
@@ -26,6 +39,7 @@ def main() -> None:
         from selfsuvis.pipeline.workflows import apply_local_env  # noqa: PLC0415
 
         apply_local_env(args)
+        _validate_local_inputs(args)
         from selfsuvis.pipeline.core import log_preflight, run_local_preflight  # noqa: PLC0415
 
         report = run_local_preflight(args)

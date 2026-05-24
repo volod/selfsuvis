@@ -25,8 +25,8 @@ from selfsuvis.pipeline.storage.processed import ainit_db as init_processed_db
 logger = get_logger(__name__)
 
 
-def _start_coop_pilot(app: FastAPI) -> "asyncio.Task | None":
-    """Start the coop_pilot MQTT subscriber, site state aggregator, and threat pipeline."""
+def _start_coop(app: FastAPI) -> "asyncio.Task | None":
+    """Start the coop MQTT subscriber, site state aggregator, and threat pipeline."""
     try:
         from selfsuvis.coop.config import settings as coop_settings
         from selfsuvis.coop.mesh.fusion import SensorMeshFusion
@@ -54,15 +54,15 @@ def _start_coop_pilot(app: FastAPI) -> "asyncio.Task | None":
             on_sensor=_multi_callback(aggregator.ingest_sensor_reading, ingestor.on_sensor_reading),
             on_camera=_multi_callback(aggregator.ingest_camera_event, ingestor.on_camera_event),
         )
-        task = asyncio.create_task(subscriber.run(), name="coop_pilot_mqtt")
+        task = asyncio.create_task(subscriber.run(), name="coop_mqtt")
         logger.info(
-            "coop_pilot started (broker: %s:%d)",
+            "coop started (broker: %s:%d)",
             coop_settings.mqtt_host,
             coop_settings.mqtt_port,
         )
         return task
     except Exception as exc:
-        logger.warning("coop_pilot not started: %s", exc)
+        logger.warning("coop not started: %s", exc)
         return None
 
 
@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
     app.state.realtime_stream_manager = RealtimeStreamManager(getattr(app.state, "db_pool", None))
     app.state.sse_subscribers: dict[str, asyncio.Queue] = {}
 
-    mqtt_task = _start_coop_pilot(app)
+    mqtt_task = _start_coop(app)
 
     coop_streams = CoopStreamService(
         mediamtx_client=app.state.mediamtx_client,

@@ -22,7 +22,7 @@ present architecture.
 | [0006](0006-mediamtx-for-video-streaming.md) | MediaMTX as the Streaming Edge for Live Video Ingest | Accepted |
 | [0007](0007-qdrant-as-vector-store-with-named-vectors.md) | Qdrant as the Vector Store with Named Vector Spaces | Accepted |
 | [0008](0008-fastapi-plus-worker-over-postgresql-job-queue.md) | Separate API Control Plane from Background Execution with a PostgreSQL Job Queue | Accepted |
-| [0009](0009-coop-pilot-as-optional-lazy-integration.md) | Keep coop_pilot as an Optional, Lazy-Started Integration Layer | Accepted |
+| [0009](0009-coop-pilot-as-optional-lazy-integration.md) | Keep coop as an Optional, Lazy-Started Integration Layer | Accepted |
 | [0010](0010-graceful-degradation-for-optional-analysis-and-realtime.md) | Prefer Graceful Degradation over Hard Failure for Optional Analysis Paths | Accepted |
 | [0011](0011-realtime-mapping-as-optional-sidecars-plus-bridge-runtimes.md) | Realtime Mapping Uses Optional Sidecars, Owned Bridge Runtimes, and Chained Post-Flight Jobs | Accepted |
 

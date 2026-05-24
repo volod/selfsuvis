@@ -20,7 +20,7 @@ Deep-dive entry points:
 - [Local analytics math and methodology](../learning_path/13_local_analytics_math_methodology.md)
 - [Temporal SSL and physical state](../learning_path/14_temporal_ssl_physical_state.md)
 - [Threat primitives and local inference](../learning_path/15_threat_primitives_local_inference.md)
-- [coop_pilot IoT edge monitoring](../learning_path/16_coop_pilot_iot_edge_monitoring.md)
+- [coop IoT edge monitoring](../learning_path/16_coop_iot_edge_monitoring.md)
 - [Essential technology stack](../learning_path/17_essential_technology_stack.md)
 - [Future directions: cross-modal SSL, environmental fields, calibration, global threats](../learning_path/18_future_directions.md)
 
@@ -89,7 +89,7 @@ For a human learner, the highest-return sequence is:
 | 35. Video synthesis | Turn many artifacts into one human-readable report. | [Adaptation and audit](../learning_path/06_adaptation_eval_steps_28_35.md#step-35-video-synthesis) |
 | 36. Agentic flow audit | Explain how context moved through the pipeline and where risk can propagate. | [Adaptation and audit](../learning_path/06_adaptation_eval_steps_28_35.md#step-36-agentic-flow-audit) |
 
-## coop_pilot Extension Steps
+## coop Extension Steps
 
 These steps are not part of one `selfsuvis --mode local` video run. They are the
 reasonable next learning layer after Step 36: take the same evidence concepts from
@@ -99,12 +99,12 @@ runtime.
 | Step | Essential purpose | Go deeper |
 |---|---|---|
 | 37. Coop stack bootstrap and health | Start Mosquitto, ChirpStack, Frigate, Redis, Postgres, and the REST bridge; verify container health and credentials before debugging higher-level code. | [coop getting started](../coop/getting-started.md) |
-| 38. MQTT and LoRaWAN ingestion | Trace ChirpStack MQTT uplinks into `SensorReading` objects; learn which fields are physical measurements vs radio-link metadata. | [coop deep dive](../learning_path/16_coop_pilot_iot_edge_monitoring.md#2-mqtt-lorawan-and-frigate) |
+| 38. MQTT and LoRaWAN ingestion | Trace ChirpStack MQTT uplinks into `SensorReading` objects; learn which fields are physical measurements vs radio-link metadata. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#2-mqtt-lorawan-and-frigate) |
 | 39. Frigate event ingestion | Trace Frigate MQTT detection events into `CameraEvent` objects and rolling camera summaries. | [coop integration](../coop/integration.md) |
-| 40. Rolling site state | Understand `SiteStateAggregator`: timestamp eviction, per-device deques, `/site/state`, `/site/sensors`, and `/site/cameras`. | [coop deep dive](../learning_path/16_coop_pilot_iot_edge_monitoring.md#3-rolling-window-model-and-sitestateaggregator) |
-| 41. RTSP bridge and acoustic evidence | Bridge Frigate streams through MediaMTX for live captioning, then add FFT/Whisper acoustic observations as synthetic camera events. | [coop deep dive](../learning_path/16_coop_pilot_iot_edge_monitoring.md#5-acoustic-analysis) |
-| 42. Site mesh and scene synthesis | Build GPS-proximity sensor graphs, query `/site/mesh`, and fuse live state plus `scene_timeline` captions into `/site/synthesis`. | [coop deep dive](../learning_path/16_coop_pilot_iot_edge_monitoring.md#4-sensor-mesh-fusion-and-gps-proximity-linking) |
-| 43. Realtime threat bridge and analytics | Convert coop readings into `SensorEvent` / `ThreatEvent`, inspect `/site/threat`, and use `coop-analytics` to diagnose stack health. | [coop deep dive](../learning_path/16_coop_pilot_iot_edge_monitoring.md#8-threat-pipeline-integration) |
+| 40. Rolling site state | Understand `SiteStateAggregator`: timestamp eviction, per-device deques, `/site/state`, `/site/sensors`, and `/site/cameras`. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#3-rolling-window-model-and-sitestateaggregator) |
+| 41. RTSP bridge and acoustic evidence | Bridge Frigate streams through MediaMTX for live captioning, then add FFT/Whisper acoustic observations as synthetic camera events. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#5-acoustic-analysis) |
+| 42. Site mesh and scene synthesis | Build GPS-proximity sensor graphs, query `/site/mesh`, and fuse live state plus `scene_timeline` captions into `/site/synthesis`. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#4-sensor-mesh-fusion-and-gps-proximity-linking) |
+| 43. Realtime threat bridge and analytics | Convert coop readings into `SensorEvent` / `ThreatEvent`, inspect `/site/threat`, and use `coop-analytics` to diagnose stack health. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#8-threat-pipeline-integration) |
 
 The mental bridge from local to coop is:
 
@@ -143,7 +143,7 @@ For the longer version, see [the full syllabus](../learning_path/00_day_by_day_s
 | 21 | Write your own one-page pipeline explanation from memory |
 | 22-28 | Application week: custom queries, failure inventory, architecture extension (see full syllabus) |
 | 29-35 | Advanced extension: self-supervised temporal learning, physical models, global threat inference, sensor-mesh runtime, and threat calibration — read `threat_primitives.json`, `local_threat_assessment.json`, and `global_threat_summary.json` after a full run |
-| 36-42 | coop_pilot extension: bootstrap the IoT stack, trace MQTT/RTSP evidence, inspect `/site/state`, `/site/mesh`, `/site/synthesis`, `/site/threat`, and run `coop-analytics` |
+| 36-42 | coop extension: bootstrap the IoT stack, trace MQTT/RTSP evidence, inspect `/site/state`, `/site/mesh`, `/site/synthesis`, `/site/threat`, and run `coop-analytics` |
 
 ## Recommended Reading Order
 
@@ -159,6 +159,6 @@ If you only have time for a fast pass:
 8. [Local analytics math and methodology](../learning_path/13_local_analytics_math_methodology.md)
 9. [Temporal SSL and physical state](../learning_path/14_temporal_ssl_physical_state.md)
 10. [Threat primitives and local inference](../learning_path/15_threat_primitives_local_inference.md)
-11. [coop_pilot IoT edge monitoring](../learning_path/16_coop_pilot_iot_edge_monitoring.md)
+11. [coop IoT edge monitoring](../learning_path/16_coop_iot_edge_monitoring.md)
 12. [Essential technology stack](../learning_path/17_essential_technology_stack.md)
 13. [Future directions: cross-modal SSL, environmental fields, calibration, global threats](../learning_path/18_future_directions.md)

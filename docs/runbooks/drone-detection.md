@@ -21,7 +21,7 @@ negatives, then exports edge models ready for two hardware targets:
 
 Internet access is required for the first run so that HuggingFace can download
 the seraphim dataset batch and the YOLOv8n pretrained weights (~6 MB).
-Subsequent runs use a shared cache at `data/local_runs/_drone_detection_cache/`.
+Subsequent runs use a shared cache at `.data/local_runs/_drone_detection_cache/`.
 
 ---
 
@@ -36,7 +36,7 @@ Step 30 is **on by default** when neither flag is passed.
 To opt out for a quick run:
 
 ```bash
-selfsuvis --mode local --videos-dir data/videos --no-drone-detection ...
+selfsuvis --mode local --videos-dir .data/videos --no-drone-detection ...
 ```
 
 ---
@@ -65,7 +65,7 @@ Treat it as an experimental training API until Step 30 is explicitly migrated to
 The dataset provides drone images in YOLO format (zip archives).
 The step downloads `train/images/batch_001.zip` and `train/labels/batch_001.zip`
 (≈ 400 images), which is enough for a demonstration run.
-Extracted files are cached at `data/local_runs/_drone_detection_cache/` and
+Extracted files are cached at `.data/local_runs/_drone_detection_cache/` and
 reused on re-runs.
 
 ### Using more data
@@ -74,7 +74,7 @@ To use the full dataset (batch 001–004) for a production-quality model, downlo
 the additional batches manually and place them in the cache directory:
 
 ```
-data/local_runs/_drone_detection_cache/
+.data/local_runs/_drone_detection_cache/
   train_images/   ← all images from batch_001 + extras you add
   train_labels/   ← matching YOLO .txt label files
 ```
@@ -116,7 +116,7 @@ No configuration is needed; hard negative injection is always active.
 
 ## Outputs
 
-All outputs are written to `data/local_runs/{video_name}/drone_detection/`.
+All outputs are written to `.data/local_runs/{video_name}/drone_detection/`.
 
 ```
 drone_detection/
@@ -141,8 +141,8 @@ drone_detection/
 ```
 
 A cross-run model advisor report is also updated at
-`data/local_runs/model_run_advisor.md` and
-`data/local_runs/model_run_advisor.json` with an edge deployment section.
+`.data/local_runs/model_run_advisor.md` and
+`.data/local_runs/model_run_advisor.json` with an edge deployment section.
 
 ---
 
@@ -152,7 +152,7 @@ A cross-run model advisor report is also updated at
 
 ```bash
 pip install onnxruntime          # or onnxruntime-gpu on CUDA machines
-cd data/local_runs/{video_name}/drone_detection/
+cd .data/local_runs/{video_name}/drone_detection/
 python test_a76.py path/to/test_frame.jpg
 ```
 

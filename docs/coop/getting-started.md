@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide walks you through setting up the coop_pilot IoT monitoring stack and
+This guide walks you through setting up the coop IoT monitoring stack and
 integrating it with selfsuvis.
 
 ## Prerequisites
@@ -168,12 +168,12 @@ curl http://localhost:8080/site/cameras | python -m json.tool
 curl http://localhost:8080/site/synthesis | python -m json.tool
 ```
 
-### 4. Install coop_pilot extras (local dev only)
+### 4. Install coop extras (local dev only)
 
 If running the API outside Docker:
 
 ```bash
-pip install -e ".[coop_pilot]"
+pip install -e ".[coop]"
 ```
 
 This installs `aiomqtt`, `docker`, `pandas`, `jinja2`, and `rich` — the optional

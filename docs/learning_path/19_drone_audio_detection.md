@@ -3,7 +3,7 @@
 **Pipeline step:** Step 32 of the local runner  
 **Source:** `src/selfsuvis/pipeline/workflows/local/steps_drone_audio.py`  
 **Dataset:** `geronimobasso/drone-audio-detection-samples` (HuggingFace, public)  
-**Dataset prep:** `scripts/split_drone_audio_data.sh` → `data/drone-audio-data/`  
+**Dataset prep:** `scripts/split_drone_audio_data.sh` → `.data/drone-audio-data/`  
 **Outputs:** `drone_audio/drone_audio_cnn.pt`, `drone_audio/drone_audio_cnn.onnx`, `drone_audio/drone_audio_report.md`
 
 ---
@@ -17,7 +17,7 @@ detectors, to provide an independent acoustic evidence channel.
 
 The full sequence:
 
-1. Locate the split dataset under `data/drone-audio-data/` (or download it on first run)
+1. Locate the split dataset under `.data/drone-audio-data/` (or download it on first run)
 2. Compute **MFCC features** from each 1-second WAV chunk (40 coefficients × 44 frames)
 3. Train **DroneAudioCNN** for up to `DRONE_AUDIO_EPOCHS` epochs (default: 10)
 4. Evaluate on the validation split; log F1 / precision / recall per epoch
@@ -74,7 +74,7 @@ Training uses:
 After `split_drone_audio_data.sh` (or `selfsuvis-prepare-audio`):
 
 ```
-data/drone-audio-data/
+.data/drone-audio-data/
   train/
     drone/        *.wav   (≈75% of drone samples)
     no_drone/     *.wav   (≈75% of background samples)
@@ -131,7 +131,7 @@ def compute_mfcc(wave):
         mfcc = np.pad(mfcc, ((0, 0), (0, T_FRAMES - mfcc.shape[1])))
     return mfcc[:, :T_FRAMES].astype(np.float32)
 
-sess = ort.InferenceSession("data/local_runs/drone_mission/drone_audio/drone_audio_cnn.onnx")
+sess = ort.InferenceSession(".data/local_runs/drone_mission/drone_audio/drone_audio_cnn.onnx")
 wave = load_wav("audio_chunk.wav")
 mfcc = compute_mfcc(wave)[None, None, :, :]  # (1, 1, 40, 44)
 logits = sess.run(["logits"], {"mfcc": mfcc})[0]
@@ -172,7 +172,7 @@ would hear at a given distance, approach angle, and speed:
 
 # Save to WAV for model testing:
 ./scripts/play_drone_sound.sh --scenario approach --distance 300 --speed 15 \
-  --output data/reports/test_approach_300m.wav
+  --output .data/reports/test_approach_300m.wav
 
 # Hover at 50 m for 20 seconds:
 ./scripts/play_drone_sound.sh --scenario hover --distance 50 --duration 20
@@ -205,13 +205,13 @@ same on-axis reference position as the other microphones.
 
 ```bash
 # Training report with architecture, metrics table, and ONNX usage snippet:
-cat data/local_runs/drone_mission/drone_audio/drone_audio_report.md
+cat .data/local_runs/drone_mission/drone_audio/drone_audio_report.md
 
 # Verify ONNX model is loadable and has correct input/output shapes:
 python3 -c "
 import onnxruntime as ort
 sess = ort.InferenceSession(
-    'data/local_runs/drone_mission/drone_audio/drone_audio_cnn.onnx')
+    '.data/local_runs/drone_mission/drone_audio/drone_audio_cnn.onnx')
 for inp in sess.get_inputs():
     print('input :', inp.name, inp.shape, inp.type)
 for out in sess.get_outputs():
@@ -245,7 +245,7 @@ for out in sess.get_outputs():
   provides an orthogonal acoustic evidence channel that complements the visual one.
 - **Step 32 ONNX → edge deployment:** the exported `drone_audio_cnn.onnx` targets the same
   Cortex-A76 / RV1106G3 edge stack as the YOLO fp32 / int8 ONNX exports from Step 30.
-- **coop_pilot Step 19 acoustic analysis:** the acoustic MFCC features computed here share the
+- **coop Step 19 acoustic analysis:** the acoustic MFCC features computed here share the
   same mel-filterbank mathematics as the beamforming and GCC-PHAT bearing estimation in the
   coop acoustic sensor stack.
 

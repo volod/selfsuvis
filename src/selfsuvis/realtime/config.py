@@ -1,4 +1,4 @@
-"""Configuration for realtime_pilot engine integrations."""
+"""Configuration for realtime engine integrations."""
 
 from selfsuvis.pipeline.core.env import env_str
 

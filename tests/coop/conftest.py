@@ -1,4 +1,4 @@
-"""Pytest configuration and fixtures for coop_pilot stack tests."""
+"""Pytest configuration and fixtures for coop stack tests."""
 
 import os
 from pathlib import Path
@@ -53,7 +53,7 @@ def expected_containers():
 
 @pytest.fixture(scope="session")
 def container_names():
-    """Named coop_pilot service containers from docker-compose.coop.yml."""
+    """Named coop service containers from docker-compose.coop.yml."""
     return {
         "mosquitto": "coop-mosquitto",
         "chirpstack_postgres": "coop-cs-postgres",

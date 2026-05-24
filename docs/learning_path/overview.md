@@ -22,7 +22,7 @@ Recommended reading order:
 10. [Local analytics math and methodology](13_local_analytics_math_methodology.md)
 11. [Temporal SSL and physical state](14_temporal_ssl_physical_state.md)
 12. [Threat primitives and local inference](15_threat_primitives_local_inference.md)
-13. [coop_pilot IoT edge monitoring](16_coop_pilot_iot_edge_monitoring.md)
+13. [coop IoT edge monitoring](16_coop_iot_edge_monitoring.md)
 14. [Essential technology stack](17_essential_technology_stack.md)
 15. [Future directions: cross-modal SSL, environmental fields, calibration, global threats](18_future_directions.md)
 
@@ -57,16 +57,16 @@ After completing your first local run, use the analytics toolkit to inspect resu
 - [Future directions: cross-modal SSL, environmental fields, calibration, global threats](18_future_directions.md) — not-yet-implemented advanced themes to study after the current local stack is understood
 - [Essential technology stack](17_essential_technology_stack.md) — extended human-readable guide to the core technologies behind the current implementation
 
-## coop_pilot IoT Edge Monitoring
+## coop IoT Edge Monitoring
 
-The `coop_pilot` layer adds continuous site awareness on top of the mission-indexing
+The `coop` layer adds continuous site awareness on top of the mission-indexing
 pipeline. It connects Mosquitto MQTT, ChirpStack LoRaWAN uplinks, Frigate NVR events,
 MediaMTX RTSP bridge sessions, acoustic FFT/Whisper analysis, rolling site-state
 aggregation, scene synthesis, and realtime threat-sector ingestion.
 
 Start with:
 
-- [coop_pilot IoT edge monitoring deep dive](16_coop_pilot_iot_edge_monitoring.md)
-- [Day-by-day syllabus, Days 36-42](00_day_by_day_syllabus.md#week-6-iot-edge-monitoring-with-coop_pilot)
-- [coop_pilot getting started](../coop/getting-started.md)
-- [coop_pilot integration guide](../coop/integration.md)
+- [coop IoT edge monitoring deep dive](16_coop_iot_edge_monitoring.md)
+- [Day-by-day syllabus, Days 36-42](00_day_by_day_syllabus.md#week-6-iot-edge-monitoring-with-coop)
+- [coop getting started](../coop/getting-started.md)
+- [coop integration guide](../coop/integration.md)

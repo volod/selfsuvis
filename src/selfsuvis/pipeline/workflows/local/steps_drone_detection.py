@@ -19,6 +19,7 @@ Outputs (all under video_dir/drone_detection/):
   drone_detection_report.md        training summary + edge-deployment notes
 """
 
+import os
 import shutil
 import textwrap
 import time
@@ -27,6 +28,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
+from selfsuvis.pipeline.core import settings
 from selfsuvis.pipeline.core.logging import get_logger
 
 from ._common import write_markdown_artifact
@@ -154,11 +156,11 @@ def _build_yolo_dataset(
 
 
 def _configure_ultralytics_cache() -> None:
-    """Point ultralytics weights_dir at ~/.cache/ultralytics so downloads never land in CWD."""
+    """Point ultralytics weights_dir at the selfsuvis cache so downloads never land in CWD."""
     try:
         from ultralytics.utils import SETTINGS
 
-        cache_dir = str(Path.home() / ".cache" / "ultralytics")
+        cache_dir = str(_ultralytics_cache_dir())
         if SETTINGS.get("weights_dir") != cache_dir:
             SETTINGS.update({"weights_dir": cache_dir})
     except Exception:
@@ -218,7 +220,7 @@ def _relocate_repo_root_ultralytics_artifacts() -> None:
     Ultralytics sometimes drops helper weights like ``yolo26n.pt`` into the
     process cwd during AMP checks. They are cache artifacts, not project files.
     """
-    cache_dir = Path.home() / ".cache" / "ultralytics"
+    cache_dir = _ultralytics_cache_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
     repo_root = Path.cwd()
     for model_name in _ULTRALYTICS_AUX_MODELS:
@@ -261,7 +263,12 @@ def _export_onnx_fp32(best_pt: Path, export_dir: Path) -> Path | None:
 
 def _ultralytics_cached_model_path(model_name: str) -> Path:
     """Return the canonical ultralytics cache path for *model_name*."""
-    return Path.home() / ".cache" / "ultralytics" / model_name
+    return _ultralytics_cache_dir() / model_name
+
+
+def _ultralytics_cache_dir() -> Path:
+    data_dir = Path(getattr(settings, "DATA_DIR", "./.data"))
+    return Path(os.getenv("CACHE_DIR", str(data_dir / ".cache"))) / "ultralytics"
 
 
 def _quantize_onnx_int8(onnx_fp32: Path, export_dir: Path) -> Path | None:

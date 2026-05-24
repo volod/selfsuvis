@@ -1,10 +1,10 @@
-"""coop_pilot runtime configuration — reads from environment / .env."""
+"""coop runtime configuration — reads from environment / .env."""
 
 from selfsuvis.pipeline.core.env import env_bool, env_int, env_str
 
 
 class CoopPilotSettings:
-    """Settings for the coop_pilot sensor mesh integration."""
+    """Settings for the coop sensor mesh integration."""
 
     # MQTT broker (Mosquitto)
     mqtt_host: str = env_str("COOP_MQTT_HOST", "localhost")

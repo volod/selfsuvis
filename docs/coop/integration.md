@@ -1,6 +1,6 @@
-# coop_pilot — selfsuvis Integration Guide
+# coop — selfsuvis Integration Guide
 
-This document covers how `coop_pilot` integrates with the selfsuvis API, realtime
+This document covers how `coop` integrates with the selfsuvis API, realtime
 pipeline, and threat aggregation layer.
 
 ## Overview
@@ -176,5 +176,5 @@ live human-readable dashboard without requiring any robot or drone.
 - [getting-started.md](getting-started.md) — first-time setup
 - [sensor-integration.md](sensor-integration.md) — adding new sensor types
 - [analytics.md](../reference/analytics.md) — log analytics CLI (`coop-analytics`)
-- [architecture.md](../reference/architecture.md) — coop_pilot component diagram
+- [architecture.md](../reference/architecture.md) — coop component diagram
 - [testing.md](testing.md) — MQTT integration tests and load testing

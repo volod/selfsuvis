@@ -260,9 +260,9 @@ log "Copying project files..."
 
 cp "$PROJECT_ROOT/docker/coop/docker-compose.coop.yml" "$BUNDLE_DIR/docker/coop/"
 cp -r "$PROJECT_ROOT/config/coop" "$BUNDLE_DIR/config/"
-cp "$PROJECT_ROOT/src/selfsuvis/coop_pilot/env/prod.env" "$BUNDLE_DIR/env/"
-cp "$PROJECT_ROOT/src/selfsuvis/coop_pilot/env/dev.env"  "$BUNDLE_DIR/env/"
-cp "$PROJECT_ROOT/src/selfsuvis/coop_pilot/env/test.env" "$BUNDLE_DIR/env/"
+cp "$PROJECT_ROOT/src/selfsuvis/coop/env/prod.env" "$BUNDLE_DIR/env/"
+cp "$PROJECT_ROOT/src/selfsuvis/coop/env/dev.env"  "$BUNDLE_DIR/env/"
+cp "$PROJECT_ROOT/src/selfsuvis/coop/env/test.env" "$BUNDLE_DIR/env/"
 
 for SCRIPT in "${BUNDLE_SCRIPTS[@]}"; do
   SRC="$PROJECT_ROOT/scripts/$SCRIPT"

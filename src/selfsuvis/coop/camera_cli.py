@@ -1,4 +1,4 @@
-"""Manage Frigate camera configuration from the coop_pilot package.
+"""Manage Frigate camera configuration from the coop package.
 
 Usage:
   ./scripts/coop/coop-camera.sh --name front_door --rtsp rtsp://user:pass@192.168.1.100:554/stream1

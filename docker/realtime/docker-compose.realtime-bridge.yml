@@ -16,9 +16,9 @@ services:
     container_name: realtime-mavsdk-bridge
     restart: unless-stopped
     env_file:
-      - path: ../../src/selfsuvis/realtime_pilot/env/prod.env
+      - path: ../../src/selfsuvis/realtime/env/prod.env
         required: true
-      - path: ../../.env
+      - path: ../../.data/.env
         required: false
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis}
@@ -39,9 +39,9 @@ services:
     container_name: realtime-ros-bridge
     restart: unless-stopped
     env_file:
-      - path: ../../src/selfsuvis/realtime_pilot/env/prod.env
+      - path: ../../src/selfsuvis/realtime/env/prod.env
         required: true
-      - path: ../../.env
+      - path: ../../.data/.env
         required: false
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis}

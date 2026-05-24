@@ -143,7 +143,7 @@ The pipeline has a LangGraph-based orchestrator as an opt-in replacement for the
 `run_video_pipeline()` in `runner.py`. Activate it with an env var — no CLI change needed:
 
 ```bash
-SELFSUVIS_USE_GRAPH=1 APP_ENV=dev selfsuvis --mode local --videos-dir data/videos
+SELFSUVIS_USE_GRAPH=1 APP_ENV=dev selfsuvis --mode local --videos-dir .data/videos
 ```
 
 Both paths produce identical artifacts. The graph path adds:
@@ -185,14 +185,14 @@ Both paths produce identical artifacts. The graph path adds:
 
 ```bash
 # First run — note the thread_id printed in the logs
-SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=data/checkpoints.db \
-  selfsuvis --mode local --videos-dir data/videos
+SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=.data/checkpoints.db \
+  selfsuvis --mode local --videos-dir .data/videos
 # => "Starting graph pipeline for drone_mission (thread_id=drone_mission_1714123456)"
 
 # Resume after failure — nodes already completed are skipped
-SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=data/checkpoints.db \
+SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=.data/checkpoints.db \
   SELFSUVIS_RESUME_THREAD_ID=drone_mission_1714123456 \
-  selfsuvis --mode local --videos-dir data/videos
+  selfsuvis --mode local --videos-dir .data/videos
 ```
 
 ### Agentic improvements in the LangGraph path
@@ -312,9 +312,9 @@ The DAE checkpoint is stored alongside the DINOv3 checkpoint under
 `{video_dir}/checkpoints/dae_best.pt`.  The encoder weights only (for downstream
 feature extraction) are saved as `dae_encoder.pt`.
 
-### coop_pilot learning extension
+### coop learning extension
 
-`coop_pilot` is a continuous site-awareness extension, not another stage inside a
+`coop` is a continuous site-awareness extension, not another stage inside a
 single `selfsuvis --mode local` video run. In the learning path it follows the
 36-step conceptual local curriculum as Steps 37-43:
 
@@ -328,8 +328,8 @@ single `selfsuvis --mode local` video run. In the learning path it follows the
 | 42 | Site mesh and scene synthesis | GPS proximity graph, `/site/mesh`, `/site/synthesis` |
 | 43 | Realtime threat bridge and analytics | `coop_ingest`, `/site/threat`, `coop-analytics` |
 
-Use [Local Learning Path](../quickstart/local_path.md#coop_pilot-extension-steps) for the short
-study sequence and [coop_pilot IoT edge monitoring](../learning_path/16_coop_pilot_iot_edge_monitoring.md)
+Use [Local Learning Path](../quickstart/local_path.md#coop-extension-steps) for the short
+study sequence and [coop IoT edge monitoring](../learning_path/16_coop_iot_edge_monitoring.md)
 for the deep dive.
 
 Current local-run optimizations also make a few steps adaptive instead of fully exhaustive:
@@ -431,16 +431,16 @@ Use that document for:
 
 Expect artifacts under `data/` such as:
 
-- `data/videos/`
-- `data/frames/`
+- `.data/videos/`
+- `.data/frames/`
 - `data/tiles/`
-- `data/reports/`
+- `.data/reports/`
 - `data/maps/`
-- `data/checkpoints/`
+- `.data/checkpoints/`
 - `data/models/`
 - `data/gallery/`
-- `data/local_runs/model_run_advisor.md`
-- `data/local_runs/model_run_advisor.json`
+- `.data/local_runs/model_run_advisor.md`
+- `.data/local_runs/model_run_advisor.json`
 
 Relevant semantic-graph artifacts:
 

@@ -15,7 +15,7 @@ Do not treat it as a production SLAM or occupancy engine.
 ## What it does
 
 - estimates a fused pose from normalized `gps`, `imu`, `barometer`, `magnetometer` packets
-- writes stub map tiles under `data/maps/realtime/<session>/...`
+- writes stub map tiles under `.data/maps/realtime/<session>/...`
 - exposes the same HTTP contract used by external realtime engines
 
 ## Image

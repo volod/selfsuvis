@@ -19,7 +19,7 @@ Use this as a first-class setup step analogous to prepare_models.py.
 
 Usage
 -----
-    # Default path (data/drone-audio-data):
+    # Default path (.data/drone-audio-data):
     python -m selfsuvis.scripts.prepare_audio_data
 
     # Custom path:
@@ -48,7 +48,7 @@ def _default_data_dir() -> str:
 
         return settings.DRONE_AUDIO_DATA_DIR
     except Exception:
-        return os.path.join("data", "drone-audio-data")
+        return os.path.join(".data", "drone-audio-data")
 
 
 def _verify(data_dir: Path) -> bool:
@@ -96,7 +96,7 @@ def main() -> None:
     parser.add_argument(
         "--data-dir",
         default=_default_data_dir(),
-        help="Output directory (default: data/drone-audio-data or DRONE_AUDIO_DATA_DIR env var)",
+        help="Output directory (default: .data/drone-audio-data or DRONE_AUDIO_DATA_DIR env var)",
     )
     parser.add_argument(
         "--sr",
@@ -165,7 +165,7 @@ def main() -> None:
     if ok:
         print(f"\nDrone audio dataset ready at: {data_dir}")
         print("Train the DroneAudioCNN with:")
-        print("  selfsuvis --mode local --videos-dir data/videos --drone-audio")
+        print("  selfsuvis --mode local --videos-dir .data/videos --drone-audio")
     else:
         print("\nWarning: some splits appear to be incomplete.")
         sys.exit(1)

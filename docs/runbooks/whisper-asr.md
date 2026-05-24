@@ -33,7 +33,7 @@ informative audio (voice narration, radio comms, ATC, operator callouts).
 | `ASR_BATCH_SIZE` | `8` | Audio chunks processed in parallel |
 | `ASR_CHUNK_LENGTH_SEC` | `30` | Seconds of audio per Whisper chunk |
 | `ASR_SUBTITLE_WINDOW_SEC` | `3.0` | ±seconds when matching subtitle segments to frames |
-| `ASR_AUDIO_DIR` | `data/audio` | Directory for extracted WAV files |
+| `ASR_AUDIO_DIR` | `.data/audio` | Directory for extracted WAV files |
 
 ---
 

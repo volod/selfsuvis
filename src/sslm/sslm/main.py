@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
 
     finetune = sub.add_parser("write-finetune-config", help="Write a starter QLoRA/SFT config")
     finetune.add_argument("--base-model", default="Qwen/Qwen3-8B")
-    finetune.add_argument("--dataset", default="jsonl://data/reasoning_sft.jsonl")
+    finetune.add_argument("--dataset", default="jsonl://.data/reasoning_sft.jsonl")
     finetune.add_argument("--output", type=Path, default=Path(".data/sslm/finetune/qlora.yaml"))
 
     args = parser.parse_args(argv)

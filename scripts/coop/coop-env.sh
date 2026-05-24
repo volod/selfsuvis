@@ -15,8 +15,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage: ./scripts/coop/coop-env.sh [prod|dev|test] [--force]
 
-Generates `.data/.env` for the coop stack only.
-This is separate from root `.env` used by the main selfsuvis app setup.
+Generates `.data/.env` for the coop stack.
 EOF
   exit 0
 fi
@@ -29,7 +28,7 @@ for arg in "$@"; do
   esac
 done
 
-TEMPLATE="$PROJECT_ROOT_DIR/src/selfsuvis/coop_pilot/env/${ENV}.env"
+TEMPLATE="$PROJECT_ROOT_DIR/src/selfsuvis/coop/env/${ENV}.env"
 OUTPUT="$(project_env_file)"
 
 if [[ ! -f "$TEMPLATE" ]]; then

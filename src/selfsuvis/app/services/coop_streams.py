@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 
 class CoopStreamService:
-    """Lifecycle manager for coop_pilot realtime stream analysis.
+    """Lifecycle manager for coop realtime stream analysis.
 
     Args:
         mediamtx_client:   MediaMtxClient from app.services.live_streams.
@@ -68,7 +68,7 @@ class CoopStreamService:
                 asyncio.create_task(self._start_sound_analyzers_delayed(), name="coop_sound_init")
 
         except ImportError as exc:
-            logger.warning("CoopStreamService: coop_pilot not available (%s)", exc)
+            logger.warning("CoopStreamService: coop not available (%s)", exc)
         except Exception:
             logger.exception("CoopStreamService: startup error")
 

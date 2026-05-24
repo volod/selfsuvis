@@ -5,7 +5,7 @@ transcription, and applies a lightweight spectral acoustic event classifier to
 detect alarms, impacts, engines, and loud anomalies.
 
 Results are emitted as AcousticObservation objects suitable for ingestion into
-the coop_pilot SiteStateAggregator or the selfsuvis realtime pipeline.
+the coop SiteStateAggregator or the selfsuvis realtime pipeline.
 
 Requires: ffmpeg on PATH, faster-whisper installed.
 """

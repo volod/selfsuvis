@@ -52,7 +52,7 @@ eval_benchmarks:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write starter fine-tuning recipes.")
     parser.add_argument("--base-model", default="Qwen/Qwen3-8B")
-    parser.add_argument("--dataset", default="jsonl://data/reasoning_sft.jsonl")
+    parser.add_argument("--dataset", default="jsonl://.data/reasoning_sft.jsonl")
     parser.add_argument("--output", type=Path, default=Path(".data/sslm/finetune/qlora.yaml"))
     args = parser.parse_args(argv)
     write_qlora_recipe(args.output, base_model=args.base_model, dataset=args.dataset)

@@ -9,18 +9,18 @@ Workflow:
   2. Run this script:
 
      python scripts/supervised_finetune_dino.py \\
-         --frames-dir data/cvat_frames \\
-         --cvat-xml   data/cvat_annotations.xml \\
-         --output-dir data/checkpoints/supervised
+         --frames-dir .data/cvat_frames \\
+         --cvat-xml   .data/cvat_annotations.xml \\
+         --output-dir .data/checkpoints/supervised
 
   3. Point DINO_CHECKPOINT to the resulting dino_sup_best.pt checkpoint.
 
 Warm-starting from an SSL checkpoint (recommended):
      python scripts/supervised_finetune_dino.py \\
-         --frames-dir data/frames \\
+         --frames-dir .data/frames \\
          --cvat-xml   /path/to/cvat_annotations.xml \\
-         --output-dir data/checkpoints/supervised \\
-         --ssl-checkpoint data/checkpoints/dino_ssl_best.pt
+         --output-dir .data/checkpoints/supervised \\
+         --ssl-checkpoint .data/checkpoints/dino_ssl_best.pt
 """
 
 import argparse

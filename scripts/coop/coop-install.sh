@@ -9,7 +9,7 @@
 #
 # Options:
 #   --install-dir DIR      Installation root (default: /opt/coop)
-#   --data-dir DIR         Data storage root (default: INSTALL_DIR/data)
+#   --data-dir DIR         Data storage root (default: INSTALL_DIR/.data)
 #   --storage-dev DEV      Block device for data storage (optional).
 #                          Formats ext4, mounts at DATA_DIR, adds /etc/fstab entry.
 #                          Examples: /dev/sdb  /dev/mmcblk0  /dev/nvme0n1

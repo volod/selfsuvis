@@ -1,4 +1,4 @@
-"""Generate a project-root .env from environment presets plus resource-aware overrides."""
+"""Generate .data/.env from environment presets plus resource-aware overrides."""
 
 import argparse
 import os
@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
 
-from selfsuvis.pipeline.vision.registry import detect_resources
 from selfsuvis.pipeline.core.env import project_roots
+from selfsuvis.pipeline.vision.registry import detect_resources
 
 _ENV_NAMES = ("dev", "test", "prod")
 _PROFILE_NAMES = ("minimal", "balanced", "full")
@@ -563,7 +563,7 @@ def _resource_profile_from_args(args: argparse.Namespace) -> ResourceProfile:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate a project-root .env from packaged env presets and resource-aware defaults.",
+        description="Generate .data/.env from packaged env presets and resource-aware defaults.",
     )
     parser.add_argument(
         "--env",
@@ -575,7 +575,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--profile", choices=_PROFILE_NAMES, default="balanced", help="High-level sidecar profile."
     )
-    parser.add_argument("--output", default=".env", help="Output path for the generated env file.")
+    parser.add_argument("--output", default=".data/.env", help="Output path for the generated env file.")
     parser.add_argument(
         "--interactive",
         action="store_true",
@@ -669,7 +669,7 @@ def _print_sidecar_next_steps(plan: EnvPlan, values: dict[str, str]) -> None:
         for cmd in vllm_cmds:
             print(f"    {cmd}\n")
 
-    print("\n  Edit .env and set API_KEY, then drop videos into .data/videos/ and run:")
+    print("\n  Edit .data/.env and set API_KEY, then drop videos into .data/videos/ and run:")
     print("    make up  (Docker)  or  make venv && uvicorn selfsuvis.app.main:app  (local)")
     print("------------------------------------------------------------------\n")
 

@@ -16,21 +16,21 @@ turn those artifacts into structured summaries, warnings, charts, and a portable
 Main CLI:
 
 ```bash
-selfsuvis --mode analyse --run-dir data/local_runs/drone_mission
+selfsuvis --mode analyse --run-dir .data/local_runs/drone_mission
 ```
 
 Module form:
 
 ```bash
-python -m selfsuvis --mode analyse --run-dir data/local_runs/drone_mission
+python -m selfsuvis --mode analyse --run-dir .data/local_runs/drone_mission
 ```
 
 Optional machine-readable summary:
 
 ```bash
 selfsuvis --mode analyse \
-  --run-dir data/local_runs/drone_mission \
-  --summary-json data/local_runs/drone_mission/analysis_summary.json
+  --run-dir .data/local_runs/drone_mission \
+  --summary-json .data/local_runs/drone_mission/analysis_summary.json
 ```
 
 This writes PNG charts and `analysis_report.html` into the run directory by default.
@@ -169,7 +169,7 @@ The report combines:
 from selfsuvis.analytics import LocalRunLoader
 from selfsuvis.visualization import generate_report, plot_timeline
 
-summary = LocalRunLoader("data/local_runs/drone_mission").load()
+summary = LocalRunLoader(".data/local_runs/drone_mission").load()
 print(summary.run_health.warnings)
 print(summary.artifact_inventory.total_files)
 

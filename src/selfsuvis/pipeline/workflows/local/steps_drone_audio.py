@@ -2,7 +2,7 @@
 
 Downloads geronimobasso/drone-audio-detection-samples from HuggingFace and
 caches audio files under settings.DRONE_AUDIO_DATA_DIR (default:
-data/drone-audio-data/).  Trains DroneAudioCNN — a small 2-D CNN over MFCC
+.data/drone-audio-data/).  Trains DroneAudioCNN — a small 2-D CNN over MFCC
 features — for binary drone / no-drone classification and exports ONNX for
 edge inference.
 

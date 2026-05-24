@@ -36,7 +36,7 @@ Then set the values that have no default:
 
 ```
 API_KEY=<choose-a-secret>
-ALLOWED_INDEX_PATHS=/app/data/videos
+ALLOWED_INDEX_PATHS=/app/.data/videos
 ```
 
 The API now fails closed in production: when `APP_ENV=prod`, startup raises an error if `API_KEY` is empty unless you explicitly override `API_AUTH_REQUIRED=false`.
@@ -53,7 +53,7 @@ CVAT_API_TOKEN=<your-cvat-api-token>
 Edit `.env` directly:
 
 ```bash
-$EDITOR .env
+$EDITOR .data/.env
 ```
 
 ---
@@ -146,7 +146,7 @@ curl -X POST http://localhost:8000/index/dir \
 3. **Embedding** — OpenCLIP (and optionally DINOv3) encodes each keyframe -> stored in Qdrant
 4. **Active learning tagging** — frames with high uncertainty get `al_tag=needs_annotation` for future fine-tuning
 5. **Change detection** — GPS-overlapping frames from earlier missions are compared; results saved to `change_detections`
-6. **Report** — HTML mission summary written to `data/reports/<mission_id>/summary.html`
+6. **Report** — HTML mission summary written to `.data/reports/<mission_id>/summary.html`
 
 Full logs appear in the worker terminal. Job status transitions: `pending -> running -> finished` (or `error`).
 
@@ -226,7 +226,7 @@ Skip this section if you are not using CVAT for annotation-driven fine-tuning.
 ### 1. Generate a secret and add it to `.env`
 
 ```bash
-echo "CVAT_WEBHOOK_SECRET=$(openssl rand -hex 32)" >> .env
+echo "CVAT_WEBHOOK_SECRET=$(openssl rand -hex 32)" >> .data/.env
 ```
 
 Restart the stack so the API picks it up:

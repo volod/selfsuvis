@@ -197,14 +197,14 @@ The toolkit is optional: if absent, the step produces the int8 ONNX fallback and
 The NPU path delivers 8-15 ms; the Cortex-A7 CPU fallback delivers 80-150 ms.
 
 **Output artifacts:**
-All outputs land in `data/local_runs/{video_name}/drone_detection/`:
+All outputs land in `.data/local_runs/{video_name}/drone_detection/`:
 - `exports/drone_yolo8n_a76.onnx` — fp32 model for Cortex-A76
 - `exports/drone_yolo8n_rv1106_int8.onnx` — int8 model for RV1106G3
 - `exports/drone_yolo8n_rv1106.rknn` — (optional) RKNN NPU model
 - `test_a76.py` — inference test script for Cortex-A76
 - `test_rv1106.py` — inference test script for RV1106G3
 - `drone_detection_report.md` — training metrics, model sizes, and deployment commands
-- Cross-run model advisor updated at `data/local_runs/model_run_advisor.md`
+- Cross-run model advisor updated at `.data/local_runs/model_run_advisor.md`
 
 **Human focus:**
 - Read `drone_detection_report.md` and locate: mAP@50, final box loss, fp32 model size, int8 model size.
@@ -250,8 +250,8 @@ All outputs land in `data/local_runs/{video_name}/drone_detection/`:
 **What it does:**
 After all per-video steps complete, the runner calls `write_model_run_advisor()` once for the entire run.
 It aggregates analytics from every video's `analysis_summary` dict and emits two artifacts:
-- `data/local_runs/model_run_advisor.json` — machine-readable optimization plan
-- `data/local_runs/model_run_advisor.md` — human-readable report with recommended `.env` updates and rerun command
+- `.data/local_runs/model_run_advisor.json` — machine-readable optimization plan
+- `.data/local_runs/model_run_advisor.md` — human-readable report with recommended `.env` updates and rerun command
 
 Three categories of findings are evaluated:
 1. **VLM captioning quality** — Qwen parse errors and caption coverage. Low coverage or high parse-error counts indicate the running model is too small for the JSON schema required by the pipeline.
@@ -290,12 +290,12 @@ Setting `OLLAMA_KEEP_ALIVE=0` evicts the model immediately after inference, free
 This sequential pattern trades latency (models load and unload per step) for correctness: no OOM and no KV-cache interference between models on a 12 GB card.
 
 *Cross-run scope:*
-Unlike per-video step outputs (which land in `data/local_runs/{video_name}/`), the advisor writes to `data/local_runs/` at the run level and aggregates evidence from all videos in one invocation.
+Unlike per-video step outputs (which land in `.data/local_runs/{video_name}/`), the advisor writes to `.data/local_runs/` at the run level and aggregates evidence from all videos in one invocation.
 If three videos were processed and two had degraded maps, the `sfm_pose_recovery_degraded` finding covers both.
 
 **Output artifacts:**
-- `data/local_runs/model_run_advisor.json` — full structured output (findings, recommendations, recommended_env_updates, edge_deployment, sequential_vllm_graph_profile, recommended_ollama_pulls, recommended_rerun)
-- `data/local_runs/model_run_advisor.md` — sections: Hardware, Findings, Recommended `.env` Updates, Pull/Serve Models, Recommended Rerun, Rationale, Edge Deployment, Sequential VLLM Graph Profile
+- `.data/local_runs/model_run_advisor.json` — full structured output (findings, recommendations, recommended_env_updates, edge_deployment, sequential_vllm_graph_profile, recommended_ollama_pulls, recommended_rerun)
+- `.data/local_runs/model_run_advisor.md` — sections: Hardware, Findings, Recommended `.env` Updates, Pull/Serve Models, Recommended Rerun, Rationale, Edge Deployment, Sequential VLLM Graph Profile
 
 **Human focus:**
 - Open `model_run_advisor.md` after every run. Read the Findings section first.

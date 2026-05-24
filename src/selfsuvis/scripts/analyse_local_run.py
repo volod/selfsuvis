@@ -11,7 +11,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--run-dir",
         required=True,
-        help="Path to a local run output directory (e.g. data/local_runs/drone_mission).",
+        help="Path to a local run output directory (e.g. .data/local_runs/drone_mission).",
     )
     parser.add_argument(
         "--charts-dir",

@@ -9,7 +9,7 @@ Called by the worker (pipeline/mapper.py) after splatfacto reconstruction
 completes, following the same HTTP pattern as the nerfstudio wrapper.
 
 Environment:
-  DATA_DIR  — base data directory (default ./data).
+  DATA_DIR  — base data directory (default ./.data).
   PORT      — listen port (default 8000).
 """
 

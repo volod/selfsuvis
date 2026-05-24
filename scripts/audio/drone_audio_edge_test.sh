@@ -29,7 +29,7 @@ if [[ $# -lt 2 ]]; then
   echo "  --threshold T   Confidence threshold (default: 0.5)"
   echo ""
   echo "Example:"
-  echo "  $(basename "$0") data/local_runs/my_video/drone_audio/drone_audio_cnn.onnx recording.wav"
+  echo "  $(basename "$0") .data/local_runs/my_video/drone_audio/drone_audio_cnn.onnx recording.wav"
   echo "  $(basename "$0") drone_audio_cnn.onnx recording.wav --scan"
   echo "  $(basename "$0") drone_audio_cnn.onnx recording.wav --distance 100"
   exit 1

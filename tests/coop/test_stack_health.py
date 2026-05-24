@@ -1,4 +1,4 @@
-"""Tests for coop_pilot service health and availability."""
+"""Tests for coop service health and availability."""
 
 import httpx
 import pytest

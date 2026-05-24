@@ -5,7 +5,7 @@ machine. It processes videos, runs every enabled perception and captioning stage
 fine-tunes a DINOv3 model on the mission frames, and exports it to ONNX.
 
 The local runner has 33 reported runtime/post-run steps and maps to the 36-step
-conceptual learning path. The optional `coop_pilot` extension adds Steps 37-43
+conceptual learning path. The optional `coop` extension adds Steps 37-43
 for live IoT site monitoring after the video pipeline run.
 
 > **Setting up the API/worker/UI service stack instead?**
@@ -39,7 +39,7 @@ HF_TOKEN=hf_xxxx bash scripts/ssv/ssv-setup.sh
 Already ran setup once? Skip directly to [Step 6 — Run the pipeline](#step-6--run-the-pipeline).
 Use `--no-utilyze` if you want to skip the optional Utilyze step.
 If you already completed the video pipeline and only want the coop extension, skip
-to [Optional Step 7 — Run coop_pilot Steps 37-43](#optional-step-7--run-coop_pilot-steps-37-43).
+to [Optional Step 7 — Run coop Steps 37-43](#optional-step-7--run-coop-steps-37-43).
 
 ---
 
@@ -68,7 +68,7 @@ make env               # non-interactive: auto-detects GPU and RAM
 make env-interactive   # prompts for sidecar backend, profile, models
 ```
 
-Then open `.env` and set `API_KEY` (leave blank for unauthenticated local use). `ALLOWED_INDEX_PATHS` is pre-filled to `./data/videos`.
+Then open `.data/.env` and set `API_KEY` (leave blank for unauthenticated local use). `ALLOWED_INDEX_PATHS` is pre-filled to `./.data/videos`.
 
 ---
 
@@ -127,7 +127,7 @@ This installs the scenetok package from GitHub, downloads `va-videodc_re10k.ckpt
 
 > **Segmentation decoder note:** The base SceneTok checkpoint produces novel-view RGB renders via a rectified flow decoder. The segmentation decoder — which replaces the RGB head with a mask output head to produce per-frame 3D-stable segmentation masks — must be fine-tuned separately. Pass `--scenetok-checkpoint` to point the pipeline at a trained segmentation checkpoint.
 
-**Gemma open-weight** (optional — loads locally instead of via Ollama sidecar; requires `HF_TOKEN` in `.env` and license accepted at `huggingface.co/google/gemma-3-4b-it`):
+**Gemma open-weight** (optional — loads locally instead of via Ollama sidecar; requires `HF_TOKEN` in `.data/.env` and license accepted at `huggingface.co/google/gemma-3-4b-it`):
 
 ```bash
 .venv/bin/python -m selfsuvis.scripts.prepare_models --gemma
@@ -180,7 +180,7 @@ export STARTUP_PREFLIGHT_STRICT=true
 ### Step 3b — Prepare drone audio dataset (Step 32)
 
 Step 32 of the local pipeline trains a small `DroneAudioCNN` on `geronimobasso/drone-audio-detection-samples`.
-The dataset is cached in `data/drone-audio-data/`; download and split it once before the first run.
+The dataset is cached in `.data/drone-audio-data/`; download and split it once before the first run.
 `selfsuvis-setup.sh` does this automatically (Step 4d). For manual setup:
 
 ```bash
@@ -189,7 +189,7 @@ The dataset is cached in `data/drone-audio-data/`; download and split it once be
 
 # Custom cache directory:
 .venv/bin/python -m selfsuvis.scripts.prepare_audio_data \
-  --data-dir /mnt/data/drone-audio-data
+  --data-dir /mnt/.data/drone-audio-data
 
 # Verify an existing split (no network, no writes):
 .venv/bin/python -m selfsuvis.scripts.prepare_audio_data --verify
@@ -202,20 +202,20 @@ Or via the installed entry point:
 
 ```bash
 selfsuvis-prepare-audio --verify
-selfsuvis-prepare-audio --data-dir data/drone-audio-data
+selfsuvis-prepare-audio --data-dir .data/drone-audio-data
 ```
 
 Step 32 runs automatically on each local pipeline run. To skip it:
 
 ```bash
-.venv/bin/selfsuvis --mode local --videos-dir data/videos --no-drone-audio
+.venv/bin/selfsuvis --mode local --videos-dir .data/videos --no-drone-audio
 ```
 
 To control training epochs:
 
 ```bash
 # Override epochs (default: DRONE_AUDIO_EPOCHS env var, or 10):
-.venv/bin/selfsuvis --mode local --videos-dir data/videos --drone-audio-epochs 20
+.venv/bin/selfsuvis --mode local --videos-dir .data/videos --drone-audio-epochs 20
 ```
 
 **Simulate drone sound** (useful for testing the trained ONNX model):
@@ -237,7 +237,7 @@ To control training epochs:
 
 # Save to WAV instead of playing:
 ./scripts/audio/play_drone_sound.sh --scenario approach --distance 500 --speed 20 \
-  --output data/reports/sim_approach_500m.wav
+  --output .data/reports/sim_approach_500m.wav
 ```
 
 ---
@@ -248,7 +248,7 @@ The Ollama sidecars serve Gemma (scene analysis) and the reasoning model. They m
 
 ```bash
 ollama serve                              # keep running in a terminal
-ollama pull <GEMMA_API_MODEL>             # value from .env, e.g. gemma4:e4b
+ollama pull <GEMMA_API_MODEL>             # value from .data/.env, e.g. gemma4:e4b
 ollama pull qwen3:14b                     # Step 30 reasoning model (or deepseek-r1:14b)
 ```
 
@@ -284,20 +284,20 @@ If `SCENETOK_API_URL` is absent or unreachable, the pipeline falls back to loadi
 
 ### Step 5 — Test video and sensor data
 
-The pipeline needs at least one video in `data/videos/` and, for sensor fusion, matching sidecar files.
+The pipeline needs at least one video in `.data/videos/` and, for sensor fusion, matching sidecar files.
 
 > **Note on step labels in this section:** the "Step N" labels in the sensor tables below are *sensor-type identifiers* used by `ssv-prepare-sensor-data.sh` to name its output directories (`step09_rf/`, `step10_thermal/`, ...). They are a data-organization convention and are separate from the pipeline runner's execution steps (1-32).
 
 #### Option A — Use your own footage
 
 ```bash
-cp /path/to/mission.mp4 data/videos/
+cp /path/to/mission.mp4 .data/videos/
 ```
 
 Then generate sensor sidecars keyed to that video's basename (the script auto-detects the file):
 
 ```bash
-bash scripts/ssv/ssv-prepare-sensor-data.sh data/sensors
+bash scripts/ssv/ssv-prepare-sensor-data.sh .data/sensors
 ```
 
 #### Option B — Download a public-domain test video
@@ -312,7 +312,7 @@ This downloads the US Highway 60 drone flyover (~27 MB, no login), trims it to 1
 
 #### What `ssv-prepare-sensor-data.sh` does
 
-The script creates one directory per sensor step under `data/sensors/` and generates synthetic sidecar files named after the video currently in `data/videos/` — so they are immediately usable by the pipeline without any renaming.
+The script creates one directory per sensor step under `.data/sensors/` and generates synthetic sidecar files named after the video currently in `.data/videos/` — so they are immediately usable by the pipeline without any renaming.
 
 | Directory | Step | What is generated / downloaded |
 |---|---|---|
@@ -337,12 +337,12 @@ Generated sidecars must sit in the same directory as the video and share its bas
 ```bash
 VIDEO_BASE="drone_mission"   # change to match your file
 
-cp data/sensors/step16_imu/${VIDEO_BASE}.imu.jsonl    data/videos/
-cp data/sensors/step16_imu/${VIDEO_BASE}.baro.jsonl   data/videos/
-cp data/sensors/step16_imu/${VIDEO_BASE}.wind.jsonl   data/videos/
-cp data/sensors/step17_atmospheric/${VIDEO_BASE}.env.jsonl  data/videos/
-cp data/sensors/step18_gas_radiation/${VIDEO_BASE}.gas.jsonl data/videos/
-cp data/sensors/step19_acoustic/${VIDEO_BASE}.audio.wav      data/videos/
+cp .data/sensors/step16_imu/${VIDEO_BASE}.imu.jsonl    .data/videos/
+cp .data/sensors/step16_imu/${VIDEO_BASE}.baro.jsonl   .data/videos/
+cp .data/sensors/step16_imu/${VIDEO_BASE}.wind.jsonl   .data/videos/
+cp .data/sensors/step17_atmospheric/${VIDEO_BASE}.env.jsonl  .data/videos/
+cp .data/sensors/step18_gas_radiation/${VIDEO_BASE}.gas.jsonl .data/videos/
+cp .data/sensors/step19_acoustic/${VIDEO_BASE}.audio.wav      .data/videos/
 # ... repeat for any other steps you have data for
 ```
 
@@ -372,14 +372,14 @@ Full sidecar naming reference:
 
 ```bash
 .venv/bin/selfsuvis --mode local \
-  --videos-dir data/videos \
+  --videos-dir .data/videos \
   --no-qdrant \
   --no-sfm \
   --no-gsplat
 ```
 
 For the highest-quality local run on this profile, keep `SELFSUVIS_USE_GRAPH=1`
-in `.env` or export it before the command. The graph path retries Qwen structured
+in `.data/.env` or export it before the command. The graph path retries Qwen structured
 caption parse failures and usually produces better `detailed_captions.md`.
 
 **Standard run** — with Qdrant for base-model search (Step 15) and fine-tuned search (Step 24):
@@ -389,14 +389,16 @@ caption parse failures and usually produces better `detailed_captions.md`.
 docker compose -f docker/core/docker-compose.yml up -d qdrant
 
 .venv/bin/selfsuvis --mode local \
-  --videos-dir data/videos
+  --videos-dir .data/videos
 ```
+
+The local pipeline uses `.data/videos` only. `data/videos` is not supported.
 
 **Fast iteration** — skip slow optional steps (ASR, OCR, depth, captioning):
 
 ```bash
 .venv/bin/selfsuvis --mode local \
-  --videos-dir data/videos \
+  --videos-dir .data/videos \
   --no-qdrant \
   --no-sfm \
   --no-gsplat \
@@ -432,7 +434,7 @@ artifacts first after the run finishes:
 9. `global_threat_summary.json` *(root of output dir — appears after all videos complete)*
    Cross-video aggregated threat: sector risk levels, persistent anomalies, and route advisories.
 10. `model_run_advisor.md` *(root of output dir — appears after all videos complete)*
-   Post-run findings plus recommended `.env` updates, model pulls, and rerun commands for the current machine.
+   Post-run findings plus recommended `.data/.env` updates, model pulls, and rerun commands for the current machine.
 
 For a full artifact-by-artifact walkthrough, read:
 
@@ -441,9 +443,9 @@ For a full artifact-by-artifact walkthrough, read:
 - [Threat primitives and local inference](../learning_path/15_threat_primitives_local_inference.md)
 - [Local run analytics](../reference/analytics.md)
 
-## Optional Step 7 — Run coop_pilot Steps 37-43
+## Optional Step 7 — Run coop Steps 37-43
 
-`coop_pilot` is not part of a single `selfsuvis --mode local` video run. It is the
+`coop` is not part of a single `selfsuvis --mode local` video run. It is the
 continuous site-awareness extension after the local learning pipeline. Use this
 when you want to practice Steps 37-43 locally: MQTT/LoRaWAN ingestion, Frigate
 events, rolling site state, RTSP/acoustic evidence, site mesh, scene synthesis,
@@ -454,13 +456,13 @@ and realtime threat sectors.
 If you used `make venv`, install the optional coop dependencies into the same venv:
 
 ```bash
-.venv/bin/pip install -e ".[coop_pilot]"
+.venv/bin/pip install -e ".[coop]"
 ```
 
 ### 7.2 Start the coop stack
 
 Use `APP_ENV=test` for a localhost-bound learning stack. Bootstrap creates
-`data/.env`, writable data directories, Mosquitto TLS certs, and MQTT users when
+`.data/.env`, writable data directories, Mosquitto TLS certs, and MQTT users when
 they are missing.
 
 ```bash
@@ -526,7 +528,7 @@ At first these may be empty. They populate when ChirpStack publishes uplinks on
 ### 7.5 Run the coop checks
 
 ```bash
-.venv/bin/python -m pytest -q tests/coop tests/unit/coop_pilot/test_sensor_decoders.py
+.venv/bin/python -m pytest -q tests/coop tests/unit/coop/test_sensor_decoders.py
 ```
 
 For a broader check of the site-state API and realtime threat bridge:
@@ -534,7 +536,7 @@ For a broader check of the site-state API and realtime threat bridge:
 ```bash
 .venv/bin/python -m pytest -q \
   tests/coop \
-  tests/unit/coop_pilot/test_sensor_decoders.py \
+  tests/unit/coop/test_sensor_decoders.py \
   tests/unit/app/routers/test_site_state.py \
   tests/unit/pipeline/realtime
 ```
@@ -545,8 +547,8 @@ For a broader check of the site-state API and realtime threat bridge:
 APP_ENV=test ./scripts/coop/coop-compose.sh down
 ```
 
-The short study sequence is in [Local Learning Path](local_path.md#coop_pilot-extension-steps).
-The deep dive is [coop_pilot IoT edge monitoring](../learning_path/16_coop_pilot_iot_edge_monitoring.md).
+The short study sequence is in [Local Learning Path](local_path.md#coop-extension-steps).
+The deep dive is [coop IoT edge monitoring](../learning_path/16_coop_iot_edge_monitoring.md).
 
 **Full run — realistic single GPU (12 GB minimum, sequential Ollama sidecars)**:
 
@@ -581,7 +583,7 @@ ollama pull qwen3:14b
 # - "UniDrive" step also uses the same Qwen sidecar endpoint/model
 # - SceneTok disabled
 .venv/bin/selfsuvis --mode local \
-  --videos-dir        data/videos \
+  --videos-dir        .data/videos \
   --asr               \
   --ocr               \
   --depth             \
@@ -678,7 +680,7 @@ ollama pull qwen3:14b         # Step 30       — agentic flow audit / reasoning
 # All available steps enabled. UniDrive runs locally if HF weights are cached.
 # SceneTok runs locally only if the machine has enough VRAM; otherwise omit --scenetok.
 .venv/bin/selfsuvis --mode local \
-  --videos-dir        data/videos \
+  --videos-dir        .data/videos \
   --asr               \
   --ocr               \
   --depth             \
@@ -706,7 +708,7 @@ ollama pull qwen3:14b         # Step 30       — agentic flow audit / reasoning
 > local torch and is enabled only when enough VRAM is detected. On 12-16 GB cards,
 > omit `--scenetok`; on 24 GB+ cards, local sequential execution is realistic.
 >
-> **SceneTok env note:** `SCENETOK_ENABLED=true` in `.env` is now respected when the
+> **SceneTok env note:** `SCENETOK_ENABLED=true` in `.data/.env` is now respected when the
 > CLI omits both `--scenetok` and `--no-scenetok`. Only the explicit flags override it.
 
 **Full run — vLLM only** (all LLM/VLM steps via vLLM, including UniDriveVLA):
@@ -757,7 +759,7 @@ SCENETOK_CHECKPOINT=va-videodc_re10k.ckpt \
 # —— Terminal 5: pipeline ——————————————————————————————————————————————————————
 # Steps enabled: all including unidrive (Step 13) and scenetok (Step 14)
 .venv/bin/selfsuvis --mode local \
-  --videos-dir        data/videos \
+  --videos-dir        .data/videos \
   --asr               \
   --ocr               \
   --depth             \
@@ -791,8 +793,8 @@ SCENETOK_CHECKPOINT=va-videodc_re10k.ckpt \
 
 | Flag | Default | What it controls |
 |---|---|---|
-| `--videos-dir` | `data/videos` | Input video directory |
-| `--output-dir` | `data/local_runs` | Where results are written |
+| `--videos-dir` | `.data/videos` | Input video directory |
+| `--output-dir` | `.data/local_runs` | Where results are written |
 | `--fps` | `2.0` | Frame extraction rate |
 | `--epochs` | `3` | SSL DINOv3 fine-tuning epochs per video |
 | `--batch-size` | `4` | Fine-tuning batch size |
@@ -814,18 +816,18 @@ SCENETOK_CHECKPOINT=va-videodc_re10k.ckpt \
 | `--no-drone-audio` | — | Skip Step 32 drone audio training |
 | `--drone-audio-epochs` | `10` | Training epochs for DroneAudioCNN |
 | `--rfdetr-model` | `base` | RF-DETR tier: `base` or `large` |
-| `--gemma-api-url` | from `.env` | Gemma sidecar endpoint |
-| `--qwen-api-url` | from `.env` | Qwen sidecar endpoint |
-| `--reasoning-api-url` | from `.env` | Reasoning sidecar endpoint |
+| `--gemma-api-url` | from `.data/.env` | Gemma sidecar endpoint |
+| `--qwen-api-url` | from `.data/.env` | Qwen sidecar endpoint |
+| `--reasoning-api-url` | from `.data/.env` | Reasoning sidecar endpoint |
 | `--scenetok` | off | Enable SceneTok Step 14 — streaming scene encoder + segmentation decoder (~24 GB VRAM) |
-| `--scenetok-api-url` | from `.env` | SceneTok FastAPI sidecar endpoint; falls back to local torch if unset |
+| `--scenetok-api-url` | from `.data/.env` | SceneTok FastAPI sidecar endpoint; falls back to local torch if unset |
 | `--scenetok-checkpoint` | `va-videodc_re10k` | Checkpoint variant: `va-videodc_re10k`, `va-videodc_dl3dv`, `va-wan_dl3dv` |
 
 ---
 
 ## Outputs
 
-After a successful run, `data/local_runs/<video_name>/` contains:
+After a successful run, `.data/local_runs/<video_name>/` contains:
 
 | Path | Contents |
 |---|---|
@@ -846,7 +848,7 @@ After a successful run, `data/local_runs/<video_name>/` contains:
 | `scenetok_views/` | Novel view renders from the rectified flow decoder (one image per sampled viewpoint) |
 | `scenetok_masks/` | Per-frame segmentation masks from the fine-tuned segmentation decoder *(experimental — requires a trained segmentation checkpoint)* |
 
-After all videos complete, `data/local_runs/` also contains run-level artifacts:
+After all videos complete, `.data/local_runs/` also contains run-level artifacts:
 
 | Path | Contents |
 |---|---|
@@ -871,7 +873,7 @@ Aggregates depth, tracking, Kalman-filtered pose, and object detections into a c
 `physical_state_summary.json`. Key fields to read:
 
 ```bash
-cat data/local_runs/drone_mission/physical_state_summary.json | python3 -m json.tool | \
+cat .data/local_runs/drone_mission/physical_state_summary.json | python3 -m json.tool | \
   grep -E "platform_pose_confidence|near_field_occupancy|free_space_estimate|confirmed_tracks"
 ```
 
@@ -886,7 +888,7 @@ cat data/local_runs/drone_mission/physical_state_summary.json | python3 -m json.
 Estimates coarse hazard fields from RGB captions, depth, and sensor sidecars.
 
 ```bash
-cat data/local_runs/drone_mission/field_state_summary.json | python3 -m json.tool
+cat .data/local_runs/drone_mission/field_state_summary.json | python3 -m json.tool
 ```
 
 Each entry in `field_cells` has `field_type` (`visibility`, `rf_interference`, `thermal`),
@@ -899,7 +901,7 @@ Combines physical state, field state, and multi-modal evidence into structured p
 # List primitive types and scores
 python3 -c "
 import json, pathlib
-p = json.loads(pathlib.Path('data/local_runs/drone_mission/threat_primitives.json').read_text())
+p = json.loads(pathlib.Path('.data/local_runs/drone_mission/threat_primitives.json').read_text())
 for prim in p.get('primitives', []):
     print(f\"{prim['type']:30s} score={prim['score']:.3f}  persist={prim.get('persistence_sec', 0):.1f}s\")
 "
@@ -911,7 +913,7 @@ Aggregates persisted primitives into a clip-level threat estimate.
 ```bash
 python3 -c "
 import json, pathlib
-t = json.loads(pathlib.Path('data/local_runs/drone_mission/local_threat_assessment.json').read_text())
+t = json.loads(pathlib.Path('.data/local_runs/drone_mission/local_threat_assessment.json').read_text())
 print('threat score        :', t['local_threat_score'])
 print('automation confidence:', t['automation_confidence'])
 print('top threats:')
@@ -926,7 +928,7 @@ Maps the threat estimate and sensor-health context into a fixed operator action 
 ```bash
 python3 -c "
 import json, pathlib
-p = json.loads(pathlib.Path('data/local_runs/drone_mission/policy_decision.json').read_text())
+p = json.loads(pathlib.Path('.data/local_runs/drone_mission/policy_decision.json').read_text())
 print('action:', p['recommended_action'])
 print('reason:', p['policy_reason'])
 "
@@ -937,14 +939,14 @@ The fixed action vocabulary is: `continue` | `reduce_speed` | `reroute` | `abort
 ### Run-level: global threat, memory, and calibration
 
 After all videos in the batch finish, the runner aggregates across videos and writes run-level
-artifacts. These always appear in the `--output-dir` root (default: `data/local_runs/`).
+artifacts. These always appear in the `--output-dir` root (default: `.data/local_runs/`).
 
 **Global threat summary**
 
 ```bash
 python3 -c "
 import json, pathlib
-g = json.loads(pathlib.Path('data/local_runs/global_threat_summary.json').read_text())
+g = json.loads(pathlib.Path('.data/local_runs/global_threat_summary.json').read_text())
 print('global threat score:', g.get('global_threat_score', 0.0))
 print('sector risk levels:')
 for k, v in g.get('sector_risk_levels', {}).items():
@@ -964,13 +966,13 @@ the threat scorer is well-calibrated for your mission domain:
 ```bash
 python3 -c "
 import json, pathlib
-c = json.loads(pathlib.Path('data/local_runs/threat_calibration.json').read_text())
+c = json.loads(pathlib.Path('.data/local_runs/threat_calibration.json').read_text())
 print('records:', c['record_count'])
 print('histogram bins:', c['threat_score_histogram'])
 "
 ```
 
-To enable false-positive / false-negative analysis, create `data/local_runs/threat_labels.json`
+To enable false-positive / false-negative analysis, create `.data/local_runs/threat_labels.json`
 with video-level ground-truth (`{"drone_mission": true, "safe_flight": false}`). The runner reads
 it automatically and writes results to `threat_eval_summary.json`.
 
@@ -988,7 +990,7 @@ from selfsuvis.pipeline.realtime import replay_local_run, write_replay_jsonl
 from selfsuvis.pipeline.realtime import RealtimeThreatAggregator
 
 # Replay all video sub-directories in the output dir as timestamped events
-output_dir = Path("data/local_runs")
+output_dir = Path(".data/local_runs")
 events = replay_local_run(
     output_dir,
     node_id_prefix="uav",                          # node IDs become uav_1, uav_2, …
@@ -1022,11 +1024,11 @@ To inspect the raw replay stream without Python:
 python3 -c "
 from pathlib import Path
 from selfsuvis.pipeline.realtime import replay_local_run, write_replay_jsonl
-events = replay_local_run(Path('data/local_runs'))
-write_replay_jsonl(events, Path('data/local_runs/replay.jsonl'))
+events = replay_local_run(Path('.data/local_runs'))
+write_replay_jsonl(events, Path('.data/local_runs/replay.jsonl'))
 print(len(events), 'events written')
 "
-head -5 data/local_runs/replay.jsonl | python3 -m json.tool
+head -5 .data/local_runs/replay.jsonl | python3 -m json.tool
 ```
 
 ---
@@ -1038,7 +1040,7 @@ Activate it with a single env var — no CLI change needed:
 
 ```bash
 SELFSUVIS_USE_GRAPH=1 APP_ENV=dev .venv/bin/selfsuvis --mode local \
-  --videos-dir data/videos
+  --videos-dir .data/videos
 ```
 
 Both paths produce byte-for-byte identical artifacts. The graph path additionally provides:
@@ -1063,14 +1065,14 @@ Both paths produce byte-for-byte identical artifacts. The graph path additionall
 
 ```bash
 # Run with persistent checkpoints
-SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=data/checkpoints.db \
-  APP_ENV=dev .venv/bin/selfsuvis --mode local --videos-dir data/videos
+SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=.data/checkpoints.db \
+  APP_ENV=dev .venv/bin/selfsuvis --mode local --videos-dir .data/videos
 # Logs: "Starting graph pipeline for drone_mission (thread_id=drone_mission_1714123456)"
 
 # Resume after failure — completed nodes are skipped
-SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=data/checkpoints.db \
+SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=.data/checkpoints.db \
   SELFSUVIS_RESUME_THREAD_ID=drone_mission_1714123456 \
-  APP_ENV=dev .venv/bin/selfsuvis --mode local --videos-dir data/videos
+  APP_ENV=dev .venv/bin/selfsuvis --mode local --videos-dir .data/videos
 ```
 
 Without `SELFSUVIS_CHECKPOINT_PATH` the graph uses an in-memory `MemorySaver` — state
