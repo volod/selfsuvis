@@ -6,48 +6,48 @@ that the API, worker, and local full-analysis pipeline can start without network
 Usage
 -----
     # Download everything (default):
-    python -m selfsuvis.scripts.prepare_models                # all configured models
-    python -m selfsuvis.scripts.prepare_models --all          # explicit form
+    selfsuvis-models                # all configured models
+    selfsuvis-models --all          # explicit form
 
     # Core models only:
-    python -m selfsuvis.scripts.prepare_models --clip --dino
-    python -m selfsuvis.scripts.prepare_models --clip         # OpenCLIP only
-    python -m selfsuvis.scripts.prepare_models --dino         # DINOv2/v3 hub archive + weights only
+    selfsuvis-models --clip --dino
+    selfsuvis-models --clip         # OpenCLIP only
+    selfsuvis-models --dino         # DINOv2/v3 hub archive + weights only
 
     # Gemma open-weight (downloads weights from HuggingFace — requires HF_TOKEN):
-    python -m selfsuvis.scripts.prepare_models --gemma        # Step 03: google/gemma-3-4b-it (default, multimodal)
-    python -m selfsuvis.scripts.prepare_models --gemma --gemma-model google/gemma-3-1b-it   # text-only, ~2 GiB
-    python -m selfsuvis.scripts.prepare_models --gemma --gemma-model google/gemma-3-12b-it  # 12B, ~24 GiB
+    selfsuvis-models --gemma        # Step 03: google/gemma-3-4b-it (default, multimodal)
+    selfsuvis-models --gemma --gemma-model google/gemma-3-1b-it   # text-only, ~2 GiB
+    selfsuvis-models --gemma --gemma-model google/gemma-3-12b-it  # 12B, ~24 GiB
 
     # Step-specific optional models:
-    python -m selfsuvis.scripts.prepare_models --flash-attn   # Install flash-attn (CUDA required)
-    python -m selfsuvis.scripts.prepare_models --whisper      # Step 05: Whisper ASR
-    python -m selfsuvis.scripts.prepare_models --florence     # Step 04: Florence-2 scene captioning
-    python -m selfsuvis.scripts.prepare_models --ocr          # Step 06: OCR (auto-selects by VRAM)
-    python -m selfsuvis.scripts.prepare_models --depth        # Step 07: Depth estimation
-    python -m selfsuvis.scripts.prepare_models --detection    # Step 08: Object detection
-    python -m selfsuvis.scripts.prepare_models --world-model  # Step 11: World model video embeddings
-    python -m selfsuvis.scripts.prepare_models --unidrive     # Step 13: UniDriveVLA expert model assets
-    python -m selfsuvis.scripts.prepare_models --yolo         # Step 09: YOLO11l detection (~48 MB)
-    python -m selfsuvis.scripts.prepare_models --sam          # Step 09: SAM3/SAM2 segmentation (tries sam3 first)
+    selfsuvis-models --flash-attn   # Install flash-attn (CUDA required)
+    selfsuvis-models --whisper      # Step 05: Whisper ASR
+    selfsuvis-models --florence     # Step 04: Florence-2 scene captioning
+    selfsuvis-models --ocr          # Step 06: OCR (auto-selects by VRAM)
+    selfsuvis-models --depth        # Step 07: Depth estimation
+    selfsuvis-models --detection    # Step 08: Object detection
+    selfsuvis-models --world-model  # Step 11: World model video embeddings
+    selfsuvis-models --unidrive     # Step 13: UniDriveVLA expert model assets
+    selfsuvis-models --yolo         # Step 09: YOLO11l detection (~48 MB)
+    selfsuvis-models --sam          # Step 09: SAM3/SAM2 segmentation (tries sam3 first)
 
     # Override auto-selected model for any step:
-    python -m selfsuvis.scripts.prepare_models --ocr       --ocr-model       microsoft/trocr-base-printed
-    python -m selfsuvis.scripts.prepare_models --depth     --depth-model     depth-anything/Depth-Anything-V2-Large-hf
-    python -m selfsuvis.scripts.prepare_models --detection --detection-model IDEA-Research/grounding-dino-base
-    python -m selfsuvis.scripts.prepare_models --world-model --world-model-id MCG-NJU/videomae-base
-    python -m selfsuvis.scripts.prepare_models --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
-    python -m selfsuvis.scripts.prepare_models --yolo        --yolo-model yolo11x
-    python -m selfsuvis.scripts.prepare_models --sam         --sam-model facebook/sam2-hiera-large
+    selfsuvis-models --ocr       --ocr-model       microsoft/trocr-base-printed
+    selfsuvis-models --depth     --depth-model     depth-anything/Depth-Anything-V2-Large-hf
+    selfsuvis-models --detection --detection-model IDEA-Research/grounding-dino-base
+    selfsuvis-models --world-model --world-model-id MCG-NJU/videomae-base
+    selfsuvis-models --unidrive --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
+    selfsuvis-models --yolo        --yolo-model yolo11x
+    selfsuvis-models --sam         --sam-model facebook/sam2-hiera-large
 
     # Step 14: SceneTok streaming scene encoder + segmentation decoder (~24 GB VRAM to run):
     # Checkpoints are downloaded from MPI Nextcloud (public, no login required).
-    python -m selfsuvis.scripts.prepare_models --scenetok                                    # default: va-videodc_re10k
-    python -m selfsuvis.scripts.prepare_models --scenetok --scenetok-checkpoint va-videodc_dl3dv
-    python -m selfsuvis.scripts.prepare_models --scenetok --scenetok-checkpoint va-wan_dl3dv
+    selfsuvis-models --scenetok                                    # default: va-videodc_re10k
+    selfsuvis-models --scenetok --scenetok-checkpoint va-videodc_dl3dv
+    selfsuvis-models --scenetok --scenetok-checkpoint va-wan_dl3dv
 
     # Check what is already cached (no network):
-    python scripts/prepare_models.py --verify          # verify all configured models
+    selfsuvis-models --verify      # verify all configured models
     python scripts/prepare_models.py --verify --clip --dino
 
     # Force Hugging Face as the download source (useful when GitHub is unreachable):
@@ -111,6 +111,11 @@ warnings.filterwarnings(
 warnings.filterwarnings("ignore", message=".*Using a slow image processor.*")
 warnings.filterwarnings("ignore", message=".*use_fast.*will be the default.*")
 warnings.filterwarnings("ignore", message=".*VideoMAEFeatureExtractor is deprecated.*")
+# transformers ≥ 4.50 renamed torch_dtype → dtype; we handle the rename in code below.
+warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated.*")
+warnings.filterwarnings("ignore", message=".*`torch_dtype` is deprecated.*")
+# Custom-code download notice printed for every trust_remote_code model (Florence-2, Phi-3.5, …).
+warnings.filterwarnings("ignore", message=".*A new version of the following files was downloaded.*")
 # Force-clear any per-module warning registries that may have cached "show once" state
 # for the torch meta-parameter warnings before our filters were installed.
 # Guard with isinstance(reg, dict): torch._ops._OpNamespace exposes a
@@ -493,7 +498,43 @@ def _install_flash_attn() -> None:
         "  Installing flash-attn (uses prebuilt wheel when available; "
         "otherwise compiles from source — may take several minutes) …"
     )
+    import math as _math
     import subprocess as _sp
+
+    def _flash_attn_max_jobs(ram_per_job_gb: float = 12.0, reserve_frac: float = 0.20) -> int:
+        try:
+            meminfo = {}
+            for line in open("/proc/meminfo").readlines():
+                parts = line.split()
+                if len(parts) >= 2:
+                    meminfo[parts[0].rstrip(":")] = int(parts[1])
+            total_kb = meminfo.get("MemTotal", 0)
+            avail_kb = meminfo.get("MemAvailable", 0)
+        except Exception:
+            total_kb = avail_kb = 0
+        total_gb = total_kb / 1024 / 1024
+        avail_gb = avail_kb / 1024 / 1024
+        floor_gb = total_gb * reserve_frac
+        usable_gb = max(0.0, avail_gb - floor_gb)
+        raw_mem = usable_gb / ram_per_job_gb if ram_per_job_gb > 0 else 0.0
+        mem_jobs = _math.ceil(raw_mem) if (raw_mem % 1) >= 0.8 else int(raw_mem)
+        try:
+            import os as _os
+            cpu_jobs = max(1, (_os.cpu_count() or 4) // 2)
+        except Exception:
+            cpu_jobs = 1
+        jobs = max(1, min(mem_jobs, cpu_jobs))
+        log.info(
+            "  flash-attn compilation budget: %.1f GiB total / %.1f GiB avail / %.1f GiB usable"
+            " → mem_jobs=%d  cpu_jobs=%d  MAX_JOBS=%d",
+            total_gb, avail_gb, usable_gb, mem_jobs, cpu_jobs, jobs,
+        )
+        return jobs
+
+    ram_per_job = float(
+        __import__("os").environ.get("FLASH_ATTN_RAM_PER_JOB_GB", "12")
+    )
+    max_jobs = _flash_attn_max_jobs(ram_per_job_gb=ram_per_job)
 
     # Ensure build tools are present (uv-created venvs omit wheel by default).
     _sp.run([sys.executable, "-m", "pip", "install", "wheel", "packaging", "-q"], check=True)
@@ -507,7 +548,7 @@ def _install_flash_attn() -> None:
         "-q",
     ]
     t0 = time.monotonic()
-    result = _sp.run(cmd, check=False)
+    result = _sp.run(cmd, env={**__import__("os").environ, "MAX_JOBS": str(max_jobs)}, check=False)
     if result.returncode != 0:
         raise RuntimeError(
             "flash-attn installation failed.\n"
@@ -550,21 +591,28 @@ _SEAMLESS_EXPECTED_UNEXPECTED = ("text_encoder.", "t2u_model.", "vocoder.")
 
 @contextlib.contextmanager
 def _capture_hf_load_report(label: str):
-    """Capture the [transformers] LOAD REPORT printed to stdout on model load.
+    """Capture the [transformers] LOAD REPORT printed on model load.
 
     Replaces the noisy table with a single log line.  Three categories:
       - known-UNEXPECTED (TTS/T2U components absent by design) -> INFO [ok]
       - unknown-UNEXPECTED (weights outside expected absent set) -> WARNING
       - MISSING (weights needed for the task are absent) -> WARNING
-    Non-report stdout is passed through unchanged.
+    Non-report stdout/stderr is passed through unchanged.
+    Newer transformers sends the LOAD REPORT via logger (stderr); capture both.
     """
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
         yield
-    output = buf.getvalue()
+    output = stdout_buf.getvalue() + stderr_buf.getvalue()
+    # Re-emit any non-LOAD-REPORT stderr lines so real errors are not lost.
     if "LOAD REPORT" not in output:
-        if output.strip():
-            sys.stdout.write(output)
+        passthrough = stdout_buf.getvalue()
+        if passthrough.strip():
+            sys.stdout.write(passthrough)
+        passthrough_err = stderr_buf.getvalue()
+        if passthrough_err.strip():
+            sys.stderr.write(passthrough_err)
         return
     unexpected: list[str] = []
     missing: list[str] = []
@@ -614,25 +662,41 @@ def _download_whisper(model_id: str) -> None:
         raise
 
 
+def _is_florence2_complete(model_id: str) -> bool:
+    """Return True only if the Florence-2 snapshot includes modeling_florence2.py.
+
+    A partial first download may cache only config files and satisfy _is_hf_cached(),
+    but the runtime loader requires modeling_florence2.py (trust_remote_code=True).
+    """
+    try:
+        from huggingface_hub import try_to_load_from_cache
+
+        return try_to_load_from_cache(repo_id=model_id, filename="modeling_florence2.py") is not None
+    except Exception:
+        return False
+
+
 def _download_florence(model_id: str = "microsoft/Florence-2-large") -> None:
     log.info("Florence-2 — model=%s", model_id)
-    if _is_hf_cached(model_id):
+    if _is_hf_cached(model_id) and _is_florence2_complete(model_id):
         log.info("  [ok] Florence-2 already cached — skipping load")
         return
+    if _is_hf_cached(model_id):
+        log.info(
+            "  Partial Florence-2 cache detected (modeling_florence2.py missing) — re-downloading"
+        )
     t0 = time.monotonic()
     try:
-        from transformers import AutoModelForCausalLM, AutoProcessor
+        from huggingface_hub import snapshot_download
 
-        # trust_remote_code is still required (model repo doesn't include processor_config.json
-        # for native loading). transformers>=4.47 correctly handles Florence-2's conditional
-        # flash_attn imports without requiring flash_attn to be installed.
-        AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-        AutoModelForCausalLM.from_pretrained(
-            model_id,
-            trust_remote_code=True,
-            torch_dtype="auto",
+        # Download weights via snapshot_download — avoids instantiating the model,
+        # which is unreliable across transformers versions due to evolving Florence-2
+        # config attributes (e.g. forced_bos_token_id removed in newer transformers).
+        local_dir = snapshot_download(
+            repo_id=model_id,
+            ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
         )
-        log.info("  [ok] Florence-2 ready  (%.1fs)", time.monotonic() - t0)
+        log.info("  [ok] Florence-2 cached  (%.1fs)  cache=%s", time.monotonic() - t0, local_dir)
     except Exception as exc:
         log.warning("  Florence-2 download failed: %s", exc)
         raise
@@ -671,16 +735,17 @@ def _download_ocr(model_id: str) -> None:
             )
         else:
             # VLM family (Phi-3.5-vision, Qwen2.5-VL, DeepSeek-OCR-2, llava-hf/*, Florence-2).
-            # transformers>=4.47 handles Florence-2's conditional flash_attn imports correctly
-            # without requiring flash_attn to be installed.
             from transformers import AutoModelForCausalLM, AutoProcessor
 
             AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+            # Use sdpa explicitly — flash_attention_2 is auto-selected when flash-attn is
+            # installed but not all VLMs support it yet (e.g. Phi-3.5-vision).
             AutoModelForCausalLM.from_pretrained(
                 model_id,
                 trust_remote_code=True,
-                torch_dtype="auto",
+                dtype="auto",
                 low_cpu_mem_usage=True,
+                attn_implementation="sdpa",
             )
         log.info("  [ok] OCR model ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
@@ -1110,9 +1175,14 @@ def _download_world_model(model_id: str) -> None:
 
         try:
             AutoFeatureExtractor.from_pretrained(model_id)
-        except OSError as feat_exc:
-            if "does not appear to have a file named" in str(feat_exc):
-                log.info("  No preprocessor_config.json — downloading repo via snapshot_download")
+        except (OSError, ValueError) as feat_exc:
+            feat_msg = str(feat_exc)
+            if (
+                "does not appear to have a file named" in feat_msg
+                or "Unrecognized feature extractor" in feat_msg
+                or "Unrecognized" in feat_msg
+            ):
+                log.info("  No compatible feature extractor — downloading repo via snapshot_download")
                 local_dir = snapshot_download(
                     repo_id=model_id,
                     ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
@@ -1291,7 +1361,21 @@ def _run_dummy(model, device: str) -> None:
 
     dummy = _torch.zeros(1, 3, 224, 224, device=device)
     with _torch.no_grad():
-        model(dummy)
+        try:
+            model(dummy)
+        except RuntimeError as exc:
+            msg = str(exc)
+            if "memory_efficient_attention" in msg or "No operator found" in msg:
+                # xformers attention backend not supported on this GPU (sm_120+ Blackwell).
+                # Weights are already on disk; skip the forward-pass verification.
+                log.warning(
+                    "  Warmup forward pass skipped on %s — xformers does not yet support "
+                    "this GPU (sm_12x+). Cached weights are usable at runtime once xformers "
+                    "adds sm_120 support.",
+                    device,
+                )
+            else:
+                raise
 
 
 # -- Gemma open-weight model download -----------------------------------------
@@ -1397,17 +1481,31 @@ def _is_openclip_cached(model: str, pretrained: str) -> bool:
                 if f.name.startswith(model_stem) or f.stem == model_stem:
                     return True
 
-        # Secondary: HuggingFace hub cache (HF-hosted pretrained)
+        # Secondary: HuggingFace hub cache (HF-hosted pretrained).
+        # open_clip stores weights as open_clip_model.safetensors, not model.safetensors,
+        # so we check that specific filename in addition to the generic HF set.
         hf_hub_id = None
         try:
             import open_clip as _oc
 
             cfg = _oc.get_pretrained_cfg(model, pretrained)
-            hf_hub_id = (cfg or {}).get("hf_hub", "")
+            hf_hub_id = (cfg or {}).get("hf_hub", "").rstrip("/")
         except Exception:
             pass
         if hf_hub_id:
-            return _is_hf_cached(hf_hub_id)
+            from huggingface_hub import try_to_load_from_cache as _try_cache
+
+            for fname in (
+                "open_clip_model.safetensors",
+                "model.safetensors",
+                "pytorch_model.bin",
+                "config.json",
+            ):
+                try:
+                    if _try_cache(repo_id=hf_hub_id, filename=fname) is not None:
+                        return True
+                except Exception:
+                    pass
     except Exception:
         pass
     return False
@@ -1755,6 +1853,7 @@ def main() -> None:
 
     # -- Resolve all HF model IDs up front ------------------------------------
     errors: list = []
+    attempted: list[tuple[str, str]] = []  # (label, model_id) for completion summary
     whisper_id = args.whisper_model
     if (whisper_id or "").strip().lower() in ("", "auto"):
         from selfsuvis.pipeline.vision.registry import auto_select, detect_resources
@@ -1800,7 +1899,12 @@ def main() -> None:
         if do_whisper:
             specs.append((f"Whisper {whisper_id}", lambda m=whisper_id: _is_hf_cached(m)))
         if do_florence:
-            specs.append((f"Florence-2 {florence_id}", lambda m=florence_id: _is_hf_cached(m)))
+            specs.append(
+                (
+                    f"Florence-2 {florence_id}",
+                    lambda m=florence_id: _is_hf_cached(m) and _is_florence2_complete(m),
+                )
+            )
         if do_ocr and ocr_id:
             specs.append((f"OCR {ocr_id}", lambda m=ocr_id: _is_hf_cached(m)))
         if do_depth and depth_id:
@@ -1863,14 +1967,18 @@ def main() -> None:
             errors.append(("flash-attn", exc))
 
     if do_clip:
+        label = f"OpenCLIP {settings.OPENCLIP_MODEL}/{settings.OPENCLIP_PRETRAINED}"
+        attempted.append((label, label))
         try:
             _download_openclip(settings.OPENCLIP_MODEL, settings.OPENCLIP_PRETRAINED, device)
         except Exception as exc:
             log.error("OpenCLIP download failed: %s", exc)
-            errors.append(("OpenCLIP", exc))
+            errors.append((label, exc))
 
     if do_dino:
         for dino_model in args.dino_model:
+            label = f"DINO {dino_model}"
+            attempted.append((label, label))
             try:
                 _download_dino(dino_model, device, source=args.source)
             except Exception as exc:
@@ -1880,62 +1988,74 @@ def main() -> None:
                 hub_dir = _t.hub.get_dir()
                 log.error(
                     "  Recovery options:\n"
-                    "  1. Hugging Face:  python scripts/prepare_models.py --dino --source hf\n"
+                    "  1. Hugging Face:  selfsuvis-models --dino --source hf\n"
                     "  2. Manual clone:  git clone https://github.com/facebookresearch/dinov2 "
                     "%s/facebookresearch_dinov2_main",
                     hub_dir,
                 )
-                errors.append((f"DINO:{dino_model}", exc))
+                errors.append((label, exc))
 
     if do_gemma:
+        label = f"Gemma {args.gemma_model}"
+        attempted.append((label, label))
         try:
             _download_gemma(args.gemma_model)
         except Exception as exc:
             log.error("Gemma download failed: %s", exc)
-            errors.append(("Gemma", exc))
+            errors.append((label, exc))
 
     if do_whisper:
+        label = f"Whisper {whisper_id}"
+        attempted.append((label, label))
         try:
             _with_auth_retry("Whisper", whisper_id, lambda: _download_whisper(whisper_id))
         except Exception as exc:
             log.error("Whisper download failed: %s", exc)
-            errors.append(("Whisper", exc))
+            errors.append((label, exc))
 
     if do_florence:
+        label = f"Florence-2 {florence_id}"
+        attempted.append((label, label))
         try:
             _with_auth_retry("Florence-2", florence_id, lambda: _download_florence(florence_id))
         except Exception as exc:
             log.error("Florence-2 download failed: %s", exc)
-            errors.append(("Florence-2", exc))
+            errors.append((label, exc))
 
     if do_ocr:
+        label = f"OCR {ocr_id}" if ocr_id else "OCR"
+        attempted.append((label, label))
         if not ocr_id:
             log.error("OCR: could not determine a model ID — pass --ocr-model explicitly")
-            errors.append(("OCR", ValueError("no model ID")))
+            errors.append((label, ValueError("no model ID")))
         else:
             try:
                 _with_auth_retry(f"OCR ({ocr_id})", ocr_id, lambda: _download_ocr(ocr_id))
             except Exception as exc:
                 log.error("OCR model [%s] download failed: %s", ocr_id, exc)
-                errors.append(("OCR", exc))
+                errors.append((label, exc))
 
     if do_depth:
+        label = f"Depth {depth_id}" if depth_id else "Depth"
+        attempted.append((label, label))
         if not depth_id:
             log.error("Depth: could not determine a model ID — pass --depth-model explicitly")
-            errors.append(("Depth", ValueError("no model ID")))
+            errors.append((label, ValueError("no model ID")))
         else:
             try:
                 _with_auth_retry(f"Depth ({depth_id})", depth_id, lambda: _download_depth(depth_id))
             except Exception as exc:
                 log.error("Depth model [%s] download failed: %s", depth_id, exc)
-                errors.append(("Depth", exc))
+                errors.append((label, exc))
 
     if do_detection:
+        label = f"Detection {detection_id}" if detection_id else "Detection"
+        attempted.append((label, label))
         if not detection_id:
             log.error(
                 "Detection: could not determine a model ID — pass --detection-model explicitly"
             )
-            errors.append(("Detection", ValueError("no model ID")))
+            errors.append((label, ValueError("no model ID")))
         else:
             try:
                 _with_auth_retry(
@@ -1945,14 +2065,16 @@ def main() -> None:
                 )
             except Exception as exc:
                 log.error("Detection model [%s] download failed: %s", detection_id, exc)
-                errors.append(("Detection", exc))
+                errors.append((label, exc))
 
     if do_world_model:
+        label = f"WorldModel {world_id}" if world_id else "WorldModel"
+        attempted.append((label, label))
         if not world_id:
             log.error(
                 "WorldModel: could not determine a model ID — pass --world-model-id explicitly"
             )
-            errors.append(("WorldModel", ValueError("no model ID")))
+            errors.append((label, ValueError("no model ID")))
         else:
             try:
                 _with_auth_retry(
@@ -1960,14 +2082,16 @@ def main() -> None:
                 )
             except Exception as exc:
                 log.error("World model [%s] download failed: %s", world_id, exc)
-                errors.append(("WorldModel", exc))
+                errors.append((label, exc))
 
     if do_unidrive:
+        label = f"UniDriveVLA {unidrive_id}" if unidrive_id else "UniDriveVLA"
+        attempted.append((label, label))
         if not unidrive_id:
             log.error(
                 "UniDriveVLA: could not determine a model ID — pass --unidrive-model explicitly"
             )
-            errors.append(("UniDriveVLA", ValueError("no model ID")))
+            errors.append((label, ValueError("no model ID")))
         else:
             try:
                 if unidrive_backend == "ollama":
@@ -1985,45 +2109,86 @@ def main() -> None:
                     unidrive_backend or "unknown",
                     exc,
                 )
-                errors.append(("UniDriveVLA", exc))
+                errors.append((label, exc))
 
     if do_reasoning:
         reasoning_id = args.reasoning_model
+        label = f"Reasoning(Ollama) {reasoning_id}"
+        attempted.append((label, label))
         try:
             _download_ollama_model(reasoning_id)
         except Exception as exc:
             log.error("Reasoning model [%s] pull failed: %s", reasoning_id, exc)
-            errors.append(("Reasoning", exc))
+            errors.append((label, exc))
 
     if do_yolo:
         yolo_id = args.yolo_model
+        label = f"YOLO11 {yolo_id}"
+        attempted.append((label, label))
         try:
             _download_yolo(yolo_id)
         except Exception as exc:
             log.error("YOLO11 [%s] download failed: %s", yolo_id, exc)
-            errors.append(("YOLO11", exc))
+            errors.append((label, exc))
 
     if do_sam:
         sam_id = args.sam_model
+        label = f"SAM {sam_id}"
+        attempted.append((label, label))
         try:
             _with_auth_retry(f"SAM ({sam_id})", sam_id, lambda: _download_sam(sam_id))
         except Exception as exc:
             log.error("SAM [%s] download failed: %s", sam_id, exc)
-            errors.append(("SAM", exc))
+            errors.append((label, exc))
 
     if do_scenetok:
         scenetok_ckpt = args.scenetok_checkpoint
+        label = f"SceneTok {scenetok_ckpt}"
+        attempted.append((label, label))
         try:
             _download_scenetok(scenetok_ckpt)
         except Exception as exc:
             log.error("SceneTok [%s] download failed: %s", scenetok_ckpt, exc)
-            errors.append(("SceneTok", exc))
+            errors.append((label, exc))
 
+    _print_completion_summary(attempted, errors)
     if errors:
-        log.error("%d download(s) failed — see above.", len(errors))
         sys.exit(1)
 
-    log.info("All models ready.")
+
+def _print_completion_summary(
+    attempted: "list[tuple[str, str]]", errors: "list[tuple[str, Exception]]"
+) -> None:
+    """Print a compact table of every model attempted, its status, and the exit verdict."""
+    failed_names = {name for name, _ in errors}
+    ok = [name for name, _ in attempted if name not in failed_names]
+    failed = [(name, exc) for name, exc in errors]
+
+    col = 48
+    line = "-" * (col + 12)
+    print(f"\n{line}", flush=True)
+    print("  selfsuvis-models — completion summary", flush=True)
+    print(line, flush=True)
+    for name in ok:
+        label = name[:col].ljust(col)
+        print(f"  [ok]    {label}", flush=True)
+    for name, exc in failed:
+        label = name[:col].ljust(col)
+        short = str(exc).split("\n")[0][:60]
+        print(f"  [FAIL]  {label}  {short}", flush=True)
+    print(line, flush=True)
+    if failed:
+        print(
+            f"  {len(ok)} succeeded  /  {len(failed)} FAILED"
+            "  — re-run the failed steps individually.",
+            flush=True,
+        )
+        print(line, flush=True)
+        log.error("%d model(s) failed — see summary above.", len(failed))
+    else:
+        print(f"  All {len(ok)} model(s) ready.  Pipeline can now run offline.", flush=True)
+        print(line, flush=True)
+        log.info("All models ready.")
 
 
 if __name__ == "__main__":

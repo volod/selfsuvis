@@ -1011,6 +1011,17 @@ def step_gemma_directed_tracking(
         len(gemma_objects),
     )
 
+    # Unload the Gemma Ollama sidecar now — it holds ~9 GiB VRAM and SAM/RF-DETR
+    # need that headroom.  _unload_known_sidecars is a no-op if not on CUDA.
+    if device == "cuda" and gemma_api_url:
+        try:
+            from .steps_caption import _flush_cuda_allocator, _unload_known_sidecars
+
+            _unload_known_sidecars([(gemma_api_url, gemma_api_model)])
+            _flush_cuda_allocator()
+        except Exception:
+            pass
+
     # -- Sub-step 2: SAM directed segmentation (sampled frames) ---------------
     sam_available = False
     sam_predictor = None

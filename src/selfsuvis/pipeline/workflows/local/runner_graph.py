@@ -197,7 +197,12 @@ def run_graph_pipeline(
 
     reset_runtime_telemetry()
 
-    graph = build_graph(use_checkpoints=True)
+    # Disable in-process MemorySaver when no persistent checkpoint path is set.
+    # MemorySaver serialises all state via msgpack on every node — torch objects
+    # (OpenCLIPEmbedder, DINOEmbedder) in the `models` field are not serialisable.
+    # SqliteSaver is unaffected: it is only activated via SELFSUVIS_CHECKPOINT_PATH.
+    use_ckpt = bool(os.getenv("SELFSUVIS_CHECKPOINT_PATH"))
+    graph = build_graph(use_checkpoints=use_ckpt)
     video_name = video_path.stem
     thread_id = f"{video_name}_{int(time.time())}"
 

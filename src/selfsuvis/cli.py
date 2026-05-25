@@ -44,7 +44,17 @@ def main() -> None:
 
         report = run_local_preflight(args)
         log_preflight(report)
-        report.raise_for_errors()
+        if report.errors:
+            import sys  # noqa: PLC0415
+
+            print(
+                "\nRun the commands shown above to cache the missing models,"
+                " then re-run the pipeline.\n"
+                "Full option reference:  selfsuvis-models --help",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise SystemExit(1)
         from selfsuvis.pipeline.workflows import run_local  # noqa: PLC0415
 
         run_local(args)

@@ -320,7 +320,9 @@ def step_export_model(
             for _mod_name, _mod in sys.modules.items():
                 if "dinov2" in _mod_name and hasattr(_mod, "XFORMERS_AVAILABLE"):
                     _mod.XFORMERS_AVAILABLE = False
-            backbone_cpu = backbone_to_export.cpu().eval()
+            # Cast to float32 — SSL fine-tuning may leave projection heads in
+            # float16/bfloat16, which causes a dtype mismatch on float32 dummy input.
+            backbone_cpu = backbone_to_export.cpu().float().eval()
 
             # Wrap in a single-input module so ONNX never captures 'masks'
             # as a required input (DINOv2 forward(x, masks=None) leaks the

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PY_HELPER="${REPO_ROOT}/src/selfsuvis/scripts/shell_helpers.py"
 
 DEPENDENCY_GROUPS=${1:-vision,dev}
