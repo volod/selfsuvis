@@ -1,6 +1,17 @@
 FROM vllm/vllm-openai:latest
 
-RUN python3 -m pip install --no-cache-dir --upgrade pip && \
-    python3 -m pip install --no-cache-dir \
+# cuda-nvrtc-* provides CUDA::nvrtc required by deep-gemm/vllm C extensions.
+# Detect the CUDA version already in the image so the package suffix matches exactly.
+# --no-build-isolation lets pip reuse the installed torch/CUDA headers rather than
+# fetching them again into an isolated env, which avoids a second header mismatch.
+RUN CUDA_PKG=$(nvcc --version 2>/dev/null | grep -oP '(?<=release )\d+\.\d+' | tr '.' '-') && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+      git ninja-build \
+      cuda-nvrtc-${CUDA_PKG} cuda-nvrtc-dev-${CUDA_PKG} \
+      cuda-libraries-dev-${CUDA_PKG} && \
+    rm -rf /var/lib/apt/lists/* && \
+    python3 -m pip install --no-cache-dir --upgrade pip "cmake>=3.26" && \
+    python3 -m pip install --no-cache-dir --no-build-isolation \
       "vllm @ git+https://github.com/Zyphra/vllm.git@zaya1-pr"
 

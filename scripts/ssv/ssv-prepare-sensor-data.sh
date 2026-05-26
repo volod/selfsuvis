@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# selfsuvis-prepare-sensor-data.sh — download public sample data for all physical sensor modalities.
+# ssv-prepare-sensor-data.sh — download public sample data for all physical sensor modalities.
 #
 # Usage:
 #   ./scripts/ssv/ssv-prepare-sensor-data.sh [OUTPUT_DIR]

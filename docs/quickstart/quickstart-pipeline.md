@@ -201,8 +201,8 @@ The dataset is cached in `.data/drone-audio-data/`; download and split it once b
 Or via the installed entry point:
 
 ```bash
-selfsuvis-prepare-audio --verify
-selfsuvis-prepare-audio --data-dir .data/drone-audio-data
+ssv-prepare-audio --verify
+ssv-prepare-audio --data-dir .data/drone-audio-data
 ```
 
 Step 32 runs automatically on each local pipeline run. To skip it:

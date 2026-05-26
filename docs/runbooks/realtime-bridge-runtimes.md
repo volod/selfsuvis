@@ -19,8 +19,8 @@ They own:
 Package entrypoint:
 
 ```bash
-selfsuvis-realtime-bridge --backend mavsdk
-selfsuvis-realtime-bridge --backend ros
+ssv-realtime-bridge --backend mavsdk
+ssv-realtime-bridge --backend ros
 ```
 
 Shell wrapper:

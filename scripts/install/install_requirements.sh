@@ -159,9 +159,8 @@ if [[ -n "$_GPU_CC" ]]; then
   _MIN_FOR_CC=$(_min_torch_index_for_compute_cap "$_GPU_CC")
   if [[ -n "$_MIN_FOR_CC" ]]; then
     if [[ -z "$TORCH_CUDA_INDEX" ]] || _cuda_index_lt "$TORCH_CUDA_INDEX" "$_MIN_FOR_CC"; then
-      echo "GPU compute capability ${_GPU_CC} (sm_${_GPU_CC/./}) requires ${_MIN_FOR_CC}+ kernels"
-      echo "  driver-based index '${TORCH_CUDA_INDEX:-none}' does not include sm_${_GPU_CC/./} support"
-      echo "  → upgrading TORCH_CUDA_INDEX to ${_MIN_FOR_CC}"
+      echo "GPU compute capability ${_GPU_CC} (sm_${_GPU_CC/./}): needs ${_MIN_FOR_CC}+ torch kernels"
+      echo "  upgrading TORCH_CUDA_INDEX from '${TORCH_CUDA_INDEX:-none}' → ${_MIN_FOR_CC}"
       TORCH_CUDA_INDEX="$_MIN_FOR_CC"
     fi
   fi
@@ -458,10 +457,13 @@ _align_nvcc_torch
 if [[ -n "$_CC_MAJOR" ]] && [[ "$_CC_MAJOR" -ge 12 ]]; then
   _INSTALLED_SO=$(find "${VENV_PATH}" -name "flash_attn_2_cuda*.so" 2>/dev/null | head -1)
   _NEEDS_REBUILD=true
-  if [[ -n "$_INSTALLED_SO" ]] && command -v cuobjdump >/dev/null 2>&1; then
-    if cuobjdump "$_INSTALLED_SO" 2>/dev/null | grep -q "sm_${_CC_MAJOR}"; then
+  if [[ -n "$_INSTALLED_SO" ]]; then
+    # Use `strings` rather than cuobjdump: older cuobjdump versions (e.g. CUDA 12.0)
+    # cannot parse Blackwell (sm_12x) ELF sections and silently omit them, causing
+    # a false-negative arch check that triggers an unnecessary source rebuild.
+    if strings "$_INSTALLED_SO" 2>/dev/null | grep -q "sm_${_CC_MAJOR}"; then
       _NEEDS_REBUILD=false
-      echo "flash-attn: sm_${_CC_MAJOR}0 already in installed binary — skipping rebuild"
+      echo "flash-attn: sm_${_CC_MAJOR}x kernels already in installed binary — skipping rebuild"
     fi
   fi
   if $_NEEDS_REBUILD; then

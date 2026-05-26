@@ -16,6 +16,10 @@ dependencies = [
 eval = [
     "lm-eval[api]>=0.4.9",
 ]
+dashboard = [
+    "streamlit>=1.37",
+    "pandas>=2.0",
+]
 train = [
     "accelerate>=0.26",
     "bitsandbytes>=0.43",

@@ -52,7 +52,7 @@ src/selfsuvis/
   coop/         IoT sensor mesh — MQTT, ChirpStack, Frigate integration
   realtime/     SLAM bridge runtimes — pose and occupancy adapters
   config/       unified config facade (Pure Fabrication; see GRASP note below)
-  scripts/      packaged helper CLIs such as `selfsuvis-env`
+  scripts/      packaged helper CLIs such as `ssv-env`
 docker/         compose files and container definitions
 tests/          unit, integration, assets, and shared test helpers
 docs/           operator, developer, and decision documentation
@@ -191,7 +191,7 @@ Recent pipeline additions that materially changed the system architecture:
 - **UniDriveVLA expert pass**: an OpenAI-compatible vision backend produces normalized
   `understanding`, `perception`, `planning`, and `mixture_of_experts` outputs that are
   stored in `frame_facts_json["unidrive_vla"]` and summarized in local-run artifacts.
-- **Resource-aware env generation**: `selfsuvis-env` generates a project-root `.env`
+- **Resource-aware env generation**: `ssv-env` generates a project-root `.env`
   from packaged presets and detected hardware, which is now the standard way to bootstrap
   local configuration.
 - **Startup preflight and local analytics**: the CLI checks required model caches,

@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi coop-up coop-up-min coop-up-video coop-down coop-logs coop-status coop-metrics-up coop-release coop-release-min coop-release-video coop-release-metrics
+.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi coop-up coop-up-min coop-up-video coop-down coop-logs coop-status coop-metrics-up coop-release coop-release-min coop-release-video coop-release-metrics sslm sslm-quick sslm-run sslm-venv sslm-benchmark sslm-benchmark-quick sslm-dashboard
 
 # Default target: show help when no target is given
 help:
@@ -51,6 +51,15 @@ help:
 	@echo "  Code quality"
 	@echo "  --------------"
 	@echo "  make lint            Run ruff check and ruff format --check (install ruff if needed)"
+	@echo ""
+	@echo "  LLM benchmarks (sslm)"
+	@echo "  ----------------------"
+	@echo "  make sslm                 Full end-to-end: venv + build + Open LLM v2 benchmarks + dashboard"
+	@echo "  make sslm-quick           Same pipeline with quick suite: GSM8K + ARC-C + HellaSwag (~20 min/model)"
+	@echo "  make sslm-venv            Create .venv-sslm with eval + dashboard extras"
+	@echo "  make sslm-benchmark       Run Open LLM Leaderboard v2 (venv must exist)"
+	@echo "  make sslm-benchmark-quick Run fast subset: GSM8K + ARC-C + HellaSwag (~20 min/model)"
+	@echo "  make sslm-dashboard       Launch Streamlit leaderboard at http://localhost:8501"
 	@echo ""
 	@echo "  Troubleshooting"
 	@echo "  ----------------"
@@ -254,3 +263,33 @@ utlz:
 
 utlz-endpoints:
 	./scripts/ssv/ssv-utilyze.sh --endpoints
+
+# -- SSLM benchmark playground -------------------------------------------------
+
+# End-to-end: create venv, build sidecar images, run Open LLM v2, open dashboard.
+sslm: docker-check
+	scripts/sslm/setup-venv.sh eval,dashboard
+	scripts/sslm/run-benchmark.sh --build --suite open_llm_v2
+	scripts/sslm/run-dashboard.sh
+
+sslm-quick: docker-check
+	scripts/sslm/setup-venv.sh eval,dashboard
+	scripts/sslm/run-benchmark.sh --build --suite reasoning_quick
+	scripts/sslm/run-dashboard.sh
+
+sslm-run: docker-check
+	scripts/sslm/setup-venv.sh eval,dashboard
+	scripts/sslm/run-benchmark.sh --build --suite open_llm_v2
+	scripts/sslm/run-dashboard.sh
+
+sslm-venv:
+	scripts/sslm/setup-venv.sh eval,dashboard
+
+sslm-benchmark: docker-check
+	scripts/sslm/run-benchmark.sh --suite open_llm_v2
+
+sslm-benchmark-quick: docker-check
+	scripts/sslm/run-benchmark.sh --suite reasoning_quick
+
+sslm-dashboard:
+	scripts/sslm/run-dashboard.sh

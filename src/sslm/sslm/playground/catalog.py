@@ -23,6 +23,10 @@ class ModelProfile:
     build_context: str | None = None
     dockerfile: str | None = None
     dtype: str = "bfloat16"
+    # fp8 quantization halves weight memory: 8B params x 1 byte = 8 GB, fitting a 12 GB GPU.
+    # Set to None to disable (requires >=16 GB VRAM for 8B bf16 models).
+    quantization: str | None = "fp8"
+    min_gpu_gb: int = 12
     max_model_len: int = 32768
     gpu_memory_utilization: float = 0.88
     max_num_seqs: int = 4
@@ -52,6 +56,8 @@ class ModelProfile:
             str(self.max_num_seqs),
             "--trust-remote-code",
         ]
+        if self.quantization:
+            args += ["--quantization", self.quantization]
         args.extend(self.extra_vllm_args)
         return args
 
@@ -68,6 +74,8 @@ MODEL_CATALOG: dict[str, ModelProfile] = {
         dockerfile="scripts/sslm/docker/Dockerfile.zaya-vllm",
         max_model_len=32768,
         gpu_memory_utilization=0.82,
+        quantization="fp8",
+        min_gpu_gb=12,
         extra_vllm_args=(
             "--mamba-cache-dtype",
             "float32",
@@ -78,8 +86,8 @@ MODEL_CATALOG: dict[str, ModelProfile] = {
             "zaya_xml",
         ),
         notes=(
-            "Zyphra reasoning MoE model. The model card recommends Zyphra's vLLM "
-            "fork and temperature=1.0/top_p=0.95 for general evaluations."
+            "Zyphra reasoning MoE model. Requires Zyphra vLLM fork. "
+            "temperature=1.0/top_p=0.95 recommended. fp8 for 12 GB GPU."
         ),
     ),
     "qwen3-8b": ModelProfile(
@@ -90,12 +98,14 @@ MODEL_CATALOG: dict[str, ModelProfile] = {
         port=8011,
         max_model_len=32768,
         gpu_memory_utilization=0.86,
+        quantization="fp8",
+        min_gpu_gb=12,
         extra_vllm_args=(
             "--enable-reasoning",
             "--reasoning-parser",
             "deepseek_r1",
         ),
-        notes="Dense 8B reasoning baseline with thinking/non-thinking modes.",
+        notes="Dense 8B reasoning baseline with thinking/non-thinking modes. fp8 for 12 GB GPU.",
     ),
 }
 
@@ -107,17 +117,42 @@ BENCHMARK_SUITES: dict[str, BenchmarkSuite] = {
         tasks=(),
         notes="Local prompt smoke test; no external datasets.",
     ),
+    # Open LLM Leaderboard v2 (HuggingFace) — the canonical public reasoning benchmark.
+    # Task names are lm-evaluation-harness leaderboard task group identifiers.
+    "open_llm_v2": BenchmarkSuite(
+        name="open_llm_v2",
+        tasks=(
+            "leaderboard_ifeval",
+            "leaderboard_bbh",
+            "leaderboard_math_hard",
+            "leaderboard_gpqa",
+            "leaderboard_musr",
+            "leaderboard_mmlu_pro",
+        ),
+        num_fewshot=0,
+        notes=(
+            "Open LLM Leaderboard v2: IFEval, BBH, MATH Lvl5, GPQA Diamond, MuSR, MMLU-Pro. "
+            "~4-8 h per 8B model on a single 12 GB GPU."
+        ),
+    ),
+    # Quick sanity check: fast tasks that finish in under 30 min per model.
+    "reasoning_quick": BenchmarkSuite(
+        name="reasoning_quick",
+        tasks=("gsm8k", "arc_challenge", "hellaswag"),
+        num_fewshot=0,
+        notes="Fast iteration suite: GSM8K + ARC-Challenge + HellaSwag. ~20 min per model.",
+    ),
     "reasoning_core": BenchmarkSuite(
         name="reasoning_core",
         tasks=("gsm8k", "gpqa_diamond", "mmlu_pro", "ifeval"),
         num_fewshot=0,
-        notes="lm-evaluation-harness tasks covering math, knowledge, and instruction following.",
+        notes="Core reasoning tasks: math, graduate science, knowledge, instruction following.",
     ),
     "math_code": BenchmarkSuite(
         name="math_code",
         tasks=("gsm8k", "minerva_math", "humaneval"),
         num_fewshot=0,
-        notes="Lightweight local substitute for the heavier AIME/HMMT/LiveCodeBench style runs.",
+        notes="Math and code: GSM8K, Minerva, HumanEval.",
     ),
 }
 

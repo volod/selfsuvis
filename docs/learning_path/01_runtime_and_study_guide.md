@@ -122,7 +122,7 @@ With them, it becomes a coherent system.
 If you are returning to the repo after an older version, these are the changes that matter most:
 
 - the project now uses `pyproject.toml` as the dependency source of truth
-- environment bootstrapping is centered on `selfsuvis-env`
+- environment bootstrapping is centered on `ssv-env`
 - tests are now mostly organized to mirror `src/selfsuvis/`
 - shared `pipeline.core` helpers now handle layered env loading, model/cache
   preflight checks, sidecar HTTP clients, device resolution, and startup logging

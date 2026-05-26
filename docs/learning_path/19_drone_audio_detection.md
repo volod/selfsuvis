@@ -71,7 +71,7 @@ Training uses:
 
 ## Dataset layout
 
-After `split_drone_audio_data.sh` (or `selfsuvis-prepare-audio`):
+After `split_drone_audio_data.sh` (or `ssv-prepare-audio`):
 
 ```
 .data/drone-audio-data/
@@ -146,7 +146,7 @@ of this snippet with the actual ONNX path.
 
 ## Physics-based audio simulation
 
-The `play_drone_sound.sh` script / `selfsuvis-play-drone` entry point applies three physical
+The `play_drone_sound.sh` script / `ssv-play-drone` entry point applies three physical
 effects to a drone audio sample (or a synthetic rotor tone) to simulate what the microphone
 would hear at a given distance, approach angle, and speed:
 
@@ -228,7 +228,7 @@ for out in sess.get_outputs():
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `Step 32 skipped: data dir empty` | Dataset not prepared | Run `selfsuvis-prepare-audio` first |
+| `Step 32 skipped: data dir empty` | Dataset not prepared | Run `ssv-prepare-audio` first |
 | `datasets package not found` | HF client not installed | `uv pip install "datasets>=2.18"` |
 | `soundfile not found` | WAV writer missing | `uv pip install "soundfile>=0.12"` |
 | Very low val F1 after 10 epochs | Too few epochs or imbalanced split | Increase `--drone-audio-epochs` or check split ratios |

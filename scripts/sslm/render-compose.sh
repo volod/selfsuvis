@@ -8,4 +8,6 @@ export SSLM_PROJECT_ROOT="${SSLM_PROJECT_ROOT:-$ROOT}"
 export SSLM_HF_CACHE="${SSLM_HF_CACHE:-$ROOT/.data/sslm/hf-cache}"
 cd "$ROOT"
 
-exec "$VENV/bin/sslm" render-compose "$@"
+exec "$VENV/bin/sslm" render-compose \
+  --output "$ROOT/.data/sslm/docker-compose.generated.yml" \
+  "$@"

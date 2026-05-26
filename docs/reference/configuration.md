@@ -1,6 +1,6 @@
 # Configuration
 
-Defaults live in `src/selfsuvis/env/dev.env`, `src/selfsuvis/env/test.env`, and `src/selfsuvis/env/prod.env`. Set `APP_ENV=dev|test|prod` to pick one, then override them with a project-root `.env` or exported environment variables. Generate a resource-aware root `.env` with `selfsuvis-env --env dev`. The authoritative source is `src/selfsuvis/pipeline/core/config/`.
+Defaults live in `src/selfsuvis/env/dev.env`, `src/selfsuvis/env/test.env`, and `src/selfsuvis/env/prod.env`. Set `APP_ENV=dev|test|prod` to pick one, then override them with a project-root `.env` or exported environment variables. Generate a resource-aware root `.env` with `ssv-env --env dev`. The authoritative source is `src/selfsuvis/pipeline/core/config/`.
 
 ## Core storage and paths
 

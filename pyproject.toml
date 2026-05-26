@@ -106,16 +106,16 @@ dev = [
 ]
 
 [project.scripts]
-selfsuvis         = "selfsuvis.cli:main"
-selfsuvis-env     = "selfsuvis.scripts.generate_env:main"
-selfsuvis-migrate = "selfsuvis.scripts.migrate_postgres:main"
-selfsuvis-models  = "selfsuvis.scripts.prepare_models:main"
-selfsuvis-export  = "selfsuvis.scripts.export_onnx:main"
-selfsuvis-gallery = "selfsuvis.scripts.build_gallery:main"
-selfsuvis-split-audio    = "selfsuvis.scripts.split_drone_audio_data:main"
-selfsuvis-play-drone     = "selfsuvis.scripts.play_drone_sound:main"
-selfsuvis-prepare-audio  = "selfsuvis.scripts.prepare_audio_data:main"
-selfsuvis-realtime-bridge = "selfsuvis.realtime.bridge_runtime:main"
+ssv                  = "selfsuvis.cli:main"
+ssv-env              = "selfsuvis.scripts.generate_env:main"
+ssv-migrate          = "selfsuvis.scripts.migrate_postgres:main"
+ssv-models           = "selfsuvis.scripts.prepare_models:main"
+ssv-export           = "selfsuvis.scripts.export_onnx:main"
+ssv-gallery          = "selfsuvis.scripts.build_gallery:main"
+ssv-split-audio      = "selfsuvis.scripts.split_drone_audio_data:main"
+ssv-play-drone       = "selfsuvis.scripts.play_drone_sound:main"
+ssv-prepare-audio    = "selfsuvis.scripts.prepare_audio_data:main"
+ssv-realtime-bridge  = "selfsuvis.realtime.bridge_runtime:main"
 coop-analytics   = "selfsuvis.coop.analytics.cli:main"
 
 [tool.setuptools.packages.find]

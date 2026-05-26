@@ -4,7 +4,7 @@
 - `./scripts/install/install_system_deps.sh` — ffmpeg, OpenCV deps (Linux). Add `--with-python` for Python/venv.
 - `./scripts/install/install_nvidia_docker.sh` — NVIDIA Container Toolkit for Docker GPU
 - `./scripts/install/install_requirements.sh` — install Python deps from `pyproject.toml` extras into a venv (called by `make venv`)
-- `selfsuvis-env` — generate a resource-aware root `.env` from packaged presets
+- `ssv-env` — generate a resource-aware root `.env` from packaged presets
 
 ## Pre-download weights for offline use
 ```bash

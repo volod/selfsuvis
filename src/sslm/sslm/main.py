@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from sslm.playground.benchmarks import build_lm_eval_command, run_lm_eval, run_smoke
@@ -22,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
 
     render = sub.add_parser("render-compose", help="Render a Docker Compose file for selected sidecars")
     render.add_argument("--models", default=",".join(DEFAULT_MODEL_PAIR))
-    render.add_argument("--output", type=Path, default=Path("scripts/sslm/docker-compose.generated.yml"))
+    render.add_argument("--output", type=Path, default=Path(".data/sslm/docker-compose.generated.yml"))
 
     smoke = sub.add_parser("smoke", help="Run local smoke prompts against an existing endpoint")
     smoke.add_argument("--model", required=True)
@@ -51,6 +53,15 @@ def main(argv: list[str] | None = None) -> int:
     finetune.add_argument("--base-model", default="Qwen/Qwen3-8B")
     finetune.add_argument("--dataset", default="jsonl://.data/reasoning_sft.jsonl")
     finetune.add_argument("--output", type=Path, default=Path(".data/sslm/finetune/qlora.yaml"))
+
+    dashboard = sub.add_parser("dashboard", help="Launch Streamlit leaderboard dashboard")
+    dashboard.add_argument(
+        "--results-dir",
+        type=Path,
+        default=Path(".data/sslm/results"),
+        help="Directory containing lm-eval results (default: .data/sslm/results)",
+    )
+    dashboard.add_argument("--port", type=int, default=8501)
 
     args = parser.parse_args(argv)
 
@@ -114,6 +125,17 @@ def main(argv: list[str] | None = None) -> int:
         write_qlora_recipe(args.output, base_model=args.base_model, dataset=args.dataset)
         print(args.output)
         return 0
+
+    if args.command == "dashboard":
+        app_path = Path(__file__).parent / "dashboard" / "app.py"
+        cmd = [
+            sys.executable, "-m", "streamlit", "run", str(app_path),
+            "--server.port", str(args.port),
+            "--",
+            "--results-dir", str(args.results_dir),
+        ]
+        print(f"Dashboard: http://localhost:{args.port}")
+        return subprocess.call(cmd)
 
     return 2
 
