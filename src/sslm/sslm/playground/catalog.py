@@ -33,6 +33,9 @@ class ModelProfile:
     extra_vllm_args: tuple[str, ...] = ()
     env: dict[str, str] = field(default_factory=dict)
     notes: str = ""
+    # git URL@branch for the vllm fork used in a custom build; enables wheel
+    # cache invalidation in sidecars.py when the branch HEAD changes.
+    vllm_source: str | None = None
 
     @property
     def base_url(self) -> str:
@@ -72,8 +75,9 @@ MODEL_CATALOG: dict[str, ModelProfile] = {
         image="sslm/zaya-vllm:latest",
         build_context=".",
         dockerfile="scripts/sslm/docker/Dockerfile.zaya-vllm",
-        max_model_len=32768,
-        gpu_memory_utilization=0.82,
+        vllm_source="https://github.com/Zyphra/vllm.git@zaya1-pr",
+        max_model_len=8192,
+        gpu_memory_utilization=0.75,
         quantization="fp8",
         min_gpu_gb=12,
         extra_vllm_args=(
@@ -96,8 +100,8 @@ MODEL_CATALOG: dict[str, ModelProfile] = {
         family="qwen3",
         modality="reasoning_llm",
         port=8011,
-        max_model_len=32768,
-        gpu_memory_utilization=0.86,
+        max_model_len=8192,
+        gpu_memory_utilization=0.75,
         quantization="fp8",
         min_gpu_gb=12,
         extra_vllm_args=(

@@ -16,7 +16,15 @@ def parse_model_keys(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:  # noqa: C901
+    try:
+        return _main(argv)
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
+
+
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="SSLM sidecar benchmark playground")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -38,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     lm_eval.add_argument("--tasks", default="gsm8k")
     lm_eval.add_argument("--output", type=Path, default=Path(".data/sslm/results/lm-eval"))
     lm_eval.add_argument("--num-fewshot", type=int, default=0)
-    lm_eval.add_argument("--batch-size", default="auto")
+    lm_eval.add_argument("--batch-size", default="4")
     lm_eval.add_argument("--dry-run", action="store_true")
 
     sequential = sub.add_parser("sequential", help="Start sidecars one at a time and benchmark them")

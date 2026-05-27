@@ -12,6 +12,12 @@ Compact guidance for Claude Code in this repository.
 - Runtime data belongs under `.data/`; avoid recreating root `data/` unless a file explicitly still requires it.
 - Use ASCII in logs, docs, comments, and generated shell output.
 
+## Heavy compilation (ninja / cmake / CUDA)
+
+Any installation that compiles C++/CUDA from source (git+, --no-binary, --no-build-isolation) MUST cap
+parallelism via `ARG MAX_JOBS=4` (safe default) overridden by the caller with:
+`MAX_JOBS = min(max(1, (nproc-2)//2), max(1, available_ram_gb//12))`.
+
 ## Current layout
 
 - API: `src/selfsuvis/app/`

@@ -136,7 +136,7 @@ def build_lm_eval_command(
     tasks: list[str],
     output_path: Path,
     num_fewshot: int = 0,
-    batch_size: str = "auto",
+    batch_size: str = "4",
 ) -> list[str]:
     model_args = f"model={model_id},base_url={base_url},tokenizer_backend=huggingface"
     return [
@@ -164,7 +164,7 @@ def run_lm_eval(
     tasks: list[str],
     output_path: Path,
     num_fewshot: int = 0,
-    batch_size: str = "auto",
+    batch_size: str = "4",
 ) -> int:
     output_path.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()

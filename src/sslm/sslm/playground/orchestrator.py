@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,7 @@ def run_sequential(config: SequentialRunConfig) -> None:
     for model in config.models:
         sidecar = DockerComposeSidecar(config.compose_file, model)
         try:
+            sidecar.prefetch()
             sidecar.up(build=config.build)
             sidecar.wait_ready()
             model_dir = config.results_dir / model.key
@@ -51,6 +53,9 @@ def run_sequential(config: SequentialRunConfig) -> None:
                 )
                 if code != 0:
                     raise SystemExit(code)
+        except KeyboardInterrupt:
+            print(f"\nInterrupted -- tearing down {model.key} ...", file=sys.stderr)
+            raise
         finally:
             if not config.keep_running:
                 sidecar.down()

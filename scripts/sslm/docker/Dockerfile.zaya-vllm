@@ -1,17 +1,60 @@
-FROM vllm/vllm-openai:latest
+# syntax=docker/dockerfile:1
 
-# cuda-nvrtc-* provides CUDA::nvrtc required by deep-gemm/vllm C extensions.
-# Detect the CUDA version already in the image so the package suffix matches exactly.
-# --no-build-isolation lets pip reuse the installed torch/CUDA headers rather than
-# fetching them again into an isolated env, which avoids a second header mismatch.
+# ── builder: CUDA dev tools + compiled vllm wheel ────────────────────────────
+FROM vllm/vllm-openai:latest AS builder
+
+# MAX_JOBS caps ninja parallelism during CUDA extension compilation.
+# Default 4 is safe for unknown hardware; the caller overrides with
+# max(1, (nproc-2)/2) -- same formula used for xformers builds -- so the
+# host does not spawn more cicc/ptxas processes than RAM can handle.
+ARG MAX_JOBS=4
+
+# cuda-nvrtc-dev-* and cuda-libraries-dev-* are required for deep-gemm/vllm
+# C extensions. Detect the CUDA version already in the image for exact suffix.
 RUN CUDA_PKG=$(nvcc --version 2>/dev/null | grep -oP '(?<=release )\d+\.\d+' | tr '.' '-') && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
       git ninja-build \
       cuda-nvrtc-${CUDA_PKG} cuda-nvrtc-dev-${CUDA_PKG} \
       cuda-libraries-dev-${CUDA_PKG} && \
-    rm -rf /var/lib/apt/lists/* && \
-    python3 -m pip install --no-cache-dir --upgrade pip "cmake>=3.26" && \
-    python3 -m pip install --no-cache-dir --no-build-isolation \
+    rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    pip install --upgrade pip "cmake>=3.26"
+
+# Pre-install target torch before the vllm source build. Base image ships
+# torch 2.10 whose c10::MessageLogger ABI is incompatible with 2.11;
+# --no-build-isolation would compile against the wrong headers without this.
+RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    pip install torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0
+
+# Build vllm wheel into /dist/; --no-build-isolation reuses installed torch.
+# --no-deps skips building dep wheels; runtime deps come from the base image.
+RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    MAX_JOBS=${MAX_JOBS} \
+    pip wheel --no-build-isolation --no-deps \
+      --wheel-dir /dist \
       "vllm @ git+https://github.com/Zyphra/vllm.git@zaya1-pr"
 
+
+# ── wheel-export: scratch layer for host extraction via --output type=local ──
+FROM scratch AS wheel-export
+COPY --from=builder /dist/ /
+
+
+# ── runtime: clean base without CUDA dev libs (~4 GB smaller than builder) ───
+FROM vllm/vllm-openai:latest AS runtime
+
+RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    pip install --upgrade pip
+
+# Match torch version compiled against in builder (base image has 2.10).
+RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    pip install torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0
+
+# Swap out official vllm for the Zyphra fork wheel; pip resolves any new deps.
+COPY --from=builder /dist/ /tmp/dist/
+RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    pip uninstall -y vllm || true && \
+    pip install /tmp/dist/vllm*.whl && \
+    rm -rf /tmp/dist
