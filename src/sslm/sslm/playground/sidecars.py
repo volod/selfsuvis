@@ -1,5 +1,7 @@
 import os
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -39,12 +41,17 @@ def compose_service(model: ModelProfile) -> dict:
             "HF_TOKEN": "${HF_TOKEN:-}",
             "HUGGING_FACE_HUB_TOKEN": "${HUGGING_FACE_HUB_TOKEN:-}",
             "NVIDIA_VISIBLE_DEVICES": "${NVIDIA_VISIBLE_DEVICES:-all}",
-            # torch._dynamo calls getpass.getuser() -> getpwuid() at import time to
-            # build a cache dir path.  When the container runs as a UID that has no
-            # /etc/passwd entry (user: SSLM_UID:SSLM_GID), that lookup raises
-            # KeyError and vllm crashes before it starts.  Setting these two vars
-            # bypasses both code paths: TORCHINDUCTOR_CACHE_DIR skips getpwuid in
-            # cache_dir_utils.py; HOME=/tmp covers any expanduser("~") fallback.
+            # The container runs as SSLM_UID:SSLM_GID (a real host UID with no
+            # /etc/passwd entry inside the container).  torch 2.11 calls
+            # getpass.getuser() -> pwd.getpwuid(uid) unconditionally at module
+            # import time inside cache_dir_utils.py, which raises KeyError and
+            # crashes vllm before the server starts.
+            #
+            # Fix: Python's getpass.getuser() checks LOGNAME/USER/LNAME/USERNAME
+            # env vars first and returns early without ever calling getpwuid().
+            # TORCHINDUCTOR_CACHE_DIR and HOME cover the remaining fallback
+            # paths (expanduser, other inductor helpers) that also avoid getpwuid.
+            "LOGNAME": "vllm",
             "TORCHINDUCTOR_CACHE_DIR": "/tmp/torchinductor",
             "HOME": "/tmp",
             **model.env,
@@ -218,16 +225,18 @@ class DockerComposeSidecar:
     # ── wheel cache helpers ───────────────────────────────────────────────────
 
     def _wheel_dir(self, env: dict[str, str]) -> Path:
-        return Path(env["SSLM_PROJECT_ROOT"]) / ".data" / "sslm" / "wheels"
+        # Per-model subdir so the original pip-valid wheel filename is preserved.
+        return Path(env["SSLM_PROJECT_ROOT"]) / ".data" / "sslm" / "wheels" / self._wheel_slug()
 
     def _wheel_slug(self) -> str:
         return self.model.image.replace("/", "_").replace(":", "_")
 
-    def _wheel_whl(self, env: dict[str, str]) -> Path:
-        return self._wheel_dir(env) / f"{self._wheel_slug()}.whl"
+    def _wheel_whl(self, env: dict[str, str]) -> Path | None:
+        matches = sorted(self._wheel_dir(env).glob("vllm*.whl"))
+        return matches[0] if matches else None
 
     def _wheel_commit(self, env: dict[str, str]) -> Path:
-        return self._wheel_dir(env) / f"{self._wheel_slug()}.commit"
+        return self._wheel_dir(env) / ".commit"
 
     def _stored_commit(self, env: dict[str, str]) -> str | None:
         try:
@@ -259,6 +268,9 @@ class DockerComposeSidecar:
             return
         wheel_dir = self._wheel_dir(env)
         wheel_dir.mkdir(parents=True, exist_ok=True)
+        # Remove any stale wheel from a previous build before exporting.
+        for stale in wheel_dir.glob("vllm*.whl"):
+            stale.unlink()
         context = env.get("SSLM_PROJECT_ROOT", ".")
         print(f"[wheel-cache] Extracting wheel to {wheel_dir} ...", flush=True)
         subprocess.check_call(
@@ -278,11 +290,9 @@ class DockerComposeSidecar:
             ],
             env=env,
         )
-        # Rename to a stable slug (pip wheel names include version + platform tags).
+        # Original pip-valid filename is preserved (no rename needed).
         for produced in wheel_dir.glob("vllm*.whl"):
-            stable = self._wheel_whl(env)
-            produced.rename(stable)
-            print(f"[wheel-cache] Wheel saved: {stable}", flush=True)
+            print(f"[wheel-cache] Wheel saved: {produced}", flush=True)
             break
 
         # Record the commit so the next run can skip the rebuild.
@@ -298,13 +308,21 @@ class DockerComposeSidecar:
         env = self._compose_env()
         needs_build = build or not self._custom_image_exists()
 
-        if needs_build and self.model.vllm_source and self._custom_image_exists():
-            if self._wheel_is_fresh(env):
+        if needs_build and self.model.vllm_source:
+            fresh = self._wheel_is_fresh(env)
+            if fresh and self._custom_image_exists():
+                # Explicit --build but source is unchanged: skip entirely.
                 print(
                     f"[wheel-cache] {self.model.image}: source unchanged, skipping rebuild",
                     flush=True,
                 )
                 needs_build = False
+            elif fresh and self.model.dockerfile:
+                # Image is missing (e.g. after docker system prune) but the
+                # wheel is current: rebuild from cache, skip CUDA compilation.
+                if self._wheel_whl(env) is not None:
+                    self._build_from_wheel(env)
+                    needs_build = False
 
         command = ["docker", "compose", "-f", str(self.compose_file), "up", "-d"]
         if needs_build:
@@ -315,9 +333,43 @@ class DockerComposeSidecar:
         if needs_build and self.model.vllm_source:
             self._export_wheel(env)
 
+    def _build_from_wheel(self, env: dict[str, str]) -> None:
+        """Rebuild the runtime image from the host-cached wheel (no CUDA compilation).
+
+        Uses the from-wheel target in Dockerfile.zaya-vllm.  A minimal temp
+        build context (Dockerfile + wheel only) keeps the transfer fast.
+        """
+        wheel = self._wheel_whl(env)
+        dockerfile = self.model.dockerfile
+        if wheel is None or not dockerfile:
+            return
+        print(f"[wheel-cache] Fast rebuild of {self.model.image} from cached wheel...", flush=True)
+        with tempfile.TemporaryDirectory(prefix="sslm-wheel-build-") as tmpdir:
+            tmp = Path(tmpdir)
+            shutil.copy2(wheel, tmp / wheel.name)  # preserve pip-valid filename
+            shutil.copy2(dockerfile, tmp / "Dockerfile")
+            subprocess.check_call(
+                [
+                    "docker", "buildx", "build",
+                    "--target", "from-wheel",
+                    "--tag", self.model.image,
+                    "--load",
+                    "-f", str(tmp / "Dockerfile"),
+                    str(tmp),
+                ],
+                env=env,
+            )
+        print(f"[wheel-cache] Fast rebuild complete: {self.model.image}", flush=True)
+
     def down(self) -> None:
         subprocess.call(
             ["docker", "compose", "-f", str(self.compose_file), "rm", "-sf", self.service],
+            env=self._compose_env(),
+        )
+
+    def dump_logs(self, tail: int = 100) -> None:
+        subprocess.call(
+            ["docker", "compose", "-f", str(self.compose_file), "logs", "--tail", str(tail), self.service],
             env=self._compose_env(),
         )
 

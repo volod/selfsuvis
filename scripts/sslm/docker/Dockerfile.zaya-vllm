@@ -42,6 +42,25 @@ FROM scratch AS wheel-export
 COPY --from=builder /dist/ /
 
 
+# ── from-wheel: fast rebuild using pre-built wheel from host wheel cache ──────
+# Build context must contain vllm.whl (placed there by _build_from_wheel in
+# sidecars.py). Skips CUDA compilation entirely when the wheel is already
+# current (e.g. after docker system prune without a source change).
+FROM vllm/vllm-openai:latest AS from-wheel
+
+RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    pip install --upgrade pip
+
+RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    pip install torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0
+
+COPY *.whl /tmp/dist/
+RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    pip uninstall -y vllm || true && \
+    pip install /tmp/dist/*.whl && \
+    rm -rf /tmp/dist
+
+
 # ── runtime: clean base without CUDA dev libs (~4 GB smaller than builder) ───
 FROM vllm/vllm-openai:latest AS runtime
 

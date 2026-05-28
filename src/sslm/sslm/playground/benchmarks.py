@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -129,6 +130,16 @@ def run_smoke(
     return results
 
 
+# System instruction injected into every lm_eval request for reasoning models.
+# Goals: (1) keep <think> short so it doesn't exhaust max_gen_toks before the
+# final answer; (2) guarantee text after </think> so content is never null.
+# Must not contain commas -- lm_eval splits model_args on "," without quoting.
+REASONING_SYSTEM_INSTRUCTION = (
+    "Think step by step but keep your reasoning brief. "
+    "After your reasoning always write a short direct final answer."
+)
+
+
 def build_lm_eval_command(
     *,
     base_url: str,
@@ -137,10 +148,21 @@ def build_lm_eval_command(
     output_path: Path,
     num_fewshot: int = 0,
     batch_size: str = "4",
+    max_gen_toks: int = 4096,
+    max_length: int = 8192,
+    system_instruction: str = REASONING_SYSTEM_INSTRUCTION,
 ) -> list[str]:
-    model_args = f"model={model_id},base_url={base_url},tokenizer_backend=huggingface"
+    lm_eval_bin = str(Path(sys.executable).parent / "lm_eval")
+    # lm_eval posts directly to base_url with no path appended, so it must be
+    # the full chat completions endpoint, not just the /v1 prefix.
+    chat_url = base_url.rstrip("/") + "/chat/completions"
+    model_args = (
+        f"model={model_id},base_url={chat_url},tokenizer_backend=huggingface,"
+        f"max_gen_toks={max_gen_toks},max_length={max_length},"
+        f"system_instruction={system_instruction}"
+    )
     return [
-        "lm_eval",
+        lm_eval_bin,
         "--model",
         "local-chat-completions",
         "--model_args",
@@ -177,7 +199,20 @@ def run_lm_eval(
         num_fewshot=num_fewshot,
         batch_size=batch_size,
     )
-    return subprocess.call(command, env=env)
+    # start_new_session isolates lm_eval from the terminal SIGINT so Ctrl+C
+    # doesn't trigger its own traceback — our orchestrator handles teardown.
+    proc = subprocess.Popen(command, env=env, start_new_session=True)
+    try:
+        return proc.wait()
+    except KeyboardInterrupt:
+        print("\n[sslm] Interrupted -- stopping lm_eval ...", flush=True)
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        raise
 
 
 def _best_score(task_metrics: dict) -> tuple[str, float] | tuple[None, None]:

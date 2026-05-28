@@ -24,20 +24,39 @@ class OpenAICompatibleClient:
         self.timeout = timeout
 
     def health(self) -> bool:
+        # Poll /v1/models and require a non-empty model list.
+        # /health returns 200 as soon as the HTTP server starts (before model
+        # loads). /v1/models with an empty data[] also returns 200 in some forks
+        # before the model is registered. Requiring at least one entry is the
+        # safest proxy for "model is loaded and ready to serve requests."
         try:
             response = httpx.get(
-                self.base_url.removesuffix("/v1") + "/health",
+                f"{self.base_url}/models",
                 timeout=5.0,
             )
-            return response.status_code < 500
-        except httpx.HTTPError:
+            if response.status_code != 200:
+                return False
+            data = response.json()
+            return bool(data.get("data"))
+        except (httpx.HTTPError, Exception):
             return False
 
     def wait_until_ready(self, timeout_s: float = 900.0, interval_s: float = 5.0) -> None:
         deadline = time.time() + timeout_s
+        start = time.time()
+        last_log = start - 30  # log immediately on first check
+        print(f"[sslm] Waiting for {self.base_url} to become ready (timeout {timeout_s:.0f}s) ...", flush=True)
         while time.time() < deadline:
             if self.health():
+                elapsed = time.time() - start
+                print(f"[sslm] Ready after {elapsed:.0f}s", flush=True)
                 return
+            now = time.time()
+            if now - last_log >= 30:
+                elapsed = now - start
+                remaining = deadline - now
+                print(f"[sslm] Still waiting ... {elapsed:.0f}s elapsed, {remaining:.0f}s remaining", flush=True)
+                last_log = now
             time.sleep(interval_s)
         raise TimeoutError(f"Endpoint did not become healthy within {timeout_s:.0f}s: {self.base_url}")
 

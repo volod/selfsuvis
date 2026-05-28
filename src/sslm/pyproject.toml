@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 eval = [
     "lm-eval[api]>=0.4.9",
+    "transformers>=4.47",
 ]
 dashboard = [
     "streamlit>=1.37",
