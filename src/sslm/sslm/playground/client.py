@@ -1,24 +1,45 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+
+from sslm.playground.constants import (
+    DEFAULT_CHAT_MAX_TOKENS,
+    DEFAULT_CHAT_SYSTEM_PROMPT,
+    DEFAULT_CHAT_TEMPERATURE,
+    DEFAULT_CHAT_TOP_P,
+    DEFAULT_CLIENT_TIMEOUT_S,
+    DEFAULT_OPENAI_API_KEY,
+    ENDPOINT_READY_TIMEOUT_S,
+    HEALTH_REQUEST_TIMEOUT_S,
+    HTTP_OK,
+    MODEL_LIST_TIMEOUT_S,
+    READY_LOG_INTERVAL_S,
+    READY_POLL_INTERVAL_S,
+)
 
 
 @dataclass(frozen=True)
 class ChatRequest:
     model: str
     prompt: str
-    system: str = "You are a careful reasoning assistant. Give concise final answers."
-    temperature: float = 0.6
-    top_p: float = 0.95
-    max_tokens: int = 512
+    system: str = DEFAULT_CHAT_SYSTEM_PROMPT
+    temperature: float = DEFAULT_CHAT_TEMPERATURE
+    top_p: float = DEFAULT_CHAT_TOP_P
+    max_tokens: int = DEFAULT_CHAT_MAX_TOKENS
 
 
 class OpenAICompatibleClient:
-    def __init__(self, base_url: str, api_key: str = "EMPTY", timeout: float = 120.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str = DEFAULT_OPENAI_API_KEY,
+        timeout: float = DEFAULT_CLIENT_TIMEOUT_S,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         self.timeout = timeout
@@ -32,27 +53,38 @@ class OpenAICompatibleClient:
         try:
             response = httpx.get(
                 f"{self.base_url}/models",
-                timeout=5.0,
+                timeout=HEALTH_REQUEST_TIMEOUT_S,
             )
-            if response.status_code != 200:
+            if response.status_code != HTTP_OK:
                 return False
             data = response.json()
             return bool(data.get("data"))
         except (httpx.HTTPError, Exception):
             return False
 
-    def wait_until_ready(self, timeout_s: float = 900.0, interval_s: float = 5.0) -> None:
+    def wait_until_ready(
+        self,
+        timeout_s: float = ENDPOINT_READY_TIMEOUT_S,
+        interval_s: float = READY_POLL_INTERVAL_S,
+        is_alive: Callable[[], bool] | None = None,
+    ) -> None:
         deadline = time.time() + timeout_s
         start = time.time()
-        last_log = start - 30  # log immediately on first check
+        last_log = start - READY_LOG_INTERVAL_S  # log immediately on first check
         print(f"[sslm] Waiting for {self.base_url} to become ready (timeout {timeout_s:.0f}s) ...", flush=True)
         while time.time() < deadline:
+            if is_alive is not None and not is_alive():
+                elapsed = time.time() - start
+                raise RuntimeError(
+                    f"Container exited after {elapsed:.0f}s while waiting for {self.base_url} -- "
+                    "check container logs for startup errors"
+                )
             if self.health():
                 elapsed = time.time() - start
                 print(f"[sslm] Ready after {elapsed:.0f}s", flush=True)
                 return
             now = time.time()
-            if now - last_log >= 30:
+            if now - last_log >= READY_LOG_INTERVAL_S:
                 elapsed = now - start
                 remaining = deadline - now
                 print(f"[sslm] Still waiting ... {elapsed:.0f}s elapsed, {remaining:.0f}s remaining", flush=True)
@@ -81,7 +113,6 @@ class OpenAICompatibleClient:
         return response.json()
 
     def list_models(self) -> dict[str, Any]:
-        response = httpx.get(f"{self.base_url}/models", headers=self.headers, timeout=10.0)
+        response = httpx.get(f"{self.base_url}/models", headers=self.headers, timeout=MODEL_LIST_TIMEOUT_S)
         response.raise_for_status()
         return response.json()
-

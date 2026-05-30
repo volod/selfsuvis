@@ -54,12 +54,12 @@ help:
 	@echo ""
 	@echo "  LLM benchmarks (sslm)"
 	@echo "  ----------------------"
-	@echo "  make sslm                 Full end-to-end: venv + Open LLM v2 benchmarks + dashboard (cached)"
-	@echo "  make sslm-quick           Same pipeline with quick suite: GSM8K + ARC-C + HellaSwag (~20 min/model, cached)"
+	@echo "  make sslm                 Full end-to-end: venv + Open LLM v2 benchmarks (cached)"
+	@echo "  make sslm-quick           Same pipeline with quick suite: GSM8K + ARC-C + NQ-Open (~20 min/model, cached)"
 	@echo "  make sslm-rebuild         Force-rebuild Docker images then run quick suite"
 	@echo "  make sslm-venv            Create .venv-sslm with eval + dashboard extras"
 	@echo "  make sslm-benchmark       Run Open LLM Leaderboard v2 (venv must exist)"
-	@echo "  make sslm-benchmark-quick Run fast subset: GSM8K + ARC-C + HellaSwag (~20 min/model)"
+	@echo "  make sslm-benchmark-quick Run fast subset: GSM8K + ARC-C + NQ-Open (~20 min/model)"
 	@echo "  make sslm-dashboard       Launch Streamlit leaderboard at http://localhost:8501"
 	@echo ""
 	@echo "  Troubleshooting"
@@ -267,26 +267,33 @@ utlz-endpoints:
 
 # -- SSLM benchmark playground -------------------------------------------------
 
-# End-to-end: create venv, build sidecar images, run Open LLM v2, open dashboard.
+define sslm-dashboard-hint
+	@echo ""
+	@echo "Benchmark complete. Launch the dashboard with:"
+	@echo "  make sslm-dashboard"
+	@echo "  # or: SSLM_VENV=.venv-sslm .venv-sslm/bin/sslm dashboard --results-dir .data/sslm/results"
+endef
+
+# End-to-end: create venv, build sidecar images, run Open LLM v2.
 sslm: docker-check
 	scripts/sslm/setup-venv.sh eval,dashboard
 	scripts/sslm/run-benchmark.sh --suite open_llm_v2
-	scripts/sslm/run-dashboard.sh
+	$(sslm-dashboard-hint)
 
 sslm-quick: docker-check
 	scripts/sslm/setup-venv.sh eval,dashboard
 	scripts/sslm/run-benchmark.sh --suite reasoning_quick
-	scripts/sslm/run-dashboard.sh
+	$(sslm-dashboard-hint)
 
 sslm-rebuild: docker-check
 	scripts/sslm/setup-venv.sh eval,dashboard
 	scripts/sslm/run-benchmark.sh --build --suite reasoning_quick
-	scripts/sslm/run-dashboard.sh
+	$(sslm-dashboard-hint)
 
 sslm-run: docker-check
 	scripts/sslm/setup-venv.sh eval,dashboard
 	scripts/sslm/run-benchmark.sh --suite open_llm_v2
-	scripts/sslm/run-dashboard.sh
+	$(sslm-dashboard-hint)
 
 sslm-venv:
 	scripts/sslm/setup-venv.sh eval,dashboard

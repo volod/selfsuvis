@@ -11,16 +11,18 @@ ARG MAX_JOBS=4
 
 # cuda-nvrtc-dev-* and cuda-libraries-dev-* are required for deep-gemm/vllm
 # C extensions. Detect the CUDA version already in the image for exact suffix.
+# ccache caches compiled C++/CUDA objects across rebuilds via BuildKit mount below.
 RUN CUDA_PKG=$(nvcc --version 2>/dev/null | grep -oP '(?<=release )\d+\.\d+' | tr '.' '-') && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-      git ninja-build \
+      git ninja-build ccache \
       cuda-nvrtc-${CUDA_PKG} cuda-nvrtc-dev-${CUDA_PKG} \
       cuda-libraries-dev-${CUDA_PKG} && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf "$(which ccache)" /usr/lib/ccache/nvcc
 
 RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
-    pip install --upgrade pip "cmake>=3.26"
+    pip install --upgrade pip setuptools_rust "cmake>=3.26"
 
 # Pre-install target torch before the vllm source build. Base image ships
 # torch 2.10 whose c10::MessageLogger ABI is incompatible with 2.11;
@@ -30,7 +32,18 @@ RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
 
 # Build vllm wheel into /dist/; --no-build-isolation reuses installed torch.
 # --no-deps skips building dep wheels; runtime deps come from the base image.
+# /usr/lib/ccache prepended to PATH so gcc, g++, and nvcc all route through ccache.
+# sslm-ccache BuildKit mount persists the object cache across full image rebuilds,
+# so only changed translation units are recompiled when the branch is updated.
+# CUDA_HOME must be pinned explicitly: torch.utils.cpp_extension auto-detects it
+# by resolving `which nvcc` up two directories, which gives /usr/lib when the
+# ccache wrapper is first in PATH instead of the real /usr/local/cuda/bin/nvcc.
 RUN --mount=type=cache,id=sslm-pip,target=/root/.cache/pip \
+    --mount=type=cache,id=sslm-ccache,target=/root/.ccache \
+    PATH="/usr/lib/ccache:$PATH" \
+    CCACHE_DIR=/root/.ccache \
+    CUDA_HOME=/usr/local/cuda \
+    CUDA_PATH=/usr/local/cuda \
     MAX_JOBS=${MAX_JOBS} \
     pip wheel --no-build-isolation --no-deps \
       --wheel-dir /dist \

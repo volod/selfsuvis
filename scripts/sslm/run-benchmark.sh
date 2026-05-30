@@ -34,9 +34,45 @@ SYSTEM_HF_CACHE="$HOME/.cache/huggingface"
 export SSLM_HF_CACHE="${SSLM_HF_CACHE:-$SYSTEM_HF_CACHE}"
 cd "$ROOT"
 
+# ── cleanup prompt ────────────────────────────────────────────────────────────
+# Dangling images (untagged layers left by prior builds) accumulate at ~40 GB
+# per image version.  Offer to prune them before starting a new run.
+_maybe_prune_dangling() {
+  local ids
+  ids=$(docker images -f "dangling=true" -q 2>/dev/null || true)
+  [[ -z "$ids" ]] && return 0
+
+  local count
+  count=$(printf '%s\n' "$ids" | wc -l | tr -d ' ')
+  printf '\n[sslm] %s dangling Docker image(s) from previous builds:\n' "$count"
+  docker images -f "dangling=true" \
+    --format "  {{.ID}}  created {{.CreatedSince}}  {{.Size}}" 2>/dev/null || true
+  printf '\nRemove them to free disk space? [y/N] '
+  read -r _answer
+  case "$_answer" in
+    [yY]|[yY][eE][sS])
+      docker image prune -f
+      printf '[sslm] Dangling images removed.\n\n'
+      ;;
+    *)
+      printf '[sslm] Keeping dangling images.\n\n'
+      ;;
+  esac
+}
+
+_maybe_prune_dangling
+
+# Inject --limit from SSLM_QUICK_LIMIT env var (set in .env).
+# Placed before $@ so an explicit --limit on the command line takes precedence.
+_LIMIT_ARGS=()
+if [[ -n "${SSLM_QUICK_LIMIT:-}" ]]; then
+  _LIMIT_ARGS=(--limit "${SSLM_QUICK_LIMIT}")
+fi
+
 exec "$VENV/bin/sslm" sequential \
   --models zaya1-8b,qwen3-8b \
   --suite open_llm_v2 \
   --compose-file "$ROOT/.data/sslm/docker-compose.generated.yml" \
   --results-dir "$ROOT/.data/sslm/results" \
+  "${_LIMIT_ARGS[@]}" \
   "$@"

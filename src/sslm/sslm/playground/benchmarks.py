@@ -9,6 +9,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from sslm.playground.client import ChatRequest, OpenAICompatibleClient
+from sslm.playground.constants import (
+    DEFAULT_LM_EVAL_BATCH_SIZE,
+    DEFAULT_LM_EVAL_MAX_GEN_TOKS,
+    DEFAULT_LM_EVAL_MAX_LENGTH,
+    DEFAULT_LM_EVAL_NUM_FEWSHOT,
+    DEFAULT_OPENAI_API_KEY,
+    DEFAULT_SMOKE_MAX_TOKENS,
+    LM_EVAL_TERMINATE_TIMEOUT_S,
+)
 
 # Primary metric key (as written by lm-eval in results.json) for each task.
 # Used by the dashboard to extract a single representative score per task.
@@ -20,9 +29,15 @@ TASK_PRIMARY_METRIC: dict[str, str] = {
     "leaderboard_gpqa": "acc_norm,none",
     "leaderboard_musr": "acc_norm,none",
     "leaderboard_mmlu_pro": "acc,none",
-    # Standalone tasks
-    "gsm8k": "exact_match,none",
+    # Standalone tasks — keys must match the lm-eval results.json format:
+    # "{metric},{filter}" where filter is the post-processing step applied.
+    "gsm8k": "exact_match,flexible-extract",   # flexible-extract finds numeric answer
+    "gsm8k_sslm": "exact_match,flexible-extract",
     "arc_challenge": "acc_norm,none",
+    "arc_challenge_chat": "exact_match,remove_whitespace",
+    "arc_challenge_sslm": "exact_match,none",
+    "nq_open": "exact_match,remove_whitespace",
+    "nq_open_sslm": "contains,none",
     "hellaswag": "acc_norm,none",
     "winogrande": "acc,none",
     "truthfulqa_mc2": "acc,none",
@@ -43,7 +58,12 @@ TASK_DISPLAY_NAME: dict[str, str] = {
     "leaderboard_musr": "MuSR",
     "leaderboard_mmlu_pro": "MMLU-Pro",
     "gsm8k": "GSM8K",
+    "gsm8k_sslm": "GSM8K",
     "arc_challenge": "ARC-C",
+    "arc_challenge_chat": "ARC-C",
+    "arc_challenge_sslm": "ARC-C",
+    "nq_open": "NQ-Open",
+    "nq_open_sslm": "NQ-Open",
     "hellaswag": "HellaSwag",
     "gpqa_diamond": "GPQA*",
     "mmlu_pro": "MMLU-Pro",
@@ -102,7 +122,7 @@ def run_smoke(
     base_url: str,
     model_id: str,
     output_path: Path,
-    max_tokens: int = 512,
+    max_tokens: int = DEFAULT_SMOKE_MAX_TOKENS,
 ) -> list[SmokeResult]:
     client = OpenAICompatibleClient(base_url)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,13 +150,18 @@ def run_smoke(
     return results
 
 
-# System instruction injected into every lm_eval request for reasoning models.
-# Goals: (1) keep <think> short so it doesn't exhaust max_gen_toks before the
-# final answer; (2) guarantee text after </think> so content is never null.
+# System instruction injected into every lm_eval request.
+# Goals: short output that matches each task's expected format exactly.
 # Must not contain commas -- lm_eval splits model_args on "," without quoting.
+# Format rules:
+#   arc_challenge_chat  expects exactly the letter:  "C"
+#   gsm8k flexible-extract expects "#### <number>" at the end
+#   nq_open remove_whitespace expects the bare entity name
 REASONING_SYSTEM_INSTRUCTION = (
-    "Think step by step but keep your reasoning brief. "
-    "After your reasoning always write a short direct final answer."
+    "Answer concisely. "
+    "For multiple choice output only the letter. "
+    "For math end with #### followed by the numeric answer. "
+    "For factual questions answer with only the key fact or name."
 )
 
 
@@ -146,23 +171,39 @@ def build_lm_eval_command(
     model_id: str,
     tasks: list[str],
     output_path: Path,
-    num_fewshot: int = 0,
-    batch_size: str = "4",
-    max_gen_toks: int = 4096,
-    max_length: int = 8192,
+    num_fewshot: int = DEFAULT_LM_EVAL_NUM_FEWSHOT,
+    batch_size: str = DEFAULT_LM_EVAL_BATCH_SIZE,
+    max_gen_toks: int = DEFAULT_LM_EVAL_MAX_GEN_TOKS,
+    max_length: int = DEFAULT_LM_EVAL_MAX_LENGTH,
     system_instruction: str = REASONING_SYSTEM_INSTRUCTION,
+    limit: int | None = None,
+    gen_kwargs: str | None = None,
+    log_samples: bool = False,
 ) -> list[str]:
-    lm_eval_bin = str(Path(sys.executable).parent / "lm_eval")
+    # Use the reasoning wrapper so that reasoning_content is read as a fallback
+    # when content is null (common for Qwen3/Zaya via vLLM --reasoning-parser).
+    scripts_sslm = Path(__file__).parent.parent.parent.parent.parent / "scripts" / "sslm"
+    wrapper = str(scripts_sslm / "lm-eval-reasoning.py")
+    # Custom task variants (gsm8k_sslm, arc_challenge_sslm, nq_open_sslm) live
+    # here; they carry scoring robust to chatty reasoning-model output.
+    include_path = str(scripts_sslm / "lm-eval-tasks")
     # lm_eval posts directly to base_url with no path appended, so it must be
     # the full chat completions endpoint, not just the /v1 prefix.
     chat_url = base_url.rstrip("/") + "/chat/completions"
+    # tokenizer_backend=none: ZAYA1/Qwen3 use server-side chat templates (vLLM
+    # applies the correct format); we don't need a local tokenizer for context
+    # checking and avoid torch/model-type warnings entirely.
+    # eos_string: with no tokenizer we can't auto-detect EOS; set it explicitly
+    # so lm-eval adds <|im_end|> to every request's stop list.
     model_args = (
-        f"model={model_id},base_url={chat_url},tokenizer_backend=huggingface,"
+        f"model={model_id},base_url={chat_url},tokenizer_backend=none,"
+        f"eos_string=<|im_end|>,"
         f"max_gen_toks={max_gen_toks},max_length={max_length},"
         f"system_instruction={system_instruction}"
     )
-    return [
-        lm_eval_bin,
+    cmd = [
+        sys.executable,
+        wrapper,
         "--model",
         "local-chat-completions",
         "--model_args",
@@ -175,8 +216,18 @@ def build_lm_eval_command(
         batch_size,
         "--output_path",
         str(output_path),
+        "--include_path",
+        include_path,
         "--apply_chat_template",
+        "--verbosity", "WARNING",
     ]
+    if limit is not None:
+        cmd += ["--limit", str(limit)]
+    if gen_kwargs:
+        cmd += ["--gen_kwargs", gen_kwargs]
+    if log_samples:
+        cmd += ["--log_samples"]
+    return cmd
 
 
 def run_lm_eval(
@@ -185,12 +236,18 @@ def run_lm_eval(
     model_id: str,
     tasks: list[str],
     output_path: Path,
-    num_fewshot: int = 0,
-    batch_size: str = "4",
+    num_fewshot: int = DEFAULT_LM_EVAL_NUM_FEWSHOT,
+    batch_size: str = DEFAULT_LM_EVAL_BATCH_SIZE,
+    limit: int | None = None,
+    gen_kwargs: str | None = None,
+    log_samples: bool = False,
+    extra_env: dict | None = None,
 ) -> int:
     output_path.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env.setdefault("OPENAI_API_KEY", "EMPTY")
+    env.setdefault("OPENAI_API_KEY", DEFAULT_OPENAI_API_KEY)
+    if extra_env:
+        env.update(extra_env)
     command = build_lm_eval_command(
         base_url=base_url,
         model_id=model_id,
@@ -198,6 +255,9 @@ def run_lm_eval(
         output_path=output_path,
         num_fewshot=num_fewshot,
         batch_size=batch_size,
+        limit=limit,
+        gen_kwargs=gen_kwargs,
+        log_samples=log_samples,
     )
     # start_new_session isolates lm_eval from the terminal SIGINT so Ctrl+C
     # doesn't trigger its own traceback — our orchestrator handles teardown.
@@ -208,7 +268,7 @@ def run_lm_eval(
         print("\n[sslm] Interrupted -- stopping lm_eval ...", flush=True)
         proc.terminate()
         try:
-            proc.wait(timeout=10)
+            proc.wait(timeout=LM_EVAL_TERMINATE_TIMEOUT_S)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
@@ -216,8 +276,20 @@ def run_lm_eval(
 
 
 def _best_score(task_metrics: dict) -> tuple[str, float] | tuple[None, None]:
-    """Return (metric_key, value) using TASK_PRIMARY_METRIC then common fallbacks."""
-    for key in ("acc_norm,none", "exact_match,none", "acc,none", "pass@1,none"):
+    """Return (metric_key, value) using TASK_PRIMARY_METRIC then common fallbacks.
+
+    lm-eval stores metrics as "{metric},{filter}" (e.g. "exact_match,flexible-extract").
+    Fallbacks cover both unfiltered ("*,none") and the most common filter variants.
+    """
+    for key in (
+        "acc_norm,none", "acc,none", "pass@1,none",
+        "exact_match,flexible-extract",
+        "exact_match,remove_whitespace",
+        "exact_match,none",
+        "exact_match,strict-match",
+        "contains,none",
+        "prompt_level_strict_acc,none",
+    ):
         if key in task_metrics:
             return key, float(task_metrics[key])
     return None, None
@@ -230,7 +302,7 @@ def parse_lm_eval_results(results_dir: Path) -> list[dict]:
         model, task, task_display, metric, score, date, result_file
     """
     rows: list[dict] = []
-    for json_file in sorted(results_dir.rglob("results.json")):
+    for json_file in sorted(results_dir.rglob("results*.json")):
         try:
             data = json.loads(json_file.read_text(encoding="utf-8"))
         except Exception:

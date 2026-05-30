@@ -8,6 +8,27 @@ import yaml
 
 from sslm.playground.catalog import ModelProfile
 from sslm.playground.client import OpenAICompatibleClient
+from sslm.playground.constants import (
+    COMMIT_DISPLAY_CHARS,
+    COMPOSE_CONTAINER_MEM_LIMIT,
+    COMPOSE_GPU_COUNT,
+    COMPOSE_HEALTH_INTERVAL,
+    COMPOSE_HEALTH_RETRIES,
+    COMPOSE_HEALTH_START_PERIOD,
+    COMPOSE_HEALTH_TIMEOUT,
+    COMPOSE_MEM_SWAPPINESS,
+    COMPOSE_SHM_SIZE,
+    COMPOSE_USER,
+    CUDA_BUILD_CPU_DIVISOR,
+    CUDA_BUILD_DEFAULT_CPU_COUNT,
+    CUDA_BUILD_PEAK_GB_PER_JOB,
+    CUDA_BUILD_RESERVED_CPUS,
+    DOCKER_LOG_TAIL,
+    ENDPOINT_READY_TIMEOUT_S,
+    MEMINFO_KB_PER_GIB,
+    REMOTE_COMMIT_TIMEOUT_S,
+    VLLM_CONTAINER_PORT,
+)
 
 
 def service_name(model: ModelProfile) -> str:
@@ -17,21 +38,21 @@ def service_name(model: ModelProfile) -> str:
 def compose_service(model: ModelProfile) -> dict:
     service: dict = {
         "image": model.image,
-        "user": "${SSLM_UID:-1000}:${SSLM_GID:-1000}",
+        "user": COMPOSE_USER,
         "entrypoint": ["vllm"],
         "command": model.vllm_command(),
-        "ports": [f"{model.port}:8000"],
+        "ports": [f"{model.port}:{VLLM_CONTAINER_PORT}"],
         "gpus": "all",
         # No ipc:host -- single-GPU vLLM does not need host IPC namespace, and
         # ipc:host causes PyTorch SHM to bypass Docker cgroup memory accounting,
         # which can exhaust host RAM and freeze the system.
-        "shm_size": "4g",
+        "shm_size": COMPOSE_SHM_SIZE,
         # Cap container memory to prevent host RAM exhaustion during long benchmarks.
         # memswap_limit == mem_limit means zero swap allowed for the container.
         # Override via SSLM_CONTAINER_MEM_LIMIT env var (e.g. export SSLM_CONTAINER_MEM_LIMIT=32g).
-        "mem_limit": "${SSLM_CONTAINER_MEM_LIMIT:-24g}",
-        "memswap_limit": "${SSLM_CONTAINER_MEM_LIMIT:-24g}",
-        "mem_swappiness": 0,
+        "mem_limit": COMPOSE_CONTAINER_MEM_LIMIT,
+        "memswap_limit": COMPOSE_CONTAINER_MEM_LIMIT,
+        "mem_swappiness": COMPOSE_MEM_SWAPPINESS,
         "environment": {
             "HF_HOME": "/data/hf-cache",
             # Point vLLM directly at the hub subdirectory where prefetch writes,
@@ -60,11 +81,11 @@ def compose_service(model: ModelProfile) -> dict:
             "${SSLM_HF_CACHE:-.data/sslm/hf-cache}:/data/hf-cache",
         ],
         "healthcheck": {
-            "test": ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"],
-            "interval": "30s",
-            "timeout": "10s",
-            "retries": 20,
-            "start_period": "180s",
+            "test": ["CMD-SHELL", f"curl -sf http://localhost:{VLLM_CONTAINER_PORT}/health || exit 1"],
+            "interval": COMPOSE_HEALTH_INTERVAL,
+            "timeout": COMPOSE_HEALTH_TIMEOUT,
+            "retries": COMPOSE_HEALTH_RETRIES,
+            "start_period": COMPOSE_HEALTH_START_PERIOD,
         },
         "deploy": {
             "resources": {
@@ -72,7 +93,7 @@ def compose_service(model: ModelProfile) -> dict:
                     "devices": [
                         {
                             "driver": "nvidia",
-                            "count": 1,
+                            "count": COMPOSE_GPU_COUNT,
                             "capabilities": ["gpu"],
                         }
                     ]
@@ -90,25 +111,22 @@ def compose_service(model: ModelProfile) -> dict:
     return service
 
 
-_PEAK_GB_PER_JOB = 12
-
-
 def _cuda_build_jobs() -> int:
     """Return a safe ninja -j value for CUDA extension compilation.
 
     Two independent limits, take the minimum:
       cpu_limit  : max(1, (nproc - 2) // 2)  -- same formula as venv-rebuild-xformers
-      mem_limit  : available_ram_gb // _PEAK_GB_PER_JOB
+      mem_limit  : available_ram_gb // CUDA_BUILD_PEAK_GB_PER_JOB
     """
-    nproc = os.cpu_count() or 4
-    cpu_limit = max(1, (nproc - 2) // 2)
+    nproc = os.cpu_count() or CUDA_BUILD_DEFAULT_CPU_COUNT
+    cpu_limit = max(1, (nproc - CUDA_BUILD_RESERVED_CPUS) // CUDA_BUILD_CPU_DIVISOR)
 
     mem_limit = cpu_limit  # fallback if /proc/meminfo is unavailable
     try:
         for line in Path("/proc/meminfo").read_text().splitlines():
             if line.startswith("MemAvailable:"):
-                available_gb = int(line.split()[1]) // (1024 * 1024)
-                mem_limit = max(1, available_gb // _PEAK_GB_PER_JOB)
+                available_gb = int(line.split()[1]) // MEMINFO_KB_PER_GIB
+                mem_limit = max(1, available_gb // CUDA_BUILD_PEAK_GB_PER_JOB)
                 break
     except OSError:
         pass
@@ -116,7 +134,7 @@ def _cuda_build_jobs() -> int:
     return min(cpu_limit, mem_limit)
 
 
-def _remote_commit(url: str, ref: str, *, timeout: int = 30) -> str | None:
+def _remote_commit(url: str, ref: str, *, timeout: int = REMOTE_COMMIT_TIMEOUT_S) -> str | None:
     """Return the HEAD commit hash for ref on a remote git URL, or None on failure."""
     try:
         result = subprocess.run(
@@ -300,9 +318,22 @@ class DockerComposeSidecar:
         remote = _remote_commit(url, f"refs/heads/{branch}")
         if remote:
             self._wheel_commit(env).write_text(remote)
-            print(f"[wheel-cache] Pinned commit {remote[:12]}", flush=True)
+            print(f"[wheel-cache] Pinned commit {remote[:COMMIT_DISPLAY_CHARS]}", flush=True)
 
     # ── container lifecycle ───────────────────────────────────────────────────
+
+    def _container_is_running(self) -> bool:
+        """Return True if this service's container is currently running."""
+        result = subprocess.run(
+            [
+                "docker", "compose", "-f", str(self.compose_file),
+                "ps", "--status", "running", "-q", self.service,
+            ],
+            capture_output=True,
+            text=True,
+            env=self._compose_env(),
+        )
+        return bool(result.stdout.strip())
 
     def up(self, *, build: bool = False) -> None:
         env = self._compose_env()
@@ -323,6 +354,12 @@ class DockerComposeSidecar:
                 if self._wheel_whl(env) is not None:
                     self._build_from_wheel(env)
                     needs_build = False
+
+        # Reuse an already-running container instead of recreating it.
+        # Recreation would cause a port clash and wastes GPU memory cycling.
+        if not needs_build and self._container_is_running():
+            print(f"[sslm] {self.service}: container already running -- reusing.", flush=True)
+            return
 
         command = ["docker", "compose", "-f", str(self.compose_file), "up", "-d"]
         if needs_build:
@@ -367,14 +404,17 @@ class DockerComposeSidecar:
             env=self._compose_env(),
         )
 
-    def dump_logs(self, tail: int = 100) -> None:
+    def dump_logs(self, tail: int = DOCKER_LOG_TAIL) -> None:
         subprocess.call(
             ["docker", "compose", "-f", str(self.compose_file), "logs", "--tail", str(tail), self.service],
             env=self._compose_env(),
         )
 
-    def wait_ready(self, timeout_s: float = 900.0) -> None:
-        OpenAICompatibleClient(self.model.base_url).wait_until_ready(timeout_s=timeout_s)
+    def wait_ready(self, timeout_s: float = ENDPOINT_READY_TIMEOUT_S) -> None:
+        OpenAICompatibleClient(self.model.base_url).wait_until_ready(
+            timeout_s=timeout_s,
+            is_alive=self._container_is_running,
+        )
 
     def _compose_env(self) -> dict[str, str]:
         env = os.environ.copy()

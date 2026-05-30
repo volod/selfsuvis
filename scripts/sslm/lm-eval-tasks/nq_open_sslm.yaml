@@ -1,0 +1,27 @@
+task: nq_open_sslm
+dataset_path: google-research-datasets/nq_open
+output_type: generate_until
+training_split: train
+fewshot_split: train
+validation_split: validation
+description: "Answer these questions:\n\n"
+doc_to_text: "Q: {{question}}?\nA:"
+doc_to_target: "{{answer}}"
+fewshot_delimiter: "\n"
+target_delimiter: " "
+# Containment scoring: a gold alias appearing anywhere in the answer counts.
+process_results: !function utils_sslm.nq_contains
+generation_kwargs:
+  until:
+    - "<|im_end|>"
+    - "\n"
+  do_sample: false
+  temperature: 0.0
+  max_gen_toks: 256
+num_fewshot: 5
+metric_list:
+  - metric: contains
+    aggregation: mean
+    higher_is_better: true
+metadata:
+  version: 1.0

@@ -1,0 +1,23 @@
+task: arc_challenge_sslm
+dataset_path: allenai/ai2_arc
+dataset_name: ARC-Challenge
+output_type: generate_until
+training_split: train
+fewshot_split: train
+validation_split: validation
+test_split: test
+doc_to_text: "Question: {{question}}\n{% for i in range(choices.text|length) %}{{ choices.label[i] }}. {{ choices.text[i] }}\n{% endfor %}Answer with the single letter of the correct choice only.\nAnswer:"
+doc_to_target: "{{answerKey}}"
+# Robust scoring: extract the first A-E letter and compare to the gold letter.
+# Reads raw dataset fields only (version stable).
+process_results: !function utils_sslm.arc_process_results
+generation_kwargs:
+  until:
+    - "<|im_end|>"
+    - "\n\n"
+  do_sample: false
+  temperature: 0.0
+  max_gen_toks: 512
+num_fewshot: 5
+metadata:
+  version: 1.0

@@ -6,11 +6,13 @@ next model starts. This keeps GPU memory usage to one model at a time.
 
 Current test model pair: **ZAYA1-8B** (Zyphra Mamba MoE) vs **Qwen3-8B** (dense baseline).
 
-Minimum hardware: 64 GB RAM, 12 GB GPU (fp8 quantization enabled by default).
+Minimum hardware: 64 GB RAM and a 24 GB GPU for the default ZAYA1/Qwen run.
+Qwen can run on smaller GPUs with fp8; ZAYA defaults to BF16 because fp8 produced
+invalid token output in local smoke runs.
 
 ```bash
 make sslm          # Open LLM Leaderboard v2 — full suite, ~8-16 h total
-make sslm-quick    # GSM8K + ARC-C + HellaSwag — ~40 min total, good for first run
+make sslm-quick    # GSM8K + ARC-C + NQ-Open — ~40 min total, good for first run
 ```
 
 Both commands run the full pipeline end-to-end: environment setup, sidecar image
@@ -38,7 +40,7 @@ setup required.
          v
     docker compose up  <sslm_{model_key}>
          |
-         v  (vLLM loads model weights into GPU; fp8 quant for 12 GB fit)
+         v  (vLLM loads model weights into GPU; per-model quantization settings apply)
          |
          +-- healthcheck loop  GET /health  (up to 15 min)
          |
@@ -78,8 +80,8 @@ setup required.
 | Resource | Minimum | Notes |
 |---|---|---|
 | RAM | 64 GB | lm-eval keeps eval data in host memory |
-| GPU VRAM | 12 GB | fp8 quantization enabled; disable for 16+ GB |
-| GPU arch | sm_86+ (Ampere) | fp8 requires sm_89+ (Ada/Hopper/Blackwell) |
+| GPU VRAM | 24 GB | ZAYA1 defaults to BF16; Qwen keeps fp8 enabled |
+| GPU arch | sm_86+ (Ampere) | fp8 profiles require sm_89+ (Ada/Hopper/Blackwell) |
 | Docker | 24+ | NVIDIA Container Toolkit required |
 | Disk | 50 GB | HF model cache under `.data/sslm/hf-cache/` |
 
@@ -98,7 +100,7 @@ make sslm          # ~8-16 h total — canonical Open LLM Leaderboard v2
 Both create `.venv-sslm`, build the Zaya sidecar image, run benchmarks on all models
 sequentially, then open the Streamlit leaderboard at `http://localhost:8501`.
 
-`sslm-quick` uses the `reasoning_quick` suite (GSM8K, ARC-Challenge, HellaSwag) and is
+`sslm-quick` uses the `reasoning_quick` suite (GSM8K, ARC-Challenge, NQ-Open) and is
 the recommended first run to verify the pipeline end-to-end without a multi-hour wait.
 
 Set `HUGGING_FACE_HUB_TOKEN` beforehand if any model requires authenticated download.
@@ -164,7 +166,7 @@ found under `.data/sslm/results/` and ranks models by average score.
 |---|---|---|---|
 | `open_llm_v2` | IFEval, BBH, MATH Lvl5, GPQA Diamond, MuSR, MMLU-Pro | 4-8 h | canonical comparison |
 | `reasoning_core` | GSM8K, GPQA Diamond, MMLU-Pro, IFEval | 1-2 h | focused reasoning check |
-| `reasoning_quick` | GSM8K, ARC-Challenge, HellaSwag | ~20 min | fast iteration |
+| `reasoning_quick` | GSM8K, ARC-Challenge, NQ-Open | ~20 min | fast iteration |
 | `math_code` | GSM8K, Minerva Math, HumanEval | 1-2 h | math + code focus |
 | `smoke` | 3 local prompts (no lm-eval) | <5 min | sanity / connectivity |
 
@@ -214,15 +216,15 @@ Each model is a `ModelProfile` in `catalog.py`. Key fields:
 |---|---|---|
 | `image` | `vllm/vllm-openai:latest` | Docker image; override for custom forks |
 | `build_context` / `dockerfile` | None | Set to enable `docker compose build` |
-| `quantization` | `"fp8"` | vLLM `--quantization` arg; None to disable |
-| `min_gpu_gb` | 12 | Documentation only; enforced by GPU util setting |
+| `quantization` | per model | vLLM `--quantization` arg; None disables quantization |
+| `min_gpu_gb` | per model | Documentation only; enforced by GPU util setting |
 | `gpu_memory_utilization` | 0.88 | Fraction of VRAM for weights + KV cache |
 | `max_model_len` | 32768 | Maximum sequence length |
 | `extra_vllm_args` | `()` | Additional args passed to `vllm serve` |
 
-fp8 quantization is enabled by default because 8B bf16 models require ~16 GB VRAM.
-With fp8, weights compress to ~8 GB, fitting a 12 GB GPU with room for KV cache.
-Set `quantization=None` if your GPU has 16+ GB.
+Qwen uses fp8 by default because dense 8B bf16 models require ~16 GB VRAM.
+ZAYA1 uses BF16 by default because fp8 produced invalid token output in local
+smoke runs. Do not enable ZAYA fp8 unless you validate the generated samples.
 
 ---
 
@@ -327,8 +329,10 @@ Watch progress: `docker logs -f sslm_<model_key>`.
 Set `HUGGING_FACE_HUB_TOKEN` if the model is gated.
 
 **OOM during sidecar startup**
-Reduce `gpu_memory_utilization` in the model profile, or confirm `quantization="fp8"`
-is set. Check that no other process holds GPU memory: `nvidia-smi`.
+Reduce `gpu_memory_utilization` in the model profile. For dense baselines like Qwen,
+confirm `quantization="fp8"` is set on smaller GPUs. ZAYA1 defaults to BF16 and
+needs more VRAM for valid results. Check that no other process holds GPU memory:
+`nvidia-smi`.
 
 **lm-eval fails: OPENAI_API_KEY not set**
 lm-eval requires the env var even though vLLM ignores it.

@@ -21,6 +21,7 @@ eval = [
 dashboard = [
     "streamlit>=1.37",
     "pandas>=2.0",
+    "matplotlib>=3.8",
 ]
 train = [
     "accelerate>=0.26",
