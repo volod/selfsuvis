@@ -35,7 +35,17 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 
-# target torch to cuda 12.8 or CPU
+# torch CUDA variant vs nvcc toolkit — these are independent:
+#   torch+cu128 bundles CUDA 12.8 *runtime* libs (cuBLAS, cuDNN, etc.)
+#   nvcc (CUDA toolkit) is only needed to *compile* flash-attn or custom ops.
+#
+# With nvcc 12.6 (max SM 9.0): torch+cu128 runs fine; make install-fa
+#   auto-pins flash-attn to v2.7.4 (no SM 12.0 kernels).
+# With nvcc 12.8+ (max SM 12.0): flash-attn latest compiles SM 12.0 kernels
+#   for RTX 5000 / Blackwell Ultra GPUs.
+#
+# torch 2.9.1+cu126 does not exist on PyPI, so there is no gpu-cu126 extra.
+# Install CUDA 12.8 toolkit to enable SM 12.0 flash-attn support.
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },

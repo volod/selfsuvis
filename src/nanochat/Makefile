@@ -1,4 +1,4 @@
-.PHONY: help hw-info venv venv-dev install-fa test lint \
+.PHONY: help hw-info venv venv-dev clean-venv install-fa test lint \
         train train-8g train-12g train-16g train-24g train-40g train-cpu \
         tok-train tok-eval \
         chat-cli chat-web \
@@ -25,7 +25,11 @@ help:
 	@echo "  -----"
 	@echo "  make venv          Auto-detect GPU → install CUDA or CPU deps via uv"
 	@echo "  make venv-dev      Same + dev extras (pytest, ruff, tensorboard, transformers)"
-	@echo "  make install-fa    Build flash-attn v2 from source (Ada/Ampere sm75+, ~10 min)"
+	@echo "  make clean-venv    Remove .venv (re-run make venv afterwards)"
+	@echo "  make install-fa    Build flash-attn; version adapts to detected nvcc:"
+	@echo "                       nvcc >= 12.8 : flash-attn latest  (SM 8.9 + SM 12.0)"
+	@echo "                       nvcc <  12.8 : flash-attn v2.7.4  (SM 8.9 only)"
+	@echo "                     Install CUDA 12.8 toolkit for full Blackwell support."
 	@echo ""
 	@echo "  Training  (single GPU, auto-selects profile from VRAM)"
 	@echo "  --------"
@@ -96,6 +100,11 @@ venv-dev:
 	@$(PYTHON) -m ensurepip --upgrade
 	@[ "$(EXTRAS)" = "gpu" ] && $(MAKE) _install-fa-if-missing || true
 
+clean-venv:
+	@echo "Removing .venv..."
+	rm -rf .venv
+	@echo "Done. Run 'make venv' to reinstall."
+
 # Internal: install flash-attn only if not already present (idempotent).
 _install-fa-if-missing:
 	@$(PYTHON) -c "import flash_attn" 2>/dev/null \
@@ -103,41 +112,63 @@ _install-fa-if-missing:
 	  || $(MAKE) install-fa
 
 # ── Flash Attention 2 (cached source build) ───────────────────────────────────
-# Wheel cache lives in the shared .data/wheels/ directory (project-wide convention).
-# Cache key: flash-attn_torch{version}_cu{cuda}  (e.g. flash-attn_torch2.9.1_cu128)
-# First run: clone + compile (~30-60 min), pip wheel → cache dir, then install.
-# Later runs: install directly from the cached .whl — no compilation.
-# MAX_JOBS capped per CLAUDE.md: min(max(1,(nproc-2)/2), max(1,RAM_GB/12)).
+# Wheel cache: .data/wheels/flash-attn_{key}/
+# Cache key encodes torch, CUDA runtime, GPU SM list, and nvcc toolkit version.
+#
+# Version selection (adaptive to detected nvcc):
+#   nvcc >= 12.8 → flash-attn latest  (compiles SM 12.0 Blackwell Ultra kernels)
+#   nvcc <  12.8 → flash-attn v2.7.4  (SM 9.0 max; 2.8+ unconditionally adds
+#                                       compute_120 which nvcc < 12.8 can't compile)
+#
+# Install CUDA 12.8 toolkit to unlock SM 12.0 (RTX 5000 / Blackwell Ultra) support.
+# MAX_JOBS: min(max(1,(nproc-2)/2), max(1,RAM_GB/12))  — see CLAUDE.md.
 install-fa:
 	@$(PYTHON) -m ensurepip --upgrade >/dev/null 2>&1 || true
 	@set -e; \
 	\
-	$(PYTHON) -c "import torch; assert torch.cuda.is_available(), 'No CUDA GPU — flash-attn is CUDA-only, skipping'; print('CUDA OK')" || { echo "No CUDA GPU detected — skipping flash-attn build."; exit 0; }; \
+	$(PYTHON) -c "import torch; assert torch.cuda.is_available(), 'No CUDA GPU — flash-attn is CUDA-only, skipping'; print('CUDA OK')" \
+	  || { echo "No CUDA GPU detected — skipping flash-attn build."; exit 0; }; \
 	\
 	ARCHES=$$($(PYTHON) -c "import torch; caps=sorted({torch.cuda.get_device_capability(i) for i in range(torch.cuda.device_count())}); print(';'.join(f'{m}.{n}' for m,n in caps))"); \
-	FA_KEY=$$($(PYTHON) -c "import torch; v=torch.__version__.split('+')[0]; c=(torch.version.cuda or 'cpu').replace('.',''); caps=sorted({torch.cuda.get_device_capability(i) for i in range(torch.cuda.device_count())}); sm='_'.join('sm'+''.join(str(x) for x in cap) for cap in caps); print(f'torch{v}_cu{c}_{sm}')"); \
+	NVCC_VER=$$(python3 scripts/detect_hw.py nvcc_ver); \
+	COMPILABLE_ARCHES=$$(python3 scripts/detect_hw.py filtered_archs "$$ARCHES" "$$NVCC_VER"); \
 	\
-	FA_DIR="$(WHEEL_CACHE)/flash-attn_$$FA_KEY"; \
 	echo "GPU architectures : $$ARCHES"; \
+	echo "nvcc version      : $$NVCC_VER  (max SM: $$(python3 scripts/detect_hw.py max_sm $$NVCC_VER))"; \
+	if [ "$$COMPILABLE_ARCHES" != "$$ARCHES" ]; then \
+		echo "  Note: nvcc $$NVCC_VER skips archs not in: $$COMPILABLE_ARCHES"; \
+		echo "        Install CUDA 12.8 toolkit for full SM support"; \
+	fi; \
+	\
+	FA_LATEST=$$($(PYTHON) -c "print(1 if tuple(int(x) for x in '$$NVCC_VER'.split('.')) >= (12,8) else 0)"); \
+	if [ "$$FA_LATEST" = "1" ]; then \
+		FA_SRC="flash-attn @ git+https://github.com/Dao-AILab/flash-attention.git"; \
+		FA_TAG="latest"; \
+	else \
+		FA_SRC="flash-attn @ git+https://github.com/Dao-AILab/flash-attention.git@v2.7.4"; \
+		FA_TAG="v2.7.4  (nvcc $$NVCC_VER < 12.8 — SM 12.0 kernels need CUDA 12.8+)"; \
+	fi; \
+	echo "flash-attn        : $$FA_TAG"; \
+	\
+	FA_KEY=$$($(PYTHON) -c "import sys,torch; v=torch.__version__.split('+')[0]; c=(torch.version.cuda or 'cpu').replace('.',''); caps=sorted({torch.cuda.get_device_capability(i) for i in range(torch.cuda.device_count())}); sm='_'.join('sm'+''.join(str(x) for x in cap) for cap in caps); nv=sys.argv[1].replace('.',''); print(f'torch{v}_cu{c}_{sm}_nvcc{nv}')" "$$NVCC_VER"); \
+	FA_DIR="$(WHEEL_CACHE)/flash-attn_$$FA_KEY"; \
 	echo "Wheel cache       : $$FA_DIR"; \
 	\
 	if ls "$$FA_DIR"/flash_attn*.whl 1>/dev/null 2>&1; then \
 		echo "Cached wheel found — installing (no compilation needed)..."; \
-		$(PYTHON) -m pip install "$$FA_DIR"/flash_attn*.whl --no-deps --quiet; \
 	else \
 		JOBS=$$(python3 scripts/detect_hw.py max_jobs); \
-		echo "No cached wheel — building from source (MAX_JOBS=$$JOBS, ~15-30 min per arch)..."; \
+		echo "No cached wheel — building from source (MAX_JOBS=$$JOBS, ~15-30 min)..."; \
 		echo "  PyTorch : $$($(PYTHON) -c 'import torch; print(torch.__version__)')"; \
-		echo "  Archs   : $$ARCHES (TORCH_CUDA_ARCH_LIST — only local GPU(s), avoids unsupported archs)"; \
+		echo "  Archs   : $$COMPILABLE_ARCHES"; \
 		BUILD_TMP=$$(mktemp -d); \
-		if TORCH_CUDA_ARCH_LIST="$$ARCHES" MAX_JOBS=$$JOBS $(PYTHON) -m pip wheel \
-				"flash-attn @ git+https://github.com/Dao-AILab/flash-attention.git" \
+		if TORCH_CUDA_ARCH_LIST="$$COMPILABLE_ARCHES" MAX_JOBS=$$JOBS $(PYTHON) -m pip wheel \
+				"$$FA_SRC" \
 				--no-build-isolation --no-cache-dir \
 				--wheel-dir "$$BUILD_TMP"; then \
 			mkdir -p "$$FA_DIR"; \
 			mv "$$BUILD_TMP"/flash_attn*.whl "$$FA_DIR/"; \
 			echo "Wheel built and cached at $$FA_DIR"; \
-			$(PYTHON) -m pip install "$$FA_DIR"/flash_attn*.whl --no-deps --quiet; \
 		else \
 			rm -rf "$$BUILD_TMP"; \
 			echo "Build failed — cache unchanged."; \
@@ -145,6 +176,8 @@ install-fa:
 		fi; \
 		rm -rf "$$BUILD_TMP"; \
 	fi; \
+	WHEEL_FILE=$$(ls "$$FA_DIR"/flash_attn*.whl | head -1); \
+	uv pip install --python "$(PYTHON)" "$$WHEEL_FILE" --no-deps --quiet; \
 	$(PYTHON) -c "import flash_attn; print('flash-attn ' + flash_attn.__version__ + ' ready')"
 
 # ── Training ──────────────────────────────────────────────────────────────────

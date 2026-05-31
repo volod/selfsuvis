@@ -6,13 +6,19 @@ Queries nvidia-smi for VRAM, maps to a training profile, and emits the
 parameters needed to pick uv extras and configure the training run.
 
 Usage:
-    python3 scripts/detect_hw.py            # human-readable info table
-    python3 scripts/detect_hw.py profile    # profile name: cpu | 8g | 12g | 16g | 24g | 40g
-    python3 scripts/detect_hw.py extras     # uv extras:   cpu | gpu
-    python3 scripts/detect_hw.py shell      # bash eval-able KEY=VALUE lines
-    python3 scripts/detect_hw.py max_jobs   # safe MAX_JOBS for CUDA source builds
+    python3 scripts/detect_hw.py                        # human-readable info table
+    python3 scripts/detect_hw.py profile                # profile name: cpu | 8g | ...
+    python3 scripts/detect_hw.py extras                 # uv extras: cpu | gpu
+    python3 scripts/detect_hw.py shell                  # bash eval-able KEY=VALUE lines
+    python3 scripts/detect_hw.py max_jobs               # safe MAX_JOBS for CUDA builds
+    python3 scripts/detect_hw.py nvcc_ver               # best nvcc version e.g. "12.6" or "0.0"
+    python3 scripts/detect_hw.py cuda_home              # CUDA_HOME for best nvcc or ""
+    python3 scripts/detect_hw.py max_sm VER             # max compilable SM for nvcc version
+    python3 scripts/detect_hw.py filtered_archs A V     # filter arch list A by nvcc version V
 """
 
+import os
+import re
 import subprocess
 import sys
 
@@ -49,6 +55,81 @@ PROFILES = [
 ]
 
 
+# ── CUDA toolkit detection ─────────────────────────────────────────────────────
+# Maps minimum nvcc version → maximum SM capability it can compile for.
+# Entries sorted descending; first match wins.
+# Empirically verified: CUDA 12.6 tops at SM 9.0 (compute_100 is not defined).
+# CUDA 12.8 added SM 10.0 (Blackwell B100/B200) and SM 12.0 (RTX 5000 / Blackwell Ultra).
+_NVCC_SM_TABLE: list[tuple[tuple[int, int], tuple[int, int]]] = [
+    ((12, 8), (12, 0)),   # CUDA 12.8+: Blackwell B100/B200/RTX 5000 (SM 10.0 + SM 12.0)
+    ((11, 8), ( 9, 0)),   # CUDA 11.8-12.7: Hopper H100 (SM 9.0)
+    (( 0,  0), ( 8, 9)),  # fallback: Ada Lovelace and older (SM 8.9)
+]
+
+
+def _nvcc_version(nvcc: str) -> tuple[int, int] | None:
+    try:
+        out = subprocess.run([nvcc, "--version"], capture_output=True, text=True, timeout=5)
+        m = re.search(r"release (\d+)\.(\d+)", out.stdout)
+        return (int(m.group(1)), int(m.group(2))) if m else None
+    except Exception:
+        return None
+
+
+def detect_cuda_nvcc() -> tuple[str, tuple[int, int]] | tuple[None, None]:
+    """Return (nvcc_path, (major, minor)) for the best (newest) available nvcc."""
+    import shutil
+    candidates: list[str] = []
+    for major in (12, 11):
+        for minor in range(9, -1, -1):
+            candidates.append(f"/usr/local/cuda-{major}.{minor}/bin/nvcc")
+    candidates += ["/usr/local/cuda-12/bin/nvcc", "/usr/local/cuda/bin/nvcc"]
+    p = shutil.which("nvcc")
+    if p:
+        candidates.append(p)
+    seen: set[str] = set()
+    best: tuple[str, tuple[int, int]] | None = None
+    for nvcc in candidates:
+        if nvcc in seen:
+            continue
+        seen.add(nvcc)
+        if not os.path.isfile(nvcc) or not os.access(nvcc, os.X_OK):
+            continue
+        ver = _nvcc_version(nvcc)
+        if ver and (best is None or ver > best[1]):
+            best = (nvcc, ver)
+    return best if best else (None, None)
+
+
+def nvcc_max_sm(ver: tuple[int, int]) -> tuple[int, int]:
+    """Return the max SM (major, minor) compilable by a given nvcc version."""
+    for nvcc_min, sm in _NVCC_SM_TABLE:
+        if ver >= nvcc_min:
+            return sm
+    return (8, 9)
+
+
+def filter_archs_by_nvcc(arches: str, nvcc_ver: tuple[int, int]) -> str:
+    """Filter a semicolon-separated TORCH_CUDA_ARCH_LIST to archs the nvcc can compile."""
+    max_sm = nvcc_max_sm(nvcc_ver)
+    out: list[str] = []
+    for a in arches.split(";"):
+        a = a.strip()
+        if not a:
+            continue
+        base = a.rstrip("+PTX").rstrip("+ptx")
+        parts = base.split(".")
+        try:
+            sm = (int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            out.append(a)
+            continue
+        if sm <= max_sm:
+            out.append(a)
+    return ";".join(out)
+
+
+# ── GPU detection via nvidia-smi ───────────────────────────────────────────────
 def _nvidia_smi(*query_fields: str) -> list[str] | None:
     """Run nvidia-smi and return the first GPU's values, or None on failure."""
     try:
@@ -108,7 +189,6 @@ def main() -> None:
     elif mode == "max_jobs":
         # CLAUDE.md rule: min(max(1,(nproc-2)//2), max(1,available_ram_gb//12))
         # Safe default (4) when RAM can't be determined.
-        import os
         nproc = os.cpu_count() or 4
         try:
             with open("/proc/meminfo") as f:
@@ -117,6 +197,36 @@ def main() -> None:
         except Exception:
             ram_gb = 8
         print(min(max(1, (nproc - 2) // 2), max(1, ram_gb // 12)))
+
+    elif mode == "nvcc_ver":
+        _, ver = detect_cuda_nvcc()
+        print(f"{ver[0]}.{ver[1]}" if ver else "0.0")
+
+    elif mode == "cuda_home":
+        nvcc, _ = detect_cuda_nvcc()
+        print(os.path.dirname(os.path.dirname(nvcc)) if nvcc else "")
+
+    elif mode == "max_sm":
+        # Usage: max_sm 12.6  → prints "8.9"
+        ver_str = sys.argv[2] if len(sys.argv) > 2 else "0.0"
+        try:
+            parts = ver_str.split(".")
+            ver = (int(parts[0]), int(parts[1]))
+        except Exception:
+            ver = (0, 0)
+        sm = nvcc_max_sm(ver)
+        print(f"{sm[0]}.{sm[1]}")
+
+    elif mode == "filtered_archs":
+        # Usage: filtered_archs "8.9;12.0" "12.6"  → prints "8.9"
+        arches_arg = sys.argv[2] if len(sys.argv) > 2 else ""
+        ver_str = sys.argv[3] if len(sys.argv) > 3 else "0.0"
+        try:
+            parts = ver_str.split(".")
+            ver = (int(parts[0]), int(parts[1]))
+        except Exception:
+            ver = (0, 0)
+        print(filter_archs_by_nvcc(arches_arg, ver))
 
     elif mode == "shell":
         # Designed for: eval "$(python3 scripts/detect_hw.py shell)"
@@ -142,6 +252,16 @@ def main() -> None:
         print(f"  Batch    : {p['total_batch']:,} tokens/step  "
               f"({p['grad_accum']} grad-accum steps)")
         print(f"  Dataset  : {p['shards']} shards  (~{tokens_b:.1f}B tokens)")
+        nvcc, nvcc_ver = detect_cuda_nvcc()
+        if nvcc_ver:
+            sm = nvcc_max_sm(nvcc_ver)
+            ver_str = f"{nvcc_ver[0]}.{nvcc_ver[1]}"
+            sm_str = f"{sm[0]}.{sm[1]}"
+            fa_tag = "latest" if nvcc_ver >= (12, 8) else "v2.7.4 (nvcc < 12.8)"
+            print(f"  nvcc     : {nvcc}  (CUDA {ver_str})")
+            print(f"  Max SM   : {sm_str}  flash-attn={fa_tag}")
+        else:
+            print("  nvcc     : not found — flash-attn build unavailable")
 
 
 if __name__ == "__main__":

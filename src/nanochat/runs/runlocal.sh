@@ -132,6 +132,14 @@ cd "$REPO_ROOT"
 uv sync --extra "$UV_EXTRAS" --quiet
 source .venv/bin/activate
 
+# flash-attn is compiled from source and not in pyproject.toml, so uv sync removes it.
+# Restore from the most-recently built wheel under .data/wheels/flash-attn_*/
+_FA_WHEEL=$(ls -t "$PROJECT_ROOT/.data/wheels/flash-attn_"*/flash_attn*.whl 2>/dev/null | head -1)
+if [ -n "$_FA_WHEEL" ] && ! python -c "import flash_attn" 2>/dev/null; then
+    uv pip install --python .venv/bin/python "$_FA_WHEEL" --no-deps --quiet 2>/dev/null && \
+        log "flash-attn restored ($(basename "$(dirname "$_FA_WHEEL")"))" || true
+fi
+
 # ── Flash Attention check ─────────────────────────────────────────────────────
 # flash-attn needs --no-build-isolation (compiles against the installed PyTorch).
 # When not available, fall back to --window-pattern L which lets SDPA use its

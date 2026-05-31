@@ -1,34 +1,5 @@
-# selfsuvis agent guardrails
+# Codex
 
-- Do not create git commits unless explicitly asked.
-- Do not revert user changes or unrelated dirty files while fixing an issue.
-- Do not add `from __future__ import annotations`; use normal annotations and `TYPE_CHECKING` imports when needed.
-- Keep top-level `scripts/` as shell entrypoints. Put Python implementations under `src/selfsuvis/...`.
-- Reuse `scripts/shared/common.sh` for shared shell root/env/bootstrap behavior.
-- Runtime data belongs under `.data/`; avoid recreating root `data/` unless a file explicitly still requires it.
-- Use ASCII in logs, docs, comments, and generated shell output.
+## Project rules
 
-# heavy compilation (ninja / cmake / CUDA)
-
-Any installation that compiles C++/CUDA from source (git+, --no-binary, --no-build-isolation) MUST cap
-parallelism via `ARG MAX_JOBS=4` (safe default) overridden by the caller with:
-`MAX_JOBS = min(max(1, (nproc-2)//2), max(1, available_ram_gb//12))`.
-
-# current layout
-
-- API: `src/selfsuvis/app/`
-- Worker: `src/selfsuvis/worker/`
-- UI: `src/selfsuvis/ui/`
-- Pipeline: `src/selfsuvis/pipeline/`
-- Local workflow: `src/selfsuvis/pipeline/workflows/local/`
-- Coop/IoT: `src/selfsuvis/coop_pilot/`
-- Runtime config: `src/selfsuvis/pipeline/core/config/`
-- Docker and shell ops: `docker/`, `scripts/`
-
-# usual commands
-
-- `make venv`, `make test-unit`, `make lint`
-- `make up`, `make down`, `make logs`
-- `python -m selfsuvis.scripts.migrate_postgres`
-- `scripts/ssv/ssv-reset-qdrant.sh`
-- `scripts/coop/coop-bootstrap.sh`
+Read [AGENTS.md](AGENTS.md)
