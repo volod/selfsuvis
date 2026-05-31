@@ -14,8 +14,8 @@ import torch
 import torch.distributed as dist
 
 from nanochat.common import compute_init, compute_cleanup, get_dist_info, print0, autodetect_device_type
-from nanochat.checkpoint_manager import load_model
-from nanochat.engine import Engine
+from nanochat.training.checkpoint_manager import load_model
+from nanochat.inference.engine import Engine
 
 from tasks.humaneval import HumanEval
 from tasks.mmlu import MMLU
@@ -229,7 +229,7 @@ if __name__ == "__main__":
         print0(f"{task_name} accuracy: {100 * acc:.2f}%")
 
     # Log to report
-    from nanochat.report import get_report
+    from nanochat.training.report import get_report
     all_tasks_were_evaluated = all(task_name in results for task_name in all_tasks)
     # calculate the ChatCORE metric if we can (similar to CORE, it's the mean centered accuracy)
     # this way, ChatCORE ranges from 0 (at random baseline) to 1 (peak performance)

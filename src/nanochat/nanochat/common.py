@@ -68,13 +68,14 @@ setup_default_logging()
 logger = logging.getLogger(__name__)
 
 def get_base_dir():
-    # co-locate nanochat intermediates with other cached data in ~/.cache (by default)
+    # Default: <project_root>/.data/nanochat  (project-wide .data/ convention).
+    # __file__ lives at src/nanochat/nanochat/common.py; parents[3] is the project root.
+    # Override with NANOCHAT_BASE_DIR env var for any other location (e.g. /mnt/data/nanochat).
     if os.environ.get("NANOCHAT_BASE_DIR"):
-        nanochat_dir = os.environ.get("NANOCHAT_BASE_DIR")
+        nanochat_dir = os.environ["NANOCHAT_BASE_DIR"]
     else:
-        home_dir = os.path.expanduser("~")
-        cache_dir = os.path.join(home_dir, ".cache")
-        nanochat_dir = os.path.join(cache_dir, "nanochat")
+        from pathlib import Path as _Path
+        nanochat_dir = str(_Path(__file__).parents[3] / ".data" / "nanochat")
     os.makedirs(nanochat_dir, exist_ok=True)
     return nanochat_dir
 
@@ -212,14 +213,34 @@ def compute_cleanup():
     if is_ddp_initialized():
         dist.destroy_process_group()
 
-class DummyWandb:
-    """Useful if we wish to not use wandb but have all the same signatures"""
+class SilentLogger:
+    """No-op logger used when --run dummy is set."""
     def __init__(self):
         pass
     def log(self, *args, **kwargs):
         pass
     def finish(self):
         pass
+
+class LocalLogger:
+    """TensorBoard-backed logger with the same .log(dict)/.finish() interface as DummyWandb."""
+    def __init__(self, run_name: str, project: str = "nanochat"):
+        from torch.utils.tensorboard import SummaryWriter
+        log_dir = os.path.join(get_base_dir(), "tb_logs", project, run_name)
+        os.makedirs(log_dir, exist_ok=True)
+        self._writer = SummaryWriter(log_dir=log_dir)
+        logger.info(f"TensorBoard logs -> {log_dir}  (tensorboard --logdir {os.path.join(get_base_dir(), 'tb_logs')})")
+
+    def log(self, data: dict, **kwargs):
+        step = data.get("step")
+        for key, value in data.items():
+            if key == "step":
+                continue
+            if isinstance(value, (int, float)):
+                self._writer.add_scalar(key, value, global_step=step)
+
+    def finish(self):
+        self._writer.close()
 
 # hardcoded BF16 peak flops for various GPUs
 # inspired by torchtitan: https://github.com/pytorch/torchtitan/blob/main/torchtitan/tools/utils.py
@@ -260,10 +281,30 @@ def get_peak_flops(device_name: str) -> float:
         (["mi300a"], 980.6e12),
         (["mi250x"], 383e12),
         (["mi250"], 362.1e12),
-        # Consumer RTX
+        # Consumer RTX — Blackwell
         (["5090"], 209.5e12),
+        (["5080"], 137.7e12),
+        (["5070 ti"], 107.4e12),
+        (["5070"], 86.8e12),
+        # Consumer RTX — Ada Lovelace
         (["4090"], 165.2e12),
+        (["4080 super"], 105e12),
+        (["4080"], 97.5e12),
+        (["4070 ti super"], 90.5e12),
+        (["4070 ti"], 82.6e12),
+        (["4070 super"], 71.5e12),
+        (["4070"], 58.5e12),
+        (["4060 ti"], 44.3e12),
+        (["4060"], 30.0e12),
+        # Consumer RTX — Ampere
+        (["3090 ti"], 80e12),
         (["3090"], 71e12),
+        (["3080 ti"], 68.4e12),
+        (["3080"], 51.5e12),
+        (["3070 ti"], 43.7e12),
+        (["3070"], 40.4e12),
+        (["3060 ti"], 32.8e12),
+        (["3060"], 25.3e12),
     )
     for patterns, flops in _PEAK_FLOPS_TABLE:
         if all(p in name for p in patterns):

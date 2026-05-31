@@ -7,8 +7,8 @@ python -m scripts.chat_cli
 import argparse
 import torch
 from nanochat.common import compute_init, autodetect_device_type
-from nanochat.engine import Engine
-from nanochat.checkpoint_manager import load_model
+from nanochat.inference.engine import Engine
+from nanochat.training.checkpoint_manager import load_model
 
 parser = argparse.ArgumentParser(description='Chat with the model')
 parser.add_argument('-i', '--source', type=str, default="sft", help="Source of the model: sft|rl")

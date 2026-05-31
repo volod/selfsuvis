@@ -21,18 +21,17 @@ import argparse
 from dataclasses import asdict
 from contextlib import contextmanager
 
-import wandb
 import torch
 import torch.distributed as dist
 
-from nanochat.gpt import GPT, GPTConfig, Linear
-from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit, tokenizing_distributed_data_loader_with_state_bos_bestfit
-from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, print_banner, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized
+from nanochat.model.gpt import GPT, GPTConfig, Linear
+from nanochat.data.dataloader import tokenizing_distributed_data_loader_bos_bestfit, tokenizing_distributed_data_loader_with_state_bos_bestfit
+from nanochat.common import compute_init, compute_cleanup, print0, SilentLogger, LocalLogger, print_banner, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
-from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
-from nanochat.loss_eval import evaluate_bpb
-from nanochat.engine import Engine
-from nanochat.flash_attention import HAS_FA3
+from nanochat.training.checkpoint_manager import save_checkpoint, load_checkpoint
+from nanochat.eval.loss_eval import evaluate_bpb
+from nanochat.inference.engine import Engine
+from nanochat.model.flash_attention import HAS_FA3
 from scripts.base_eval import evaluate_core
 print_banner()
 
@@ -40,7 +39,7 @@ print_banner()
 # CLI arguments
 parser = argparse.ArgumentParser(description="Pretrain base model")
 # Logging
-parser.add_argument("--run", type=str, default="dummy", help="wandb run name ('dummy' disables wandb logging)")
+parser.add_argument("--run", type=str, default=None, help="run name for TensorBoard logging (default: auto timestamp; 'dummy' = silent)")
 # Runtime
 parser.add_argument("--device-type", type=str, default="", help="cuda|cpu|mps (empty = autodetect)")
 # FP8 training
@@ -80,7 +79,7 @@ parser.add_argument("--model-tag", type=str, default=None, help="override model 
 args = parser.parse_args()
 user_config = vars(args).copy()  # for logging
 # -----------------------------------------------------------------------------
-# Compute init and wandb logging
+# Compute init
 
 device_type = autodetect_device_type() if args.device_type == "" else args.device_type
 ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
@@ -95,22 +94,26 @@ else:
     gpu_peak_flops = float('inf')  # MFU not meaningful for CPU/MPS
 print0(f"COMPUTE_DTYPE: {COMPUTE_DTYPE} ({COMPUTE_DTYPE_REASON})")
 
-# wandb logging init
-use_dummy_wandb = args.run == "dummy" or not master_process
-wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat", name=args.run, config=user_config)
+# logging init
+_run_name = args.run or time.strftime("%Y%m%d_%H%M%S")
+if _run_name == "dummy" or not master_process:
+    run_logger = SilentLogger()
+else:
+    run_logger = LocalLogger(_run_name, project="nanochat")
 
 # Flash Attention status
-from nanochat.flash_attention import USE_FA3
-using_fa3 = USE_FA3
-if using_fa3:
+from nanochat.model.flash_attention import USE_FA3, USE_FA2, HAS_FA2
+if USE_FA3:
     print0("✓ Using Flash Attention 3 (Hopper GPU detected), efficient, new and awesome.")
+elif USE_FA2:
+    print0("✓ Using Flash Attention 2 (flash-attn installed), efficient kernel with sliding-window support.")
 else:
     print0("!" * 80)
-    if HAS_FA3 and COMPUTE_DTYPE != torch.bfloat16:
-        print0(f"WARNING: Flash Attention 3 only supports bf16, but COMPUTE_DTYPE={COMPUTE_DTYPE}. Using PyTorch SDPA fallback")
+    if not HAS_FA2:
+        print0("WARNING: flash-attn not installed. Run 'make install-fa' for a ~2x speedup on Ada/Ampere GPUs.")
     else:
-        print0("WARNING: Flash Attention 3 not available, using PyTorch SDPA fallback")
-    print0("WARNING: Training will be less efficient without FA3")
+        print0(f"WARNING: Flash attention not active (COMPUTE_DTYPE={COMPUTE_DTYPE}, bf16 required).")
+    print0("WARNING: Falling back to PyTorch SDPA — training will be less efficient.")
     if args.window_pattern != "L":
         print0(f"WARNING: SDPA has no support for sliding window attention (window_pattern='{args.window_pattern}'). Your GPU utilization will be terrible.")
         print0("WARNING: Recommend using --window-pattern L for full context attention without alternating sliding window patterns.")
@@ -170,7 +173,7 @@ if args.fp8:
         print0("Warning: FP8 training requires CUDA, ignoring --fp8 flag")
     else:
         # our custom fp8 is simpler than torchao, written for exact API compatibility
-        from nanochat.fp8 import Float8LinearConfig, convert_to_float8_training
+        from nanochat.model.fp8 import Float8LinearConfig, convert_to_float8_training
         # from torchao.float8 import Float8LinearConfig, convert_to_float8_training
         import torch.nn as nn
 
@@ -243,6 +246,7 @@ def disable_fp8(model):
 # Compile the model
 
 orig_model = model # original, uncompiled model, for saving raw model state_dict and for inference/evaluation (because the shapes may change shape)
+print0("Compiling model with torch.compile (first forward pass triggers CUDA kernel compilation, ~2-5 min)...")
 model = torch.compile(model, dynamic=False) # the inputs to model will never change shape so dynamic=False is safe
 
 # -----------------------------------------------------------------------------
@@ -261,7 +265,7 @@ print0(f"Estimated FLOPs per token: {num_flops_per_token:e}")
 # The compute-optimal models satisfy the Tokens:Params ratio of --target-param-data-ratio (derived experimentally via scaling laws analysis).
 # We've already initialized the model so we have Params. Optimal Tokens is now simply target-param-data-ratio * Params
 def get_scaling_params(m):
-    # As for which params to use exactly, transformer matrices + lm_head gives cleanest scaling laws (see dev/LOG.md Jan 27, 2026)
+    # transformer matrices + lm_head gives cleanest scaling laws
     params_counts = m.num_scaling_params()
     scaling_params = params_counts['transformer_matrices'] + params_counts['lm_head']
     return scaling_params
@@ -342,7 +346,7 @@ if args.num_iterations > 0:
     num_iterations = args.num_iterations
     print0(f"Using user-provided number of iterations: {num_iterations:,}")
 elif args.target_flops > 0:
-    # Calculate the number of iterations from the target flops (used in scaling laws analysis, e.g. runs/scaling_laws.sh)
+    # Calculate the number of iterations from the target flops budget
     num_iterations = round(args.target_flops / (num_flops_per_token * total_batch_size))
     print0(f"Calculated number of iterations from target FLOPs: {num_iterations:,}")
 elif args.target_param_data_ratio > 0:
@@ -412,6 +416,19 @@ print0(f"Tokens / micro-batch / rank: {args.device_batch_size} x {args.max_seq_l
 print0(f"Tokens / micro-batch: {world_tokens_per_fwdbwd:,}")
 print0(f"Total batch size {total_batch_size:,} => gradient accumulation steps: {grad_accum_steps}")
 
+# EMA decay factor for training loss smoothing (constant, defined here for interrupt handler)
+ema_beta = 0.9
+
+# Graceful Ctrl-C: finish the current step, then exit with a progress summary.
+import signal as _signal
+_stop_requested = False
+def _request_stop(sig, frame):
+    global _stop_requested
+    if not _stop_requested:
+        print0("\nInterrupt received — finishing current step then stopping...")
+        _stop_requested = True
+_signal.signal(_signal.SIGINT, _request_stop)
+
 # Go!
 while True:
     last_step = step == num_iterations # loop runs num_iterations+1 times so that we can eval/save at the end
@@ -427,7 +444,7 @@ while True:
         print0(f"Step {step:05d} | Validation bpb: {val_bpb:.6f}")
         if val_bpb < min_val_bpb:
             min_val_bpb = val_bpb
-        wandb_run.log({
+        run_logger.log({
             "step": step,
             "total_training_flops": flops_so_far,
             "total_training_time": total_training_time,
@@ -444,7 +461,7 @@ while True:
         with disable_fp8(orig_model):
             results = evaluate_core(orig_model, tokenizer, device, max_per_task=args.core_metric_max_per_task)
         print0(f"Step {step:05d} | CORE metric: {results['core_metric']:.4f}")
-        wandb_run.log({
+        run_logger.log({
             "step": step,
             "total_training_flops": flops_so_far,
             "core_metric": results["core_metric"],
@@ -498,8 +515,8 @@ while True:
             rank=ddp_rank,
         )
 
-    # termination conditions (TODO: possibly also add loss explosions etc.)
-    if last_step:
+    # termination conditions
+    if last_step or _stop_requested:
         break
 
     # -------------------------------------------------------------------------
@@ -507,7 +524,13 @@ while True:
     # evaluate the gradient
     synchronize()
     t0 = time.time()
+    _micro_print = master_process and grad_accum_steps >= 16 and step < 3
     for micro_step in range(grad_accum_steps):
+        if _micro_print and micro_step % max(1, grad_accum_steps // 8) == 0:
+            import sys as _sys
+            elapsed_ms = (time.time() - t0) * 1000
+            _sys.stdout.write(f"\r  step {step:05d} | micro-batch {micro_step+1:>3}/{grad_accum_steps} | {elapsed_ms:6.0f}ms")
+            _sys.stdout.flush()
         loss = model(x, y)
         train_loss = loss.detach() # for logging
         loss = loss / grad_accum_steps # each .backward() is a grad sum => normalize loss here
@@ -516,6 +539,10 @@ while True:
         else:
             loss.backward()
         x, y, dataloader_state_dict = next(train_loader) # prefetch the next batch while the GPU is busy with forward/backward
+    if _micro_print:
+        import sys as _sys
+        _sys.stdout.write("\r" + " " * 70 + "\r")  # clear the progress line
+        _sys.stdout.flush()
     # step the optimizer
     lrm = get_lr_multiplier(step)
     muon_momentum = get_muon_momentum(step)
@@ -545,7 +572,6 @@ while True:
     # -------------------------------------------------------------------------
 
     # logging (CPU action only)
-    ema_beta = 0.9 # EMA decay factor for some smoothing just for nicer logging
     smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f # EMA the training loss
     debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1)) # debias the EMA
     pct_done = 100 * step / num_iterations
@@ -577,7 +603,7 @@ while True:
             "train/mfu": mfu,
             "train/epoch": epoch,
         }
-        wandb_run.log(log_data)
+        run_logger.log(log_data)
 
     # state update
     first_step_of_run = (step == 0) or (resuming and step == args.resume_from_step)
@@ -593,38 +619,48 @@ while True:
     elif step % 5000 == 0: # every 5000 steps...
         gc.collect() # manually collect, just to be safe for very, very long runs
 
-# print a few more stats
+# print stats (always) and log report (only on clean finish)
 print0(f"Peak memory usage: {get_max_memory() / 1024 / 1024:.2f}MiB")
 print0(f"Total training time: {total_training_time/60:.2f}m")
 if val_bpb is not None:
     print0(f"Minimum validation bpb: {min_val_bpb:.6f}")
 
-# Log to report
-from nanochat.report import get_report
-get_report().log(section="Base model training", data=[
-    user_config, # CLI args
-    { # stats about the training setup
-        "Number of parameters": num_params,
-        "Number of FLOPs per token": f"{num_flops_per_token:e}",
-        "Calculated number of iterations": num_iterations,
-        "Number of training tokens": total_tokens,
-        "Tokens : Scaling params ratio": total_batch_size * num_iterations / num_scaling_params,
-        "DDP world size": ddp_world_size,
-        "warmup_steps": args.warmup_steps,
-        "warmdown_ratio": args.warmdown_ratio,
-        "final_lr_frac": args.final_lr_frac,
-    },
-    { # stats about training outcomes
-        "Minimum validation bpb": min_val_bpb if val_bpb is not None else None,
-        "Final validation bpb": val_bpb,
-        "CORE metric estimate": results.get("core_metric", None),
-        "MFU %": f"{mfu:.2f}%",
-        "Total training flops": f"{flops_so_far:e}",
-        "Total training time": f"{total_training_time/60:.2f}m",
-        "Peak memory usage": f"{get_max_memory() / 1024 / 1024:.2f}MiB",
-    }
-])
+if _stop_requested:
+    pct = 100.0 * step / num_iterations
+    _smooth = smooth_train_loss / (1 - ema_beta ** max(step, 1))
+    print0("-" * 60)
+    print0(f"Stopped early at step {step}/{num_iterations} ({pct:.1f}% complete)")
+    print0(f"Smooth train loss: {_smooth:.6f}" + (f"  |  val bpb: {val_bpb:.6f}" if val_bpb is not None else ""))
+    if step > 0:
+        print0(f"Resume: add --resume-from-step {step} to your training command")
+    print0("-" * 60)
+else:
+    from nanochat.training.report import get_report
+    get_report().log(section="Base model training", data=[
+        user_config,
+        {
+            "Number of parameters": num_params,
+            "Number of FLOPs per token": f"{num_flops_per_token:e}",
+            "Calculated number of iterations": num_iterations,
+            "Number of training tokens": total_tokens,
+            "Tokens : Scaling params ratio": total_batch_size * num_iterations / num_scaling_params,
+            "DDP world size": ddp_world_size,
+            "warmup_steps": args.warmup_steps,
+            "warmdown_ratio": args.warmdown_ratio,
+            "final_lr_frac": args.final_lr_frac,
+        },
+        {
+            "Minimum validation bpb": min_val_bpb if val_bpb is not None else None,
+            "Final validation bpb": val_bpb,
+            "CORE metric estimate": results.get("core_metric", None),
+            "MFU %": f"{mfu:.2f}%",
+            "Total training flops": f"{flops_so_far:e}",
+            "Total training time": f"{total_training_time/60:.2f}m",
+            "Peak memory usage": f"{get_max_memory() / 1024 / 1024:.2f}MiB",
+        }
+    ])
 
-# cleanup
-wandb_run.finish() # wandb run finish
+run_logger.finish()
 compute_cleanup()
+if _stop_requested:
+    raise SystemExit(130)

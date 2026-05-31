@@ -14,15 +14,14 @@ import argparse
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 import time
-import wandb
 import torch
-from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized
+from nanochat.common import compute_init, compute_cleanup, print0, SilentLogger, LocalLogger, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized
 from nanochat.tokenizer import get_token_bytes
-from nanochat.checkpoint_manager import save_checkpoint, load_model, load_optimizer_state
-from nanochat.loss_eval import evaluate_bpb
+from nanochat.training.checkpoint_manager import save_checkpoint, load_model, load_optimizer_state
+from nanochat.eval.loss_eval import evaluate_bpb
 import torch.distributed as dist
-from nanochat.flash_attention import HAS_FA3
-from nanochat.engine import Engine
+from nanochat.model.flash_attention import HAS_FA3
+from nanochat.inference.engine import Engine
 from scripts.chat_eval import run_chat_eval
 
 from tasks.common import TaskMixture
@@ -36,7 +35,7 @@ from tasks.spellingbee import SimpleSpelling, SpellingBee
 # CLI arguments
 parser = argparse.ArgumentParser(description="Supervised fine-tuning (SFT) the model")
 # Logging
-parser.add_argument("--run", type=str, default="dummy", help="wandb run name ('dummy' disables wandb logging)")
+parser.add_argument("--run", type=str, default=None, help="run name for TensorBoard logging (default: auto timestamp; 'dummy' = silent)")
 # Runtime
 parser.add_argument("--device-type", type=str, default="", help="cuda|cpu|mps (empty = autodetect)")
 # Model loading
@@ -84,13 +83,20 @@ if device_type == "cuda":
 else:
     gpu_peak_flops = float('inf')  # MFU not meaningful for CPU/MPS
 
-# wandb logging init
-use_dummy_wandb = args.run == "dummy" or not master_process
-wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-sft", name=args.run, config=user_config)
+# logging init
+_run_name = args.run or time.strftime("%Y%m%d_%H%M%S")
+if _run_name == "dummy" or not master_process:
+    run_logger = SilentLogger()
+else:
+    run_logger = LocalLogger(_run_name, project="nanochat-sft")
 
 # Flash Attention status
-if not HAS_FA3:
-    print0("WARNING: Flash Attention 3 not available, using PyTorch SDPA fallback. Training will be less efficient.")
+from nanochat.model.flash_attention import HAS_FA2, USE_FA2
+if USE_FA2 or HAS_FA3:
+    print0(f"✓ Using Flash Attention {'3' if HAS_FA3 else '2'} — efficient kernel active.")
+else:
+    print0("WARNING: flash-attn not installed. Run 'make install-fa' for a ~2x speedup.")
+    print0("WARNING: Falling back to PyTorch SDPA — training will be less efficient.")
 
 # Load the model and tokenizer
 model, tokenizer, meta = load_model("base", device, phase="train", model_tag=args.model_tag, step=args.model_step)
@@ -334,6 +340,16 @@ smooth_train_loss = 0 # EMA of training loss
 ema_beta = 0.9 # EMA decay factor
 total_training_time = 0 # total wall-clock time of training
 step = 0
+
+import signal as _signal
+_stop_requested = False
+def _request_stop(sig, frame):
+    global _stop_requested
+    if not _stop_requested:
+        print0("\nInterrupt received — finishing current step then stopping...")
+        _stop_requested = True
+_signal.signal(_signal.SIGINT, _request_stop)
+
 while True:
     flops_so_far = num_flops_per_token * args.total_batch_size * step
 
@@ -352,7 +368,7 @@ while True:
         print0(f"Step {step:05d} | Validation bpb: {val_bpb:.4f}")
         if val_bpb < min_val_bpb:
             min_val_bpb = val_bpb
-        wandb_run.log({
+        run_logger.log({
             "step": step,
             "total_training_flops": flops_so_far,
             "total_training_time": total_training_time,
@@ -386,7 +402,7 @@ while True:
         chatcore = centered_mean(all_tasks)
         chatcore_cat = centered_mean(categorical_tasks)
         print0(f"Step {step:05d} | ChatCORE: {chatcore:.4f} | ChatCORE_cat: {chatcore_cat:.4f}")
-        wandb_run.log({
+        run_logger.log({
             "step": step,
             "total_training_flops": flops_so_far,
             "chatcore_metric": chatcore,
@@ -421,7 +437,7 @@ while True:
             rank=ddp_rank,
         )
 
-    if last_step:
+    if last_step or _stop_requested:
         break
 
     # -------------------------------------------------------------------------
@@ -475,7 +491,7 @@ while True:
         total_training_time += dt # only count the time after the first 10 steps
     print0(f"step {step:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | epoch: {current_epoch} | total time: {total_training_time/60:.2f}m")
     if step % 10 == 0:
-        wandb_run.log({
+        run_logger.log({
             "step": step,
             "total_training_flops": flops_so_far,
             "total_training_time": total_training_time,
@@ -496,24 +512,30 @@ while True:
     elif step % 5000 == 0: # every 5000 steps...
         gc.collect() # manually collect, just to be safe for very long runs
 
-# print a few more stats
 print0(f"Peak memory usage: {get_max_memory() / 1024 / 1024:.2f}MiB")
 print0(f"Total training time: {total_training_time/60:.2f}m")
 print0(f"Minimum validation bpb: {min_val_bpb:.4f}")
 
-# Log to report
-from nanochat.report import get_report
-get_report().log(section="SFT", data=[
+if _stop_requested:
+    _smooth = smooth_train_loss / (1 - ema_beta ** max(step, 1))
+    print0("-" * 60)
+    print0(f"Stopped early at step {step}  |  smooth loss: {_smooth:.6f}  |  val bpb: {min_val_bpb:.6f}")
+    print0(f"Resume: add --num-iterations {step} (or just re-run; SFT resumes from its own checkpoint)")
+    print0("-" * 60)
+else:
+    from nanochat.training.report import get_report
+    get_report().log(section="SFT", data=[
     user_config, # CLI args
     { # stats about the training setup
         "Number of iterations": step,
         "DDP world size": ddp_world_size,
     },
-    { # stats about training outcomes
+    {
         "Minimum validation bpb": min_val_bpb,
     }
 ])
 
-# cleanup
-wandb_run.finish() # wandb run finish
+run_logger.finish()
 compute_cleanup()
+if _stop_requested:
+    raise SystemExit(130)

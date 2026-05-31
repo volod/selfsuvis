@@ -18,7 +18,7 @@ import warnings
 from contextlib import contextmanager
 from collections import deque
 from nanochat.common import compute_init, autodetect_device_type
-from nanochat.checkpoint_manager import load_model
+from nanochat.training.checkpoint_manager import load_model
 
 # -----------------------------------------------------------------------------
 # Calculator tool helpers

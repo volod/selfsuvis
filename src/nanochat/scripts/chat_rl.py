@@ -18,20 +18,20 @@ torchrun --standalone --nproc_per_node=8 -m scripts.chat_rl -- --run=default
 
 import argparse
 import os
+import time
 import itertools
-import wandb
 import torch
 import torch.distributed as dist
-from nanochat.common import compute_init, compute_cleanup, print0, get_base_dir, DummyWandb, autodetect_device_type
-from nanochat.checkpoint_manager import save_checkpoint, load_model
-from nanochat.engine import Engine
+from nanochat.common import compute_init, compute_cleanup, print0, get_base_dir, SilentLogger, LocalLogger, autodetect_device_type
+from nanochat.training.checkpoint_manager import save_checkpoint, load_model
+from nanochat.inference.engine import Engine
 from tasks.gsm8k import GSM8K
 
 # -----------------------------------------------------------------------------
 # CLI arguments
 parser = argparse.ArgumentParser(description="Reinforcement learning on GSM8K")
 # Logging
-parser.add_argument("--run", type=str, default="dummy", help="wandb run name ('dummy' disables wandb logging)")
+parser.add_argument("--run", type=str, default=None, help="run name for TensorBoard logging (default: auto timestamp; 'dummy' = silent)")
 # Runtime
 parser.add_argument("--device-type", type=str, default="", help="cuda|cpu|mps (empty = autodetect)")
 # Model loading
@@ -66,9 +66,12 @@ device_type = autodetect_device_type() if args.device_type == "" else args.devic
 ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
 master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
 
-# wandb logging init
-use_dummy_wandb = args.run == "dummy" or not master_process
-wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-rl", name=args.run, config=user_config)
+# logging init
+_run_name = args.run or time.strftime("%Y%m%d_%H%M%S")
+if _run_name == "dummy" or not master_process:
+    run_logger = SilentLogger()
+else:
+    run_logger = LocalLogger(_run_name, project="nanochat-rl")
 
 # Init model and tokenizer
 model, tokenizer, meta = load_model("sft", device, phase="eval", model_tag=args.model_tag, step=args.model_step)
@@ -217,11 +220,23 @@ assert args.examples_per_step % ddp_world_size == 0, "Desired examples per step 
 examples_per_rank = args.examples_per_step // ddp_world_size # per GPU
 print0(f"Calculated examples per rank: {examples_per_rank}")
 
+# Graceful Ctrl-C: finish the current step then exit with a progress summary.
+import signal as _signal
+_stop_requested = False
+def _request_stop(sig, frame):
+    global _stop_requested
+    if not _stop_requested:
+        print0("\nInterrupt received — finishing current step then stopping...")
+        _stop_requested = True
+_signal.signal(_signal.SIGINT, _request_stop)
+
 # Kick off the training loop
 batch_iterator = get_batch()
 for step in range(num_steps):
+    if _stop_requested:
+        break
 
-    # Evaluate the model once in a while and log to wandb
+    # Evaluate the model once in a while
     if step % args.eval_every == 0:
         model.eval()
         passk = torch.zeros(args.device_batch_size, device=device) # pass@k for k=1..device_batch_size
@@ -237,7 +252,7 @@ for step in range(num_steps):
         print_passk = [f"Pass@{k}: {passk[k - 1].item():.4f}" for k in range(1, args.device_batch_size + 1)]
         print0(f"Step {step} | {', '.join(print_passk)}")
         log_passk = {f"pass@{k}": passk[k - 1].item() for k in range(1, args.device_batch_size + 1)}
-        wandb_run.log({
+        run_logger.log({
             "step": step,
             **log_passk,
         })
@@ -287,7 +302,7 @@ for step in range(num_steps):
         mean_reward = mean_reward_tensor.item()
         mean_sequence_length = mean_sequence_length_tensor.item()
     print0(f"Step {step}/{num_steps} | Average reward: {mean_reward} | Average sequence length: {mean_sequence_length:.2f}")
-    wandb_run.log({
+    run_logger.log({
         "step": step,
         "reward": mean_reward,
         "sequence_length": mean_sequence_length,
@@ -299,7 +314,7 @@ for step in range(num_steps):
         group["lr"] = group["initial_lr"] * lrm
     optimizer.step()
     model.zero_grad(set_to_none=True)
-    wandb_run.log({
+    run_logger.log({
         "step": step,
         "lrm": lrm,
     })
@@ -322,11 +337,17 @@ for step in range(num_steps):
         )
         print(f"✅ Saved model checkpoint to {checkpoint_dir}")
 
-# Log to report
-from nanochat.report import get_report
-get_report().log(section="Chat RL", data=[
-    user_config, # CLI args
-])
+if _stop_requested:
+    pct = 100.0 * step / num_steps
+    print0("-" * 60)
+    print0(f"Stopped early at step {step}/{num_steps} ({pct:.1f}% complete)")
+    print0(f"Resume: re-run with --model-tag pointing to the last saved checkpoint")
+    print0("-" * 60)
+else:
+    from nanochat.training.report import get_report
+    get_report().log(section="Chat RL", data=[user_config])
 
-wandb_run.finish() # wandb run finish
+run_logger.finish()
 compute_cleanup()
+if _stop_requested:
+    raise SystemExit(130)

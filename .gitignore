@@ -15,6 +15,9 @@ __pycache__/
 /.data/
 /data/
 
+# nanochat training artifacts (dataset shards, checkpoints, tokenizer, reports)
+/src/nanochat/.data/
+
 # model weight files (never commit; cache lives in ~/.cache/ultralytics)
 *.pt
 *.onnx

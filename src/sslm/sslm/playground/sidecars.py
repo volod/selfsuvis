@@ -244,7 +244,7 @@ class DockerComposeSidecar:
 
     def _wheel_dir(self, env: dict[str, str]) -> Path:
         # Per-model subdir so the original pip-valid wheel filename is preserved.
-        return Path(env["SSLM_PROJECT_ROOT"]) / ".data" / "sslm" / "wheels" / self._wheel_slug()
+        return Path(env["SSLM_PROJECT_ROOT"]) / ".data" / "wheels" / self._wheel_slug()
 
     def _wheel_slug(self) -> str:
         return self.model.image.replace("/", "_").replace(":", "_")
@@ -281,39 +281,41 @@ class DockerComposeSidecar:
 
         Runs docker buildx build targeting wheel-export, which reuses BuildKit layers
         already cached from the docker compose up --build step (near-instant).
+
+        Extraction is atomic: Docker writes to a temp dir; the wheel is moved to the
+        real cache and .commit is written only after the full extraction succeeds.
+        A cancelled or failed extraction leaves the cache directory untouched.
         """
         if not self.model.vllm_source or not self.model.dockerfile:
             return
         wheel_dir = self._wheel_dir(env)
-        wheel_dir.mkdir(parents=True, exist_ok=True)
-        # Remove any stale wheel from a previous build before exporting.
-        for stale in wheel_dir.glob("vllm*.whl"):
-            stale.unlink()
         context = env.get("SSLM_PROJECT_ROOT", ".")
         print(f"[wheel-cache] Extracting wheel to {wheel_dir} ...", flush=True)
-        subprocess.check_call(
-            [
-                "docker",
-                "buildx",
-                "build",
-                "--target",
-                "wheel-export",
-                "--output",
-                f"type=local,dest={wheel_dir}",
-                "--build-arg",
-                f"MAX_JOBS={_cuda_build_jobs()}",
-                "-f",
-                self.model.dockerfile,
-                context,
-            ],
-            env=env,
-        )
-        # Original pip-valid filename is preserved (no rename needed).
-        for produced in wheel_dir.glob("vllm*.whl"):
-            print(f"[wheel-cache] Wheel saved: {produced}", flush=True)
-            break
 
-        # Record the commit so the next run can skip the rebuild.
+        # Extract into a temp dir first; move to real cache only on success.
+        with tempfile.TemporaryDirectory(prefix="sslm-wheel-export-") as tmp_export:
+            subprocess.check_call(
+                [
+                    "docker", "buildx", "build",
+                    "--target", "wheel-export",
+                    "--output", f"type=local,dest={tmp_export}",
+                    "--build-arg", f"MAX_JOBS={_cuda_build_jobs()}",
+                    "-f", self.model.dockerfile,
+                    context,
+                ],
+                env=env,
+            )
+            # Extraction succeeded: atomically replace cache contents.
+            wheel_dir.mkdir(parents=True, exist_ok=True)
+            for stale in wheel_dir.glob("vllm*.whl"):
+                stale.unlink()
+            for produced in Path(tmp_export).glob("vllm*.whl"):
+                dest = wheel_dir / produced.name
+                shutil.move(str(produced), dest)
+                print(f"[wheel-cache] Wheel saved: {dest}", flush=True)
+                break
+
+        # Record the commit only after the wheel is safely in the cache.
         url, _, branch = self.model.vllm_source.rpartition("@")
         remote = _remote_commit(url, f"refs/heads/{branch}")
         if remote:

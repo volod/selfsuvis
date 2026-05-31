@@ -11,18 +11,18 @@
 # You may also want to run this script manually and one by one, copy pasting commands into your terminal.
 
 # all the setup stuff
-export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
-mkdir -p $NANOCHAT_BASE_DIR
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_ROOT="$(cd "$REPO_ROOT/../.." && pwd)"
+export NANOCHAT_BASE_DIR="${NANOCHAT_BASE_DIR:-$PROJECT_ROOT/.data/nanochat}"
+mkdir -p "$NANOCHAT_BASE_DIR"
 command -v uv &> /dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 [ -d ".venv" ] || uv venv
 uv sync --extra cpu
 source .venv/bin/activate
-if [ -z "$WANDB_RUN" ]; then
-    WANDB_RUN=dummy
-fi
+RUN="${RUN:-}"
 
 # train tokenizer on ~2B characters (~34 seconds on my MacBook Pro M3 Max)
-python -m nanochat.dataset -n 8
+python -m nanochat.data.dataset -n 8
 python -m scripts.tok_train --max-chars=2000000000
 python -m scripts.tok_eval
 
@@ -41,7 +41,7 @@ python -m scripts.base_train \
     --core-metric-every=-1 \
     --sample-every=100 \
     --num-iterations=5000 \
-    --run=$WANDB_RUN
+    --run=$RUN
 python -m scripts.base_eval --device-batch-size=1 --split-tokens=16384 --max-per-task=16
 
 # SFT (~10 minutes on my MacBook Pro M3 Max)
@@ -53,7 +53,7 @@ python -m scripts.chat_sft \
     --eval-every=200 \
     --eval-tokens=524288 \
     --num-iterations=1500 \
-    --run=$WANDB_RUN
+    --run=$RUN
 
 # Chat with the model over CLI
 # The model should be able to say that it is Paris.

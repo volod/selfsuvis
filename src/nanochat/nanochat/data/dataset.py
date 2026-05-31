@@ -4,7 +4,7 @@ This file contains utilities for:
 - iterating over the parquet files and yielding documents from it
 - download the files on demand if they are not on disk
 
-For details of how the dataset was prepared, see `repackage_data_reference.py`.
+The ClimbMix-400B dataset is hosted at huggingface.co/datasets/karpathy/climbmix-400b.
 """
 
 import os

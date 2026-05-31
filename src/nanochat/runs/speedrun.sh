@@ -7,13 +7,16 @@
 # bash runs/speedrun.sh
 # 2) Example launch in a screen session (because the run takes ~3 hours):
 # screen -L -Logfile runs/speedrun.log -S speedrun bash runs/speedrun.sh
-# 3) Example launch with wandb logging, but see below for setting up wandb first:
-# WANDB_RUN=speedrun screen -L -Logfile runs/speedrun.log -S speedrun bash runs/speedrun.sh
+# 3) Example launch with TensorBoard logging:
+# RUN=speedrun screen -L -Logfile runs/speedrun.log -S speedrun bash runs/speedrun.sh
 
 # Default intermediate artifacts directory is in ~/.cache/nanochat
 export OMP_NUM_THREADS=1
-export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
-mkdir -p $NANOCHAT_BASE_DIR
+# Default: <project_root>/.data/nanochat — override with NANOCHAT_BASE_DIR env var
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_ROOT="$(cd "$REPO_ROOT/../.." && pwd)"
+export NANOCHAT_BASE_DIR="${NANOCHAT_BASE_DIR:-$PROJECT_ROOT/.data/nanochat}"
+mkdir -p "$NANOCHAT_BASE_DIR"
 
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
@@ -27,23 +30,15 @@ uv sync --extra gpu
 # activate venv so that `python` uses the project's venv instead of system python
 source .venv/bin/activate
 
-# -----------------------------------------------------------------------------
-# wandb setup
-# If you wish to use wandb for logging (it's nice!, recommended).
-# 1) Make sure to first log in to wandb, e.g. run:
-#    `wandb login`
-# 2) Set the WANDB_RUN environment variable when running this script, e.g.:
-#    `WANDB_RUN=d26 bash speedrun.sh`
-if [ -z "$WANDB_RUN" ]; then
-    # by default use "dummy" : it's handled as a special case, skips logging to wandb
-    WANDB_RUN=dummy
-fi
+# Set RUN to a name to enable TensorBoard logging (view with: tensorboard --logdir .data/nanochat/tb_logs).
+# Defaults to "dummy" (silent / no metrics written).
+RUN="${RUN:-}"
 
 # -----------------------------------------------------------------------------
 # During the course of the run, we will be writing markdown reports to the report/
 # directory in the base dir. This command clears it out and writes a header section
 # with a bunch of system info and a timestamp that marks the start of the run.
-python -m nanochat.report reset
+python -m nanochat.training.report reset
 
 # -----------------------------------------------------------------------------
 # Tokenizer
@@ -52,12 +47,12 @@ python -m nanochat.report reset
 # each data shard is ~250M chars
 # so we download 2e9 / 250e6 = 8 data shards at this point
 # each shard is ~100MB of text (compressed), so this is about ~800MB of data on disk
-# look at dev/repackage_data_reference.py for details on how this data was prepared
-python -m nanochat.dataset -n 8
+# the ClimbMix-400B dataset is hosted on HuggingFace (karpathy/climbmix-400b)
+python -m nanochat.data.dataset -n 8
 # Immediately also kick off downloading more shards in the background while tokenizer trains
 # Approximately 150 shards are needed for GPT-2 capability pretraining, add 20 for padding.
 # The maximum total number of shards available in the entire dataset is 6542.
-python -m nanochat.dataset -n 170 &
+python -m nanochat.data.dataset -n 170 &
 DATASET_DOWNLOAD_PID=$!
 # train the tokenizer with vocab size 2**15 = 32768 on ~2B characters of data
 python -m scripts.tok_train
@@ -70,7 +65,7 @@ echo "Waiting for dataset download to complete..."
 wait $DATASET_DOWNLOAD_PID
 
 # d24 model (slightly undertrained to beat GPT-2 => decrease data:params ratio from compute optimal 10.5 (default) to 8)
-torchrun --standalone --nproc_per_node=8 -m scripts.base_train -- --depth=24 --target-param-data-ratio=8 --device-batch-size=16 --fp8 --run=$WANDB_RUN
+torchrun --standalone --nproc_per_node=8 -m scripts.base_train -- --depth=24 --target-param-data-ratio=8 --device-batch-size=16 --fp8 --run=$RUN
 # evaluate the model: CORE metric, BPB on train/val, and draw samples
 torchrun --standalone --nproc_per_node=8 -m scripts.base_eval -- --device-batch-size=16
 
@@ -78,11 +73,11 @@ torchrun --standalone --nproc_per_node=8 -m scripts.base_eval -- --device-batch-
 # SFT (teach the model conversation special tokens, tool use, multiple choice)
 
 # download 2.3MB of synthetic identity conversations to impart a personality to nanochat
-# see dev/gen_synthetic_data.py for details on how this data was prepared and to get a sense of how you can easily tune it
+# see scripts/gen_synthetic.py for how this data was prepared and how to generate your own
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
 # run SFT and eval the model
-torchrun --standalone --nproc_per_node=8 -m scripts.chat_sft -- --device-batch-size=16 --run=$WANDB_RUN
+torchrun --standalone --nproc_per_node=8 -m scripts.chat_sft -- --device-batch-size=16 --run=$RUN
 torchrun --standalone --nproc_per_node=8 -m scripts.chat_eval -- -i sft
 
 # chat with the model over CLI! Leave out the -p to chat interactively
@@ -94,4 +89,4 @@ torchrun --standalone --nproc_per_node=8 -m scripts.chat_eval -- -i sft
 # -----------------------------------------------------------------------------
 # Generate the full report by putting together all the sections
 # report.md is the output and will be copied to current directory for convenience
-python -m nanochat.report generate
+python -m nanochat.training.report generate

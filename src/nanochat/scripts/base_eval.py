@@ -33,11 +33,11 @@ import torch
 
 from nanochat.common import compute_init, compute_cleanup, print0, get_base_dir, autodetect_device_type, download_file_with_lock
 from nanochat.tokenizer import HuggingFaceTokenizer, get_token_bytes
-from nanochat.checkpoint_manager import load_model
-from nanochat.core_eval import evaluate_task
-from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit
-from nanochat.loss_eval import evaluate_bpb
-from nanochat.engine import Engine
+from nanochat.training.checkpoint_manager import load_model
+from nanochat.eval.core_eval import evaluate_task
+from nanochat.data.dataloader import tokenizing_distributed_data_loader_bos_bestfit
+from nanochat.eval.loss_eval import evaluate_bpb
+from nanochat.inference.engine import Engine
 
 # -----------------------------------------------------------------------------
 # HuggingFace loading utilities
@@ -298,7 +298,7 @@ def main():
             print0(f"CORE metric: {core_results['core_metric']:.4f}")
 
     # --- Log to report ---
-    from nanochat.report import get_report
+    from nanochat.training.report import get_report
     report_data = [{"model": model_name}]
 
     if core_results:

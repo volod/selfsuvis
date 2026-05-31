@@ -1,12 +1,76 @@
 # nanochat
 ![Andrej Karpathy](https://github.com/karpathy/nanochat)
 
-![nanochat logo](dev/nanochat.png)
-![scaling laws](dev/scaling_laws_jan26.png)
-
 nanochat is the simplest experimental harness for training LLMs. It is designed to run on a single GPU node, the code is minimal/hackable, and it covers all major LLM stages including tokenization, pretraining, finetuning, evaluation, inference, and a chat UI. For example, you can train your own GPT-2 capability LLM (which cost ~$43,000 to train in 2019) for only $48 (~2 hours of 8XH100 GPU node) and then talk to it in a familiar ChatGPT-like web UI. On a spot instance, the total cost can be closer to ~$15. More generally, nanochat is configured out of the box to train an entire miniseries of compute-optimal models by setting one single complexity dial: `--depth`, the number of layers in the GPT transformer model (GPT-2 capability happens to be approximately depth 26). All other hyperparameters (the width of the transformer, number of heads, learning rate adjustments, training horizons, weight decays, ...) are calculated automatically in an optimal way.
 
 For questions about the repo, I recommend either using [DeepWiki](https://deepwiki.com/karpathy/nanochat) from Devin/Cognition to ask questions about the repo, or use the [Discussions tab](https://github.com/karpathy/nanochat/discussions), or come by the [#nanochat](https://discord.com/channels/1020383067459821711/1427295580895314031) channel on Discord.
+
+## Quick start — local training
+
+Requires [uv](https://docs.astral.sh/uv/). Works on any CUDA GPU ≥ 8 GB or CPU.
+All artifacts (dataset, tokenizer, checkpoints, reports) go to `.data/nanochat/` in the project root.
+
+```bash
+make hw-info   # detect GPU, print selected profile and parameters
+make venv      # auto-detect GPU → install cuda or cpu deps
+make train     # full pipeline: tokenizer → pretrain → SFT → chat
+make chat-cli  # talk to the trained model
+make chat-web  # web UI at http://localhost:8000
+```
+
+`make venv` and `make train` both query `nvidia-smi` at runtime and
+select the right dependencies and model size automatically — **no manual
+configuration needed**.
+
+### Auto-selected training profiles
+
+| VRAM | Profile | Depth | Seq | Micro-batch | Grad-accum | ~Model params |
+|------|---------|-------|-----|-------------|------------|---------------|
+| ≥ 40 GB | `40g` | 20 | 2048 | 16 | 16 | ~430 M |
+| 24–39 GB | `24g` | 18 | 2048 | 8 | 32 | ~330 M |
+| 16–23 GB | `16g` | 14 | 1024 | 8 | 64 | ~160 M |
+| 12–15 GB | `12g` | 12 | 1024 | 4 | 128 | ~110 M |
+| 8–11 GB | `8g` | 10 | 512 | 2 | 512 | ~65 M |
+| CPU / none | `cpu` | 4 | 256 | 4 | 4 | ~10 M |
+
+All GPU profiles use a 524 288-token logical batch (same quality as the multi-GPU speedrun).
+Gradient accumulation compensates for the smaller micro-batch on a single device.
+
+### Make commands
+
+| Command | Description |
+|---|---|
+| `make hw-info` | Detect GPU, display selected profile and all parameters |
+| `make venv` | Auto-detect GPU → `uv sync --extra gpu` or `--extra cpu` |
+| `make venv-dev` | Same + pytest, ruff, tensorboard, transformers |
+| `make train` | Full pipeline auto-selected for detected GPU |
+| `make train-8g` | Force 8–11 GB profile |
+| `make train-12g` | Force 12–15 GB profile |
+| `make train-16g` | Force 16–23 GB profile |
+| `make train-24g` | Force 24–39 GB profile |
+| `make train-40g` | Force ≥ 40 GB profile |
+| `make train-cpu` | Force CPU profile |
+| `make tok-train` | Train BPE tokenizer only |
+| `make tok-eval` | Evaluate tokenizer compression ratio |
+| `make chat-cli` | Interactive CLI chat |
+| `make chat-web` | Streaming web chat UI at port 8000 |
+| `make test` | Run unit tests |
+| `make lint` | Run ruff check + format check |
+| `make clean` | Remove `.data/nanochat/` |
+
+**Optional env-var overrides:**
+
+```bash
+PROFILE=16g make train                      # force a specific profile
+RUN=myrun make train                               # enable TensorBoard logging
+NANOCHAT_BASE_DIR=/mnt/data/nanochat make train    # custom artifact directory
+```
+
+The pipeline script is [`runs/runlocal.sh`](runs/runlocal.sh);
+detection logic is in [`scripts/detect_hw.py`](scripts/detect_hw.py).
+For multi-GPU cluster runs see [`runs/speedrun.sh`](runs/speedrun.sh).
+
+---
 
 ## Time-to-GPT-2 Leaderboard
 
@@ -24,7 +88,7 @@ Presently, the main focus of development is on tuning the pretraining stage, whi
 
 The primary metric we care about is "time to GPT-2" - the wall clock time needed to outperform the GPT-2 (1.6B) CORE metric on an 8XH100 GPU node. The GPT-2 CORE score is 0.256525. In 2019, the training of GPT-2 cost approximately $43,000 so it is incredible that due to many advances over 7 years across the stack, we can now do so much faster and for well below $100 (e.g. at the current ~$3/GPU/hr, an 8XH100 node is ~$24/hr, so 2 hours is ~$48).
 
-See [dev/LEADERBOARD.md](dev/LEADERBOARD.md) for more docs on how to interpret and contribute to the leaderboard.
+See the [nanochat Discussions](https://github.com/karpathy/nanochat/discussions) for more context on the leaderboard runs.
 
 ## Getting started
 
@@ -75,7 +139,7 @@ A few more notes:
 
 ## Research
 
-If you are a researcher and wish to help improve nanochat, two scripts of interest are [runs/scaling_laws.sh](runs/scaling_laws.sh) and [runs/miniseries.sh](runs/miniseries.sh). See [Jan 7 miniseries v1](https://github.com/karpathy/nanochat/discussions/420) for related documentation. For quick experimentation (~5 min pretraining runs) my favorite scale is to train a 12-layer model (GPT-1 sized), e.g. like this:
+For quick experimentation (~5 min pretraining runs) a good scale is a 12-layer model (GPT-1 sized), e.g.:
 
 ```
 OMP_NUM_THREADS=1 torchrun --standalone --nproc_per_node=8 -m scripts.base_train -- \
@@ -87,7 +151,7 @@ OMP_NUM_THREADS=1 torchrun --standalone --nproc_per_node=8 -m scripts.base_train
     --save-every=-1 \
 ```
 
-This uses wandb (run name "d12"), only runs the CORE metric on last step, and it doesn't sample and save intermediate checkpoints. I like to change something in the code, re-run a d12 (or a d16 etc) and see if it helped, in an iteration loop. To see if a run helps, I like to monitor the wandb plots for:
+This uses TensorBoard (run name "d12"), only runs the CORE metric on last step, and it doesn't sample and save intermediate checkpoints. I like to change something in the code, re-run a d12 (or a d16 etc) and see if it helped, in an iteration loop. Open the dashboard with `tensorboard --logdir .data/nanochat/tb_logs`. To see if a run helps, I like to monitor the plots for:
 
 1. `val_bpb` (validation loss in vocab-size-invariant units of bits per byte) as a function of `step`, `total_training_time` and `total_training_flops`.
 2. `core_metric` (the DCLM CORE score)
@@ -131,63 +195,6 @@ I've published a number of guides that might contain helpful information, most r
 - To add new abilities to nanochat, see [Guide: counting r in strawberry (and how to add abilities generally)](https://github.com/karpathy/nanochat/discussions/164).
 - To customize your nanochat, see [Guide: infusing identity to your nanochat](https://github.com/karpathy/nanochat/discussions/139) in Discussions, which describes how you can tune your nanochat's personality through synthetic data generation and mixing that data into the SFT stage.
 - [Oct 13 2025: original nanochat post](https://github.com/karpathy/nanochat/discussions/1) introducing nanochat, though now it contains some deprecated information and the model is a lot older (with worse results) than current master.
-
-## File structure
-
-```
-.
-├── LICENSE
-├── README.md
-├── dev
-│   ├── gen_synthetic_data.py       # Example synthetic data for identity
-│   ├── generate_logo.html
-│   ├── nanochat.png
-│   └── repackage_data_reference.py # Pretraining data shard generation
-├── nanochat
-│   ├── __init__.py                 # empty
-│   ├── checkpoint_manager.py       # Save/Load model checkpoints
-│   ├── common.py                   # Misc small utilities, quality of life
-│   ├── core_eval.py                # Evaluates base model CORE score (DCLM paper)
-│   ├── dataloader.py               # Tokenizing Distributed Data Loader
-│   ├── dataset.py                  # Download/read utils for pretraining data
-│   ├── engine.py                   # Efficient model inference with KV Cache
-│   ├── execution.py                # Allows the LLM to execute Python code as tool
-│   ├── gpt.py                      # The GPT nn.Module Transformer
-│   ├── logo.svg
-│   ├── loss_eval.py                # Evaluate bits per byte (instead of loss)
-│   ├── optim.py                    # AdamW + Muon optimizer, 1GPU and distributed
-│   ├── report.py                   # Utilities for writing the nanochat Report
-│   ├── tokenizer.py                # BPE Tokenizer wrapper in style of GPT-4
-│   └── ui.html                     # HTML/CSS/JS for nanochat frontend
-├── pyproject.toml
-├── runs
-│   ├── miniseries.sh               # Miniseries training script
-│   ├── runcpu.sh                   # Small example of how to run on CPU/MPS
-│   ├── scaling_laws.sh             # Scaling laws experiments
-│   └── speedrun.sh                 # Train the ~$100 nanochat d20
-├── scripts
-│   ├── base_eval.py                # Base model: CORE score, bits per byte, samples
-│   ├── base_train.py               # Base model: train
-│   ├── chat_cli.py                 # Chat model: talk to over CLI
-│   ├── chat_eval.py                # Chat model: eval tasks
-│   ├── chat_rl.py                  # Chat model: reinforcement learning
-│   ├── chat_sft.py                 # Chat model: train SFT
-│   ├── chat_web.py                 # Chat model: talk to over WebUI
-│   ├── tok_eval.py                 # Tokenizer: evaluate compression rate
-│   └── tok_train.py                # Tokenizer: train it
-├── tasks
-│   ├── arc.py                      # Multiple choice science questions
-│   ├── common.py                   # TaskMixture | TaskSequence
-│   ├── customjson.py               # Make Task from arbitrary jsonl convos
-│   ├── gsm8k.py                    # 8K Grade School Math questions
-│   ├── humaneval.py                # Misnomer; Simple Python coding task
-│   ├── mmlu.py                     # Multiple choice questions, broad topics
-│   ├── smoltalk.py                 # Conglomerate dataset of SmolTalk from HF
-│   └── spellingbee.py              # Task teaching model to spell/count letters
-├── tests
-│   └── test_engine.py
-└── uv.lock
-```
 
 ## Contributing
 

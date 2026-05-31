@@ -9,7 +9,8 @@ Compact guidance for Claude Code in this repository.
 - Do not add `from __future__ import annotations`; use normal annotations and `TYPE_CHECKING` imports when needed.
 - Keep top-level `scripts/` as shell entrypoints. Put production Python implementations under `src/selfsuvis/...`, local-pipeline implementations under `src/ssv_vdp/...`.
 - Reuse `scripts/shared/common.sh` for shared shell root/env/bootstrap behavior.
-- Runtime data belongs under `.data/`; avoid recreating root `data/` unless a file explicitly still requires it.
+- Runtime data belongs under `.data/<src_module>/` (e.g. `.data/nanochat/`, `.data/sslm/`). Never write to a module-local `.data/` inside `src/`. 
+- The shared `.data/wheels/` directory is reserved exclusively for compiled wheel artifacts.
 - Use ASCII in logs, docs, comments, and generated shell output.
 
 ## Heavy compilation (ninja / cmake / CUDA)
@@ -17,6 +18,11 @@ Compact guidance for Claude Code in this repository.
 Any installation that compiles C++/CUDA from source (git+, --no-binary, --no-build-isolation) MUST cap
 parallelism via `ARG MAX_JOBS=4` (safe default) overridden by the caller with:
 `MAX_JOBS = min(max(1, (nproc-2)//2), max(1, available_ram_gb//12))`.
+
+Compiled wheels (flash-attn, vllm forks, xformers, etc.) MUST be cached under `.data/wheels/<package-name>_<key>/`
+where `<key>` encodes the ABI-relevant dimensions (e.g. `torch2.9.1_cu128`, `sslm_zaya-vllm_latest`).
+Never cache wheels under a package-specific subdirectory such as `.data/sslm/wheels/` — the shared
+`.data/wheels/` root is the single source of truth for all heavy build artifacts across every sub-package.
 
 ## Current layout
 

@@ -12,9 +12,9 @@ dependencies = [
     "rustbpe>=0.1.0",
     "tiktoken>=0.11.0",
     "tokenizers>=0.22.0",
+    "tensorboard>=2.14.0",
     "torch==2.9.1",
     "uvicorn>=0.36.0",
-    "wandb>=0.21.3",
 ]
 
 [dependency-groups]
@@ -60,6 +60,9 @@ cpu = [
 gpu = [
     "torch==2.9.1",
 ]
+
+[tool.setuptools.package-data]
+"nanochat.ui" = ["static/ui.html", "static/logo.svg"]
 
 [tool.uv]
 default-groups = []
