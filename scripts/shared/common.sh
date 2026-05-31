@@ -11,7 +11,7 @@ readonly SELFSUVIS_SCRIPTS_COMMON_SOURCED=1
 readonly PROJECT_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly PROJECT_ROOT_DIR="$(cd "$PROJECT_SCRIPTS_DIR/.." && pwd)"
 readonly PROJECT_ENV_FILE="$PROJECT_ROOT_DIR/.data/.env"
-readonly PROJECT_COOP_COMPOSE_FILE="$PROJECT_ROOT_DIR/docker/coop/docker-compose.coop.yml"
+readonly PROJECT_COOP_COMPOSE_FILE="$PROJECT_ROOT_DIR/docker/sencoop/docker-compose.sencoop.yml"
 
 project_root_dir() {
   printf '%s\n' "$PROJECT_ROOT_DIR"
@@ -60,7 +60,7 @@ project_load_env_optional() {
 }
 
 project_load_env_required() {
-  [[ -f "$PROJECT_ENV_FILE" ]] || project_die ".data/.env not found. Run './scripts/coop/coop-env.sh' first."
+  [[ -f "$PROJECT_ENV_FILE" ]] || project_die ".data/.env not found. Run './scripts/sencoop/sencoop-env.sh' first."
   project_load_env_optional
 }
 

@@ -660,7 +660,7 @@ the sector granularity?
 
 **Exercise 6 — End-to-end integration**
 
-Start the full stack with `docker compose -f docker/core/docker-compose.yml -f docker/coop/docker-compose.coop.yml up -d`.
+Start the full stack with `docker compose -f docker/core/docker-compose.yml -f docker/sencoop/docker-compose.sencoop.yml up -d`.
 Configure at least one test camera in Frigate (a test RTSP source or file loop will work).
 Watch `GET /site/cameras` until the camera's `session_id` appears.
 Run `SELECT caption FROM scene_timeline ORDER BY ts DESC LIMIT 5;` to verify captions.

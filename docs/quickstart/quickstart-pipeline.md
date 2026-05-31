@@ -466,7 +466,7 @@ Use `APP_ENV=test` for a localhost-bound learning stack. Bootstrap creates
 they are missing.
 
 ```bash
-APP_ENV=test ./scripts/coop/coop-bootstrap.sh up -d
+APP_ENV=test ./scripts/sencoop/sencoop-bootstrap.sh up -d
 ```
 
 Check container health:
@@ -528,15 +528,15 @@ At first these may be empty. They populate when ChirpStack publishes uplinks on
 ### 7.5 Run the coop checks
 
 ```bash
-.venv/bin/python -m pytest -q tests/coop tests/unit/coop/test_sensor_decoders.py
+.venv/bin/python -m pytest -q tests/sencoop tests/unit/sencoop/test_sensor_decoders.py
 ```
 
 For a broader check of the site-state API and realtime threat bridge:
 
 ```bash
 .venv/bin/python -m pytest -q \
-  tests/coop \
-  tests/unit/coop/test_sensor_decoders.py \
+  tests/sencoop \
+  tests/unit/sencoop/test_sensor_decoders.py \
   tests/unit/app/routers/test_site_state.py \
   tests/unit/pipeline/realtime
 ```
@@ -544,7 +544,7 @@ For a broader check of the site-state API and realtime threat bridge:
 ### 7.6 Stop the coop stack
 
 ```bash
-APP_ENV=test ./scripts/coop/coop-compose.sh down
+APP_ENV=test ./scripts/sencoop/sencoop-compose.sh down
 ```
 
 The short study sequence is in [Local Learning Path](local_path.md#coop-extension-steps).

@@ -162,7 +162,7 @@ the localhost MQTT and Frigate ports:
 
 ```bash
 .venv/bin/pip install -e ".[coop]"
-APP_ENV=test ./scripts/coop/coop-bootstrap.sh up -d
+APP_ENV=test ./scripts/sencoop/sencoop-bootstrap.sh up -d
 
 APP_ENV=dev \
 COOP_MQTT_HOST=localhost \
@@ -184,7 +184,7 @@ curl -s http://localhost:8000/site/threat | python -m json.tool
 Stop coop containers:
 
 ```bash
-APP_ENV=test ./scripts/coop/coop-compose.sh down
+APP_ENV=test ./scripts/sencoop/sencoop-compose.sh down
 ```
 
 For the full local learning sequence, see

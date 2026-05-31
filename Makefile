@@ -1,4 +1,4 @@
-.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi coop-up coop-up-min coop-up-video coop-down coop-logs coop-status coop-metrics-up coop-release coop-release-min coop-release-video coop-release-metrics sslm sslm-quick sslm-rebuild sslm-run sslm-venv sslm-benchmark sslm-benchmark-quick sslm-dashboard
+.PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi sencoop-up sencoop-up-min sencoop-up-video sencoop-down sencoop-logs sencoop-status sencoop-metrics-up sencoop-release sencoop-release-min sencoop-release-video sencoop-release-metrics sslm sslm-quick sslm-rebuild sslm-run sslm-venv sslm-benchmark sslm-benchmark-quick sslm-dashboard
 
 # Default target: show help when no target is given
 help:
@@ -9,17 +9,17 @@ help:
 	@echo "  Stack (Docker)"
 	@echo "  ---------------"
 	@echo "  make up              Start main stack + mapper ICP service (docker-compose.override.yml auto-loaded)"
-	@echo "  make coop-up         Bootstrap + start coop IoT stack (LoRaWAN, Frigate, MQTT)"
-	@echo "  make coop-down       Stop coop IoT stack"
-	@echo "  make coop-logs       Stream coop stack logs"
-	@echo "  make coop-status     Show coop container status and resource usage"
-	@echo "  make coop-metrics-up      Start coop stack + Prometheus / Grafana / cAdvisor (profile: metrics)"
-	@echo "  make coop-up-min          Start min bundle (LoRaWAN + MQTT only, no video)"
-	@echo "  make coop-up-video        Start video bundle (MQTT + Frigate only)"
-	@echo "  make coop-release         Build standard offline bundle (amd64); set VERSION= to tag"
-	@echo "  make coop-release-min     Build min bundle (no Frigate images)"
-	@echo "  make coop-release-video   Build video-only bundle"
-	@echo "  make coop-release-metrics Build standard bundle + Prometheus/Grafana images"
+	@echo "  make sencoop-up         Bootstrap + start sencoop IoT stack (LoRaWAN, Frigate, MQTT)"
+	@echo "  make sencoop-down       Stop sencoop IoT stack"
+	@echo "  make sencoop-logs       Stream sencoop stack logs"
+	@echo "  make sencoop-status     Show sencoop container status and resource usage"
+	@echo "  make sencoop-metrics-up      Start sencoop stack + Prometheus / Grafana / cAdvisor (profile: metrics)"
+	@echo "  make sencoop-up-min          Start min bundle (LoRaWAN + MQTT only, no video)"
+	@echo "  make sencoop-up-video        Start video bundle (MQTT + Frigate only)"
+	@echo "  make sencoop-release         Build standard offline bundle (amd64); set VERSION= to tag"
+	@echo "  make sencoop-release-min     Build min bundle (no Frigate images)"
+	@echo "  make sencoop-release-video   Build video-only bundle"
+	@echo "  make sencoop-release-metrics Build standard bundle + Prometheus/Grafana images"
 	@echo "  make cvat-up         Start CVAT annotation service (http://localhost:8091)"
 	@echo "  make cvat-down       Stop CVAT services"
 	@echo "  make cvat-admin      Create CVAT superuser (first-time setup)"
@@ -197,41 +197,41 @@ test-unit:
 test-unit-no-cv2:
 	$(if $(wildcard .venv/bin/python),.venv/bin/python -m pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py,pytest tests/unit/ -v --ignore=tests/unit/test_frame_extractor.py --ignore=tests/unit/test_heuristics.py)
 
-coop-up: docker-check
-	COMPOSE_PROFILES=lorawan,video ./scripts/coop/coop-bootstrap.sh up -d
+sencoop-up: docker-check
+	COMPOSE_PROFILES=lorawan,video ./scripts/sencoop/sencoop-bootstrap.sh up -d
 
-coop-up-min: docker-check
-	COMPOSE_PROFILES=lorawan ./scripts/coop/coop-bootstrap.sh up -d
+sencoop-up-min: docker-check
+	COMPOSE_PROFILES=lorawan ./scripts/sencoop/sencoop-bootstrap.sh up -d
 
-coop-up-video: docker-check
-	COMPOSE_PROFILES=video ./scripts/coop/coop-bootstrap.sh up -d
+sencoop-up-video: docker-check
+	COMPOSE_PROFILES=video ./scripts/sencoop/sencoop-bootstrap.sh up -d
 
-coop-down: docker-check
-	./scripts/coop/coop-compose.sh down
+sencoop-down: docker-check
+	./scripts/sencoop/sencoop-compose.sh down
 
-coop-logs: docker-check
-	./scripts/coop/coop-compose.sh logs -f --tail=100
+sencoop-logs: docker-check
+	./scripts/sencoop/sencoop-compose.sh logs -f --tail=100
 
-coop-status: docker-check
-	./scripts/coop/coop-compose.sh ps
+sencoop-status: docker-check
+	./scripts/sencoop/sencoop-compose.sh ps
 	@echo ""
 	@docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" \
-	  $$(./scripts/coop/coop-compose.sh ps -q 2>/dev/null) 2>/dev/null || true
+	  $$(./scripts/sencoop/sencoop-compose.sh ps -q 2>/dev/null) 2>/dev/null || true
 
-coop-metrics-up: docker-check
-	COMPOSE_PROFILES=lorawan,video,metrics ./scripts/coop/coop-bootstrap.sh up -d
+sencoop-metrics-up: docker-check
+	COMPOSE_PROFILES=lorawan,video,metrics ./scripts/sencoop/sencoop-bootstrap.sh up -d
 
-coop-release:
-	./scripts/coop/coop-release.sh --arch amd64 --bundle standard $(if $(VERSION),--version $(VERSION),) --yes
+sencoop-release:
+	./scripts/sencoop/sencoop-release.sh --arch amd64 --bundle standard $(if $(VERSION),--version $(VERSION),) --yes
 
-coop-release-min:
-	./scripts/coop/coop-release.sh --arch amd64 --bundle min $(if $(VERSION),--version $(VERSION),) --yes
+sencoop-release-min:
+	./scripts/sencoop/sencoop-release.sh --arch amd64 --bundle min $(if $(VERSION),--version $(VERSION),) --yes
 
-coop-release-video:
-	./scripts/coop/coop-release.sh --arch amd64 --bundle video $(if $(VERSION),--version $(VERSION),) --yes
+sencoop-release-video:
+	./scripts/sencoop/sencoop-release.sh --arch amd64 --bundle video $(if $(VERSION),--version $(VERSION),) --yes
 
-coop-release-metrics:
-	./scripts/coop/coop-release.sh --arch amd64 --bundle standard --with-metrics $(if $(VERSION),--version $(VERSION),) --yes
+sencoop-release-metrics:
+	./scripts/sencoop/sencoop-release.sh --arch amd64 --bundle standard --with-metrics $(if $(VERSION),--version $(VERSION),) --yes
 
 cvat-up: docker-check
 	docker compose -f docker/cvat/docker-compose.cvat.yml up -d

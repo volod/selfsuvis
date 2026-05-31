@@ -25,7 +25,7 @@ parallelism via `ARG MAX_JOBS=4` (safe default) overridden by the caller with:
 - UI: `src/selfsuvis/ui/`
 - Pipeline: `src/selfsuvis/pipeline/`
 - Local workflow: `src/selfsuvis/pipeline/workflows/local/`
-- Coop/IoT: `src/selfsuvis/coop/`
+- Sencoop/IoT: `src/sencoop/` (standalone sensor-mesh package)
 - Runtime config: `src/selfsuvis/pipeline/core/config/`
 - Docker and shell ops: `docker/`, `scripts/`
 
@@ -35,7 +35,7 @@ parallelism via `ARG MAX_JOBS=4` (safe default) overridden by the caller with:
 - `make up`, `make down`, `make logs`
 - `python -m selfsuvis.scripts.migrate_postgres`
 - `scripts/ssv/ssv-reset-qdrant.sh`
-- `scripts/coop/coop-bootstrap.sh`
+- `scripts/sencoop/sencoop-bootstrap.sh`
 
 ## GStack
 

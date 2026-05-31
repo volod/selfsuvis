@@ -112,7 +112,7 @@ Optional services:
 
 ### coop — IoT edge monitoring layer (Playground 3)
 
-The `selfsuvis.coop` package adds a stationary site-monitoring layer on top of the
+The `sencoop` package adds a stationary site-monitoring layer on top of the
 core selfsuvis API. It is fully optional: all components are lazy-imported and the
 API starts normally when the MQTT broker is unreachable or `aiomqtt` is not installed.
 
@@ -149,7 +149,7 @@ Frigate cameras ─────────────────────�
   - `camera_event_to_threat()` → `ThreatEvent(sensor_type="camera")`
   - Sector ID derived from GPS grid at ~110 m resolution
 
-Docker compose: `docker/coop/docker-compose.coop.yml` joins `selfsuvis-net`.
+Docker compose: `docker/sencoop/docker-compose.sencoop.yml` joins `selfsuvis-net`.
 Full reference: [coop — Integration Guide](../coop/integration.md).
 
 ### MediaMTX role

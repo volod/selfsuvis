@@ -122,15 +122,15 @@ The coop stack uses three additional secret stores managed outside Python:
 
 | Path | Purpose |
 |---|---|
-| `config/coop/mosquitto/certs/` | TLS certificates for MQTT broker |
-| `config/coop/chirpstack/certs/` | TLS certificates for ChirpStack |
-| `config/coop/*/passwords` | Hashed broker/service passwords |
-| `config/coop/*/.secrets` | Per-service secret files |
+| `config/sencoop/mosquitto/certs/` | TLS certificates for MQTT broker |
+| `config/sencoop/chirpstack/certs/` | TLS certificates for ChirpStack |
+| `config/sencoop/*/passwords` | Hashed broker/service passwords |
+| `config/sencoop/*/.secrets` | Per-service secret files |
 
 All of these paths are gitignored. Generate them with:
 
 ```bash
-scripts/coop/coop-bootstrap.sh
+scripts/sencoop/sencoop-bootstrap.sh
 ```
 
 Set `COOP_MQTT_TLS=true` and supply `COOP_MQTT_USER` / `COOP_MQTT_PASSWORD`

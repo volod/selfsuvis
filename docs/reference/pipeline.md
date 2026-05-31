@@ -320,7 +320,7 @@ single `selfsuvis --mode local` video run. In the learning path it follows the
 
 | Step | Focus | Runtime surface |
 |------|-------|-----------------|
-| 37 | Coop stack bootstrap and health | `scripts/coop/coop-bootstrap.sh`, `scripts/coop/coop-compose.sh`, `tests/coop/test_stack_health.py` |
+| 37 | Coop stack bootstrap and health | `scripts/sencoop/sencoop-bootstrap.sh`, `scripts/sencoop/sencoop-compose.sh`, `tests/sencoop/test_stack_health.py` |
 | 38 | MQTT and LoRaWAN ingestion | ChirpStack MQTT uplinks, `LoRaWANDecoder`, `SensorReading` |
 | 39 | Frigate event ingestion | Frigate MQTT events, `FrigateEventDecoder`, `CameraEvent` |
 | 40 | Rolling site state | `SiteStateAggregator`, `/site/state`, `/site/sensors`, `/site/cameras` |

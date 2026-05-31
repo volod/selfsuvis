@@ -82,7 +82,7 @@ mapper = [
     "uvicorn[standard]>=0.27",
     "asyncpg>=0.29",
 ]
-coop = [
+sencoop = [
     # MQTT client
     "aiomqtt>=2.3",
     # Analytics reporting
@@ -116,7 +116,7 @@ ssv-split-audio      = "selfsuvis.scripts.split_drone_audio_data:main"
 ssv-play-drone       = "selfsuvis.scripts.play_drone_sound:main"
 ssv-prepare-audio    = "selfsuvis.scripts.prepare_audio_data:main"
 ssv-realtime-bridge  = "selfsuvis.realtime.bridge_runtime:main"
-coop-analytics   = "selfsuvis.coop.analytics.cli:main"
+sencoop-analytics = "sencoop.analytics.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -124,8 +124,8 @@ where = ["src"]
 [tool.setuptools.package-data]
 "selfsuvis.app" = ["templates/**/*"]
 "selfsuvis" = ["env/*.env"]
-"selfsuvis.coop.analytics" = ["templates/*.j2"]
-"selfsuvis.coop" = ["env/*.env"]
+"sencoop.analytics" = ["templates/*.j2"]
+"sencoop" = ["env/*.env"]
 
 # ── pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]

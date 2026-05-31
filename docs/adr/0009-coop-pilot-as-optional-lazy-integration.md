@@ -21,7 +21,7 @@ lazily from the main app lifecycle.
 Current implementation:
 - startup wiring in `src/selfsuvis/app/main.py`
 - background lifecycle management in `src/selfsuvis/app/services/coop_streams.py`
-- coop runtime under `src/selfsuvis/coop/`
+- coop runtime under `src/sencoop/`
 
 Startup failures in MQTT, Frigate discovery, or optional coop modules are logged
 and do not block the base API process.

@@ -26,8 +26,8 @@ from selfsuvis.pipeline.core.config import settings
 from selfsuvis.pipeline.core.config import validate_settings as _validate_core
 from selfsuvis.pipeline.core.config import mask_secret
 
-from selfsuvis.coop.config import CoopPilotSettings
-from selfsuvis.coop.config import settings as coop_settings
+from sencoop.config import CoopPilotSettings
+from sencoop.config import settings as coop_settings
 
 from selfsuvis.realtime.config import RealtimePilotSettings
 from selfsuvis.realtime.config import settings as realtime_settings
