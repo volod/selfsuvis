@@ -53,7 +53,7 @@ src/selfsuvis/pipeline/fusion/
 The workflow integration lives in:
 
 ```
-src/selfsuvis/pipeline/workflows/local/
+src/ssv_vdp/
   steps_fusion.py          # step_platform_state_fusion(), step_full_state_fusion()
 ```
 

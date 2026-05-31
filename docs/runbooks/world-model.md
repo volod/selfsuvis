@@ -80,19 +80,19 @@ embeddings. They serve different purposes and can run independently.
 
 ```bash
 # RSSM is on by default — no flags needed
-selfsuvis --mode local
+ssv --mode local
 
 # Disable RSSM (revert to original two-signal AL formula)
-DREAMER_ENABLED=false selfsuvis --mode local
+DREAMER_ENABLED=false ssv --mode local
 
 # Enable heavy world model (requires GPU) with default Cosmos model
-WORLD_MODEL_ENABLED=true selfsuvis --mode local
+WORLD_MODEL_ENABLED=true ssv --mode local
 
 # Lightweight world model for edge GPU
-WORLD_MODEL_ENABLED=true WORLD_MODEL=MCG-NJU/videomae-large selfsuvis --mode local
+WORLD_MODEL_ENABLED=true WORLD_MODEL=MCG-NJU/videomae-large ssv --mode local
 
 # Store world model embeddings in DB (increases storage significantly)
-WORLD_MODEL_ENABLED=true WORLD_MODEL_STORE_EMBED=true selfsuvis --mode local
+WORLD_MODEL_ENABLED=true WORLD_MODEL_STORE_EMBED=true ssv --mode local
 
 # Download world model weights
 python -m selfsuvis.scripts.prepare_models --world-model

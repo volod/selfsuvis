@@ -89,7 +89,7 @@ Why does DINOv3 not use text? What does this difference mean for retrieval?
 **Topics:**
 - Step 3: Gemma scene classification, change detection, and scene clustering.
 - `VideoKnowledge.add_gemma()` and `domain_hint()`.
-- Read [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — the `VideoKnowledge` class.
+- Read [`ssv_vdp/steps/common.py`](../../src/ssv_vdp/steps/common.py) — the `VideoKnowledge` class.
 
 **Pre-reading:**
 - What is zero-shot classification? How does CLIP-based zero-shot classification work?
@@ -294,7 +294,7 @@ Give one example of each that would be useful in a real mission.
 - Read [03_sensor_fusion_fundamentals.md](03_sensor_fusion_fundamentals.md).
 - Step 20: timestamp alignment, lag tolerance, contradiction detection, missing data handling.
 - Read the `VideoKnowledge` class again with sensor fusion in mind.
-- Read [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `context_for_frame()`.
+- Read [`ssv_vdp/steps/common.py`](../../src/ssv_vdp/steps/common.py) — `context_for_frame()`.
 
 **Pre-reading:**
 - Geneva et al., "OpenVINS: A Research Platform for Visual-Inertial Estimation" (2020) — Section 2 (EKF state representation and multi-sensor time alignment). [arxiv.org/abs/1908.01012](https://arxiv.org/abs/1908.01012)
@@ -327,7 +327,7 @@ Why is the current `selfsuvis` local pipeline better described as context fusion
 **Topics:**
 - Step 21: YOLO vs RF-DETR, SAM box-prompted vs auto-mask, NMS, IoU as mask quality metric.
 - Step 22: language-directed tracking, IoU-based greedy matching, track break conditions.
-- Read [`pipeline/workflows/local/steps_yolo_sam.py`](../../src/selfsuvis/pipeline/workflows/local/steps_yolo_sam.py).
+- Read [`ssv_vdp/steps/yolo_sam.py`](../../src/ssv_vdp/steps/yolo_sam.py).
 
 **Pre-reading:**
 - Kirillov et al., "Segment Anything" (SAM, 2023) — Sections 2-3 (task formulation, promptable segmentation). [arxiv.org/abs/2304.02643](https://arxiv.org/abs/2304.02643)
@@ -407,7 +407,7 @@ What happens if the camera rotates without translating?
 - Step 28: DINO self-supervised fine-tuning, student-teacher EMA, augmentation strategy.
 - SSL gate: what it means when the gate triggers.
 - RSSM-guided frame selection: how RSSM surprise scores from Step 23 influence which frames become contrastive pairs in SSL training.
-- Read [`pipeline/workflows/local/steps_ssl.py`](../../src/selfsuvis/pipeline/workflows/local/steps_ssl.py) and [`pipeline/training/ssl.py`](../../src/selfsuvis/pipeline/training/ssl.py).
+- Read [`ssv_vdp/steps/ssl.py`](../../src/ssv_vdp/steps/ssl.py) and [`pipeline/training/ssl.py`](../../src/selfsuvis/pipeline/training/ssl.py).
 
 **Pre-reading:**
 - Caron et al., "Emerging Properties in Self-Supervised Vision Transformers" (DINO, 2021) — Sections 3-4 (multi-crop and student-teacher EMA). [arxiv.org/abs/2104.14294](https://arxiv.org/abs/2104.14294)
@@ -431,7 +431,7 @@ How does RSSM surprise improve the quality of SSL contrastive pairs compared to 
 
 **Topics:**
 - Step 29: soft targets vs hard targets, temperature scaling, teacher-student capacity gap.
-- Read [`pipeline/workflows/local/steps_distill.py`](../../src/selfsuvis/pipeline/workflows/local/steps_distill.py) and [`pipeline/training/distill.py`](../../src/selfsuvis/pipeline/training/distill.py).
+- Read [`ssv_vdp/steps/distill.py`](../../src/ssv_vdp/steps/distill.py) and [`pipeline/training/distill.py`](../../src/selfsuvis/pipeline/training/distill.py).
 
 **Pre-reading:**
 - Hinton et al., "Distilling the Knowledge in a Neural Network" (2015) — all five pages. [arxiv.org/abs/1503.02531](https://arxiv.org/abs/1503.02531)
@@ -455,7 +455,7 @@ What metric would you use to measure whether the student preserved the teacher's
 - Hard negative injection: why mission frames reduce scene-specific false positives.
 - ONNX fp32 export for Arm Cortex-A76; int8 dynamic quantization for Rockchip RV1106G3.
 - Optional RKNN NPU model for the RV1106G3 — 8-15 ms vs 80-150 ms on the CPU fallback.
-- Read [`pipeline/workflows/local/steps_drone_detection.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_detection.py), [`pipeline/training/drone_detector.py`](../../src/selfsuvis/pipeline/training/drone_detector.py), and the [drone detection runbook](../runbooks/drone-detection.md).
+- Read [`ssv_vdp/steps/drone_detection.py`](../../src/ssv_vdp/steps/drone_detection.py), [`pipeline/training/drone_detector.py`](../../src/selfsuvis/pipeline/training/drone_detector.py), and the [drone detection runbook](../runbooks/drone-detection.md).
 
 **Pre-reading:**
 - Ultralytics YOLOv8 documentation: [docs.ultralytics.com](https://docs.ultralytics.com) — training and export sections.
@@ -494,7 +494,7 @@ Why is it risky to document a new training helper as "the pipeline step" before 
 - Step 33: drau range-detection evaluation -- inverse-square amplitude physics, ISO 9613-1 atmospheric absorption, detection probability vs distance curve.
 - Standalone edge script (`drau_edge_test.py`): running ONNX inference with only numpy, scipy, and onnxruntime (no PyTorch).
 - Read [19_drone_audio_detection.md](19_drone_audio_detection.md) and [20_drau_range_eval.md](20_drau_range_eval.md).
-- Read [`steps_drone_audio.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_audio.py) and [`steps_drau_eval.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drau_eval.py).
+- Read [`steps_drone_audio.py`](../../src/ssv_vdp/steps/drone_audio.py) and [`steps_drau_eval.py`](../../src/ssv_vdp/steps/drau_eval.py).
 
 **Pre-reading:**
 - What is an MFCC and why does it use the DCT-II rather than the raw log-mel spectrogram?
@@ -576,7 +576,7 @@ Explain your reasoning.
 ### Day 22 — End-To-End Review Run
 
 **Topics:**
-- End-to-end run of `selfsuvis --mode local` on a short video (1-5 minutes).
+- End-to-end run of `ssv --mode local` on a short video (1-5 minutes).
 
 **Exercise:**
 Before running: write down what you expect to find in the output for each of the 33 per-video steps.
@@ -620,7 +620,7 @@ or API endpoint that proves the technology is actually used in this repo.
 ### Day 24 — Code Architecture Walkthrough
 
 **Topics:**
-- Full walkthrough of `pipeline/workflows/local/runner.py` as an orchestrator.
+- Full walkthrough of `ssv_vdp/pipeline/runner.py` as an orchestrator.
 - How the `init_models()`, `_process_video()`, and per-step functions interact.
 - Where each step's configuration comes from (`pipeline/config.py`).
 
@@ -893,7 +893,7 @@ You do not need GPU hardware for this week — all coop components run on CPU.
 - What MQTT is: publish-subscribe messaging, topics, QoS levels, retained messages.
 - What LoRaWAN adds: long-range low-power radio, the gateway-to-network-server path.
 - How ChirpStack decodes device payloads and publishes uplinks as JSON to Mosquitto.
-- Read [`coop/sensors/lorawan_decoder.py`](../../src/selfsuvis/coop/sensors/lorawan_decoder.py).
+- Read [`coop/sensors/lorawan_decoder.py`](../../src/sencoop/sensors/lorawan_decoder.py).
 
 **Pre-reading:**
 - MQTT specification v5.0 §4 (Topic Names and Filters) — single/multi-level wildcards.
@@ -921,7 +921,7 @@ Why does a low `rssi` not necessarily mean the sensor reading is unreliable?
 - The `SiteStateAggregator` rolling deque model and timestamp-based eviction.
 - `asyncio.Lock` for safe concurrent access from MQTT callback and API handlers.
 - The `SiteState`, `SensorSummary`, and `CameraEventSummary` Pydantic models.
-- Read [`coop/mesh/site_state.py`](../../src/selfsuvis/coop/mesh/site_state.py).
+- Read [`coop/mesh/site_state.py`](../../src/sencoop/mesh/site_state.py).
 
 **Exercise:**
 Write a test that inserts 10 `SensorReading` objects with timestamps spanning 8 minutes
@@ -945,7 +945,7 @@ What would happen if it released the lock before returning — could a concurren
 - `SensorMeshFusion` and the `SiteMesh` / `MeshNode` graph model.
 - Haversine distance formula and why great-circle distance matters for GPS coordinates.
 - The `_GRID_DEG` constant in `coop_ingest.py` and how sector IDs are derived.
-- Read [`coop/mesh/fusion.py`](../../src/selfsuvis/coop/mesh/fusion.py) and
+- Read [`coop/mesh/fusion.py`](../../src/sencoop/mesh/fusion.py) and
   [`pipeline/realtime/coop_ingest.py`](../../src/selfsuvis/pipeline/realtime/coop_ingest.py).
 
 **Exercise:**
@@ -974,7 +974,7 @@ that may be static or mobile?
 - The `SoundAnalyzer` architecture: ffmpeg capture → FFT classification → Whisper transcription.
 - How `rfft` and `rfftfreq` map audio samples to frequency bins.
 - Energy ratio thresholding and the four built-in acoustic signatures.
-- Read [`coop/sensors/sound_analyzer.py`](../../src/selfsuvis/coop/sensors/sound_analyzer.py).
+- Read [`coop/sensors/sound_analyzer.py`](../../src/sencoop/sensors/sound_analyzer.py).
 
 **Pre-reading:**
 - [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md) §5 (Acoustic Analysis).
@@ -1016,7 +1016,7 @@ What would happen to the thresholds if you used absolute spectral energy instead
 - `FrigateRtspBridge` discovery loop and per-camera startup sequence.
 - Why MediaMTX sits between Frigate and `RtspCaptioner` (decoupling, multi-consumer).
 - How `RtspCaptioner` writes to `scene_timeline` and what fields it populates.
-- Read [`coop/sensors/rtsp_bridge.py`](../../src/selfsuvis/coop/sensors/rtsp_bridge.py) and
+- Read [`coop/sensors/rtsp_bridge.py`](../../src/sencoop/sensors/rtsp_bridge.py) and
   [`app/services/coop_streams.py`](../../src/selfsuvis/app/services/coop_streams.py).
 
 **Exercise:**
@@ -1050,7 +1050,7 @@ How would you detect and handle stale captions in `SceneSynthesizer`?
 - Prompt construction in `_build_prompt()` and the JSON schema constraint.
 - LLM call with OpenAI-compatible API, timeout handling, and cache logic.
 - `_parse_llm_response()` JSON extraction and fallback strategy.
-- Read [`coop/mesh/scene_synthesis.py`](../../src/selfsuvis/coop/mesh/scene_synthesis.py).
+- Read [`coop/mesh/scene_synthesis.py`](../../src/sencoop/mesh/scene_synthesis.py).
 
 **Pre-reading:**
 - [16_coop_iot_edge_monitoring.md](16_coop_iot_edge_monitoring.md) §7 (Scene Synthesis).

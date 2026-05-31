@@ -1,5 +1,9 @@
-"""Local full-analysis workflow package."""
+"""Compatibility shim — local pipeline moved to the ssv_vdp package.
 
-from .runner import run_local
+Import from ssv_vdp directly:
+    from ssv_vdp import run_local
+"""
+
+from ssv_vdp import run_local  # noqa: F401
 
 __all__ = ["run_local"]

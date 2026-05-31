@@ -14,7 +14,7 @@ Later steps query `context_for_frame(t_sec)` or `domain_hint()` to receive all p
 
 The main accumulator is implemented in:
 
-- [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `VideoKnowledge` class
+- [`ssv_vdp/steps/common.py`](../../src/ssv_vdp/steps/common.py) — `VideoKnowledge` class
 
 ---
 
@@ -293,7 +293,7 @@ cross-step context propagation risk is mentioned. If the verdict is `HAS_GAPS`, 
 list is appended as a `## Reflection Gaps` section. This is the minimum viable version
 of a ReAct loop — one self-check round, deterministic fallback on failure.
 
-### Shared helpers (`graph_nodes/agentic_helpers.py`)
+### Shared helpers (`pipeline/nodes/helpers.py`)
 
 | Helper | Used by |
 |--------|---------|
@@ -310,13 +310,13 @@ of a ReAct loop — one self-check round, deterministic fallback on failure.
 
 To understand the agentic part of the pipeline, read these in order:
 
-1. [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `VideoKnowledge` class and `context_for_frame()`
-2. [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — how Florence, ASR, OCR, depth, and detection deposit into `VideoKnowledge`
-3. [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — how Qwen queries `context_for_frame()` and updates rolling state
-4. [`pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py) — the top-level orchestration and the `VideoKnowledge` lifecycle
-5. [`pipeline/workflows/local/graph_state.py`](../../src/selfsuvis/pipeline/workflows/local/graph_state.py) — `PipelineState` TypedDict and how it wraps `VideoKnowledge`
-6. [`pipeline/workflows/local/runner_graph.py`](../../src/selfsuvis/pipeline/workflows/local/runner_graph.py) — graph topology, node wiring, and `run_graph_pipeline()`
-7. [`pipeline/workflows/local/graph_nodes/agentic_helpers.py`](../../src/selfsuvis/pipeline/workflows/local/graph_nodes/agentic_helpers.py) — shared agentic primitives
+1. [`ssv_vdp/steps/common.py`](../../src/ssv_vdp/steps/common.py) — `VideoKnowledge` class and `context_for_frame()`
+2. [`ssv_vdp/steps/caption.py`](../../src/ssv_vdp/steps/caption.py) — how Florence, ASR, OCR, depth, and detection deposit into `VideoKnowledge`
+3. [`ssv_vdp/steps/caption.py`](../../src/ssv_vdp/steps/caption.py) — how Qwen queries `context_for_frame()` and updates rolling state
+4. [`ssv_vdp/pipeline/runner.py`](../../src/ssv_vdp/pipeline/runner.py) — the top-level orchestration and the `VideoKnowledge` lifecycle
+5. [`ssv_vdp/pipeline/state.py`](../../src/ssv_vdp/pipeline/state.py) — `PipelineState` TypedDict and how it wraps `VideoKnowledge`
+6. [`ssv_vdp/pipeline/graph.py`](../../src/ssv_vdp/pipeline/graph.py) — graph topology, node wiring, and `run_graph_pipeline()`
+7. [`ssv_vdp/pipeline/nodes/helpers.py`](../../src/ssv_vdp/pipeline/nodes/helpers.py) — shared agentic primitives
 
 ## Questions To Ask While Reading
 

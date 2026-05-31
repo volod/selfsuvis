@@ -138,6 +138,10 @@ map_cuda_to_torch_index() {
 # source of truth for Python dependencies.
 uv pip install --python "$VENV_PATH" -e "$PACKAGE_SPEC"
 
+# Install the standalone ssv_vdp package (local VDP pipeline).
+# --no-deps: selfsuvis is already installed above; this just registers the entry points.
+uv pip install --python "$VENV_PATH" --no-deps -e "${REPO_ROOT}/src/ssv_vdp"
+
 CUDA_VERSION=$(detect_cuda_version)
 
 # Allow caller to force a specific CUDA index (e.g. FORCE_CUDA=cu126 or FORCE_CUDA=1 for auto-latest)

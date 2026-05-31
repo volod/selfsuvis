@@ -17,7 +17,7 @@ control via a deliberate file hierarchy.
 
 src/selfsuvis/
   pipeline/core/config/env/ <- core pipeline preset .env files
-  coop/env/                 <- coop stack preset .env files
+  sencoop/env/                 <- coop stack preset .env files
   realtime/env/             <- realtime bridge preset .env files
 ```
 
@@ -38,7 +38,7 @@ cat .env
 ```
 
 `ssv-env` reads the packaged preset files (`core/env/*.env`,
-`coop/env/*.env`, `realtime/env/*.env`), detects CUDA availability, and writes
+`sencoop/env/*.env`, `realtime/env/*.env`), detects CUDA availability, and writes
 the merged output to `.env`. Values already present in `.env` are preserved.
 
 ---
@@ -118,7 +118,7 @@ services:
 
 ## Coop stack secrets
 
-The coop stack uses three additional secret stores managed outside Python:
+The sencoop stack uses three additional secret stores managed outside Python:
 
 | Path | Purpose |
 |---|---|

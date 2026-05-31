@@ -22,7 +22,7 @@ Operations runbooks for every model in the local pipeline.
 ## Quick: enable all optional sidecars
 
 ```bash
-selfsuvis --mode local \
+ssv --mode local \
   --gemma-api-url    http://localhost:11434/v1 \
   --qwen-api-url     http://localhost:8010/v1 \
   --unidrive-api-url http://localhost:8010/v1

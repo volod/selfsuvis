@@ -36,14 +36,14 @@ Step 30 is **on by default** when neither flag is passed.
 To opt out for a quick run:
 
 ```bash
-selfsuvis --mode local --videos-dir .data/videos --no-drone-detection ...
+ssv --mode local --videos-dir .data/videos --no-drone-detection ...
 ```
 
 ---
 
 ## Code paths
 
-The shipped local pipeline step is [`steps_drone_detection.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_detection.py).
+The shipped local pipeline step is [`steps_drone_detection.py`](../../src/ssv_vdp/steps/drone_detection.py).
 That is the code path the runner executes for Step 30, and it currently trains a YOLOv8n model, exports ONNX, and optionally builds an RKNN artifact.
 
 There is also a newer standalone training helper at [`drone_detector.py`](../../src/selfsuvis/pipeline/training/drone_detector.py) with:
@@ -267,8 +267,8 @@ CONF_THRESH = 0.40   # in test_a76.py / test_rv1106.py
 
 ## Related
 
-- [`pipeline/workflows/local/steps_drone_detection.py`](../../src/selfsuvis/pipeline/workflows/local/steps_drone_detection.py)
-- [`pipeline/workflows/local/steps_model_advisor.py`](../../src/selfsuvis/pipeline/workflows/local/steps_model_advisor.py) — edge section of the advisor report
+- [`ssv_vdp/steps/drone_detection.py`](../../src/ssv_vdp/steps/drone_detection.py)
+- [`ssv_vdp/steps/model_advisor.py`](../../src/ssv_vdp/steps/model_advisor.py) — edge section of the advisor report
 - [seraphim dataset](https://huggingface.co/datasets/lgrzybowski/seraphim-drone-detection-dataset)
 - [rknn-toolkit2](https://github.com/airockchip/rknn-toolkit2)
 - Step 29: [knowledge distillation](../learning_path/06_adaptation_eval_steps_28_35.md#step-29-knowledge-distillation) — context for edge model compression

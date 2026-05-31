@@ -63,7 +63,7 @@ Some older learning-path documents still group the system using a broader
 **36-step conceptual map** or the previous 33-step numbering.
 That is intentional:
 
-- the **runtime** view matches the current code in `src/selfsuvis/pipeline/workflows/local/runner.py`
+- the **runtime** view matches the current code in `src/ssv_vdp/pipeline/runner.py`
 - the **conceptual** view keeps more granular study buckets so related ideas stay separate for a learner
 
 Read the documents as a study decomposition, not a promise that every numbered conceptual step

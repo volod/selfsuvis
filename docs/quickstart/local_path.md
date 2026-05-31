@@ -1,6 +1,6 @@
 # Local Learning Path
 
-This is the short version of the local `selfsuvis --mode local` study path.
+This is the short version of the local `ssv --mode local` study path.
 Use it when you want the essentials for each step first, then jump into deeper material only where needed.
 
 Deep-dive entry points:
@@ -91,7 +91,7 @@ For a human learner, the highest-return sequence is:
 
 ## coop Extension Steps
 
-These steps are not part of one `selfsuvis --mode local` video run. They are the
+These steps are not part of one `ssv --mode local` video run. They are the
 reasonable next learning layer after Step 36: take the same evidence concepts from
 the local pipeline and study how they behave in a continuous IoT site-awareness
 runtime.
@@ -104,7 +104,7 @@ runtime.
 | 40. Rolling site state | Understand `SiteStateAggregator`: timestamp eviction, per-device deques, `/site/state`, `/site/sensors`, and `/site/cameras`. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#3-rolling-window-model-and-sitestateaggregator) |
 | 41. RTSP bridge and acoustic evidence | Bridge Frigate streams through MediaMTX for live captioning, then add FFT/Whisper acoustic observations as synthetic camera events. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#5-acoustic-analysis) |
 | 42. Site mesh and scene synthesis | Build GPS-proximity sensor graphs, query `/site/mesh`, and fuse live state plus `scene_timeline` captions into `/site/synthesis`. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#4-sensor-mesh-fusion-and-gps-proximity-linking) |
-| 43. Realtime threat bridge and analytics | Convert coop readings into `SensorEvent` / `ThreatEvent`, inspect `/site/threat`, and use `coop-analytics` to diagnose stack health. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#8-threat-pipeline-integration) |
+| 43. Realtime threat bridge and analytics | Convert coop readings into `SensorEvent` / `ThreatEvent`, inspect `/site/threat`, and use `sencoop-analytics` to diagnose stack health. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#8-threat-pipeline-integration) |
 
 The mental bridge from local to coop is:
 
@@ -143,7 +143,7 @@ For the longer version, see [the full syllabus](../learning_path/00_day_by_day_s
 | 21 | Write your own one-page pipeline explanation from memory |
 | 22-28 | Application week: custom queries, failure inventory, architecture extension (see full syllabus) |
 | 29-35 | Advanced extension: self-supervised temporal learning, physical models, global threat inference, sensor-mesh runtime, and threat calibration — read `threat_primitives.json`, `local_threat_assessment.json`, and `global_threat_summary.json` after a full run |
-| 36-42 | coop extension: bootstrap the IoT stack, trace MQTT/RTSP evidence, inspect `/site/state`, `/site/mesh`, `/site/synthesis`, `/site/threat`, and run `coop-analytics` |
+| 36-42 | coop extension: bootstrap the IoT stack, trace MQTT/RTSP evidence, inspect `/site/state`, `/site/mesh`, `/site/synthesis`, `/site/threat`, and run `sencoop-analytics` |
 
 ## Recommended Reading Order
 

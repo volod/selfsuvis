@@ -116,22 +116,22 @@ This path is useful for local debugging when PostgreSQL/Qdrant are already reach
 
 ## Local Full-Analysis Mode
 
-`main.py` now defaults to the local full-analysis and training pipeline (`--mode local`),
-implemented by the current CLI in `src/selfsuvis/pipeline/workflows/cli_parser.py` and
-the runner modules under `src/selfsuvis/pipeline/workflows/local`.
+The local full-analysis and training pipeline lives in the standalone `ssv_vdp` package
+(`pip install -e ./src/ssv_vdp`). Entry point: `ssv` (from `ssv_vdp.cli:main`).
+CLI is in `src/ssv_vdp/commands/parser.py`; orchestrator in `src/ssv_vdp/pipeline/runner.py`.
 
 Common options:
 
 ```bash
-selfsuvis
-selfsuvis --mode local --input /path/to/video.mp4
-selfsuvis --mode local --dir /path/to/video_dir --no-qdrant --no-sfm --no-gsplat
-selfsuvis --mode local --qwen-api-url http://localhost:8010/v1
-selfsuvis --mode local --gemma-api-url http://localhost:11434/v1
-selfsuvis --mode local --no-yolo --no-sam
-selfsuvis --mode local --gemma-api-url http://localhost:11434/v1 --no-rfdetr
-selfsuvis --mode local --gemma-api-url http://localhost:11434/v1 --rfdetr-model large
-selfsuvis --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
+ssv
+ssv --mode local --input /path/to/video.mp4
+ssv --mode local --dir /path/to/video_dir --no-qdrant --no-sfm --no-gsplat
+ssv --mode local --qwen-api-url http://localhost:8010/v1
+ssv --mode local --gemma-api-url http://localhost:11434/v1
+ssv --mode local --no-yolo --no-sam
+ssv --mode local --gemma-api-url http://localhost:11434/v1 --no-rfdetr
+ssv --mode local --gemma-api-url http://localhost:11434/v1 --rfdetr-model large
+ssv --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-model owl10/UniDriveVLA_Nusc_Base_Stage3
 ```
 
 The local full-analysis flow combines local models and sidecar-backed models for Gemma,
@@ -143,7 +143,7 @@ The pipeline has a LangGraph-based orchestrator as an opt-in replacement for the
 `run_video_pipeline()` in `runner.py`. Activate it with an env var — no CLI change needed:
 
 ```bash
-SELFSUVIS_USE_GRAPH=1 APP_ENV=dev selfsuvis --mode local --videos-dir .data/videos
+SELFSUVIS_USE_GRAPH=1 APP_ENV=dev ssv --mode local --videos-dir .data/videos
 ```
 
 Both paths produce identical artifacts. The graph path adds:
@@ -160,16 +160,16 @@ Both paths produce identical artifacts. The graph path adds:
 
 | File | Purpose |
 |------|---------|
-| `pipeline/workflows/local/graph_state.py` | `PipelineState` TypedDict — single state schema |
-| `pipeline/workflows/local/runner_graph.py` | `build_graph()` + `run_graph_pipeline()` entry point |
-| `pipeline/workflows/local/graph_nodes/phase1.py` | Nodes: init, extract, index |
-| `pipeline/workflows/local/graph_nodes/phase2_parallel.py` | Nodes: Florence, ASR, OCR, depth, detection |
-| `pipeline/workflows/local/graph_nodes/phase2_serial.py` | Nodes: Gemma, merge, platform fusion, world model, Qwen, UniDrive, SceneTok, base search, full fusion |
-| `pipeline/workflows/local/graph_nodes/phase2_tracking.py` | Nodes: YOLO+SAM, Gemma tracking |
-| `pipeline/workflows/local/graph_nodes/phase2_map.py` | Nodes: 3D map submit/join |
-| `pipeline/workflows/local/graph_nodes/phase3_ssl.py` | Nodes: SSL finetune, DAE finetune, distill, ONNX export, FT search, compare |
-| `pipeline/workflows/local/graph_nodes/phase4.py` | Nodes: multi-model compare, synthesis, audit, analytics |
-| `pipeline/workflows/local/graph_nodes/agentic_helpers.py` | Shared helpers: `json_guard`, `llm_call_with_retry`, `critique_pass`, `moe_consensus_score` |
+| `ssv_vdp/pipeline/state.py` | `PipelineState` TypedDict — single state schema |
+| `ssv_vdp/pipeline/graph.py` | `build_graph()` + `run_graph_pipeline()` entry point |
+| `ssv_vdp/pipeline/nodes/phase1.py` | Nodes: init, extract, index |
+| `ssv_vdp/pipeline/nodes/phase2_parallel.py` | Nodes: Florence, ASR, OCR, depth, detection |
+| `ssv_vdp/pipeline/nodes/phase2_serial.py` | Nodes: Gemma, merge, platform fusion, world model, Qwen, UniDrive, SceneTok, base search, full fusion |
+| `ssv_vdp/pipeline/nodes/phase2_tracking.py` | Nodes: YOLO+SAM, Gemma tracking |
+| `ssv_vdp/pipeline/nodes/phase2_map.py` | Nodes: 3D map submit/join |
+| `ssv_vdp/pipeline/nodes/phase3_ssl.py` | Nodes: SSL finetune, DAE finetune, distill, ONNX export, FT search, compare |
+| `ssv_vdp/pipeline/nodes/phase4.py` | Nodes: multi-model compare, synthesis, audit, analytics |
+| `ssv_vdp/pipeline/nodes/helpers.py` | Shared helpers: `json_guard`, `llm_call_with_retry`, `critique_pass`, `moe_consensus_score` |
 
 **Environment variables for the graph path:**
 
@@ -186,13 +186,13 @@ Both paths produce identical artifacts. The graph path adds:
 ```bash
 # First run — note the thread_id printed in the logs
 SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=.data/checkpoints.db \
-  selfsuvis --mode local --videos-dir .data/videos
+  ssv --mode local --videos-dir .data/videos
 # => "Starting graph pipeline for drone_mission (thread_id=drone_mission_1714123456)"
 
 # Resume after failure — nodes already completed are skipped
 SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=.data/checkpoints.db \
   SELFSUVIS_RESUME_THREAD_ID=drone_mission_1714123456 \
-  selfsuvis --mode local --videos-dir .data/videos
+  ssv --mode local --videos-dir .data/videos
 ```
 
 ### Agentic improvements in the LangGraph path
@@ -312,10 +312,10 @@ The DAE checkpoint is stored alongside the DINOv3 checkpoint under
 `{video_dir}/checkpoints/dae_best.pt`.  The encoder weights only (for downstream
 feature extraction) are saved as `dae_encoder.pt`.
 
-### coop learning extension
+### sencoop learning extension
 
-`coop` is a continuous site-awareness extension, not another stage inside a
-single `selfsuvis --mode local` video run. In the learning path it follows the
+`sencoop` is a continuous site-awareness extension, not another stage inside a
+single `ssv --mode local` video run. In the learning path it follows the
 36-step conceptual local curriculum as Steps 37-43:
 
 | Step | Focus | Runtime surface |
@@ -326,10 +326,10 @@ single `selfsuvis --mode local` video run. In the learning path it follows the
 | 40 | Rolling site state | `SiteStateAggregator`, `/site/state`, `/site/sensors`, `/site/cameras` |
 | 41 | RTSP bridge and acoustic evidence | MediaMTX bridge sessions, live-stream analysis, synthetic acoustic events |
 | 42 | Site mesh and scene synthesis | GPS proximity graph, `/site/mesh`, `/site/synthesis` |
-| 43 | Realtime threat bridge and analytics | `coop_ingest`, `/site/threat`, `coop-analytics` |
+| 43 | Realtime threat bridge and analytics | `coop_ingest`, `/site/threat`, `sencoop-analytics` |
 
 Use [Local Learning Path](../quickstart/local_path.md#coop-extension-steps) for the short
-study sequence and [coop IoT edge monitoring](../learning_path/16_coop_iot_edge_monitoring.md)
+study sequence and [sencoop IoT edge monitoring](../learning_path/16_coop_iot_edge_monitoring.md)
 for the deep dive.
 
 Current local-run optimizations also make a few steps adaptive instead of fully exhaustive:
@@ -456,8 +456,8 @@ Relevant Gemma directed tracking artifacts (local runs):
 
 Post-run analytics:
 
-- main CLI: `selfsuvis --mode analyse --run-dir <output_dir>/<video>`
-- module form: `python -m selfsuvis --mode analyse --run-dir <output_dir>/<video>`
+- main CLI: `ssv --mode analyse --run-dir <output_dir>/<video>`
+- module form: `python -m ssv --mode analyse --run-dir <output_dir>/<video>`
 - guide: [`analytics.md`](./analytics.md)
 
 For exact directories and defaults, see [`configuration.md`](./configuration.md).

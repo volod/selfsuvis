@@ -88,19 +88,19 @@ python -m selfsuvis.scripts.prepare_models --sam
 
 ```bash
 # Default (YOLO11l + SAM2/3 auto)
-selfsuvis --mode local
+ssv --mode local
 
 # Disable SAM (faster, no masks)
-selfsuvis --mode local --no-sam
+ssv --mode local --no-sam
 
 # Disable both YOLO and SAM
-selfsuvis --mode local --no-yolo --no-sam
+ssv --mode local --no-yolo --no-sam
 
 # Higher-quality YOLO
-YOLO_MODEL=yolo11x selfsuvis --mode local
+YOLO_MODEL=yolo11x ssv --mode local
 
 # Faster YOLO
-YOLO_MODEL=yolo11n selfsuvis --mode local
+YOLO_MODEL=yolo11n ssv --mode local
 ```
 
 ---

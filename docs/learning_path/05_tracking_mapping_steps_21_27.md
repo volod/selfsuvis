@@ -28,7 +28,7 @@ This step provides pixel-level masks that enable:
 - Semantic graph building: objects with masks can be connected spatially ("vehicle A is to the left of building B").
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_yolo_sam.py`](../../src/selfsuvis/pipeline/workflows/local/steps_yolo_sam.py)
+- [`ssv_vdp/steps/yolo_sam.py`](../../src/ssv_vdp/steps/yolo_sam.py)
 - [`pipeline/vision/yolo.py`](../../src/selfsuvis/pipeline/vision/yolo.py)
 - [`pipeline/vision/sam.py`](../../src/selfsuvis/pipeline/vision/sam.py)
 
@@ -87,7 +87,7 @@ If Gemma determines "this is a vehicle convoy", tracking focuses on vehicles and
 This is the step where reasoning starts directing perception, not just describing it.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_gemma_tracking.py`](../../src/selfsuvis/pipeline/workflows/local/steps_gemma_tracking.py)
+- [`ssv_vdp/steps/gemma_tracking.py`](../../src/ssv_vdp/steps/gemma_tracking.py)
 - [`pipeline/vision/rfdetr.py`](../../src/selfsuvis/pipeline/vision/rfdetr.py) — `RFDETRTracker`
 
 **Key concepts:**
@@ -235,9 +235,9 @@ Qwen receives not just the image but accumulated context from every earlier step
 The output is not a caption but a structured observation: a reasoning result that downstream steps can consume directly.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
+- [`ssv_vdp/steps/caption.py`](../../src/ssv_vdp/steps/caption.py)
 - [`pipeline/vision/qwen.py`](../../src/selfsuvis/pipeline/vision/qwen.py)
-- [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `VideoKnowledge.context_for_frame()` and `update_qwen_state()`
+- [`ssv_vdp/steps/common.py`](../../src/ssv_vdp/steps/common.py) — `VideoKnowledge.context_for_frame()` and `update_qwen_state()`
 
 **Key concepts:**
 
@@ -291,7 +291,7 @@ For missions involving road networks, vehicle behavior, and outdoor navigation, 
 
 **Implementation:**
 - [`pipeline/vision/unidrive.py`](../../src/selfsuvis/pipeline/vision/unidrive.py) — thin OpenAI-compatible HTTP adapter
-- [`pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py) — `step_unidrive_analysis()`
+- [`ssv_vdp/steps/caption.py`](../../src/ssv_vdp/steps/caption.py) — `step_unidrive_analysis()`
 - [`pipeline/core/config.py`](../../src/selfsuvis/pipeline/core/config.py) — `UNIDRIVE_*` settings
 - [`pipeline/core/preflight.py`](../../src/selfsuvis/pipeline/core/preflight.py) — startup cache/dependency checks for local runs and production startup
 - Model prep: `python -m selfsuvis.scripts.prepare_models --unidrive`
@@ -371,7 +371,7 @@ The test result is the baseline that Step 31 (post-fine-tuning search test) will
 Without this step, you cannot know whether fine-tuning improved anything.
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_embed.py`](../../src/selfsuvis/pipeline/workflows/local/steps_embed.py)
+- [`ssv_vdp/steps/embed.py`](../../src/ssv_vdp/steps/embed.py)
 
 **Key concepts:**
 
@@ -425,7 +425,7 @@ A 3D map enables:
 - Robot pose advisory: `POST /query/pose` uses the map to answer "what should I expect to see here?"
 
 **Implementation:**
-- [`pipeline/workflows/local/steps_map.py`](../../src/selfsuvis/pipeline/workflows/local/steps_map.py)
+- [`ssv_vdp/steps/map.py`](../../src/ssv_vdp/steps/map.py)
 - [`pipeline/mapping/`](../../src/selfsuvis/pipeline/mapping)
 - [`docs/gaussian_splat.md`](../reference/gaussian_splat.md)
 

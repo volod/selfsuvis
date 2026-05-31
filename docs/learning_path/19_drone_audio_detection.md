@@ -1,7 +1,7 @@
 # 19 — Drone Audio Detection: DroneAudioCNN
 
 **Pipeline step:** Step 32 of the local runner  
-**Source:** `src/selfsuvis/pipeline/workflows/local/steps_drone_audio.py`  
+**Source:** `src/ssv_vdp/steps/drone_audio.py`  
 **Dataset:** `geronimobasso/drone-audio-detection-samples` (HuggingFace, public)  
 **Dataset prep:** `scripts/split_drone_audio_data.sh` → `.data/drone-audio-data/`  
 **Outputs:** `drone_audio/drone_audio_cnn.pt`, `drone_audio/drone_audio_cnn.onnx`, `drone_audio/drone_audio_report.md`
@@ -256,6 +256,6 @@ for out in sess.get_outputs():
 - [06_adaptation_eval_steps_28_35.md](06_adaptation_eval_steps_28_35.md) — drone detection training, ONNX export, and edge deployment context
 - [17_essential_technology_stack.md](17_essential_technology_stack.md) — ONNX Runtime edge inference, RKNN NPU conversion
 - [Drone detection runbook](../runbooks/drone-detection.md) — operational runbook for the visual detector (YOLOv8n, hard negatives, int8 calibration)
-- `src/selfsuvis/pipeline/workflows/local/steps_drone_audio.py` — full implementation
-- `src/selfsuvis/scripts/split_drone_audio_data.py` — dataset download and splitting
-- `src/selfsuvis/scripts/play_drone_sound.py` — physics simulation engine
+- `src/ssv_vdp/steps/drone_audio.py` — full implementation
+- `src/ssv_vdp/scripts/split_drone_audio_data.py` — dataset download and splitting
+- `src/ssv_vdp/scripts/play_drone_sound.py` — physics simulation engine

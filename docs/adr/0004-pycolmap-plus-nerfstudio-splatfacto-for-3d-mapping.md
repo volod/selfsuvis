@@ -19,7 +19,7 @@ Use:
 
 Current implementation lives under:
 - `src/selfsuvis/pipeline/mapping/`
-- worker / local workflow orchestration in `pipeline/workflows/local/`
+- worker / local workflow orchestration in `ssv_vdp/`
 
 The degraded path is intentional: when pose recovery fails, the rest of the pipeline
 still runs without dense 3D output.

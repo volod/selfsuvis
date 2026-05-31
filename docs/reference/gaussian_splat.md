@@ -58,7 +58,7 @@ Controls: left-drag to orbit · right-drag to pan · scroll to zoom
 **Option C — point cloud only (no gsplat required):**
 
 ```bash
-selfsuvis --mode local --view-npz <output-dir>/<video-name>/3d_map/sparse_map.npz
+ssv --mode local --view-npz <output-dir>/<video-name>/3d_map/sparse_map.npz
 ```
 
 This opens a matplotlib 3D scatter plot of the sparse SfM/PCA point cloud.
@@ -67,7 +67,7 @@ Useful for quick inspection on machines without a GPU.
 ## Skipping Step 27
 
 ```bash
-selfsuvis --mode local --input <video.mp4> --no-gsplat
+ssv --mode local --input <video.mp4> --no-gsplat
 ```
 
 ## Training parameters

@@ -1,17 +1,23 @@
-"""High-level pipeline workflows and orchestration helpers."""
+"""High-level pipeline workflows and orchestration helpers.
+
+Production exports (VideoIndexer, reporting) live here.
+Local-pipeline exports (run_local, build_parser, etc.) are shims to ssv_vdp.
+"""
 
 from importlib import import_module
 
 _EXPORTS = {
-    "apply_local_env": (".local_env", "apply_local_env"),
+    # Production — stay in selfsuvis
     "VideoIndexer": (".indexer", "VideoIndexer"),
-    "build_parser": (".cli_parser", "build_parser"),
     "generate_summary_html": (".reporting", "generate_summary_html"),
-    "latlon_bbox": ("selfsuvis.pipeline.analysis.change_detection", "latlon_bbox"),
-    "run_local": (".local", "run_local"),
-    "run_file_mode": (".cli_runner", "run_file_mode"),
-    "run_stream_mode": (".cli_runner", "run_stream_mode"),
     "write_mission_report": (".reporting", "write_mission_report"),
+    "latlon_bbox": ("selfsuvis.pipeline.analysis.change_detection", "latlon_bbox"),
+    # Local pipeline — shims to ssv_vdp
+    "apply_local_env": ("ssv_vdp.local_env", "apply_local_env"),
+    "build_parser": ("ssv_vdp.commands.parser", "build_parser"),
+    "run_local": ("ssv_vdp", "run_local"),
+    "run_file_mode": ("ssv_vdp.commands.runner", "run_file_mode"),
+    "run_stream_mode": ("ssv_vdp.commands.runner", "run_stream_mode"),
 }
 
 __all__ = list(_EXPORTS)

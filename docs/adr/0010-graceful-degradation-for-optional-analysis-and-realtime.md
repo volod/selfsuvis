@@ -6,7 +6,7 @@ Status: Accepted
 ## Context
 
 The system combines core ingest/search functions with optional capabilities such
-as 3D mapping, realtime sensor fusion, reranking, sidecar VLM calls, and coop
+as 3D mapping, realtime sensor fusion, reranking, sidecar VLM calls, and sencoop
 stream analysis. In local and edge environments, some of these dependencies are
 frequently unavailable, slow, or only partially configured.
 
@@ -25,7 +25,7 @@ Current implementation examples:
 - realtime degraded-mode policies in `src/selfsuvis/pipeline/realtime/degraded_mode.py`
 - soft-skip mapping and optional heavy stages in `src/selfsuvis/worker/main.py`
 - rerank suppression during re-embedding in `src/selfsuvis/app/services/search.py`
-- optional coop startup in `src/selfsuvis/app/main.py`
+- optional sencoop startup in `src/selfsuvis/app/main.py`
 - reference realtime mapper fallback in `docker/realtime/docker-compose.realtime.yml`
 - optional MAVSDK / ROS bridge runtimes in `src/selfsuvis/realtime/bridge_runtime.py`
 - open-source realtime sidecar selection via `src/selfsuvis/realtime/adapters/`

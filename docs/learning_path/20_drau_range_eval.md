@@ -1,7 +1,7 @@
 # 20 -- drau Range-Detection Evaluation
 
 **Pipeline step:** Step 33 of the local runner
-**Source:** `src/selfsuvis/pipeline/workflows/local/steps_drau_eval.py`
+**Source:** `src/ssv_vdp/steps/drau_eval.py`
 **Dataset:** `geronimobasso/drone-audio-detection-samples` (HuggingFace, public; reused from Step 32)
 **Physics reference:** `github.com/volod/drau` (inverse-square + ISO 9613-1 atmospheric absorption)
 **Outputs:**
@@ -131,7 +131,7 @@ python drau_edge_test.py drone_audio_cnn.onnx recording.wav --distance 50
 DRONE      confidence=0.872  [##########################....]
 ```
 
-The `selfsuvis.scripts.drone_audio_edge_infer` module provides the same functionality with an additional `--scan` mode that prints the full range table for a given WAV file:
+The `ssv_vdp.scripts.drone_audio_edge_infer` module provides the same functionality with an additional `--scan` mode that prints the full range table for a given WAV file:
 
 ```bash
 scripts/audio/drone_audio_edge_test.sh drone_audio_cnn.onnx recording.wav --scan

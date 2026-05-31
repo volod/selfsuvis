@@ -655,7 +655,7 @@ Agreement across modalities increases confidence.
 Disagreement across modalities is informative: it either means one sensor is wrong or that something is genuinely strange.
 
 **Implementation:**
-- [`pipeline/workflows/local/_common.py`](../../src/selfsuvis/pipeline/workflows/local/_common.py) — `VideoKnowledge` accumulator
+- [`ssv_vdp/steps/common.py`](../../src/ssv_vdp/steps/common.py) — `VideoKnowledge` accumulator
 - Timestamp alignment: each sensor stream is resampled or nearest-matched to the frame `t_sec` grid
 - Lag tolerance: configurable per-sensor offset to account for processing delay
 

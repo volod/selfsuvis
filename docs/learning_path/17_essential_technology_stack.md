@@ -28,14 +28,14 @@ sub-packages are:
 - `src/selfsuvis/scripts/` — packaged helper CLIs such as env generation, model
   preparation, migrations, and sidecar helpers.
 - `src/selfsuvis/analytics/` — post-run artifact inspection and quality scoring.
-- `src/selfsuvis/coop/` — IoT edge integration, MQTT/LoRaWAN ingestion, and
+- `src/sencoop/` — IoT edge integration, MQTT/LoRaWAN ingestion, and
   rolling site-state management.
 
 ### Where to start reading
 
 The key human habit is to start from orchestration, not model internals. For the
 local pipeline, begin with
-[`pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py).
+[`ssv_vdp/pipeline/runner.py`](../../src/ssv_vdp/pipeline/runner.py).
 For production indexing, begin with
 [`pipeline/workflows/indexer.py`](../../src/selfsuvis/pipeline/workflows/indexer.py).
 

@@ -194,5 +194,5 @@ When reading a completed run:
 
 - Diagnostics dataclass: `src/selfsuvis/analytics/models.py`
 - Diagnostics computation: `src/selfsuvis/analytics/loader.py`
-- Pipeline summary payload: `src/selfsuvis/pipeline/workflows/local/runner.py`
+- Pipeline summary payload: `src/ssv_vdp/pipeline/runner.py`
 - HTML report rendering: `src/selfsuvis/visualization/report.py`

@@ -1,6 +1,6 @@
 # Local Run Analytics & Visualization
 
-After running the local pipeline (`selfsuvis --mode local`), the output directory contains a
+After running the local pipeline (`ssv --mode local`), the output directory contains a
 mix of JSON, Markdown, model, and media artifacts. The analytics and visualization subpackages
 turn those artifacts into structured summaries, warnings, charts, and a portable HTML report.
 
@@ -16,19 +16,19 @@ turn those artifacts into structured summaries, warnings, charts, and a portable
 Main CLI:
 
 ```bash
-selfsuvis --mode analyse --run-dir .data/local_runs/drone_mission
+ssv --mode analyse --run-dir .data/local_runs/drone_mission
 ```
 
 Module form:
 
 ```bash
-python -m selfsuvis --mode analyse --run-dir .data/local_runs/drone_mission
+python -m ssv --mode analyse --run-dir .data/local_runs/drone_mission
 ```
 
 Optional machine-readable summary:
 
 ```bash
-selfsuvis --mode analyse \
+ssv --mode analyse \
   --run-dir .data/local_runs/drone_mission \
   --summary-json .data/local_runs/drone_mission/analysis_summary.json
 ```

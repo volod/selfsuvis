@@ -1,6 +1,6 @@
 # Quick Start — Learning Path Pipeline
 
-Run the full local learning pipeline (`selfsuvis --mode local`) directly on your
+Run the full local learning pipeline (`ssv --mode local`) directly on your
 machine. It processes videos, runs every enabled perception and captioning stage,
 fine-tunes a DINOv3 model on the mission frames, and exports it to ONNX.
 
@@ -17,7 +17,7 @@ for live IoT site monitoring after the video pipeline run.
 
 ### Path A — One-shot bootstrap (recommended)
 
-`scripts/ssv/ssv-setup.sh` automates **every manual step below** in a single command: it installs the venv, downloads model weights, starts Ollama, downloads a test video, generates sensor sidecars, starts Docker services, and runs the DB migration. It prints the exact `selfsuvis --mode local` run command at the end.
+`scripts/ssv/ssv-setup.sh` automates **every manual step below** in a single command: it installs the venv, downloads model weights, starts Ollama, downloads a test video, generates sensor sidecars, starts Docker services, and runs the DB migration. It prints the exact `ssv --mode local` run command at the end.
 
 ```bash
 bash scripts/ssv/ssv-setup.sh
@@ -181,41 +181,41 @@ export STARTUP_PREFLIGHT_STRICT=true
 
 Step 32 of the local pipeline trains a small `DroneAudioCNN` on `geronimobasso/drone-audio-detection-samples`.
 The dataset is cached in `.data/drone-audio-data/`; download and split it once before the first run.
-`selfsuvis-setup.sh` does this automatically (Step 4d). For manual setup:
+`selfsuvis-setup.sh` does this automatically (Step 4d). For manual setup (requires `ssv_vdp` installed — `pip install -e ./src/ssv_vdp`):
 
 ```bash
 # Download and split into train/val/test (≈200 MB, no login required):
-.venv/bin/python -m selfsuvis.scripts.prepare_audio_data
+.venv/bin/python -m ssv_vdp.scripts.prepare_audio_data
 
 # Custom cache directory:
-.venv/bin/python -m selfsuvis.scripts.prepare_audio_data \
+.venv/bin/python -m ssv_vdp.scripts.prepare_audio_data \
   --data-dir /mnt/.data/drone-audio-data
 
 # Verify an existing split (no network, no writes):
-.venv/bin/python -m selfsuvis.scripts.prepare_audio_data --verify
+.venv/bin/python -m ssv_vdp.scripts.prepare_audio_data --verify
 
 # Limit to 100 samples per class for a quick smoke-test:
-.venv/bin/python -m selfsuvis.scripts.prepare_audio_data --max-per-class 100
+.venv/bin/python -m ssv_vdp.scripts.prepare_audio_data --max-per-class 100
 ```
 
-Or via the installed entry point:
+Or via the installed entry point (from `ssv_vdp`):
 
 ```bash
 ssv-prepare-audio --verify
 ssv-prepare-audio --data-dir .data/drone-audio-data
 ```
 
-Step 32 runs automatically on each local pipeline run. To skip it:
+Step 32 runs automatically on each local pipeline run (`ssv --mode local`). To skip it:
 
 ```bash
-.venv/bin/selfsuvis --mode local --videos-dir .data/videos --no-drone-audio
+ssv --mode local --videos-dir .data/videos --no-drone-audio
 ```
 
 To control training epochs:
 
 ```bash
 # Override epochs (default: DRONE_AUDIO_EPOCHS env var, or 10):
-.venv/bin/selfsuvis --mode local --videos-dir .data/videos --drone-audio-epochs 20
+.venv/bin/ssv --mode local --videos-dir .data/videos --drone-audio-epochs 20
 ```
 
 **Simulate drone sound** (useful for testing the trained ONNX model):
@@ -244,7 +244,7 @@ To control training epochs:
 
 ### Step 4 — Start sidecars
 
-The Ollama sidecars serve Gemma (scene analysis) and the reasoning model. They must be running before `selfsuvis --mode local` starts.
+The Ollama sidecars serve Gemma (scene analysis) and the reasoning model. They must be running before `ssv --mode local` starts.
 
 ```bash
 ollama serve                              # keep running in a terminal
@@ -371,7 +371,7 @@ Full sidecar naming reference:
 **Minimal run** — fewest dependencies, in-memory store, no 3D reconstruction:
 
 ```bash
-.venv/bin/selfsuvis --mode local \
+.venv/bin/ssv --mode local \
   --videos-dir .data/videos \
   --no-qdrant \
   --no-sfm \
@@ -388,7 +388,7 @@ caption parse failures and usually produces better `detailed_captions.md`.
 # Start Qdrant if not already running:
 docker compose -f docker/core/docker-compose.yml up -d qdrant
 
-.venv/bin/selfsuvis --mode local \
+.venv/bin/ssv --mode local \
   --videos-dir .data/videos
 ```
 
@@ -397,7 +397,7 @@ The local pipeline uses `.data/videos` only. `data/videos` is not supported.
 **Fast iteration** — skip slow optional steps (ASR, OCR, depth, captioning):
 
 ```bash
-.venv/bin/selfsuvis --mode local \
+.venv/bin/ssv --mode local \
   --videos-dir .data/videos \
   --no-qdrant \
   --no-sfm \
@@ -445,7 +445,7 @@ For a full artifact-by-artifact walkthrough, read:
 
 ## Optional Step 7 — Run coop Steps 37-43
 
-`coop` is not part of a single `selfsuvis --mode local` video run. It is the
+`coop` is not part of a single `ssv --mode local` video run. It is the
 continuous site-awareness extension after the local learning pipeline. Use this
 when you want to practice Steps 37-43 locally: MQTT/LoRaWAN ingestion, Frigate
 events, rolling site state, RTSP/acoustic evidence, site mesh, scene synthesis,
@@ -456,7 +456,7 @@ and realtime threat sectors.
 If you used `make venv`, install the optional coop dependencies into the same venv:
 
 ```bash
-.venv/bin/pip install -e ".[coop]"
+.venv/bin/pip install -e ".[sencoop]"
 ```
 
 ### 7.2 Start the coop stack
@@ -582,7 +582,7 @@ ollama pull qwen3:14b
 # - Qwen via Ollama for detailed captioning
 # - "UniDrive" step also uses the same Qwen sidecar endpoint/model
 # - SceneTok disabled
-.venv/bin/selfsuvis --mode local \
+.venv/bin/ssv --mode local \
   --videos-dir        .data/videos \
   --asr               \
   --ocr               \
@@ -679,7 +679,7 @@ ollama pull qwen3:14b         # Step 30       — agentic flow audit / reasoning
 # —— Terminal 2: pipeline ————————————————————————————————————————————————————————
 # All available steps enabled. UniDrive runs locally if HF weights are cached.
 # SceneTok runs locally only if the machine has enough VRAM; otherwise omit --scenetok.
-.venv/bin/selfsuvis --mode local \
+.venv/bin/ssv --mode local \
   --videos-dir        .data/videos \
   --asr               \
   --ocr               \
@@ -758,7 +758,7 @@ SCENETOK_CHECKPOINT=va-videodc_re10k.ckpt \
 
 # —— Terminal 5: pipeline ——————————————————————————————————————————————————————
 # Steps enabled: all including unidrive (Step 13) and scenetok (Step 14)
-.venv/bin/selfsuvis --mode local \
+.venv/bin/ssv --mode local \
   --videos-dir        .data/videos \
   --asr               \
   --ocr               \
@@ -1039,7 +1039,7 @@ The pipeline ships a LangGraph-based orchestrator alongside the default monolith
 Activate it with a single env var — no CLI change needed:
 
 ```bash
-SELFSUVIS_USE_GRAPH=1 APP_ENV=dev .venv/bin/selfsuvis --mode local \
+SELFSUVIS_USE_GRAPH=1 APP_ENV=dev .venv/bin/ssv --mode local \
   --videos-dir .data/videos
 ```
 
@@ -1066,13 +1066,13 @@ Both paths produce byte-for-byte identical artifacts. The graph path additionall
 ```bash
 # Run with persistent checkpoints
 SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=.data/checkpoints.db \
-  APP_ENV=dev .venv/bin/selfsuvis --mode local --videos-dir .data/videos
+  APP_ENV=dev .venv/bin/ssv --mode local --videos-dir .data/videos
 # Logs: "Starting graph pipeline for drone_mission (thread_id=drone_mission_1714123456)"
 
 # Resume after failure — completed nodes are skipped
 SELFSUVIS_USE_GRAPH=1 SELFSUVIS_CHECKPOINT_PATH=.data/checkpoints.db \
   SELFSUVIS_RESUME_THREAD_ID=drone_mission_1714123456 \
-  APP_ENV=dev .venv/bin/selfsuvis --mode local --videos-dir .data/videos
+  APP_ENV=dev .venv/bin/ssv --mode local --videos-dir .data/videos
 ```
 
 Without `SELFSUVIS_CHECKPOINT_PATH` the graph uses an in-memory `MemorySaver` — state

@@ -37,6 +37,7 @@ The three playgrounds share:
 - A single Qdrant instance for frame and tile vectors
 - The `selfsuvis.config` facade (`from selfsuvis.config import settings,
   coop_settings, realtime_settings`) for validated configuration
+  (`coop_settings` proxies `sencoop.config.settings`)
 
 ## Repository structure
 
@@ -44,15 +45,29 @@ The three playgrounds share:
 src/selfsuvis/
   app/          FastAPI routers, request dependencies, and API services
   models/       retrieval backbones and local model loaders
-  pipeline/     indexing, mapping, media, storage, training, workflows
+  pipeline/     shared pipeline: indexing, mapping, media, storage, training, workflows
   worker/       PostgreSQL-backed async job worker
     handlers/   per-job-type handler modules (index, finetune, reembed, postflight)
     gpu.py      advisory GPU semaphore
     _run.py     persistent event-loop runner shared by all handlers
-  coop/         IoT sensor mesh — MQTT, ChirpStack, Frigate integration
   realtime/     SLAM bridge runtimes — pose and occupancy adapters
   config/       unified config facade (Pure Fabrication; see GRASP note below)
-  scripts/      packaged helper CLIs such as `ssv-env`
+  scripts/      packaged helper CLIs (ssv-env, ssv-migrate, ssv-models)
+src/ssv_vdp/                    local VDP pipeline (standalone package)
+  cli.py, local_env.py         module-level entry points
+  pipeline/runner.py           run_local() orchestrator
+  pipeline/graph.py            LangGraph workflow
+  pipeline/state.py            PipelineState TypedDict
+  pipeline/nodes/              LangGraph phase nodes (phase1..phase4, helpers)
+  steps/common.py              VideoKnowledge + shared utilities
+  steps/<name>.py              24 step implementations (no steps_ prefix)
+  agentic/processor.py         frame-level agentic helpers
+  commands/parser.py           CLI argument parser
+  commands/runner.py           file/stream CLI modes
+  scripts/                     ssv-prepare-audio and other helper scripts
+               (installable from src/ssv_vdp/pyproject.toml)
+src/sencoop/   IoT sensor mesh — MQTT, ChirpStack, Frigate integration
+               (standalone package; importable as `sencoop`)
 docker/         compose files and container definitions
 tests/          unit, integration, assets, and shared test helpers
 docs/           operator, developer, and decision documentation
@@ -108,9 +123,9 @@ Optional services:
 - `mapper` for map registration/fusion work
 - `mediamtx` for stream ingestion and live RTSP/RTMP path management
 - `cvat` for annotation workflows
-- `coop` IoT edge stack: Mosquitto, ChirpStack, Frigate (see below)
+- `sencoop` IoT edge stack: Mosquitto, ChirpStack, Frigate (see below)
 
-### coop — IoT edge monitoring layer (Playground 3)
+### sencoop — IoT edge monitoring layer (Playground 3)
 
 The `sencoop` package adds a stationary site-monitoring layer on top of the
 core selfsuvis API. It is fully optional: all components are lazy-imported and the
@@ -150,7 +165,7 @@ Frigate cameras ─────────────────────�
   - Sector ID derived from GPS grid at ~110 m resolution
 
 Docker compose: `docker/sencoop/docker-compose.sencoop.yml` joins `selfsuvis-net`.
-Full reference: [coop — Integration Guide](../coop/integration.md).
+Full reference: [sencoop — Integration Guide](../sencoop/integration.md).
 
 ### MediaMTX role
 

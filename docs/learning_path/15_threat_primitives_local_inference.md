@@ -1,7 +1,7 @@
 # Threat Primitive Layer — Local Inference From Physical State
 
 This document explains the threat primitive step introduced in
-`pipeline/workflows/local/steps_threat_primitives.py`.
+`ssv_vdp/steps/threat_primitives.py`.
 
 It covers:
 1. Why free-text hazards are insufficient for decision-making
@@ -10,7 +10,7 @@ It covers:
 4. How each primitive is computed and what evidence it draws on
 5. What to inspect when a primitive is surprising or missing
 
-Related code: `pipeline/workflows/local/steps_threat_primitives.py`
+Related code: `ssv_vdp/steps/threat_primitives.py`
 Related docs: [Physical scene layer](14_temporal_ssl_physical_state.md),
 [Tracking and mapping](05_tracking_mapping_steps_21_27.md),
 [Future directions](18_future_directions.md).

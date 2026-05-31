@@ -58,13 +58,13 @@ to a faster auto profile so depth can stay enabled without dominating runtime.
 
 ```bash
 # Enable with auto model selection
-DEPTH_ENABLED=true selfsuvis --mode local
+DEPTH_ENABLED=true ssv --mode local
 
 # Force the higher-quality auto profile
-DEPTH_ENABLED=true DEPTH_AUTO_PROFILE=quality selfsuvis --mode local
+DEPTH_ENABLED=true DEPTH_AUTO_PROFILE=quality ssv --mode local
 
 # Explicit model
-DEPTH_ENABLED=true DEPTH_MODEL=depth-anything/Depth-Anything-V2-Large-hf selfsuvis --mode local
+DEPTH_ENABLED=true DEPTH_MODEL=depth-anything/Depth-Anything-V2-Large-hf ssv --mode local
 
 # Download weights
 python -m selfsuvis.scripts.prepare_models --depth

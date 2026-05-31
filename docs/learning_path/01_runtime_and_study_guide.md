@@ -19,18 +19,18 @@ If you want to understand the system, start here.
 
 For runtime behavior, the main local source is:
 
-- [`src/selfsuvis/pipeline/workflows/local/runner.py`](../../src/selfsuvis/pipeline/workflows/local/runner.py)
+- [`src/ssv_vdp/pipeline/runner.py`](../../src/ssv_vdp/pipeline/runner.py)
 
 Supporting step modules live here:
 
-- [`src/selfsuvis/pipeline/workflows/local/steps_embed.py`](../../src/selfsuvis/pipeline/workflows/local/steps_embed.py)
-- [`src/selfsuvis/pipeline/workflows/local/steps_caption.py`](../../src/selfsuvis/pipeline/workflows/local/steps_caption.py)
-- [`src/selfsuvis/pipeline/workflows/local/steps_yolo_sam.py`](../../src/selfsuvis/pipeline/workflows/local/steps_yolo_sam.py)
-- [`src/selfsuvis/pipeline/workflows/local/steps_gemma_tracking.py`](../../src/selfsuvis/pipeline/workflows/local/steps_gemma_tracking.py)
-- [`src/selfsuvis/pipeline/workflows/local/steps_map.py`](../../src/selfsuvis/pipeline/workflows/local/steps_map.py)
-- [`src/selfsuvis/pipeline/workflows/local/steps_ssl.py`](../../src/selfsuvis/pipeline/workflows/local/steps_ssl.py)
-- [`src/selfsuvis/pipeline/workflows/local/steps_distill.py`](../../src/selfsuvis/pipeline/workflows/local/steps_distill.py)
-- [`src/selfsuvis/pipeline/workflows/local/steps_report.py`](../../src/selfsuvis/pipeline/workflows/local/steps_report.py)
+- [`src/ssv_vdp/steps/embed.py`](../../src/ssv_vdp/steps/embed.py)
+- [`src/ssv_vdp/steps/caption.py`](../../src/ssv_vdp/steps/caption.py)
+- [`src/ssv_vdp/steps/yolo_sam.py`](../../src/ssv_vdp/steps/yolo_sam.py)
+- [`src/ssv_vdp/steps/gemma_tracking.py`](../../src/ssv_vdp/steps/gemma_tracking.py)
+- [`src/ssv_vdp/steps/map.py`](../../src/ssv_vdp/steps/map.py)
+- [`src/ssv_vdp/steps/ssl.py`](../../src/ssv_vdp/steps/ssl.py)
+- [`src/ssv_vdp/steps/distill.py`](../../src/ssv_vdp/steps/distill.py)
+- [`src/ssv_vdp/steps/report.py`](../../src/ssv_vdp/steps/report.py)
 
 The learning path is broader than the runner implementation itself. That is intentional:
 
@@ -179,8 +179,8 @@ If semantic graphing is enabled, add:
 
 If you want a practical code-reading order, use this:
 
-1. `src/selfsuvis/pipeline/workflows/local/runner.py`
-2. `src/selfsuvis/pipeline/workflows/local/_common.py`
+1. `src/ssv_vdp/pipeline/runner.py`
+2. `src/ssv_vdp/steps/common.py`
 3. `src/selfsuvis/pipeline/workflows/indexer.py`
 4. one deep-dive file from `docs/learning_path/`
 5. the specific implementation module for the stage you care about

@@ -334,10 +334,10 @@ HuggingFace collection: `https://huggingface.co/collections/owl10/unidrivevla`
 **CLI:**
 ```bash
 # Point at Qwen2.5-VL sidecar (recommended for non-road missions)
-selfsuvis --mode local --unidrive-api-url http://localhost:8010/v1 --unidrive-model Qwen/Qwen2.5-VL-7B-Instruct
+ssv --mode local --unidrive-api-url http://localhost:8010/v1 --unidrive-model Qwen/Qwen2.5-VL-7B-Instruct
 
 # Point at actual UniDriveVLA checkpoint (if served via compatible bridge)
-selfsuvis --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-model owl10/UniDriveVLA_Nusc_Large_Stage3
+ssv --mode local --unidrive-api-url http://localhost:8030/v1 --unidrive-model owl10/UniDriveVLA_Nusc_Large_Stage3
 
 # Download model weights for local bridge
 python -m selfsuvis.scripts.prepare_models --unidrive

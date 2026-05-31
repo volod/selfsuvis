@@ -23,7 +23,7 @@ Treat the run directory as evidence, not as proof that every stage worked.
 
 Current local runs have a stricter contract than older notes in this learning path:
 
-- `selfsuvis --mode local` now runs a startup preflight before frame extraction
+- `ssv --mode local` now runs a startup preflight before frame extraction
 - missing local dependencies or uncached model weights are treated as startup errors
 - degraded-but-allowed conditions are still logged as warnings
   - Qdrant unreachable
@@ -60,13 +60,13 @@ This changes how you read a failed run:
 Generate a report:
 
 ```bash
-selfsuvis --mode analyse --run-dir .data/local_runs/drone_mission
+ssv --mode analyse --run-dir .data/local_runs/drone_mission
 ```
 
 Module form:
 
 ```bash
-python -m selfsuvis --mode analyse --run-dir .data/local_runs/drone_mission
+python -m ssv --mode analyse --run-dir .data/local_runs/drone_mission
 ```
 
 This gives you:
@@ -190,8 +190,8 @@ Examples:
 When an artifact looks wrong, trace it back from the run directory to code:
 
 - captions: `src/selfsuvis/pipeline/vision/florence.py`
-- local caption/report orchestration: `src/selfsuvis/pipeline/workflows/local/steps_caption.py`
-- report writers: `src/selfsuvis/pipeline/workflows/local/steps_report.py`
+- local caption/report orchestration: `src/ssv_vdp/steps/caption.py`
+- report writers: `src/ssv_vdp/steps/report.py`
 - analytics loader: `src/selfsuvis/analytics/loader.py`
 - report generation: `src/selfsuvis/visualization/report.py`
 - mapping advisor: `src/selfsuvis/pipeline/mapping/quality_advisor.py`

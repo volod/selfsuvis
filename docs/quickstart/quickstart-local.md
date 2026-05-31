@@ -2,7 +2,7 @@
 
 Set up the SelfSuvis API, worker, and UI for local development with hot-reload. This covers the Docker-backed service stack only.
 
-> **Running the local learning pipeline (`selfsuvis --mode local`) instead?**
+> **Running the local learning pipeline (`ssv --mode local`) instead?**
 > See [Quick Start — Learning Path Pipeline](quickstart-pipeline.md).
 
 ---
@@ -161,7 +161,7 @@ For learning-path Steps 37-43, run the coop Docker stack and point the local API
 the localhost MQTT and Frigate ports:
 
 ```bash
-.venv/bin/pip install -e ".[coop]"
+.venv/bin/pip install -e ".[sencoop]"
 APP_ENV=test ./scripts/sencoop/sencoop-bootstrap.sh up -d
 
 APP_ENV=dev \
@@ -194,7 +194,7 @@ For the full local learning sequence, see
 
 ## Next steps
 
-- [Learning Path Pipeline](quickstart-pipeline.md) — run `selfsuvis --mode local` without Docker
+- [Learning Path Pipeline](quickstart-pipeline.md) — run `ssv --mode local` without Docker
 - [Configuration](../reference/configuration.md) — full env var reference and security settings
 - [Data layout](../reference/data_layout.md) — where files are written, sensor sidecars, output artifacts
 - [API reference](../reference/api.md) — HTTP endpoints including the robot pose API

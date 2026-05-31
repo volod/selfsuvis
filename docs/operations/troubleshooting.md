@@ -56,7 +56,7 @@ If `/index/video path=...` or `/index/dir` returns path errors, set `ALLOWED_IND
 
 ## Startup preflight fails
 
-Before a local run, `selfsuvis --mode local` now checks that local dependencies are
+Before a local run, `ssv --mode local` now checks that local dependencies are
 installed and that the required model weights are already cached.
 
 - Read the `preflight:` log lines first; they name the exact missing cache or package

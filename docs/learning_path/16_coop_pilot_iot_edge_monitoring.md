@@ -15,7 +15,7 @@ It covers:
 9. What to inspect and common failure modes
 
 Related code:
-- `src/selfsuvis/coop/` — full IoT edge subpackage
+- `src/sencoop/` — full IoT edge subpackage
 - `src/selfsuvis/pipeline/realtime/coop_ingest.py` — sensor→event bridge
 - `src/selfsuvis/app/services/coop_streams.py` — RTSP bridge lifecycle
 - `src/selfsuvis/app/routers/site_state.py` — API endpoints

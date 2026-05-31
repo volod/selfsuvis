@@ -4,7 +4,7 @@ This document is a study companion to
 [`06_adaptation_eval_steps_28_35.md`](06_adaptation_eval_steps_28_35.md)
 and the code in
 [`pipeline/training/ssl.py`](../../src/selfsuvis/pipeline/training/ssl.py) and
-[`pipeline/workflows/local/steps_ssl.py`](../../src/selfsuvis/pipeline/workflows/local/steps_ssl.py).
+[`ssv_vdp/steps/ssl.py`](../../src/ssv_vdp/steps/ssl.py).
 
 It explains one specific evolution of the SSL fine-tuning step:
 the shift from **frame augmentation** to **temporal track augmentation** as the source
@@ -172,10 +172,10 @@ RSSM → better AL frame selection
 | Pair dataset | `pipeline/training/ssl.py` | `TrackPairDataset` |
 | Triplet dataset | `pipeline/training/ssl.py` | `TrackTripletDataset` |
 | Cycle loss | `pipeline/training/ssl.py` | `CycleConsistencyLoss` |
-| Track map extraction | `pipeline/workflows/local/steps_ssl.py` | `_extract_track_map()` |
-| Pair/triplet counting | `pipeline/workflows/local/steps_ssl.py` | `_count_potential_pairs()`, `_count_potential_triplets()` |
-| SSL fine-tuning step | `pipeline/workflows/local/steps_ssl.py` | `step_ssl_finetune()` |
-| Finetune stats report | `pipeline/workflows/local/steps_report.py` | `write_finetune_stats_md()` |
+| Track map extraction | `ssv_vdp/steps/ssl.py` | `_extract_track_map()` |
+| Pair/triplet counting | `ssv_vdp/steps/ssl.py` | `_count_potential_pairs()`, `_count_potential_triplets()` |
+| SSL fine-tuning step | `ssv_vdp/steps/ssl.py` | `step_ssl_finetune()` |
+| Finetune stats report | `ssv_vdp/steps/report.py` | `write_finetune_stats_md()` |
 
 The pairing approach chosen for each run is reported in `finetune_stats.md`
 under the **"Pair Construction Strategy"** heading.
@@ -249,7 +249,7 @@ attention.
 ## 8. Physical Scene Layer — Occupancy and Free Space
 
 The **physical state summary** (`physical_state_summary.json`) is produced by
-`pipeline/workflows/local/steps_physical_state.py` immediately after full-state fusion.
+`ssv_vdp/steps/physical_state.py` immediately after full-state fusion.
 It aggregates the outputs of three upstream steps into a single compact belief dictionary
 that SSL fine-tuning, report generation, and threat-primitive extraction can consume without
 re-running any models.
@@ -421,8 +421,8 @@ offline analysis (all future observations have been used).
 | RTS smoother | `pipeline/fusion/filters/rts_smoother.py` | `rts_smooth()` |
 | Full object fusion pass | `pipeline/fusion/object_state.py` | `run_object_state_fusion()` |
 | Near-field density calc | `pipeline/fusion/object_state.py` | `summarize_object_frame_dicts()` |
-| Physical state step | `pipeline/workflows/local/steps_physical_state.py` | `step_physical_state()` |
-| VideoKnowledge deposit | `pipeline/workflows/local/_common.py` | `VideoKnowledge.add_physical_state()` |
+| Physical state step | `ssv_vdp/steps/physical_state.py` | `step_physical_state()` |
+| VideoKnowledge deposit | `ssv_vdp/steps/common.py` | `VideoKnowledge.add_physical_state()` |
 
 ---
 

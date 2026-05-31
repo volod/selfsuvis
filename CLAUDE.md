@@ -7,7 +7,7 @@ Compact guidance for Claude Code in this repository.
 - Do not create git commits unless explicitly asked.
 - Do not revert user changes or unrelated dirty files while fixing an issue.
 - Do not add `from __future__ import annotations`; use normal annotations and `TYPE_CHECKING` imports when needed.
-- Keep top-level `scripts/` as shell entrypoints. Put Python implementations under `src/selfsuvis/...`.
+- Keep top-level `scripts/` as shell entrypoints. Put production Python implementations under `src/selfsuvis/...`, local-pipeline implementations under `src/ssv_vdp/...`.
 - Reuse `scripts/shared/common.sh` for shared shell root/env/bootstrap behavior.
 - Runtime data belongs under `.data/`; avoid recreating root `data/` unless a file explicitly still requires it.
 - Use ASCII in logs, docs, comments, and generated shell output.
@@ -23,19 +23,21 @@ parallelism via `ARG MAX_JOBS=4` (safe default) overridden by the caller with:
 - API: `src/selfsuvis/app/`
 - Worker: `src/selfsuvis/worker/`
 - UI: `src/selfsuvis/ui/`
-- Pipeline: `src/selfsuvis/pipeline/`
-- Local workflow: `src/selfsuvis/pipeline/workflows/local/`
+- Shared pipeline: `src/selfsuvis/pipeline/` (core, vision, mapping, fusion, training, media, storage, realtime)
+- Local VDP pipeline: `src/ssv_vdp/` (standalone package; pyproject.toml lives inside — `pip install -e ./src/ssv_vdp`)
 - Sencoop/IoT: `src/sencoop/` (standalone sensor-mesh package)
 - Runtime config: `src/selfsuvis/pipeline/core/config/`
 - Docker and shell ops: `docker/`, `scripts/`
 
 ## Usual commands
 
-- `make venv`, `make test-unit`, `make lint`
+- `make venv` — installs selfsuvis + ssv_vdp (both editable)
+- `make test-unit`, `make lint`
 - `make up`, `make down`, `make logs`
 - `python -m selfsuvis.scripts.migrate_postgres`
 - `scripts/ssv/ssv-reset-qdrant.sh`
 - `scripts/sencoop/sencoop-bootstrap.sh`
+- `ssv --mode local --videos-dir .data/videos` — run local VDP pipeline
 
 ## GStack
 

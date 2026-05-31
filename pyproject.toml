@@ -42,10 +42,6 @@ dependencies = [
     # AI service clients
     "openai>=1.0",
     "google-genai>=1.0",
-    # Orchestration
-    "langgraph>=0.2",
-    "langchain-core>=0.3",
-    "langsmith>=0.1",
     # Utilities
     "psutil>=5.9",
     "verovio>=3.12",
@@ -91,14 +87,6 @@ sencoop = [
     "jinja2>=3.1",
     "rich>=13.0",
 ]
-audio = [
-    # HuggingFace dataset download (drone-audio-detection-samples)
-    "datasets>=2.18",
-    # WAV read/write (fallback path for scipy.io.wavfile already covered by scipy)
-    "soundfile>=0.12",
-    # Audio playback for scripts/play_drone_sound.sh
-    "sounddevice>=0.4",
-]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -106,17 +94,11 @@ dev = [
 ]
 
 [project.scripts]
-ssv                  = "selfsuvis.cli:main"
 ssv-env              = "selfsuvis.scripts.generate_env:main"
 ssv-migrate          = "selfsuvis.scripts.migrate_postgres:main"
 ssv-models           = "selfsuvis.scripts.prepare_models:main"
-ssv-export           = "selfsuvis.scripts.export_onnx:main"
-ssv-gallery          = "selfsuvis.scripts.build_gallery:main"
-ssv-split-audio      = "selfsuvis.scripts.split_drone_audio_data:main"
-ssv-play-drone       = "selfsuvis.scripts.play_drone_sound:main"
-ssv-prepare-audio    = "selfsuvis.scripts.prepare_audio_data:main"
 ssv-realtime-bridge  = "selfsuvis.realtime.bridge_runtime:main"
-sencoop-analytics = "sencoop.analytics.cli:main"
+sencoop-analytics    = "sencoop.analytics.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
