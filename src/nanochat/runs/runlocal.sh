@@ -10,10 +10,10 @@
 #   RUN=myrun bash runs/runlocal.sh                # enable TensorBoard logging
 #   NANOCHAT_BASE_DIR=/mnt/data/nanochat bash runs/runlocal.sh  # custom artifact dir
 #
-# Profiles auto-selected by VRAM:
+# Profiles auto-selected by VRAM and GPU size:
 #   40g  ≥40 GB  depth=20 seq=2048 bs=16  (A100/H100)
 #   24g  24-39   depth=18 seq=2048 bs=8   (RTX 3090/4090)
-#   16g  16-23   depth=14 seq=1024 bs=8   (RTX 4080/4060Ti 16G)
+#   16g  16-23   depth=14 seq=1024 bs=16  (compact depth=12 on low-SM GPUs)
 #   12g  12-15   depth=12 seq=1024 bs=4   (RTX 4070/3080)
 #   8g    8-11   depth=10 seq=512  bs=2   (RTX 3070/4060 8G)
 #   cpu   none   depth=4  seq=256  bs=4   (CPU only, educational)
@@ -35,51 +35,23 @@ _PROJECT_DATA="${DATA_DIR:-$PROJECT_ROOT/.data}"
 export NANOCHAT_BASE_DIR="${NANOCHAT_BASE_DIR:-$_PROJECT_DATA/nanochat}"
 mkdir -p "$NANOCHAT_BASE_DIR"
 
-# Use nproc-2 threads for CPU kernels (leave 2 cores for OS / display / background tasks).
 _NCPU=$(nproc 2>/dev/null || echo 4)
-export OMP_NUM_THREADS=$(( _NCPU > 2 ? _NCPU - 2 : 1 ))
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 # ── Hardware detection ────────────────────────────────────────────────────────
-# Determine VRAM in MB using nvidia-smi (no Python or venv required at this stage).
-_detect_vram_mb() {
-    if command -v nvidia-smi &>/dev/null; then
-        local v
-        v=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
-            | head -1 | tr -d ' ')
-        echo "${v:-0}"
+if command -v python3 &>/dev/null; then
+    if [ -z "${PROFILE:-}" ]; then
+        eval "$(python3 "$REPO_ROOT/scripts/detect_hw.py" shell)"
+        PROFILE="$HW_PROFILE"
+        log "Detected GPU: ${HW_GPU_NAME:-none}  (${HW_VRAM_MB:-0} MB VRAM, ${HW_SM_COUNT:-0} SMs) -> profile: $PROFILE"
     else
-        echo "0"
+        eval "$(python3 "$REPO_ROOT/scripts/detect_hw.py" shell "$PROFILE")"
+        log "Using explicit PROFILE=$PROFILE"
     fi
-}
-
-_detect_gpu_name() {
-    if command -v nvidia-smi &>/dev/null; then
-        nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | sed 's/^ *//'
-    else
-        echo "none"
-    fi
-}
-
-_vram_to_profile() {
-    local vram_mb="$1"
-    if   [ "$vram_mb" -ge 40000 ]; then echo "40g"
-    elif [ "$vram_mb" -ge 24000 ]; then echo "24g"
-    elif [ "$vram_mb" -ge 16000 ]; then echo "16g"
-    elif [ "$vram_mb" -ge 12000 ]; then echo "12g"
-    elif [ "$vram_mb" -gt     0 ]; then echo "8g"
-    else                                 echo "cpu"
-    fi
-}
-
-if [ -z "${PROFILE:-}" ]; then
-    DETECTED_VRAM=$(_detect_vram_mb)
-    DETECTED_GPU=$(_detect_gpu_name)
-    PROFILE=$(_vram_to_profile "$DETECTED_VRAM")
-    log "Detected GPU: $DETECTED_GPU  (${DETECTED_VRAM} MB VRAM) → profile: $PROFILE"
 else
-    log "Using explicit PROFILE=$PROFILE"
+    echo "python3 is required for nanochat hardware detection" >&2
+    exit 1
 fi
 
 # ── Profile parameters ────────────────────────────────────────────────────────
@@ -96,7 +68,7 @@ case "$PROFILE" in
         DEVICE_TYPE="cuda"
         ;;
     16g)
-        DEPTH=14; SEQ_LEN=1024; DEVICE_BATCH=8;  TOTAL_BATCH=524288; SHARDS=50
+        DEPTH=14; SEQ_LEN=1024; DEVICE_BATCH=16; TOTAL_BATCH=524288; SHARDS=50
         DEVICE_TYPE="cuda"
         ;;
     12g)
@@ -118,11 +90,29 @@ case "$PROFILE" in
         ;;
 esac
 
+DEPTH="${NANOCHAT_DEPTH:-${HW_DEPTH:-$DEPTH}}"
+SEQ_LEN="${NANOCHAT_SEQ_LEN:-${HW_SEQ_LEN:-$SEQ_LEN}}"
+DEVICE_BATCH="${NANOCHAT_DEVICE_BATCH:-${HW_DEVICE_BATCH:-$DEVICE_BATCH}}"
+TOTAL_BATCH="${NANOCHAT_TOTAL_BATCH:-${HW_TOTAL_BATCH:-$TOTAL_BATCH}}"
+SHARDS="${NANOCHAT_SHARDS:-${HW_SHARDS:-$SHARDS}}"
+
 GRAD_ACCUM=$(( TOTAL_BATCH / (DEVICE_BATCH * SEQ_LEN) ))
+if [ $(( TOTAL_BATCH % (DEVICE_BATCH * SEQ_LEN) )) -ne 0 ]; then
+    echo "TOTAL_BATCH=$TOTAL_BATCH must be divisible by DEVICE_BATCH*SEQ_LEN=$(( DEVICE_BATCH * SEQ_LEN ))" >&2
+    exit 1
+fi
+
 RUN="${RUN:-}"
-UV_EXTRAS="${DEVICE_TYPE//cpu/cpu}"  # "cuda"→"gpu", "cpu"→"cpu"
 [ "$DEVICE_TYPE" = "cuda" ] && UV_EXTRAS="gpu" || UV_EXTRAS="cpu"
-WINDOW_PATTERN="L"   # default; overwritten after FA check below
+if [ -z "${OMP_NUM_THREADS:-}" ]; then
+    if [ "$DEVICE_TYPE" = "cuda" ]; then
+        export OMP_NUM_THREADS=$(( _NCPU > 10 ? 8 : (_NCPU > 2 ? _NCPU - 2 : 1) ))
+    else
+        export OMP_NUM_THREADS=$(( _NCPU > 2 ? _NCPU - 2 : 1 ))
+    fi
+fi
+TOKENIZER_THREADS="${NANOCHAT_TOKENIZER_THREADS:-$(( _NCPU >= 16 ? 8 : (_NCPU > 4 ? _NCPU / 2 : (_NCPU > 1 ? _NCPU - 1 : 1)) ))}"
+LOADER_BUFFER_SIZE="${NANOCHAT_LOADER_BUFFER_SIZE:-4000}"
 
 log "============================================================"
 log "  nanochat local training"
@@ -132,11 +122,15 @@ log "  batch        : $TOTAL_BATCH tokens/step  ($GRAD_ACCUM grad-accum steps)"
 log "  dataset      : $SHARDS shards  (~$(( SHARDS * 62 / 1000 ))B tokens on disk)"
 log "  artifacts    : $NANOCHAT_BASE_DIR"
 log "  run          : $RUN"
+if [ -n "${RESUME_FROM_STEP:-}" ]; then
+    log "  resume       : step=$RESUME_FROM_STEP"
+fi
 log "  cpu threads  : OMP_NUM_THREADS=$OMP_NUM_THREADS  (nproc=$_NCPU)"
+log "  tokenizer    : threads=$TOKENIZER_THREADS  loader-buffer=$LOADER_BUFFER_SIZE"
 log "============================================================"
 
 # ── venv setup ───────────────────────────────────────────────────────────────
-command -v uv &>/dev/null || { echo "uv not found — install from https://docs.astral.sh/uv/"; exit 1; }
+command -v uv &>/dev/null || { echo "uv not found - install from https://docs.astral.sh/uv/"; exit 1; }
 cd "$REPO_ROOT"
 [ -d ".venv" ] || uv venv
 uv sync --extra "$UV_EXTRAS" --quiet
@@ -156,10 +150,10 @@ fi
 # fast causal path instead of building an explicit O(T^2) sliding-window mask.
 if [ "$DEVICE_TYPE" = "cuda" ] && python -c "import flash_attn" 2>/dev/null; then
     WINDOW_PATTERN="${WINDOW_PATTERN:-SSSL}"
-    FA_STATUS="flash-attn $(python -c 'import flash_attn; print(flash_attn.__version__)') -- sliding-window enabled"
+    FA_STATUS="flash-attn $(python -c 'import flash_attn; print(flash_attn.__version__)') -- window-pattern=${WINDOW_PATTERN}"
 else
-    WINDOW_PATTERN="L"
-    FA_STATUS="flash-attn not available -- falling back to full-context SDPA (window-pattern=L)"
+    WINDOW_PATTERN="${WINDOW_PATTERN:-L}"
+    FA_STATUS="flash-attn not available -- falling back to SDPA (window-pattern=${WINDOW_PATTERN})"
     if [ "$DEVICE_TYPE" = "cuda" ]; then
         log "NOTE: Run 'make install-fa' to build flash-attn (~30-60 min, one-time)."
         log "      This enables sliding-window attention and ~2x training speedup."
@@ -188,7 +182,7 @@ log "Waiting for dataset download..."
 wait "$DATASET_PID"
 
 log "Pretraining base model (depth=$DEPTH)..."
-python -m scripts.base_train \
+BASE_TRAIN_ARGS=(
     --depth="$DEPTH" \
     --max-seq-len="$SEQ_LEN" \
     --device-batch-size="$DEVICE_BATCH" \
@@ -201,7 +195,14 @@ python -m scripts.base_train \
     --core-metric-max-per-task=200 \
     --sample-every=500 \
     --save-every=1000 \
+    --tokenizer-threads="$TOKENIZER_THREADS" \
+    --loader-buffer-size="$LOADER_BUFFER_SIZE" \
     --run="$RUN"
+)
+if [ -n "${RESUME_FROM_STEP:-}" ]; then
+    BASE_TRAIN_ARGS+=(--resume-from-step="$RESUME_FROM_STEP")
+fi
+python -m scripts.base_train "${BASE_TRAIN_ARGS[@]}"
 
 # ── Base eval ─────────────────────────────────────────────────────────────────
 if [ -d "$NANOCHAT_BASE_DIR/base_checkpoints" ]; then
@@ -211,7 +212,7 @@ if [ -d "$NANOCHAT_BASE_DIR/base_checkpoints" ]; then
         --split-tokens=131072 \
         --max-per-task=200
 else
-    log "No base checkpoint found — skipping eval."
+    log "No base checkpoint found - skipping eval."
     log "  (pass --save-every N to save checkpoints during training)"
 fi
 
@@ -230,7 +231,7 @@ if [ -d "$NANOCHAT_BASE_DIR/base_checkpoints" ]; then
         --device-batch-size="$DEVICE_BATCH" \
         --run="$RUN"
 else
-    log "No base checkpoint found — skipping SFT."
+    log "No base checkpoint found - skipping SFT."
 fi
 
 # ── SFT eval ──────────────────────────────────────────────────────────────────
@@ -238,7 +239,7 @@ if [ -d "$NANOCHAT_BASE_DIR/sft_checkpoints" ]; then
     log "Evaluating SFT model..."
     python -m scripts.chat_eval -i sft
 else
-    log "No SFT checkpoint found — skipping SFT eval."
+    log "No SFT checkpoint found - skipping SFT eval."
 fi
 
 # ── Report ────────────────────────────────────────────────────────────────────

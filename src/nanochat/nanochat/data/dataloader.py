@@ -16,6 +16,9 @@ Fallback to the original if you have very limited data AND long documents:
 https://github.com/karpathy/nanochat/blob/3c3a3d7/nanochat/dataloader.py#L78-L117
 """
 
+import threading
+import queue as _queue
+
 import torch
 import pyarrow.parquet as pq
 
@@ -73,9 +76,10 @@ def _document_batches(split, resume_state_dict, tokenizer_batch_size):
 
 def tokenizing_distributed_data_loader_with_state_bos_bestfit(
     tokenizer, B, T, split,
-    tokenizer_threads=4, tokenizer_batch_size=128,
+    tokenizer_threads=8,
+    tokenizer_batch_size=128,
     device="cuda", resume_state_dict=None,
-    buffer_size=1000
+    buffer_size=4000,
 ):
     """
     BOS-aligned dataloader with Best-Fit Cropping.
@@ -92,21 +96,47 @@ def tokenizing_distributed_data_loader_with_state_bos_bestfit(
     - Every row starts with BOS
     - 100% utilization (no padding, every token is trained on)
     - Approximately 35% of all tokens are discarded due to cropping
+
+    Tokenization and parquet I/O run in a background daemon thread so the main
+    training thread never stalls on disk reads. buffer_size controls the depth of
+    the background queue (number of pre-tokenized docs held in memory).
     """
     assert split in ["train", "val"], "split must be 'train' or 'val'"
 
     row_capacity = T + 1
     batches = _document_batches(split, resume_state_dict, tokenizer_batch_size)
     bos_token = tokenizer.get_bos_token_id()
-    doc_buffer = []
+
+    # Background thread tokenizes documents and enqueues them for the main thread.
+    # Queue is bounded so the background thread stays at most buffer_size docs ahead.
+    _tok_queue = _queue.Queue(maxsize=buffer_size)
     pq_idx, rg_idx, epoch = 0, 0, 1
 
-    def refill_buffer():
+    def _tokenize_worker():
+        try:
+            for doc_batch, (pq_i, rg_i, ep) in batches:
+                token_lists = tokenizer.encode(doc_batch, prepend=bos_token, num_threads=tokenizer_threads)
+                for tokens in token_lists:
+                    _tok_queue.put((tokens, pq_i, rg_i, ep))  # blocks when queue is full (backpressure)
+        except BaseException as exc:
+            _tok_queue.put(exc)
+
+    threading.Thread(target=_tokenize_worker, daemon=True).start()
+
+    # Local best-fit buffer: drained from the queue into a list for random-access best-fit search.
+    # Only the main thread touches this list; the background thread only writes to _tok_queue.
+    doc_buffer = []
+
+    def _drain(target_size):
+        """Pull docs from the background queue into doc_buffer until we reach target_size."""
         nonlocal pq_idx, rg_idx, epoch
-        doc_batch, (pq_idx, rg_idx, epoch) = next(batches)
-        token_lists = tokenizer.encode(doc_batch, prepend=bos_token, num_threads=tokenizer_threads)
-        for tokens in token_lists:
+        while len(doc_buffer) < target_size:
+            item = _tok_queue.get()
+            if isinstance(item, BaseException):
+                raise RuntimeError("background tokenization failed") from item
+            tokens, pq_i, rg_i, ep = item
             doc_buffer.append(tokens)
+            pq_idx, rg_idx, epoch = pq_i, rg_i, ep
 
     # Pre-allocate buffers once: layout is [inputs (B*T) | targets (B*T)]
     # This gives us contiguous views and a single HtoD transfer
@@ -123,9 +153,10 @@ def tokenizing_distributed_data_loader_with_state_bos_bestfit(
         for row_idx in range(B):
             pos = 0
             while pos < row_capacity:
-                # Ensure buffer has documents
-                while len(doc_buffer) < buffer_size:
-                    refill_buffer()
+                # Keep enough docs in the local buffer for good best-fit coverage.
+                # With the background thread pre-filling the queue, _drain is nearly instant.
+                if len(doc_buffer) < 256:
+                    _drain(256)
 
                 remaining = row_capacity - pos
 

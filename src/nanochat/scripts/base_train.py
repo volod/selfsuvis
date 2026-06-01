@@ -12,12 +12,13 @@ python -m scripts.base_train --depth=4 --max-seq-len=512 --device-batch-size=1 -
 """
 
 import os
-os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 import gc
 import json
 import time
 import math
 import argparse
+from collections import deque
 from dataclasses import asdict
 from contextlib import contextmanager
 
@@ -67,6 +68,9 @@ parser.add_argument("--warmup-steps", type=int, default=40, help="number of step
 parser.add_argument("--warmdown-ratio", type=float, default=0.65, help="ratio of iterations for LR warmdown")
 parser.add_argument("--final-lr-frac", type=float, default=0.05, help="final LR as fraction of initial LR")
 parser.add_argument("--resume-from-step", type=int, default=-1, help="resume training from this step (-1 = disable)")
+parser.add_argument("--tokenizer-threads", type=int, default=0, help="tokenizer worker threads (0 = adaptive)")
+parser.add_argument("--tokenizer-batch-size", type=int, default=128, help="documents per tokenizer batch")
+parser.add_argument("--loader-buffer-size", type=int, default=0, help="pre-tokenized document queue depth (0 = adaptive)")
 # Evaluation
 parser.add_argument("--eval-every", type=int, default=250, help="evaluate val bpb every N steps (-1 = disable)")
 parser.add_argument("--eval-tokens", type=int, default=80*524288, help="number of tokens to evaluate val loss on")
@@ -93,6 +97,14 @@ if device_type == "cuda":
 else:
     gpu_peak_flops = float('inf')  # MFU not meaningful for CPU/MPS
 print0(f"COMPUTE_DTYPE: {COMPUTE_DTYPE} ({COMPUTE_DTYPE_REASON})")
+
+if device_type == "cuda":
+    sm_count = torch.cuda.get_device_properties(device).multi_processor_count
+    if sm_count < int(os.environ.get("NANOCHAT_INDUCTOR_MAX_AUTOTUNE_MIN_SMS", "80")):
+        import torch._inductor.config as _inductor_config
+        _inductor_config.max_autotune = False
+        _inductor_config.max_autotune_gemm = False
+        print0(f"TorchInductor max-autotune disabled for {sm_count} SM GPU")
 
 # logging init
 _run_name = args.run or time.strftime("%Y%m%d_%H%M%S")
@@ -331,9 +343,51 @@ if scaler is not None:
 
 # -----------------------------------------------------------------------------
 # Initialize the DataLoaders for train/val
+def _adaptive_tokenizer_threads():
+    if args.tokenizer_threads > 0:
+        return args.tokenizer_threads
+    ncpu = os.cpu_count() or 4
+    if device_type == "cuda":
+        return min(8, max(2, ncpu // 4))
+    return max(1, ncpu - 1)
+
+
+def _adaptive_loader_buffer_size():
+    if args.loader_buffer_size > 0:
+        return args.loader_buffer_size
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            ram_kb = int(f.readline().split()[1])
+        ram_gb = ram_kb // (1024 * 1024)
+    except Exception:
+        ram_gb = 16
+    return 4000 if ram_gb >= 24 else 1000
+
+
+tokenizer_threads = _adaptive_tokenizer_threads()
+loader_buffer_size = _adaptive_loader_buffer_size()
+print0(f"Data loader: tokenizer_threads={tokenizer_threads}, tokenizer_batch_size={args.tokenizer_batch_size}, buffer_size={loader_buffer_size}")
 dataloader_resume_state_dict = None if not resuming else meta_data["dataloader_state_dict"]
-train_loader = tokenizing_distributed_data_loader_with_state_bos_bestfit(tokenizer, args.device_batch_size, args.max_seq_len, split="train", device=device, resume_state_dict=dataloader_resume_state_dict)
-build_val_loader = lambda: tokenizing_distributed_data_loader_bos_bestfit(tokenizer, args.device_batch_size, args.max_seq_len, split="val", device=device)
+train_loader = tokenizing_distributed_data_loader_with_state_bos_bestfit(
+    tokenizer,
+    args.device_batch_size,
+    args.max_seq_len,
+    split="train",
+    tokenizer_threads=tokenizer_threads,
+    tokenizer_batch_size=args.tokenizer_batch_size,
+    device=device,
+    resume_state_dict=dataloader_resume_state_dict,
+    buffer_size=loader_buffer_size,
+)
+build_val_loader = lambda: tokenizing_distributed_data_loader_bos_bestfit(
+    tokenizer,
+    args.device_batch_size,
+    args.max_seq_len,
+    split="val",
+    tokenizer_threads=tokenizer_threads,
+    tokenizer_batch_size=args.tokenizer_batch_size,
+    device=device,
+)
 x, y, dataloader_state_dict = next(train_loader) # kick off load of the very first batch of data
 
 # -----------------------------------------------------------------------------
@@ -418,6 +472,9 @@ print0(f"Total batch size {total_batch_size:,} => gradient accumulation steps: {
 
 # EMA decay factor for training loss smoothing (constant, defined here for interrupt handler)
 ema_beta = 0.9
+step_time_ema = None if not resuming else loop_state.get("step_time_ema")
+timed_step_count = 0 if not resuming else loop_state.get("timed_step_count", max(0, step - 10))
+recent_step_times = deque(maxlen=50)
 
 # Graceful Ctrl-C: finish the current step, then exit with a progress summary.
 import signal as _signal
@@ -510,6 +567,8 @@ while True:
                     "min_val_bpb": min_val_bpb,
                     "smooth_train_loss": smooth_train_loss,
                     "total_training_time": total_training_time,
+                    "step_time_ema": step_time_ema,
+                    "timed_step_count": timed_step_count,
                 },
             },
             rank=ddp_rank,
@@ -580,12 +639,16 @@ while True:
     mfu = 100 * flops_per_sec / (gpu_peak_flops * ddp_world_size)
     if step > 10:
         total_training_time += dt # only count the time after the first 10 steps
-    # Calculate ETA based on average time per step (excluding first 10 steps)
-    steps_done = step - 10
-    if steps_done > 0:
-        avg_time_per_step = total_training_time / steps_done
+        timed_step_count += 1
+        step_time_ema = dt if step_time_ema is None else 0.9 * step_time_ema + 0.1 * dt
+        recent_step_times.append(dt)
+    # Calculate ETA from recent step time, with cumulative average as a fallback.
+    if timed_step_count > 0:
+        avg_time_per_step = total_training_time / timed_step_count
+        recent_avg_time = sum(recent_step_times) / len(recent_step_times) if recent_step_times else avg_time_per_step
+        eta_time_per_step = max(step_time_ema or avg_time_per_step, recent_avg_time)
         remaining_steps = num_iterations - step
-        eta_seconds = remaining_steps * avg_time_per_step
+        eta_seconds = remaining_steps * eta_time_per_step
         eta_str = f" | eta: {eta_seconds/60:.1f}m"
     else:
         eta_str = ""

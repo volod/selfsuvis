@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hardware detection for nanochat — stdlib only, no torch required.
+Hardware detection for nanochat - stdlib only, no torch required.
 
 Queries nvidia-smi for VRAM, maps to a training profile, and emits the
 parameters needed to pick uv extras and configure the training run.
@@ -19,6 +19,7 @@ Usage:
 
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -39,19 +40,20 @@ import sys
 # ───────  ─────  ─────────  ───────  ────  ──  ─────  ──────
 # 40g        20     1280      430M   2048   16     16    120
 # 24g        18     1152      330M   2048    8     32     90
-# 16g        14      896      160M   1024    8     64     50
+# 16g        14      896      400M   1024   16     32     50
+# 16g/small  12      768      300M   1024   16     32     35
 # 12g        12      768      110M   1024    4    128     35
 # 8g         10      640       65M    512    2    512     25
 # cpu         4      256       10M    256    4    16      8   (total_batch=16384)
 
 PROFILES = [
     # min_vram  name   depth  seq   bs  total_batch  shards  description
-    (40_000,  "40g",   20,  2048, 16,   524_288,   120,  "≥40 GB — A100 / A6000 / H100"),
-    (24_000,  "24g",   18,  2048,  8,   524_288,    90,  "24–39 GB — RTX 3090 / 4090"),
-    (16_000,  "16g",   14,  1024,  8,   524_288,    50,  "16–23 GB — RTX 4080 / 4060 Ti 16G"),
-    (12_000,  "12g",   12,  1024,  4,   524_288,    35,  "12–15 GB — RTX 4070 / 3080"),
-    (     1,   "8g",   10,   512,  2,   524_288,    25,  " 8–11 GB — RTX 3070 / 4060 8G"),
-    (     0,  "cpu",    4,   256,  4,    16_384,     8,  "no GPU   — CPU only (slow, educational)"),
+    (40_000,  "40g",   20,  2048, 16,   524_288,   120,  ">=40 GB - A100 / A6000 / H100"),
+    (24_000,  "24g",   18,  2048,  8,   524_288,    90,  "24-39 GB - RTX 3090 / 4090"),
+    (16_000,  "16g",   14,  1024, 16,   524_288,    50,  "16-23 GB - RTX 4080 / 4060 Ti 16G"),
+    (12_000,  "12g",   12,  1024,  4,   524_288,    35,  "12-15 GB - RTX 4070 / 3080"),
+    (     1,   "8g",   10,   512,  2,   524_288,    25,  " 8-11 GB - RTX 3070 / 4060 8G"),
+    (     0,  "cpu",    4,   256,  4,    16_384,     8,  "no GPU   - CPU only (slow, educational)"),
 ]
 
 
@@ -145,40 +147,117 @@ def _nvidia_smi(*query_fields: str) -> list[str] | None:
     return None
 
 
-def detect_gpu() -> tuple[int, str]:
-    """Return (vram_mb, gpu_name) for the first GPU, or (0, '') if no GPU found."""
+def _sm_count_from_name(gpu_name: str) -> int:
+    """Best-effort SM count fallback for common NVIDIA cards."""
+    name = gpu_name.lower()
+    if "4090" in name:
+        return 76 if "laptop" in name or "mobile" in name else 128
+    if "4080" in name:
+        return 58 if "laptop" in name or "mobile" in name else 76
+    if "4070 ti" in name:
+        return 60
+    if "4070" in name:
+        return 36 if "laptop" in name or "mobile" in name else 46
+    if "4060 ti" in name:
+        return 34
+    if "4060" in name:
+        return 24
+    if "3090" in name:
+        return 82
+    if "3080 ti" in name:
+        return 80
+    if "3080" in name:
+        return 68
+    return 0
+
+
+def _detect_sm_count(gpu_name: str) -> int:
+    """Detect SM count without making core VRAM/name detection depend on it."""
+    vals = _nvidia_smi("multiprocessor_count")
+    if vals:
+        try:
+            return int(vals[0])
+        except ValueError:
+            pass
+    return _sm_count_from_name(gpu_name)
+
+
+def detect_gpu() -> tuple[int, str, int]:
+    """Return (vram_mb, gpu_name, sm_count) for the first GPU, or zeros if absent."""
     vals = _nvidia_smi("memory.total", "name")
     if vals and len(vals) >= 2:
         try:
-            return int(vals[0]), vals[1]
+            vram_mb = int(vals[0])
         except ValueError:
-            pass
-    return 0, ""
+            return 0, "", 0
+        gpu_name = vals[1]
+        return vram_mb, gpu_name, _detect_sm_count(gpu_name)
+    return 0, "", 0
 
 
-def select_profile(vram_mb: int) -> dict:
-    """Choose the best training profile for the given VRAM."""
+def _profile_dict(
+    min_vram: int,
+    name: str,
+    depth: int,
+    seq: int,
+    bs: int,
+    total: int,
+    shards: int,
+    desc: str,
+) -> dict:
+    grad_accum = total // (bs * seq)
+    return {
+        "profile": name,
+        "min_vram": min_vram,
+        "depth": depth,
+        "seq_len": seq,
+        "device_batch": bs,
+        "total_batch": total,
+        "shards": shards,
+        "grad_accum": grad_accum,
+        "description": desc,
+    }
+
+
+def _adapt_profile(profile: dict, sm_count: int) -> dict:
+    """Tune the selected VRAM profile for host compute capacity."""
+    if profile["profile"] == "16g" and 0 < sm_count <= 40:
+        profile = dict(profile)
+        profile.update({
+            "depth": 12,
+            "shards": 35,
+            "grad_accum": profile["total_batch"] // (16 * profile["seq_len"]),
+            "description": "16 GB low-SM GPU - compact depth=12 profile",
+        })
+    return profile
+
+
+def select_profile(vram_mb: int, sm_count: int = 0) -> dict:
+    """Choose the best training profile for the given VRAM and GPU size."""
     for min_vram, name, depth, seq, bs, total, shards, desc in PROFILES:
         if vram_mb >= min_vram:
-            grad_accum = total // (bs * seq)
-            return {
-                "profile":      name,
-                "depth":        depth,
-                "seq_len":      seq,
-                "device_batch": bs,
-                "total_batch":  total,
-                "shards":       shards,
-                "grad_accum":   grad_accum,
-                "description":  desc,
-            }
-    return select_profile(0)  # safety fallback to cpu
+            return _adapt_profile(
+                _profile_dict(min_vram, name, depth, seq, bs, total, shards, desc),
+                sm_count,
+            )
+    return select_profile(0, 0)  # safety fallback to cpu
+
+
+def select_profile_name(name: str) -> dict:
+    """Return an explicit, non-adaptive profile by name."""
+    for min_vram, profile, depth, seq, bs, total, shards, desc in PROFILES:
+        if profile == name:
+            return _profile_dict(min_vram, profile, depth, seq, bs, total, shards, desc)
+    valid = ", ".join(row[1] for row in PROFILES)
+    raise SystemExit(f"Unknown profile {name!r}. Valid: {valid}")
 
 
 def main() -> None:
     mode = sys.argv[1] if len(sys.argv) > 1 else "info"
-    vram_mb, gpu_name = detect_gpu()
+    explicit_profile = sys.argv[2] if mode in {"shell", "info"} and len(sys.argv) > 2 else ""
+    vram_mb, gpu_name, sm_count = detect_gpu()
     has_cuda = vram_mb > 0
-    p = select_profile(vram_mb)
+    p = select_profile_name(explicit_profile) if explicit_profile else select_profile(vram_mb, sm_count)
 
     if mode == "profile":
         print(p["profile"])
@@ -230,8 +309,9 @@ def main() -> None:
 
     elif mode == "shell":
         # Designed for: eval "$(python3 scripts/detect_hw.py shell)"
-        print(f'HW_GPU_NAME="{gpu_name}"')
+        print(f"HW_GPU_NAME={shlex.quote(gpu_name)}")
         print(f"HW_VRAM_MB={vram_mb}")
+        print(f"HW_SM_COUNT={sm_count}")
         print(f"HW_HAS_CUDA={'1' if has_cuda else '0'}")
         print(f"HW_EXTRAS={'gpu' if has_cuda else 'cpu'}")
         print(f"HW_PROFILE={p['profile']}")
@@ -240,11 +320,14 @@ def main() -> None:
         print(f"HW_DEVICE_BATCH={p['device_batch']}")
         print(f"HW_TOTAL_BATCH={p['total_batch']}")
         print(f"HW_SHARDS={p['shards']}")
+        print(f"HW_GRAD_ACCUM={p['grad_accum']}")
 
     else:  # info
         tokens_b = p["shards"] * 62 / 1000
         print(f"  GPU      : {gpu_name or 'none'}")
         print(f"  VRAM     : {vram_mb:,} MB  ({vram_mb / 1024:.1f} GB)")
+        if sm_count:
+            print(f"  SMs      : {sm_count}")
         print(f"  Profile  : {p['profile']}  ({p['description']})")
         print(f"  Install  : uv sync --extra {'gpu' if has_cuda else 'cpu'}")
         print(f"  Model    : depth={p['depth']}  seq={p['seq_len']}  "
@@ -261,7 +344,7 @@ def main() -> None:
             print(f"  nvcc     : {nvcc}  (CUDA {ver_str})")
             print(f"  Max SM   : {sm_str}  flash-attn={fa_tag}")
         else:
-            print("  nvcc     : not found — flash-attn build unavailable")
+            print("  nvcc     : not found - flash-attn build unavailable")
 
 
 if __name__ == "__main__":

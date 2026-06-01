@@ -16,14 +16,16 @@ Note on test structure:
 import torch
 import pytest
 import nanochat.model.flash_attention as fa_module
-from nanochat.model.flash_attention import flash_attn, HAS_FA3
+from nanochat.model.flash_attention import flash_attn, HAS_FA2, HAS_FA3
 from nanochat.inference.engine import KVCache
 
 
 def set_impl(impl):
-    """Set the implementation override ('fa3', 'sdpa', or None for auto) and re-resolve USE_FA3."""
+    """Set the implementation override and refresh resolved implementation flags."""
     fa_module._override_impl = impl
-    fa_module.USE_FA3 = fa_module._resolve_use_fa3()
+    fa_module._IMPL = fa_module._resolve_impl()
+    fa_module.USE_FA3 = fa_module._IMPL == "fa3"
+    fa_module.USE_FA2 = fa_module._IMPL == "fa2"
 
 
 def run_both_impls(fn):
@@ -344,19 +346,34 @@ class TestOverrideMechanism:
     def test_override_fa3(self):
         """Test that override='fa3' uses FA3."""
         set_impl('fa3')
-        assert fa_module.USE_FA3 == True
+        assert fa_module.USE_FA3 is True
+        assert fa_module.USE_FA2 is False
+        assert fa_module._IMPL == "fa3"
+        set_impl(None)
+
+    @pytest.mark.skipif(not HAS_FA2, reason="FA2 required")
+    def test_override_fa2(self):
+        """Test that override='fa2' uses FA2."""
+        set_impl('fa2')
+        assert fa_module.USE_FA3 is False
+        assert fa_module.USE_FA2 is True
+        assert fa_module._IMPL == "fa2"
         set_impl(None)
 
     def test_override_sdpa(self):
         """Test that override='sdpa' uses SDPA."""
         set_impl('sdpa')
-        assert fa_module.USE_FA3 == False
+        assert fa_module.USE_FA3 is False
+        assert fa_module.USE_FA2 is False
+        assert fa_module._IMPL == "sdpa"
         set_impl(None)
 
     def test_override_auto(self):
         """Test that override=None uses auto-detection."""
         set_impl(None)
-        assert fa_module.USE_FA3 == HAS_FA3
+        assert fa_module._IMPL in {"fa3", "fa2", "sdpa"}
+        assert fa_module.USE_FA3 == (fa_module._IMPL == "fa3")
+        assert fa_module.USE_FA2 == (fa_module._IMPL == "fa2")
 
 
 if __name__ == "__main__":
