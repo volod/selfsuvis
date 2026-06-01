@@ -15,9 +15,9 @@ Requires [uv](https://docs.astral.sh/uv/) and a CUDA GPU ≥ 8 GB, or CPU.
 All artifacts (dataset, tokenizer, checkpoints, reports) go to `.data/nanochat/`.
 
 ```bash
-make hw-info      # detect GPU + CUDA toolkit, print selected profile
 make venv         # auto-detect GPU → install CUDA or CPU deps via uv
 make install-fa   # (optional) build flash-attn for ~2x training speedup
+make hw-info      # detect GPU + CUDA toolkit, print selected profile
 make train        # full pipeline: tokenizer → pretrain → SFT
 make chat-cli     # interactive CLI chat with the trained model
 make chat-web     # streaming web UI at http://localhost:8000

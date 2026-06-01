@@ -22,7 +22,17 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_ROOT="$(cd "$REPO_ROOT/../.." && pwd)"
-export NANOCHAT_BASE_DIR="${NANOCHAT_BASE_DIR:-$PROJECT_ROOT/.data/nanochat}"
+
+# Load project-level .env so DATA_DIR and other shared vars are available.
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$PROJECT_ROOT/.env"
+    set +a
+fi
+
+_PROJECT_DATA="${DATA_DIR:-$PROJECT_ROOT/.data}"
+export NANOCHAT_BASE_DIR="${NANOCHAT_BASE_DIR:-$_PROJECT_DATA/nanochat}"
 mkdir -p "$NANOCHAT_BASE_DIR"
 
 # Use nproc-2 threads for CPU kernels (leave 2 cores for OS / display / background tasks).
@@ -134,7 +144,7 @@ source .venv/bin/activate
 
 # flash-attn is compiled from source and not in pyproject.toml, so uv sync removes it.
 # Restore from the most-recently built wheel under .data/wheels/flash-attn_*/
-_FA_WHEEL=$(ls -t "$PROJECT_ROOT/.data/wheels/flash-attn_"*/flash_attn*.whl 2>/dev/null | head -1)
+_FA_WHEEL=$(ls -t "$_PROJECT_DATA/wheels/flash-attn_"*/flash_attn*.whl 2>/dev/null | head -1) || true
 if [ -n "$_FA_WHEEL" ] && ! python -c "import flash_attn" 2>/dev/null; then
     uv pip install --python .venv/bin/python "$_FA_WHEEL" --no-deps --quiet 2>/dev/null && \
         log "flash-attn restored ($(basename "$(dirname "$_FA_WHEEL")"))" || true

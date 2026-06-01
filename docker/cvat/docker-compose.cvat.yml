@@ -26,7 +26,7 @@ services:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: root
     volumes:
-      - ../../.data/cvat/db:/var/lib/postgresql/data
+      - ${DATA_DIR:-../../.data}/cvat/db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U root -d cvat"]
       interval: 5s
@@ -49,7 +49,7 @@ services:
     restart: unless-stopped
     command: redis-server --save 60 1 --appendonly yes
     volumes:
-      - ../../.data/cvat/redis:/data
+      - ${DATA_DIR:-../../.data}/cvat/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -92,10 +92,10 @@ services:
       NUMPROCS: "1"
       SMOKESCREEN_OPTS: ""
     volumes:
-      - ../../.data/cvat/server/data:/home/django/data
-      - ../../.data/cvat/server/keys:/home/django/keys
-      - ../../.data/cvat/server/logs:/home/django/logs
-      - ../../.data/cvat/server/models:/home/django/models
+      - ${DATA_DIR:-../../.data}/cvat/server/data:/home/django/data
+      - ${DATA_DIR:-../../.data}/cvat/server/keys:/home/django/keys
+      - ${DATA_DIR:-../../.data}/cvat/server/logs:/home/django/logs
+      - ${DATA_DIR:-../../.data}/cvat/server/models:/home/django/models
     depends_on:
       cvat_db:
         condition: service_healthy
@@ -129,10 +129,10 @@ services:
       CVAT_POSTGRES_PASSWORD: root
       NUMPROCS: "1"
     volumes:
-      - ../../.data/cvat/server/data:/home/django/data
-      - ../../.data/cvat/server/keys:/home/django/keys
-      - ../../.data/cvat/server/logs:/home/django/logs
-      - ../../.data/cvat/server/models:/home/django/models
+      - ${DATA_DIR:-../../.data}/cvat/server/data:/home/django/data
+      - ${DATA_DIR:-../../.data}/cvat/server/keys:/home/django/keys
+      - ${DATA_DIR:-../../.data}/cvat/server/logs:/home/django/logs
+      - ${DATA_DIR:-../../.data}/cvat/server/models:/home/django/models
     depends_on:
       - cvat_server
 
@@ -152,10 +152,10 @@ services:
       CVAT_POSTGRES_PASSWORD: root
       NUMPROCS: "1"
     volumes:
-      - ../../.data/cvat/server/data:/home/django/data
-      - ../../.data/cvat/server/keys:/home/django/keys
-      - ../../.data/cvat/server/logs:/home/django/logs
-      - ../../.data/cvat/server/models:/home/django/models
+      - ${DATA_DIR:-../../.data}/cvat/server/data:/home/django/data
+      - ${DATA_DIR:-../../.data}/cvat/server/keys:/home/django/keys
+      - ${DATA_DIR:-../../.data}/cvat/server/logs:/home/django/logs
+      - ${DATA_DIR:-../../.data}/cvat/server/models:/home/django/models
     depends_on:
       - cvat_server
 
@@ -175,10 +175,10 @@ services:
       CVAT_POSTGRES_PASSWORD: root
       NUMPROCS: "1"
     volumes:
-      - ../../.data/cvat/server/data:/home/django/data
-      - ../../.data/cvat/server/keys:/home/django/keys
-      - ../../.data/cvat/server/logs:/home/django/logs
-      - ../../.data/cvat/server/models:/home/django/models
+      - ${DATA_DIR:-../../.data}/cvat/server/data:/home/django/data
+      - ${DATA_DIR:-../../.data}/cvat/server/keys:/home/django/keys
+      - ${DATA_DIR:-../../.data}/cvat/server/logs:/home/django/logs
+      - ${DATA_DIR:-../../.data}/cvat/server/models:/home/django/models
     depends_on:
       - cvat_server
 

@@ -3,12 +3,13 @@ services:
     build:
       context: ../..
       dockerfile: docker/realtime/Dockerfile.realtime_reference
+    user: "${UID:-1000}:${GID:-1000}"
     environment:
       DATA_DIR: /data
       MAPS_DIR: /data/maps
       REALTIME_POSE_BACKEND: ${REALTIME_POSE_BACKEND:-stub}
       REALTIME_OCCUPANCY_BACKEND: ${REALTIME_OCCUPANCY_BACKEND:-stub}
     volumes:
-      - ../../.data:/data
+      - ${DATA_DIR:-../../.data}:/data
     ports:
       - "8101:8101"

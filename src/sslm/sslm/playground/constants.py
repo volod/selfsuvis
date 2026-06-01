@@ -2,13 +2,13 @@ import os
 from pathlib import Path
 
 # Paths and CLI defaults.
-SSLM_DATA_DIR = Path(".data/sslm")
+SSLM_DATA_DIR = Path(os.environ.get("DATA_DIR", "./.data")) / "sslm"
 DEFAULT_COMPOSE_FILE = SSLM_DATA_DIR / "docker-compose.generated.yml"
 DEFAULT_RESULTS_DIR = SSLM_DATA_DIR / "results"
 DEFAULT_SMOKE_OUTPUT = DEFAULT_RESULTS_DIR / "smoke.jsonl"
 DEFAULT_LM_EVAL_OUTPUT = DEFAULT_RESULTS_DIR / "lm-eval"
 DEFAULT_FINETUNE_OUTPUT = SSLM_DATA_DIR / "finetune" / "qlora.yaml"
-DEFAULT_FINETUNE_DATASET = "jsonl://.data/reasoning_sft.jsonl"
+DEFAULT_FINETUNE_DATASET = f"jsonl://{Path(os.environ.get('DATA_DIR', './.data')) / 'reasoning_sft.jsonl'}"
 DEFAULT_BASELINE_MODEL_ID = "Qwen/Qwen3-8B"
 DEFAULT_DASHBOARD_PORT = 8501
 

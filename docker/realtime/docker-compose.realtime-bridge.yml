@@ -15,10 +15,11 @@ services:
       dockerfile: docker/realtime/Dockerfile.realtime_bridge
     container_name: realtime-mavsdk-bridge
     restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
     env_file:
       - path: ../../src/selfsuvis/realtime/env/prod.env
         required: true
-      - path: ../../.data/.env
+      - path: ${DATA_DIR:-../../.data}/.env
         required: false
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis}
@@ -27,7 +28,7 @@ services:
       REALTIME_MAVSDK_SYSTEM_ADDRESS: ${REALTIME_MAVSDK_SYSTEM_ADDRESS:-udp://:14540}
       DATA_DIR: /app/data
     volumes:
-      - ../../.data:/app/data
+      - ${DATA_DIR:-../../.data}:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,10 +39,11 @@ services:
       dockerfile: docker/realtime/Dockerfile.realtime_bridge
     container_name: realtime-ros-bridge
     restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
     env_file:
       - path: ../../src/selfsuvis/realtime/env/prod.env
         required: true
-      - path: ../../.data/.env
+      - path: ${DATA_DIR:-../../.data}/.env
         required: false
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://selfsuvis:selfsuvis@postgres:5432/selfsuvis}
@@ -50,7 +52,7 @@ services:
       REALTIME_ROS_DOMAIN_ID: ${REALTIME_ROS_DOMAIN_ID:-}
       DATA_DIR: /app/data
     volumes:
-      - ../../.data:/app/data
+      - ${DATA_DIR:-../../.data}:/app/data
     depends_on:
       postgres:
         condition: service_healthy

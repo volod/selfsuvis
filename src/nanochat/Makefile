@@ -6,10 +6,12 @@
 
 PYTHON := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-# Runtime data: .data/nanochat/ (project-wide convention: .data/<module>/).
-DATA_DIR := $(abspath $(CURDIR)/../../.data/nanochat)
-# Shared compiled wheels: .data/wheels/ (shared across all sub-packages).
-WHEEL_CACHE := $(abspath $(CURDIR)/../../.data/wheels)
+# Respect project-level DATA_DIR env var; fall back to ../../.data relative to this package.
+_PROJECT_DATA := $(or $(DATA_DIR),$(abspath $(CURDIR)/../../.data))
+# Runtime data: <PROJECT_DATA>/nanochat/ (project-wide convention: <data>/<module>/).
+DATA_DIR := $(_PROJECT_DATA)/nanochat
+# Shared compiled wheels: <PROJECT_DATA>/wheels/ (shared across all sub-packages).
+WHEEL_CACHE := $(_PROJECT_DATA)/wheels
 
 # ── Default target ────────────────────────────────────────────────────────────
 help:

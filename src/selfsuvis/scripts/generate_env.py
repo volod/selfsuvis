@@ -220,7 +220,7 @@ def build_env_plan(
     values["GPU_FREE_GB_HINT"] = _format_float(options.resources.free_vram_gb)
     values.setdefault("HF_TOKEN", "")
     values.setdefault("API_KEY", "")
-    values.setdefault("ALLOWED_INDEX_PATHS", "./.data/videos")
+    values.setdefault("ALLOWED_INDEX_PATHS", os.path.join(values.get("DATA_DIR", "./.data"), "videos"))
     values.setdefault("DATABASE_URL", _default_database_url(options.env_name))
     values.setdefault("MODEL_NAME", "openclip")
     values.setdefault("OPENCLIP_MODEL", "ViT-B-16")

@@ -1,5 +1,9 @@
 .PHONY: help up down logs data-dirs fix-data env env-interactive venv venv-cuda venv-pip venv-rebuild-xformers docker-check test test-no-gpu test-unit test-unit-no-cv2 test-dir lint cvat-up cvat-down cvat-logs cvat-admin mapper-logs utlz-install utlz utlz-endpoints export-openapi sencoop-up sencoop-up-min sencoop-up-video sencoop-down sencoop-logs sencoop-status sencoop-metrics-up sencoop-release sencoop-release-min sencoop-release-video sencoop-release-metrics sslm sslm-quick sslm-rebuild sslm-run sslm-venv sslm-benchmark sslm-benchmark-quick sslm-dashboard
 
+# Base data directory — overridden by DATA_DIR in .env or shell environment.
+DATA_DIR ?= .data
+export DATA_DIR
+
 # Default target: show help when no target is given
 help:
 	@echo "=============================================="
@@ -71,10 +75,10 @@ help:
 	@echo ""
 	@echo "  Run  make <target>  or  make help  to show this again."
 
-# Ensure .data dirs exist and are owned by current user (avoids root-owned files from containers)
+# Ensure data dirs exist and are owned by current user (avoids root-owned files from containers)
 # Pre-create Qdrant Snapshots dir to avoid "Permission denied" when running as non-root
 data-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p .data/postgres .data/qdrant/Snapshots .data/videos .data/.cache && chown -R $$HOST_UID:$$HOST_GID .data' 2>/dev/null && echo "Data directories ready (.data including .data/.cache)." || (mkdir -p .data/postgres .data/qdrant/Snapshots .data/videos .data/.cache && echo "Created .data. If Qdrant fails with Permission denied, run: make fix-data")
+	@mkdir -p "$(DATA_DIR)/postgres" "$(DATA_DIR)/qdrant/Snapshots" "$(DATA_DIR)/videos" "$(DATA_DIR)/.cache" && chown -R $$(id -u):$$(id -g) "$(DATA_DIR)" 2>/dev/null && echo "Data directories ready ($(DATA_DIR))." || echo "Created $(DATA_DIR). If Qdrant fails with Permission denied, run: make fix-data"
 
 up: docker-check data-dirs
 	UID=$$(id -u) GID=$$(id -g) docker compose -f docker/core/docker-compose.yml up --build
@@ -146,10 +150,10 @@ venv-rebuild-xformers:
 venv-pip:
 	uv pip install --python .venv pip
 
-# Fix ownership of .data (run if Qdrant fails with "Permission denied" on Snapshots)
+# Fix ownership of data dir (run if Qdrant fails with "Permission denied" on Snapshots)
 fix-data:
-	@echo "Fixing ownership of .data/..."
-	@sudo chown -R $$(id -u):$$(id -g) .data 2>/dev/null && echo "Done. Run make up again." || echo "Run: sudo chown -R $$(id -u):$$(id -g) .data"
+	@echo "Fixing ownership of $(DATA_DIR)/..."
+	@sudo chown -R $$(id -u):$$(id -g) "$(DATA_DIR)" 2>/dev/null && echo "Done. Run make up again." || echo "Run: sudo chown -R $$(id -u):$$(id -g) $(DATA_DIR)"
 
 # Verify Docker daemon is reachable (fixes permission-denied before running test/up)
 docker-check:
@@ -166,9 +170,8 @@ docker-check:
 	@echo "Docker access OK."
 
 # Ensure test data dirs exist and are owned by current user (avoids "unable to open database file")
-# Uses a one-off container so chown works even when dirs were previously created by Docker as root
 test-dirs:
-	@docker run --rm -v "$(CURDIR):/host" -w /host -e HOST_UID=$$(id -u) -e HOST_GID=$$(id -g) alpine sh -c 'mkdir -p .data/postgres .data/qdrant/Snapshots .data/videos .data/.cache .data/cache_test && chown -R $$HOST_UID:$$HOST_GID .data' 2>/dev/null && echo "Test directories ready (.data including .data/.cache)." || (mkdir -p .data/postgres .data/.cache .data/cache_test && echo "Created .data. If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) .data")
+	@mkdir -p "$(DATA_DIR)/postgres" "$(DATA_DIR)/qdrant/Snapshots" "$(DATA_DIR)/videos" "$(DATA_DIR)/.cache" "$(DATA_DIR)/cache_test" && chown -R $$(id -u):$$(id -g) "$(DATA_DIR)" 2>/dev/null && echo "Test directories ready ($(DATA_DIR))." || echo "Created $(DATA_DIR). If api/worker fail with 'unable to open database file', run: sudo chown -R $$(id -u):$$(id -g) $(DATA_DIR)"
 
 # Integration tests (require API + worker + Qdrant). Runs docker-check first. Uses GPU by default.
 test: docker-check test-dirs

@@ -19,11 +19,12 @@ services:
       dockerfile: docker/core/Dockerfile.mapper
     container_name: selfsuvis_mapper
     restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
     environment:
       - DATA_DIR=/app/data
       - PORT=8000
     volumes:
-      - ../../.data:/app/data
+      - ${DATA_DIR:-../../.data}:/app/data
     ports:
       - "8100:8000"
     healthcheck:

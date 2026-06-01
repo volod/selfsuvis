@@ -13,9 +13,9 @@ services:
       - TORCH_HOME=/app/cache/torch
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
     volumes:
-      - ../../.data:/app/data
+      - ${DATA_DIR:-../../.data}:/app/data
       - ../../tests/assets:/app/tests/assets:ro
-      - ../../.data/cache_test:/app/cache
+      - ${DATA_DIR:-../../.data}/cache_test:/app/cache
   worker:
     user: "${UID}:${GID}"
     env_file:
@@ -28,9 +28,9 @@ services:
       - TORCH_HOME=/app/cache/torch
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
     volumes:
-      - ../../.data:/app/data
+      - ${DATA_DIR:-../../.data}:/app/data
       - ../../tests/assets:/app/tests/assets:ro
-      - ../../.data/cache_test:/app/cache
+      - ${DATA_DIR:-../../.data}/cache_test:/app/cache
   tests:
     user: "${UID}:${GID}"
     build:
@@ -46,7 +46,7 @@ services:
       - OPENCLIP_CACHE_DIR=/app/cache/open_clip
       - PYTEST_CACHE_DIR=/tmp/.pytest_cache
     volumes:
-      - ../../.data/cache_test:/app/cache
+      - ${DATA_DIR:-../../.data}/cache_test:/app/cache
     depends_on:
       - api
       - worker
