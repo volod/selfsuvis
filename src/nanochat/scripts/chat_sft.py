@@ -62,6 +62,8 @@ parser.add_argument("--eval-tokens", type=int, default=40*524288, help="number o
 parser.add_argument("--chatcore-every", type=int, default=200, help="evaluate ChatCORE metric every N steps (-1 = disable)")
 parser.add_argument("--chatcore-max-cat", type=int, default=-1, help="max problems per categorical task for ChatCORE")
 parser.add_argument("--chatcore-max-sample", type=int, default=24, help="max problems per generative task for ChatCORE")
+# Data loading
+parser.add_argument("--loader-buffer-size", type=int, default=1000, help="conversations pre-fetched for best-fit packing (larger = less padding; auto-set by runlocal.sh from HW_SFT_BUFFER)")
 # Data mixture
 parser.add_argument("--mmlu-epochs", type=int, default=3, help="number of epochs of MMLU in training mixture (teaches Multiple Choice)")
 parser.add_argument("--gsm8k-epochs", type=int, default=4, help="number of epochs of GSM8K in training mixture (teaches Math and Tool Use)")
@@ -190,7 +192,7 @@ val_dataset = TaskMixture([
 last_step = False # we will toggle this to True when we reach the end of the training dataset
 approx_progress = 0.0 # will go from 0 to 1 over the course of the epoch
 current_epoch = 1 # track epoch for logging
-def sft_data_generator_bos_bestfit(split, buffer_size=100):
+def sft_data_generator_bos_bestfit(split, buffer_size=None):
     """
     BOS-aligned dataloader for SFT with bestfit-pad packing.
 
@@ -198,7 +200,15 @@ def sft_data_generator_bos_bestfit(split, buffer_size=100):
     Conversations are packed using best-fit algorithm. When no conversation fits,
     the row is padded (instead of cropping) to ensure no tokens are ever discarded.
     Padding positions have targets masked with -1 (ignore_index for cross-entropy).
+
+    IMPORTANT: render_conversation is called with max_tokens=args.max_seq_len so
+    that every conversation is guaranteed to fit at the start of an empty row
+    (row_capacity = max_seq_len + 1 >= max_seq_len = max conversation length).
+    Using any larger max_tokens would cause conversations to exceed row_capacity,
+    resulting in all-padding batches and NaN loss.
     """
+    if buffer_size is None:
+        buffer_size = args.loader_buffer_size
     global last_step, approx_progress, current_epoch
     assert split in {"train", "val"}, "split must be 'train' or 'val'"
     dataset = train_dataset if split == "train" else val_dataset
@@ -218,7 +228,10 @@ def sft_data_generator_bos_bestfit(split, buffer_size=100):
         nonlocal cursor, epoch
         while len(conv_buffer) < buffer_size:
             conversation = dataset[cursor]
-            ids, mask = tokenizer.render_conversation(conversation)
+            # max_tokens MUST match max_seq_len so every conversation fits in a row.
+            # Hardcoding a larger value here was the root cause of all-padding
+            # batches and the resulting NaN loss.
+            ids, mask = tokenizer.render_conversation(conversation, max_tokens=args.max_seq_len)
             conv_buffer.append((ids, mask))
             cursor += ddp_world_size
             if cursor >= dataset_size:
@@ -310,8 +323,8 @@ def sft_data_generator_bos_bestfit(split, buffer_size=100):
 
         yield inputs, targets
 
-train_loader = sft_data_generator_bos_bestfit("train")
-build_val_loader = lambda: sft_data_generator_bos_bestfit("val")
+train_loader = sft_data_generator_bos_bestfit("train", buffer_size=args.loader_buffer_size)
+build_val_loader = lambda: sft_data_generator_bos_bestfit("val", buffer_size=args.loader_buffer_size)
 progress = 0 # will go from 0 to 1 over the course of the epoch
 
 # Learning rate schedule (linear warmup, constant, linear warmdown)
@@ -445,9 +458,12 @@ while True:
     # evaluate the gradient
     synchronize()
     t0 = time.time()
+    nan_detected = False
     for micro_step in range(grad_accum_steps):
         loss = model(x, y)
         train_loss = loss.detach() # for logging
+        if not nan_detected and not (train_loss == train_loss):  # NaN self-comparison
+            nan_detected = True
         loss = loss / grad_accum_steps # each .backward() is a grad sum => normalize loss here
         if scaler is not None:
             scaler.scale(loss).backward()
@@ -455,23 +471,32 @@ while True:
             loss.backward()
         x, y = next(train_loader) # prefetch the next batch while the GPU is busy with forward/backward
         progress = max(progress, approx_progress) # only increase progress monotonically
-    # step the optimizer
+    # Synchronize NaN flag across DDP ranks so all ranks skip together
+    if ddp and nan_detected:
+        nan_tensor = torch.tensor(1, dtype=torch.int32, device=device)
+        dist.all_reduce(nan_tensor, op=dist.ReduceOp.MAX)
+        nan_detected = bool(nan_tensor.item())
+    # step the optimizer (skip if NaN to prevent weight corruption)
     lrm = get_lr_multiplier(progress)
     muon_momentum = get_muon_momentum(step)
     for group in optimizer.param_groups:
         group["lr"] = group["initial_lr"] * lrm
         if group['kind'] == 'muon':
             group["momentum"] = muon_momentum
-    if scaler is not None:
+    if nan_detected:
+        print0(f"step {step+1:05d} | WARNING: NaN loss — skipping optimizer step, zeroing gradients")
+        model.zero_grad(set_to_none=True)
+    elif scaler is not None:
         scaler.unscale_(optimizer)
         if is_ddp_initialized():
             for v in scaler._found_inf_per_device(optimizer).values():
                 dist.all_reduce(v, op=dist.ReduceOp.MAX)
         scaler.step(optimizer)
         scaler.update()
+        model.zero_grad(set_to_none=True)
     else:
         optimizer.step()
-    model.zero_grad(set_to_none=True)
+        model.zero_grad(set_to_none=True)
     synchronize()
     t1 = time.time()
     dt = t1 - t0
@@ -480,8 +505,10 @@ while True:
     # State
     step += 1
 
-    # logging
-    smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss.item() # EMA the training loss
+    # logging — skip EMA update on NaN to avoid poisoning the smooth loss display
+    raw_loss = train_loss.item()
+    if raw_loss == raw_loss:  # False when raw_loss is NaN
+        smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * raw_loss
     debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1)) # debias the EMA
     pct_done = 100 * progress
     tok_per_sec = int(args.total_batch_size / dt)

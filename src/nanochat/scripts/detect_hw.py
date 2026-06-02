@@ -15,6 +15,7 @@ Usage:
     python3 scripts/detect_hw.py cuda_home              # CUDA_HOME for best nvcc or ""
     python3 scripts/detect_hw.py max_sm VER             # max compilable SM for nvcc version
     python3 scripts/detect_hw.py filtered_archs A V     # filter arch list A by nvcc version V
+    python3 scripts/detect_hw.py arch                   # architecture name: ada | hopper | blackwell | ...
 """
 
 import os
@@ -131,6 +132,30 @@ def filter_archs_by_nvcc(arches: str, nvcc_ver: tuple[int, int]) -> str:
     return ";".join(out)
 
 
+# ── GPU architecture naming ───────────────────────────────────────────────────
+# Maps compute capability (major, minor) to human-readable architecture name.
+# Used for architecture-aware SFT parameter tuning and display.
+_CAP_ARCH: list[tuple[tuple[int, int], str]] = [
+    ((12, 0), "blackwell"),   # RTX 5000 series (Blackwell Ultra / GB20x)
+    ((10, 0), "blackwell"),   # B100 / B200 (Blackwell)
+    (( 9, 0), "hopper"),      # H100 / H200
+    (( 8, 9), "ada"),         # RTX 4000 series (Ada Lovelace)
+    (( 8, 7), "ampere"),      # Jetson Orin
+    (( 8, 6), "ampere"),      # RTX 3000 series (GA106/GA104/GA102)
+    (( 8, 0), "ampere"),      # A100 / A30
+    (( 7, 5), "turing"),      # RTX 2000 series / T4
+    (( 7, 0), "volta"),       # V100
+]
+
+def compute_cap_arch(cap: tuple[int, int]) -> str:
+    """Map SM compute capability tuple to GPU architecture name."""
+    major, _ = cap
+    for threshold, name in _CAP_ARCH:
+        if cap >= threshold:
+            return name
+    return "unknown"
+
+
 # ── GPU detection via nvidia-smi ───────────────────────────────────────────────
 def _nvidia_smi(*query_fields: str) -> list[str] | None:
     """Run nvidia-smi and return the first GPU's values, or None on failure."""
@@ -182,17 +207,75 @@ def _detect_sm_count(gpu_name: str) -> int:
     return _sm_count_from_name(gpu_name)
 
 
-def detect_gpu() -> tuple[int, str, int]:
-    """Return (vram_mb, gpu_name, sm_count) for the first GPU, or zeros if absent."""
+def detect_compute_cap() -> tuple[int, int]:
+    """Return GPU SM compute capability (major, minor), or (0, 0) if unavailable."""
+    vals = _nvidia_smi("compute_cap")
+    if vals:
+        try:
+            parts = vals[0].split(".")
+            return (int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            pass
+    return (0, 0)
+
+
+def detect_gpu() -> tuple[int, str, int, tuple[int, int]]:
+    """Return (vram_mb, gpu_name, sm_count, compute_cap) for the first GPU."""
     vals = _nvidia_smi("memory.total", "name")
     if vals and len(vals) >= 2:
         try:
             vram_mb = int(vals[0])
         except ValueError:
-            return 0, "", 0
+            return 0, "", 0, (0, 0)
         gpu_name = vals[1]
-        return vram_mb, gpu_name, _detect_sm_count(gpu_name)
-    return 0, "", 0
+        compute_cap = detect_compute_cap()
+        return vram_mb, gpu_name, _detect_sm_count(gpu_name), compute_cap
+    return 0, "", 0, (0, 0)
+
+
+def _sft_params(seq: int, total: int, profile_name: str) -> dict:
+    """
+    Return hardware-appropriate SFT training parameters for a profile.
+
+    sft_buffer      conversations pre-fetched for best-fit packing; larger = less
+                    padding but more RAM. Formula: total_batch // seq_len gives
+                    roughly one batch worth of conversations to search through.
+    sft_eval_every  how often to run validation bpb (steps); reduced on small GPUs
+                    to avoid spending most of training time in eval.
+    sft_chatcore_every  how often to run ChatCORE eval; -1 = disabled.  ChatCORE
+                    runs full inference on six benchmarks, which is expensive on
+                    small GPUs.
+    sft_eval_tokens tokens to evaluate val loss on; reduced on small GPUs.
+    """
+    sft_buffer = max(500, total // seq)   # ≥500, scales inversely with seq_len
+    if profile_name in ("40g", "24g"):
+        return {
+            "sft_buffer": sft_buffer,
+            "sft_eval_every": 200,
+            "sft_chatcore_every": 200,
+            "sft_eval_tokens": 40 * 524_288,
+        }
+    elif profile_name == "16g":
+        return {
+            "sft_buffer": sft_buffer,
+            "sft_eval_every": 500,
+            "sft_chatcore_every": 500,
+            "sft_eval_tokens": 20 * 524_288,
+        }
+    elif profile_name == "12g":
+        return {
+            "sft_buffer": sft_buffer,
+            "sft_eval_every": 500,
+            "sft_chatcore_every": -1,
+            "sft_eval_tokens": 10 * 524_288,
+        }
+    else:  # 8g, cpu
+        return {
+            "sft_buffer": sft_buffer,
+            "sft_eval_every": 1000,
+            "sft_chatcore_every": -1,
+            "sft_eval_tokens": 5 * 524_288,
+        }
 
 
 def _profile_dict(
@@ -216,35 +299,53 @@ def _profile_dict(
         "shards": shards,
         "grad_accum": grad_accum,
         "description": desc,
+        **_sft_params(seq, total, name),
     }
 
 
-def _adapt_profile(profile: dict, sm_count: int) -> dict:
-    """Tune the selected VRAM profile for host compute capacity."""
+def _adapt_profile(profile: dict, sm_count: int, compute_cap: tuple[int, int] = (0, 0)) -> dict:
+    """Tune the selected VRAM profile for compute capacity and GPU architecture."""
+    arch = compute_cap_arch(compute_cap)
+    p = dict(profile)
+
+    # 16g on low-SM GPU: step down to depth=12 to avoid compute bottleneck
     if profile["profile"] == "16g" and 0 < sm_count <= 40:
-        profile = dict(profile)
-        profile.update({
+        p.update({
             "depth": 12,
             "shards": 35,
             "grad_accum": profile["total_batch"] // (16 * profile["seq_len"]),
             "description": "16 GB low-SM GPU - compact depth=12 profile",
         })
-    return profile
+
+    # Blackwell (RTX 5000 / B100 / B200): significantly higher compute density
+    # per SM lets us afford a larger SFT buffer and more frequent eval even on
+    # mid-range cards.
+    if arch == "blackwell":
+        p["sft_buffer"] = min(4000, p["sft_buffer"] * 2)
+        if profile["profile"] == "12g":
+            p["sft_chatcore_every"] = 500   # fast enough to enable ChatCORE
+
+    # Hopper (H100): high SM count and HBM3 bandwidth — same as large GPU profile
+    if arch == "hopper" and profile["profile"] != "40g":
+        p["sft_chatcore_every"] = max(200, p["sft_chatcore_every"])
+
+    return p
 
 
-def select_profile(vram_mb: int, sm_count: int = 0) -> dict:
-    """Choose the best training profile for the given VRAM and GPU size."""
+def select_profile(vram_mb: int, sm_count: int = 0, compute_cap: tuple[int, int] = (0, 0)) -> dict:
+    """Choose the best training profile for the given VRAM, SM count and architecture."""
     for min_vram, name, depth, seq, bs, total, shards, desc in PROFILES:
         if vram_mb >= min_vram:
             return _adapt_profile(
                 _profile_dict(min_vram, name, depth, seq, bs, total, shards, desc),
                 sm_count,
+                compute_cap,
             )
     return select_profile(0, 0)  # safety fallback to cpu
 
 
 def select_profile_name(name: str) -> dict:
-    """Return an explicit, non-adaptive profile by name."""
+    """Return an explicit, non-adaptive profile by name (no architecture tuning)."""
     for min_vram, profile, depth, seq, bs, total, shards, desc in PROFILES:
         if profile == name:
             return _profile_dict(min_vram, profile, depth, seq, bs, total, shards, desc)
@@ -255,9 +356,10 @@ def select_profile_name(name: str) -> dict:
 def main() -> None:
     mode = sys.argv[1] if len(sys.argv) > 1 else "info"
     explicit_profile = sys.argv[2] if mode in {"shell", "info"} and len(sys.argv) > 2 else ""
-    vram_mb, gpu_name, sm_count = detect_gpu()
+    vram_mb, gpu_name, sm_count, compute_cap = detect_gpu()
     has_cuda = vram_mb > 0
-    p = select_profile_name(explicit_profile) if explicit_profile else select_profile(vram_mb, sm_count)
+    arch = compute_cap_arch(compute_cap)
+    p = select_profile_name(explicit_profile) if explicit_profile else select_profile(vram_mb, sm_count, compute_cap)
 
     if mode == "profile":
         print(p["profile"])
@@ -307,13 +409,19 @@ def main() -> None:
             ver = (0, 0)
         print(filter_archs_by_nvcc(arches_arg, ver))
 
+    elif mode == "arch":
+        print(arch)
+
     elif mode == "shell":
         # Designed for: eval "$(python3 scripts/detect_hw.py shell)"
+        cap_str = f"{compute_cap[0]}.{compute_cap[1]}" if compute_cap != (0, 0) else "unknown"
         print(f"HW_GPU_NAME={shlex.quote(gpu_name)}")
         print(f"HW_VRAM_MB={vram_mb}")
         print(f"HW_SM_COUNT={sm_count}")
         print(f"HW_HAS_CUDA={'1' if has_cuda else '0'}")
         print(f"HW_EXTRAS={'gpu' if has_cuda else 'cpu'}")
+        print(f"HW_COMPUTE_CAP={shlex.quote(cap_str)}")
+        print(f"HW_SM_ARCH={shlex.quote(arch)}")
         print(f"HW_PROFILE={p['profile']}")
         print(f"HW_DEPTH={p['depth']}")
         print(f"HW_SEQ_LEN={p['seq_len']}")
@@ -321,13 +429,20 @@ def main() -> None:
         print(f"HW_TOTAL_BATCH={p['total_batch']}")
         print(f"HW_SHARDS={p['shards']}")
         print(f"HW_GRAD_ACCUM={p['grad_accum']}")
+        # SFT-specific parameters (used by runlocal.sh → chat_sft.py)
+        print(f"HW_SFT_BUFFER={p['sft_buffer']}")
+        print(f"HW_SFT_EVAL_EVERY={p['sft_eval_every']}")
+        print(f"HW_SFT_CHATCORE_EVERY={p['sft_chatcore_every']}")
+        print(f"HW_SFT_EVAL_TOKENS={p['sft_eval_tokens']}")
 
     else:  # info
         tokens_b = p["shards"] * 62 / 1000
+        cap_str = f"{compute_cap[0]}.{compute_cap[1]}" if compute_cap != (0, 0) else "n/a"
         print(f"  GPU      : {gpu_name or 'none'}")
         print(f"  VRAM     : {vram_mb:,} MB  ({vram_mb / 1024:.1f} GB)")
         if sm_count:
             print(f"  SMs      : {sm_count}")
+        print(f"  Arch     : {arch}  (SM {cap_str})")
         print(f"  Profile  : {p['profile']}  ({p['description']})")
         print(f"  Install  : uv sync --extra {'gpu' if has_cuda else 'cpu'}")
         print(f"  Model    : depth={p['depth']}  seq={p['seq_len']}  "
@@ -335,6 +450,8 @@ def main() -> None:
         print(f"  Batch    : {p['total_batch']:,} tokens/step  "
               f"({p['grad_accum']} grad-accum steps)")
         print(f"  Dataset  : {p['shards']} shards  (~{tokens_b:.1f}B tokens)")
+        print(f"  SFT buf  : {p['sft_buffer']} conversations  "
+              f"eval-every={p['sft_eval_every']}  chatcore={p['sft_chatcore_every']}")
         nvcc, nvcc_ver = detect_cuda_nvcc()
         if nvcc_ver:
             sm = nvcc_max_sm(nvcc_ver)

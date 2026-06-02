@@ -114,9 +114,17 @@ fi
 TOKENIZER_THREADS="${NANOCHAT_TOKENIZER_THREADS:-$(( _NCPU >= 16 ? 8 : (_NCPU > 4 ? _NCPU / 2 : (_NCPU > 1 ? _NCPU - 1 : 1)) ))}"
 LOADER_BUFFER_SIZE="${NANOCHAT_LOADER_BUFFER_SIZE:-4000}"
 
+# SFT-specific parameters: prefer explicit env override, then hardware recommendation,
+# then a safe fallback. HW_SFT_* values are emitted by detect_hw.py shell mode and
+# already account for GPU architecture (Ada vs Blackwell vs Hopper) and VRAM tier.
+SFT_BUFFER_SIZE="${NANOCHAT_SFT_BUFFER:-${HW_SFT_BUFFER:-1000}}"
+SFT_EVAL_EVERY="${NANOCHAT_SFT_EVAL_EVERY:-${HW_SFT_EVAL_EVERY:-200}}"
+SFT_CHATCORE_EVERY="${NANOCHAT_SFT_CHATCORE_EVERY:-${HW_SFT_CHATCORE_EVERY:-200}}"
+SFT_EVAL_TOKENS="${NANOCHAT_SFT_EVAL_TOKENS:-${HW_SFT_EVAL_TOKENS:-20971520}}"
+
 log "============================================================"
 log "  nanochat local training"
-log "  profile      : $PROFILE"
+log "  profile      : $PROFILE  arch=${HW_SM_ARCH:-unknown}  SM=${HW_COMPUTE_CAP:-?}"
 log "  model        : depth=$DEPTH  seq=$SEQ_LEN  micro-batch=$DEVICE_BATCH"
 log "  batch        : $TOTAL_BATCH tokens/step  ($GRAD_ACCUM grad-accum steps)"
 log "  dataset      : $SHARDS shards  (~$(( SHARDS * 62 / 1000 ))B tokens on disk)"
@@ -127,6 +135,7 @@ if [ -n "${RESUME_FROM_STEP:-}" ]; then
 fi
 log "  cpu threads  : OMP_NUM_THREADS=$OMP_NUM_THREADS  (nproc=$_NCPU)"
 log "  tokenizer    : threads=$TOKENIZER_THREADS  loader-buffer=$LOADER_BUFFER_SIZE"
+log "  sft          : buffer=$SFT_BUFFER_SIZE  eval-every=$SFT_EVAL_EVERY  chatcore=$SFT_CHATCORE_EVERY"
 log "============================================================"
 
 # ── venv setup ───────────────────────────────────────────────────────────────
@@ -229,6 +238,10 @@ if [ -d "$NANOCHAT_BASE_DIR/base_checkpoints" ]; then
     log "Supervised fine-tuning (SFT)..."
     python -m scripts.chat_sft \
         --device-batch-size="$DEVICE_BATCH" \
+        --loader-buffer-size="$SFT_BUFFER_SIZE" \
+        --eval-every="$SFT_EVAL_EVERY" \
+        --chatcore-every="$SFT_CHATCORE_EVERY" \
+        --eval-tokens="$SFT_EVAL_TOKENS" \
         --run="$RUN"
 else
     log "No base checkpoint found - skipping SFT."
