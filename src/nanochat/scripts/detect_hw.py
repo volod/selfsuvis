@@ -237,15 +237,15 @@ def _sft_params(seq: int, total: int, profile_name: str) -> dict:
     """
     Return hardware-appropriate SFT training parameters for a profile.
 
-    sft_buffer      conversations pre-fetched for best-fit packing; larger = less
-                    padding but more RAM. Formula: total_batch // seq_len gives
-                    roughly one batch worth of conversations to search through.
-    sft_eval_every  how often to run validation bpb (steps); reduced on small GPUs
-                    to avoid spending most of training time in eval.
-    sft_chatcore_every  how often to run ChatCORE eval; -1 = disabled.  ChatCORE
-                    runs full inference on six benchmarks, which is expensive on
-                    small GPUs.
-    sft_eval_tokens tokens to evaluate val loss on; reduced on small GPUs.
+    sft_buffer        conversations pre-fetched for best-fit packing; larger = less
+                      padding but more RAM.
+    sft_eval_every    how often to run validation bpb (steps); reduced on small GPUs
+                      to avoid spending most of training time in eval.
+    sft_chatcore_every  how often to run ChatCORE eval; -1 = disabled.
+    sft_eval_tokens   tokens to evaluate val loss on; reduced on small GPUs.
+    sft_save_every    how often to write mid-run checkpoints so Ctrl-C is resumable.
+                      Smaller on small GPUs (each step is cheaper, more frequent
+                      saves don't hurt). 0 = save only at end.
     """
     sft_buffer = max(500, total // seq)   # ≥500, scales inversely with seq_len
     if profile_name in ("40g", "24g"):
@@ -254,6 +254,7 @@ def _sft_params(seq: int, total: int, profile_name: str) -> dict:
             "sft_eval_every": 200,
             "sft_chatcore_every": 200,
             "sft_eval_tokens": 40 * 524_288,
+            "sft_save_every": 1000,
         }
     elif profile_name == "16g":
         return {
@@ -261,6 +262,7 @@ def _sft_params(seq: int, total: int, profile_name: str) -> dict:
             "sft_eval_every": 500,
             "sft_chatcore_every": 500,
             "sft_eval_tokens": 20 * 524_288,
+            "sft_save_every": 500,
         }
     elif profile_name == "12g":
         return {
@@ -268,6 +270,7 @@ def _sft_params(seq: int, total: int, profile_name: str) -> dict:
             "sft_eval_every": 500,
             "sft_chatcore_every": -1,
             "sft_eval_tokens": 10 * 524_288,
+            "sft_save_every": 500,
         }
     else:  # 8g, cpu
         return {
@@ -275,6 +278,7 @@ def _sft_params(seq: int, total: int, profile_name: str) -> dict:
             "sft_eval_every": 1000,
             "sft_chatcore_every": -1,
             "sft_eval_tokens": 5 * 524_288,
+            "sft_save_every": 200,
         }
 
 
@@ -430,10 +434,12 @@ def main() -> None:
         print(f"HW_SHARDS={p['shards']}")
         print(f"HW_GRAD_ACCUM={p['grad_accum']}")
         # SFT-specific parameters (used by runlocal.sh → chat_sft.py)
+        print(f"HW_MIN_VRAM={p['min_vram']}")
         print(f"HW_SFT_BUFFER={p['sft_buffer']}")
         print(f"HW_SFT_EVAL_EVERY={p['sft_eval_every']}")
         print(f"HW_SFT_CHATCORE_EVERY={p['sft_chatcore_every']}")
         print(f"HW_SFT_EVAL_TOKENS={p['sft_eval_tokens']}")
+        print(f"HW_SFT_SAVE_EVERY={p['sft_save_every']}")
 
     else:  # info
         tokens_b = p["shards"] * 62 / 1000
@@ -450,8 +456,8 @@ def main() -> None:
         print(f"  Batch    : {p['total_batch']:,} tokens/step  "
               f"({p['grad_accum']} grad-accum steps)")
         print(f"  Dataset  : {p['shards']} shards  (~{tokens_b:.1f}B tokens)")
-        print(f"  SFT buf  : {p['sft_buffer']} conversations  "
-              f"eval-every={p['sft_eval_every']}  chatcore={p['sft_chatcore_every']}")
+        print(f"  SFT      : buffer={p['sft_buffer']}  eval-every={p['sft_eval_every']}"
+              f"  chatcore={p['sft_chatcore_every']}  save-every={p['sft_save_every']}")
         nvcc, nvcc_ver = detect_cuda_nvcc()
         if nvcc_ver:
             sm = nvcc_max_sm(nvcc_ver)

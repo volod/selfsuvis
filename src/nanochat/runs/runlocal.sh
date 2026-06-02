@@ -9,6 +9,7 @@
 #   PROFILE=16g bash runs/runlocal.sh              # force a specific profile
 #   RUN=myrun bash runs/runlocal.sh                # enable TensorBoard logging
 #   NANOCHAT_BASE_DIR=/mnt/data/nanochat bash runs/runlocal.sh  # custom artifact dir
+#   RESUME_FROM_STEP=5000 bash runs/runlocal.sh    # resume base-pretrain from step
 #
 # Profiles auto-selected by VRAM and GPU size:
 #   40g  ≥40 GB  depth=20 seq=2048 bs=16  (A100/H100)
@@ -37,7 +38,9 @@ mkdir -p "$NANOCHAT_BASE_DIR"
 
 _NCPU=$(nproc 2>/dev/null || echo 4)
 
-log() { echo "[$(date '+%H:%M:%S')] $*"; }
+log()  { echo "[$(date '+%H:%M:%S')] $*"; }
+warn() { echo "[$(date '+%H:%M:%S')] WARNING: $*" >&2; }
+err()  { echo "[$(date '+%H:%M:%S')] ERROR: $*" >&2; }
 
 # ── Hardware detection ────────────────────────────────────────────────────────
 if command -v python3 &>/dev/null; then
@@ -50,7 +53,7 @@ if command -v python3 &>/dev/null; then
         log "Using explicit PROFILE=$PROFILE"
     fi
 else
-    echo "python3 is required for nanochat hardware detection" >&2
+    err "python3 is required for nanochat hardware detection"
     exit 1
 fi
 
@@ -82,14 +85,15 @@ case "$PROFILE" in
     cpu)
         DEPTH=4;  SEQ_LEN=256;  DEVICE_BATCH=4;  TOTAL_BATCH=16384;  SHARDS=8
         DEVICE_TYPE="cpu"
-        log "WARNING: CPU training is very slow and intended for testing only."
+        warn "CPU training is very slow and intended for testing only."
         ;;
     *)
-        echo "Unknown PROFILE='$PROFILE'. Valid: cpu 8g 12g 16g 24g 40g" >&2
+        err "Unknown PROFILE='$PROFILE'. Valid: cpu 8g 12g 16g 24g 40g"
         exit 1
         ;;
 esac
 
+# Allow env-var overrides of individual parameters (NANOCHAT_* beats HW_* beats profile default)
 DEPTH="${NANOCHAT_DEPTH:-${HW_DEPTH:-$DEPTH}}"
 SEQ_LEN="${NANOCHAT_SEQ_LEN:-${HW_SEQ_LEN:-$SEQ_LEN}}"
 DEVICE_BATCH="${NANOCHAT_DEVICE_BATCH:-${HW_DEVICE_BATCH:-$DEVICE_BATCH}}"
@@ -97,10 +101,6 @@ TOTAL_BATCH="${NANOCHAT_TOTAL_BATCH:-${HW_TOTAL_BATCH:-$TOTAL_BATCH}}"
 SHARDS="${NANOCHAT_SHARDS:-${HW_SHARDS:-$SHARDS}}"
 
 GRAD_ACCUM=$(( TOTAL_BATCH / (DEVICE_BATCH * SEQ_LEN) ))
-if [ $(( TOTAL_BATCH % (DEVICE_BATCH * SEQ_LEN) )) -ne 0 ]; then
-    echo "TOTAL_BATCH=$TOTAL_BATCH must be divisible by DEVICE_BATCH*SEQ_LEN=$(( DEVICE_BATCH * SEQ_LEN ))" >&2
-    exit 1
-fi
 
 RUN="${RUN:-}"
 [ "$DEVICE_TYPE" = "cuda" ] && UV_EXTRAS="gpu" || UV_EXTRAS="cpu"
@@ -121,25 +121,84 @@ SFT_BUFFER_SIZE="${NANOCHAT_SFT_BUFFER:-${HW_SFT_BUFFER:-1000}}"
 SFT_EVAL_EVERY="${NANOCHAT_SFT_EVAL_EVERY:-${HW_SFT_EVAL_EVERY:-200}}"
 SFT_CHATCORE_EVERY="${NANOCHAT_SFT_CHATCORE_EVERY:-${HW_SFT_CHATCORE_EVERY:-200}}"
 SFT_EVAL_TOKENS="${NANOCHAT_SFT_EVAL_TOKENS:-${HW_SFT_EVAL_TOKENS:-20971520}}"
+SFT_SAVE_EVERY="${NANOCHAT_SFT_SAVE_EVERY:-${HW_SFT_SAVE_EVERY:-500}}"
 
+# ── Pre-flight sanity checks ──────────────────────────────────────────────────
+# Run all checks up-front so failures are caught before any GPU time is spent.
+log "Running pre-flight checks..."
+_preflight_ok=1
+
+# 1. Batch size divisibility — base_train.py asserts this, but checking here
+#    gives a much clearer message and stops before compilation.
+if [ $(( TOTAL_BATCH % (DEVICE_BATCH * SEQ_LEN) )) -ne 0 ]; then
+    err "TOTAL_BATCH=$TOTAL_BATCH is not divisible by DEVICE_BATCH*SEQ_LEN=$(( DEVICE_BATCH * SEQ_LEN ))."
+    err "  Fix: adjust DEVICE_BATCH or TOTAL_BATCH so they divide evenly."
+    err "  e.g. NANOCHAT_DEVICE_BATCH=8 bash runs/runlocal.sh"
+    _preflight_ok=0
+fi
+
+# 2. VRAM check — compare detected VRAM against the minimum required by the profile.
+#    HW_MIN_VRAM is emitted by detect_hw.py shell mode.
+_min_vram="${HW_MIN_VRAM:-0}"
+_cur_vram="${HW_VRAM_MB:-0}"
+if [ "${HW_HAS_CUDA:-0}" = "1" ] && [ "$_min_vram" -gt 0 ] && [ "$_cur_vram" -lt "$_min_vram" ]; then
+    err "Profile '$PROFILE' needs ≥${_min_vram} MB VRAM, but GPU has only ${_cur_vram} MB."
+    err "  Fix: use a smaller profile, e.g. PROFILE=8g bash runs/runlocal.sh"
+    _preflight_ok=0
+fi
+
+# 3. Disk space — rough estimate: ~5 GB per shard + ~10 GB for checkpoints/logs.
+_needed_gb=$(( SHARDS * 5 + 10 ))
+_avail_kb=$(df -k "$NANOCHAT_BASE_DIR" 2>/dev/null | awk 'NR==2{print $4}' || echo 999999999)
+_avail_gb=$(( _avail_kb / 1024 / 1024 ))
+if [ "$_avail_gb" -lt "$_needed_gb" ]; then
+    warn "Estimated disk need: ~${_needed_gb} GB, available: ~${_avail_gb} GB in $NANOCHAT_BASE_DIR."
+    warn "  The run may fail mid-training due to disk full. Consider using a larger disk."
+    warn "  (Continuing anyway — disk estimate is rough.)"
+fi
+
+# 4. CUDA availability matches device type
+if [ "$DEVICE_TYPE" = "cuda" ] && [ "${HW_HAS_CUDA:-0}" != "1" ]; then
+    err "Profile '$PROFILE' requires CUDA, but no CUDA GPU was detected."
+    err "  Fix: use cpu profile or attach a GPU."
+    _preflight_ok=0
+fi
+
+# 5. Python environment health — ensure core imports work before spending time on venv sync
+if ! python3 -c "import sys; assert sys.version_info >= (3,10), 'Python 3.10+ required'" 2>/dev/null; then
+    err "Python 3.10+ is required. Found: $(python3 --version 2>&1)"
+    _preflight_ok=0
+fi
+
+if [ "$_preflight_ok" -ne 1 ]; then
+    err "Pre-flight checks FAILED — fix the issues above and re-run."
+    exit 1
+fi
+log "Pre-flight checks passed."
+
+# ── Parameter summary ─────────────────────────────────────────────────────────
+# Print everything that will be used so the user can review before the run starts.
 log "============================================================"
 log "  nanochat local training"
-log "  profile      : $PROFILE  arch=${HW_SM_ARCH:-unknown}  SM=${HW_COMPUTE_CAP:-?}"
+log "  profile      : $PROFILE  (${HW_SM_ARCH:-unknown} / SM ${HW_COMPUTE_CAP:-?})"
+log "  GPU          : ${HW_GPU_NAME:-none}  (${_cur_vram} MB VRAM, ${HW_SM_COUNT:-?} SMs)"
 log "  model        : depth=$DEPTH  seq=$SEQ_LEN  micro-batch=$DEVICE_BATCH"
 log "  batch        : $TOTAL_BATCH tokens/step  ($GRAD_ACCUM grad-accum steps)"
 log "  dataset      : $SHARDS shards  (~$(( SHARDS * 62 / 1000 ))B tokens on disk)"
 log "  artifacts    : $NANOCHAT_BASE_DIR"
-log "  run          : $RUN"
+log "  run name     : ${RUN:-(auto timestamp)}"
 if [ -n "${RESUME_FROM_STEP:-}" ]; then
-    log "  resume       : step=$RESUME_FROM_STEP"
+    log "  base resume  : step=$RESUME_FROM_STEP"
 fi
 log "  cpu threads  : OMP_NUM_THREADS=$OMP_NUM_THREADS  (nproc=$_NCPU)"
 log "  tokenizer    : threads=$TOKENIZER_THREADS  loader-buffer=$LOADER_BUFFER_SIZE"
-log "  sft          : buffer=$SFT_BUFFER_SIZE  eval-every=$SFT_EVAL_EVERY  chatcore=$SFT_CHATCORE_EVERY"
+log "  sft          : buffer=$SFT_BUFFER_SIZE  save-every=$SFT_SAVE_EVERY"
+log "                 eval-every=$SFT_EVAL_EVERY  chatcore-every=$SFT_CHATCORE_EVERY"
+log "  disk needed  : ~${_needed_gb} GB  (available: ~${_avail_gb} GB)"
 log "============================================================"
 
 # ── venv setup ───────────────────────────────────────────────────────────────
-command -v uv &>/dev/null || { echo "uv not found - install from https://docs.astral.sh/uv/"; exit 1; }
+command -v uv &>/dev/null || { err "uv not found - install from https://docs.astral.sh/uv/"; exit 1; }
 cd "$REPO_ROOT"
 [ -d ".venv" ] || uv venv
 uv sync --extra "$UV_EXTRAS" --quiet
@@ -170,6 +229,17 @@ else
 fi
 log "  flash-attn : $FA_STATUS"
 
+# ── Helper: verify a checkpoint directory has at least one model file ─────────
+_check_checkpoint() {
+    local label="$1" dir="$2"
+    if [ ! -d "$dir" ] || ! ls "$dir"/*/model_*.pt &>/dev/null 2>&1; then
+        err "$label checkpoint not found in $dir"
+        err "  The previous stage may have failed or been stopped before saving."
+        return 1
+    fi
+    return 0
+}
+
 # ── Training report reset ─────────────────────────────────────────────────────
 python -m nanochat.training.report reset
 
@@ -186,26 +256,37 @@ log "Training tokenizer (vocab=32768)..."
 python -m scripts.tok_train
 python -m scripts.tok_eval
 
+# Verify tokenizer was actually created before continuing
+_TOK_FILE="$NANOCHAT_BASE_DIR/tokenizer/tokenizer.pkl"
+if [ ! -f "$_TOK_FILE" ]; then
+    err "Tokenizer file not found at $_TOK_FILE after tok_train."
+    err "  tok_train may have failed — check the output above for errors."
+    kill "$DATASET_PID" 2>/dev/null || true
+    exit 1
+fi
+log "  Tokenizer OK: $_TOK_FILE"
+
 # ── Base pretrain ─────────────────────────────────────────────────────────────
 log "Waiting for dataset download..."
 wait "$DATASET_PID"
+DATASET_PID=""   # clear so we don't try to kill it in cleanup
 
 log "Pretraining base model (depth=$DEPTH)..."
 BASE_TRAIN_ARGS=(
-    --depth="$DEPTH" \
-    --max-seq-len="$SEQ_LEN" \
-    --device-batch-size="$DEVICE_BATCH" \
-    --total-batch-size="$TOTAL_BATCH" \
-    --device-type="$DEVICE_TYPE" \
-    --window-pattern="$WINDOW_PATTERN" \
-    --target-param-data-ratio=12 \
-    --eval-every=250 \
-    --core-metric-every=2000 \
-    --core-metric-max-per-task=200 \
-    --sample-every=500 \
-    --save-every=1000 \
-    --tokenizer-threads="$TOKENIZER_THREADS" \
-    --loader-buffer-size="$LOADER_BUFFER_SIZE" \
+    --depth="$DEPTH"
+    --max-seq-len="$SEQ_LEN"
+    --device-batch-size="$DEVICE_BATCH"
+    --total-batch-size="$TOTAL_BATCH"
+    --device-type="$DEVICE_TYPE"
+    --window-pattern="$WINDOW_PATTERN"
+    --target-param-data-ratio=12
+    --eval-every=250
+    --core-metric-every=2000
+    --core-metric-max-per-task=200
+    --sample-every=500
+    --save-every=1000
+    --tokenizer-threads="$TOKENIZER_THREADS"
+    --loader-buffer-size="$LOADER_BUFFER_SIZE"
     --run="$RUN"
 )
 if [ -n "${RESUME_FROM_STEP:-}" ]; then
@@ -213,17 +294,20 @@ if [ -n "${RESUME_FROM_STEP:-}" ]; then
 fi
 python -m scripts.base_train "${BASE_TRAIN_ARGS[@]}"
 
-# ── Base eval ─────────────────────────────────────────────────────────────────
-if [ -d "$NANOCHAT_BASE_DIR/base_checkpoints" ]; then
-    log "Evaluating base model..."
-    python -m scripts.base_eval \
-        --device-batch-size="$DEVICE_BATCH" \
-        --split-tokens=131072 \
-        --max-per-task=200
-else
-    log "No base checkpoint found - skipping eval."
-    log "  (pass --save-every N to save checkpoints during training)"
+# Verify base checkpoint exists before proceeding to SFT
+if ! _check_checkpoint "Base pretrain" "$NANOCHAT_BASE_DIR/base_checkpoints"; then
+    err "base_train exited without saving a checkpoint."
+    err "  If training was interrupted, resume with:"
+    err "    RESUME_FROM_STEP=<last_step> bash runs/runlocal.sh"
+    exit 1
 fi
+
+# ── Base eval ─────────────────────────────────────────────────────────────────
+log "Evaluating base model..."
+python -m scripts.base_eval \
+    --device-batch-size="$DEVICE_BATCH" \
+    --split-tokens=131072 \
+    --max-per-task=200
 
 # ── Identity conversations ────────────────────────────────────────────────────
 IDENTITY_FILE="$NANOCHAT_BASE_DIR/identity_conversations.jsonl"
@@ -231,29 +315,45 @@ if [ ! -f "$IDENTITY_FILE" ]; then
     log "Downloading identity conversations..."
     curl -fsSL -o "$IDENTITY_FILE" \
         https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
+    # Basic validation: file must be non-empty and look like JSON lines
+    if [ ! -s "$IDENTITY_FILE" ] || ! python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    lines = [l.strip() for l in f if l.strip()]
+assert lines, 'empty'
+json.loads(lines[0])   # first line must parse as JSON
+print(f'  {len(lines)} identity conversations OK')
+" "$IDENTITY_FILE" 2>/dev/null; then
+        err "Downloaded identity_conversations.jsonl appears empty or corrupt."
+        err "  Remove it and re-run: rm '$IDENTITY_FILE'"
+        exit 1
+    fi
 fi
+log "  Identity conversations: $IDENTITY_FILE"
 
 # ── SFT ───────────────────────────────────────────────────────────────────────
-if [ -d "$NANOCHAT_BASE_DIR/base_checkpoints" ]; then
-    log "Supervised fine-tuning (SFT)..."
-    python -m scripts.chat_sft \
-        --device-batch-size="$DEVICE_BATCH" \
-        --loader-buffer-size="$SFT_BUFFER_SIZE" \
-        --eval-every="$SFT_EVAL_EVERY" \
-        --chatcore-every="$SFT_CHATCORE_EVERY" \
-        --eval-tokens="$SFT_EVAL_TOKENS" \
-        --run="$RUN"
-else
-    log "No base checkpoint found - skipping SFT."
+log "Supervised fine-tuning (SFT)..."
+python -m scripts.chat_sft \
+    --device-batch-size="$DEVICE_BATCH" \
+    --loader-buffer-size="$SFT_BUFFER_SIZE" \
+    --eval-every="$SFT_EVAL_EVERY" \
+    --chatcore-every="$SFT_CHATCORE_EVERY" \
+    --eval-tokens="$SFT_EVAL_TOKENS" \
+    --save-every="$SFT_SAVE_EVERY" \
+    --run="$RUN"
+
+# Verify SFT checkpoint exists
+if ! _check_checkpoint "SFT" "$NANOCHAT_BASE_DIR/chatsft_checkpoints"; then
+    err "chat_sft exited without saving a checkpoint."
+    err "  If training was interrupted, find the last saved step and resume with:"
+    err "    python -m scripts.chat_sft --resume-from-step <step> \\"
+    err "        --device-batch-size=$DEVICE_BATCH --save-every=$SFT_SAVE_EVERY"
+    exit 1
 fi
 
 # ── SFT eval ──────────────────────────────────────────────────────────────────
-if [ -d "$NANOCHAT_BASE_DIR/sft_checkpoints" ]; then
-    log "Evaluating SFT model..."
-    python -m scripts.chat_eval -i sft
-else
-    log "No SFT checkpoint found - skipping SFT eval."
-fi
+log "Evaluating SFT model..."
+python -m scripts.chat_eval -i sft
 
 # ── Report ────────────────────────────────────────────────────────────────────
 log "Generating training report..."

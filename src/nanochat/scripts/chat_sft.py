@@ -42,6 +42,8 @@ parser.add_argument("--device-type", type=str, default="", help="cuda|cpu|mps (e
 parser.add_argument("--model-tag", type=str, default=None, help="model tag to load from")
 parser.add_argument("--model-step", type=int, default=None, help="model step to load from")
 parser.add_argument("--load-optimizer", type=int, default=1, help="warm-start optimizer from pretrained checkpoint (0=no, 1=yes)")
+parser.add_argument("--resume-from-step", type=int, default=-1, help="resume SFT from this step, loading from a previously saved SFT checkpoint")
+parser.add_argument("--save-every", type=int, default=0, help="save SFT checkpoint every N steps so Ctrl-C is resumable (0 = only at end; auto-set by runlocal.sh from HW_SFT_SAVE_EVERY)")
 # Training horizon
 parser.add_argument("--num-iterations", type=int, default=-1, help="number of optimization steps (-1 = full epoch)")
 # Batch sizes (default: inherit from pretrained checkpoint)
@@ -100,8 +102,16 @@ else:
     print0("WARNING: flash-attn not installed. Run 'make install-fa' for a ~2x speedup.")
     print0("WARNING: Falling back to PyTorch SDPA — training will be less efficient.")
 
-# Load the model and tokenizer
-model, tokenizer, meta = load_model("base", device, phase="train", model_tag=args.model_tag, step=args.model_step)
+# Load the model and tokenizer.
+# Two cases:
+#   --resume-from-step N  → load from a mid-run SFT checkpoint (model + optimizer)
+#   (default)             → load base pretrain checkpoint, then warm-start optimizer
+resuming = args.resume_from_step >= 0
+if resuming:
+    print0(f"Resuming SFT from step {args.resume_from_step} (loading SFT checkpoint)")
+    model, tokenizer, meta = load_model("sft", device, phase="train", model_tag=args.model_tag, step=args.resume_from_step)
+else:
+    model, tokenizer, meta = load_model("base", device, phase="train", model_tag=args.model_tag, step=args.model_step)
 
 # Inherit training hyperparameters from pretrained checkpoint (None = inherit, explicit value = override)
 pretrain_user_config = meta.get("user_config", {})
@@ -146,7 +156,21 @@ optimizer = model.setup_optimizer(unembedding_lr=args.unembedding_lr, embedding_
 # pretrained values. Since pretraining warmdown brings LRs to ~0, we must save and
 # restore our fresh SFT LRs after loading.
 base_dir = get_base_dir()
-if args.load_optimizer:
+if resuming:
+    # Resuming from a mid-run SFT checkpoint: restore optimizer state from it
+    optimizer_data = load_optimizer_state("sft", device, rank=ddp_rank, model_tag=args.model_tag, step=args.resume_from_step)
+    if optimizer_data is not None:
+        base_lrs = [group["lr"] for group in optimizer.param_groups]
+        optimizer.load_state_dict(optimizer_data)
+        del optimizer_data
+        for group, base_lr in zip(optimizer.param_groups, base_lrs):
+            group["lr"] = base_lr
+        print0("Restored optimizer state from SFT checkpoint (LRs reset to SFT schedule)")
+    else:
+        print0("WARNING: SFT optimizer checkpoint not found, continuing with fresh optimizer")
+elif args.load_optimizer:
+    # Fresh SFT start: warm-start optimizer from the base pretrain checkpoint so
+    # that Muon momentum buffers are pre-filled (slightly better convergence).
     optimizer_data = load_optimizer_state("base", device, rank=ddp_rank, model_tag=args.model_tag, step=args.model_step)
     if optimizer_data is not None:
         base_lrs = [group["lr"] for group in optimizer.param_groups]
@@ -352,7 +376,12 @@ min_val_bpb = float("inf")
 smooth_train_loss = 0 # EMA of training loss
 ema_beta = 0.9 # EMA decay factor
 total_training_time = 0 # total wall-clock time of training
-step = 0
+val_bpb = None           # set on first eval; guarded below to avoid NameError on early save
+# When resuming from a mid-run SFT checkpoint, restore step and LR-schedule position.
+# The data generator always restarts from the beginning of the dataset (no exact
+# position restore), but the LR schedule continues correctly via saved progress.
+step = args.resume_from_step if resuming else 0
+progress = meta.get("sft_progress", 0.0) if resuming else 0.0
 
 import signal as _signal
 _stop_requested = False
@@ -424,8 +453,12 @@ while True:
         })
         model.train()
 
-    # save checkpoint at the end of the run (all ranks participate so each saves its optimizer shard)
-    if last_step:
+    # Save checkpoint: always on clean completion (last_step), and optionally
+    # every save_every steps so that Ctrl-C is resumable via --resume-from-step.
+    _should_save = last_step or (
+        args.save_every > 0 and step > 0 and step % args.save_every == 0
+    )
+    if _should_save:
         output_dirname = args.model_tag if args.model_tag else f"d{depth}" # e.g. d12
         checkpoint_dir = os.path.join(base_dir, "chatsft_checkpoints", output_dirname)
         save_checkpoint(
@@ -435,7 +468,8 @@ while True:
             optimizer.state_dict(),
             {
                 "step": step,
-                "val_bpb": val_bpb, # loss at last step
+                "val_bpb": val_bpb,   # None until first eval; that is fine
+                "sft_progress": progress,  # LR-schedule position for resume
                 "model_config": {
                     "sequence_len": args.max_seq_len,
                     "vocab_size": tokenizer.get_vocab_size(),
@@ -449,6 +483,8 @@ while True:
             },
             rank=ddp_rank,
         )
+        if not last_step:
+            print0(f"step {step:05d} | Checkpoint saved (save-every={args.save_every})")
 
     if last_step or _stop_requested:
         break
@@ -545,9 +581,45 @@ print0(f"Minimum validation bpb: {min_val_bpb:.4f}")
 
 if _stop_requested:
     _smooth = smooth_train_loss / (1 - ema_beta ** max(step, 1))
+    # Reconstruct the command that was used, so the user can copy-paste it.
+    _run_flag  = f" --run={args.run}"               if args.run        else ""
+    _tag_flag  = f" --model-tag={args.model_tag}"   if args.model_tag  else ""
+    _mstep_flag = f" --model-step={args.model_step}" if args.model_step else ""
+    _save_flag = f" --save-every={args.save_every}"  if args.save_every else ""
+    _base_cmd  = (f"python -m scripts.chat_sft"
+                  f" --device-batch-size={args.device_batch_size}"
+                  f" --loader-buffer-size={args.loader_buffer_size}"
+                  f" --eval-every={args.eval_every}"
+                  f" --chatcore-every={args.chatcore_every}"
+                  f"{_save_flag}{_run_flag}{_tag_flag}{_mstep_flag}")
+    # Work out the last checkpoint step that was actually saved
+    _last_ckpt = 0
+    if args.save_every > 0 and step > 0:
+        _last_ckpt = (step // args.save_every) * args.save_every
     print0("-" * 60)
     print0(f"Stopped early at step {step}  |  smooth loss: {_smooth:.6f}  |  val bpb: {min_val_bpb:.6f}")
-    print0(f"Resume: add --num-iterations {step} (or just re-run; SFT resumes from its own checkpoint)")
+    print0("")
+    if step == 0:
+        print0("No training steps completed — nothing to resume.")
+        print0("")
+        print0("Re-run the same command to start SFT:")
+        print0(f"  {_base_cmd}")
+    elif _last_ckpt > 0:
+        print0(f"Last checkpoint: step {_last_ckpt}  (save-every={args.save_every})")
+        print0("")
+        print0("Resume from that checkpoint:")
+        print0(f"  {_base_cmd} --resume-from-step {_last_ckpt}")
+        if step - _last_ckpt > 0:
+            print0(f"  ({step - _last_ckpt} steps since last save will be repeated)")
+    else:
+        print0(f"No SFT checkpoint was saved — SFT writes checkpoints only at --save-every")
+        print0(f"intervals or on clean completion. The {step} steps of progress are lost.")
+        print0("")
+        print0("To restart SFT from the base pretrain model:")
+        print0(f"  {_base_cmd}")
+        print0("")
+        print0("To make future runs resumable, pass --save-every N  (e.g. --save-every 500)")
+        print0("or use 'make train' which sets this automatically from your GPU profile.")
     print0("-" * 60)
 else:
     from nanochat.training.report import get_report

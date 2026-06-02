@@ -584,6 +584,7 @@ while True:
     synchronize()
     t0 = time.time()
     _micro_print = master_process and grad_accum_steps >= 16 and step < 3
+    nan_detected = False
     for micro_step in range(grad_accum_steps):
         if _micro_print and micro_step % max(1, grad_accum_steps // 8) == 0:
             import sys as _sys
@@ -592,6 +593,8 @@ while True:
             _sys.stdout.flush()
         loss = model(x, y)
         train_loss = loss.detach() # for logging
+        if not nan_detected and not (train_loss == train_loss):  # NaN self-comparison
+            nan_detected = True
         loss = loss / grad_accum_steps # each .backward() is a grad sum => normalize loss here
         if scaler is not None:
             scaler.scale(loss).backward()
@@ -602,7 +605,12 @@ while True:
         import sys as _sys
         _sys.stdout.write("\r" + " " * 70 + "\r")  # clear the progress line
         _sys.stdout.flush()
-    # step the optimizer
+    # Synchronize NaN flag across DDP ranks so all ranks skip together
+    if ddp and nan_detected:
+        _nan_t = torch.tensor(1, dtype=torch.int32, device=device)
+        dist.all_reduce(_nan_t, op=dist.ReduceOp.MAX)
+        nan_detected = bool(_nan_t.item())
+    # step the optimizer (skip if NaN to prevent weight corruption)
     lrm = get_lr_multiplier(step)
     muon_momentum = get_muon_momentum(step)
     muon_weight_decay = get_weight_decay(step)
@@ -611,7 +619,10 @@ while True:
         if group['kind'] == 'muon':
             group["momentum"] = muon_momentum
             group["weight_decay"] = muon_weight_decay
-    if scaler is not None:
+    if nan_detected:
+        print0(f"step {step:05d} | WARNING: NaN loss — skipping optimizer step, zeroing gradients")
+        model.zero_grad(set_to_none=True)
+    elif scaler is not None:
         scaler.unscale_(optimizer)
         # In distributed training, all ranks must agree on whether to skip the step.
         # Each rank may independently encounter inf/nan gradients, so we all-reduce
@@ -621,17 +632,19 @@ while True:
                 dist.all_reduce(v, op=dist.ReduceOp.MAX)
         scaler.step(optimizer)
         scaler.update()
+        model.zero_grad(set_to_none=True)
     else:
         optimizer.step()
-    model.zero_grad(set_to_none=True)
+        model.zero_grad(set_to_none=True)
     train_loss_f = train_loss.item() # .item() is a CPU-GPU sync point
     synchronize()
     t1 = time.time()
     dt = t1 - t0
     # -------------------------------------------------------------------------
 
-    # logging (CPU action only)
-    smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f # EMA the training loss
+    # logging (CPU action only) — skip EMA update on NaN so the smooth loss stays useful
+    if train_loss_f == train_loss_f:  # False when NaN
+        smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f
     debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1)) # debias the EMA
     pct_done = 100 * step / num_iterations
     tok_per_sec = int(total_batch_size / dt)
