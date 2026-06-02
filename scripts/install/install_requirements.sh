@@ -14,6 +14,16 @@ if [[ ! -d "$VENV_PATH" ]]; then
   exit 1
 fi
 
+# Self-heal: if UV_CACHE_DIR is set and contains a stale format from an older uv
+# version, uv pip install fails with a misleading EACCES (os error 13) on cache
+# initialisation. Detect and clear before any install attempt.
+if [[ -n "${UV_CACHE_DIR:-}" && -d "$UV_CACHE_DIR" ]]; then
+  if ! uv pip install --python "$VENV_PATH" pip --dry-run >/dev/null 2>&1; then
+    echo "[setup] UV cache at $UV_CACHE_DIR failed init check — clearing stale cache."
+    uv cache clean 2>/dev/null || rm -rf "$UV_CACHE_DIR"
+  fi
+fi
+
 # Ensure pip is available in the venv (uv-created venvs do not include it by default)
 uv pip install --python "$VENV_PATH" pip
 

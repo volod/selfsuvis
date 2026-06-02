@@ -136,10 +136,17 @@ error()   { echo -e "${RED}[ERROR]${RESET} $*"; exit 1; }
 # Always run from the repo root regardless of where the script is invoked from
 project_cd_root
 
-# -- Load .data/.env if present ------------------------------------------------
-# Generate .data/.env with `make env` / `make env-interactive` and set HF_TOKEN there.
-if [[ -f .data/.env ]]; then
+# -- Load project .env if present ----------------------------------------------
+# Set HF_TOKEN and DATA_DIR there, or run `make env` / `make env-interactive`.
+# Prefer the project root .env (canonical when DATA_DIR is an external path);
+# fall back to .data/.env for backwards compatibility.
+if [[ -f .env ]]; then
   set -a   # export every variable defined from this point
+  # shellcheck source=/dev/null
+  source .env
+  set +a
+elif [[ -f .data/.env ]]; then
+  set -a
   # shellcheck source=/dev/null
   source .data/.env
   set +a
@@ -214,6 +221,17 @@ PIP=".venv/bin/pip"
 
 # Data directory — honoured by all sub-steps below
 _DATA_DIR="$(project_data_dir)"
+
+# Derive and export all cache-related dirs from DATA_DIR so every subprocess
+# (uv, pip, huggingface_hub, torch.hub, prepare_models.py) stores artefacts
+# under DATA_DIR instead of falling back to repo-level .data/.cache or ~/.cache.
+# Per-key .env overrides are honoured via the ${VAR:-default} expansion.
+CACHE_DIR="${CACHE_DIR:-${_DATA_DIR}/.cache}"
+export CACHE_DIR
+export HF_HOME="${HF_HOME:-${CACHE_DIR}/huggingface}"
+export TORCH_HOME="${TORCH_HOME:-${CACHE_DIR}/torch}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${CACHE_DIR}/uv}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${CACHE_DIR}}"
 
 # =============================================================================
 # SENSOR-DATA-ONLY SHORT-CIRCUIT
@@ -925,7 +943,7 @@ echo "------------------------------------------------------"
 echo ""
 echo -e "${BOLD}Quick start:${RESET}"
 echo ""
-echo "   APP_ENV=dev .venv/bin/selfsuvis --mode local \\"
+echo "   APP_ENV=dev .venv/bin/ssv --mode local \\"
 echo "     --videos-dir $_DATA_DIR/videos \\"
 echo "     --no-qdrant --no-sfm --no-gsplat"
 echo ""

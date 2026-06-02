@@ -70,6 +70,15 @@ project_default_app_env() {
 
 project_data_dir() {
   local data_dir="./.data"
+  # Load project root .env first — this is the canonical DATA_DIR source when
+  # data lives on an external drive (e.g. DATA_DIR=/media/…/.data).
+  if [[ -f "$PROJECT_ROOT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$PROJECT_ROOT_DIR/.env"
+    set +a
+  fi
+  # Also load .data/.env when it exists (sencoop / docker overrides).
   project_load_env_optional
   data_dir="${DATA_DIR:-$data_dir}"
   if [[ "$data_dir" != /* ]]; then

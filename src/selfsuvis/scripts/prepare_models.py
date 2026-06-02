@@ -135,8 +135,11 @@ os.environ.setdefault("DEVICE", "auto")
 os.environ.setdefault("ALLOWED_INDEX_PATHS", "")
 os.environ.setdefault("API_KEY", "")
 
-_DATA_DIR = Path(os.getenv("DATA_DIR", "./.data"))
-_CACHE_DIR = Path(os.getenv("CACHE_DIR", str(_DATA_DIR / ".cache")))
+_DATA_DIR = Path(os.getenv("DATA_DIR", "./.data")).resolve()
+_CACHE_DIR = Path(os.getenv("CACHE_DIR", str(_DATA_DIR / ".cache"))).resolve()
+# Publish resolved paths back to env so subprocesses and torch.hub both see
+# absolute paths regardless of whether DATA_DIR was relative or not set.
+os.environ.setdefault("CACHE_DIR", str(_CACHE_DIR))
 os.environ.setdefault("XDG_CACHE_HOME", str(_CACHE_DIR))
 os.environ.setdefault("HF_HOME", str(_CACHE_DIR / "huggingface"))
 os.environ.setdefault("TORCH_HOME", str(_CACHE_DIR / "torch"))
@@ -738,15 +741,27 @@ def _download_ocr(model_id: str) -> None:
             from transformers import AutoModelForCausalLM, AutoProcessor
 
             AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-            # Use sdpa explicitly — flash_attention_2 is auto-selected when flash-attn is
-            # installed but not all VLMs support it yet (e.g. Phi-3.5-vision).
-            AutoModelForCausalLM.from_pretrained(
-                model_id,
-                trust_remote_code=True,
-                dtype="auto",
-                low_cpu_mem_usage=True,
-                attn_implementation="sdpa",
-            )
+            # Try sdpa; fall back to eager when the custom model code raises FA2 errors
+            # regardless of attn_implementation (e.g. Phi-3.5-vision's modeling_phi3_v.py
+            # checks flash-attn availability and raises even when sdpa is requested).
+            for _attn_impl in ("sdpa", "eager"):
+                try:
+                    AutoModelForCausalLM.from_pretrained(
+                        model_id,
+                        trust_remote_code=True,
+                        dtype="auto",
+                        low_cpu_mem_usage=True,
+                        attn_implementation=_attn_impl,
+                    )
+                    break
+                except (ValueError, NotImplementedError) as _fa2_exc:
+                    if "Flash Attention 2" in str(_fa2_exc) and _attn_impl != "eager":
+                        log.info(
+                            "  %s: sdpa blocked by FA2 guard, retrying with eager",
+                            model_id,
+                        )
+                        continue
+                    raise
         log.info("  [ok] OCR model ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
         log.warning("  OCR model download failed: %s", exc)
