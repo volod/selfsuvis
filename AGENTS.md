@@ -14,8 +14,11 @@
 ## Heavy compilation (ninja / cmake / CUDA)
 
 Any installation that compiles C++/CUDA from source (git+, --no-binary, --no-build-isolation) MUST cap
-parallelism via `ARG MAX_JOBS=4` (safe default) overridden by the caller with:
-`MAX_JOBS = min(max(1, (nproc-2)//2), max(1, available_ram_gb//12))`.
+parallelism by querying the canonical helper for this project:
+- Main project / sslm / xformers: `MAX_JOBS=$(.venv/bin/python src/selfsuvis/scripts/shell_helpers.py max-jobs)`
+- nanochat: `MAX_JOBS=$(python3 scripts/detect_hw.py max_jobs)`
+
+Do not inline the formula — the helpers are the single source of truth.
 
 Compiled wheels (flash-attn, vllm forks, xformers, etc.) MUST be cached under `.data/wheels/<package-name>_<key>/`
 where `<key>` encodes the ABI-relevant dimensions (e.g. `torch2.9.1_cu128`, `sslm_zaya-vllm_latest`).
@@ -42,3 +45,5 @@ Never cache wheels under a package-specific subdirectory such as `.data/sslm/whe
 - `scripts/ssv/ssv-reset-qdrant.sh`
 - `scripts/sencoop/sencoop-bootstrap.sh`
 - `ssv --mode local --videos-dir .data/videos` — run local VDP pipeline
+- `ssv --mode local --cosmos3 --cosmos3-api-url http://localhost:8000 ...` — enable Cosmos3 step 15 via vLLM-Omni sidecar
+- `ssv --mode local --cosmos3 ...` — enable Cosmos3 with local diffusers (hardware-selected: Nano with offload if 18-40 GB free VRAM, Nano full if >= 40 GB)

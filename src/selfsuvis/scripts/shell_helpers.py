@@ -54,6 +54,34 @@ def compute_flash_attn_jobs(
     return f"{jobs} {total_gb:.1f} {avail_gb:.1f} {usable_gb:.1f} {mem_jobs} {cpu_jobs}"
 
 
+def max_jobs(ram_per_job_gb: float = 12.0, reserve_frac: float = 0.20) -> int:
+    """Return safe parallel C++/CUDA compilation job count for this machine.
+
+    Canonical heavy-build budget for the main project (sslm, xformers, flash-attn).
+    Reads /proc/meminfo and os.cpu_count() directly — no arguments needed.
+    See AGENTS.md for policy; nanochat uses src/nanochat/scripts/detect_hw.py max_jobs.
+    """
+    try:
+        meminfo = Path("/proc/meminfo").read_text()
+        total_kb = int(next(l.split()[1] for l in meminfo.splitlines() if l.startswith("MemTotal:")))
+        avail_kb = int(next(l.split()[1] for l in meminfo.splitlines() if l.startswith("MemAvailable:")))
+    except Exception:
+        total_kb, avail_kb = 8 * 1024 * 1024, 4 * 1024 * 1024
+    cpu_cores = sys.maxsize  # type: ignore[assignment]
+    try:
+        cpu_cores = __import__("os").cpu_count() or 4
+    except Exception:
+        cpu_cores = 4
+    result = compute_flash_attn_jobs(
+        total_kb=total_kb,
+        avail_kb=avail_kb,
+        cpu_cores=cpu_cores,
+        ram_per_job_gb=ram_per_job_gb,
+        reserve_frac=reserve_frac,
+    )
+    return int(result.split()[0])
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Shell helper utilities for selfsuvis scripts")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -71,6 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read CUDA version from a version.json file",
     )
     cuda_parser.add_argument("--path", required=True, help="Path to CUDA version.json")
+
+    subparsers.add_parser(
+        "max-jobs",
+        help="Print safe C++/CUDA parallel build job count for this machine",
+    )
 
     flash_parser = subparsers.add_parser(
         "compute-flash-attn-jobs",
@@ -112,6 +145,8 @@ def main() -> None:
         sys.stdout.write(json_field(sys.stdin.read(), field=args.field, default=args.default))
     elif args.command == "cuda-version-from-json":
         sys.stdout.write(cuda_version_from_json(args.path))
+    elif args.command == "max-jobs":
+        print(max_jobs())
     else:
         print(
             compute_flash_attn_jobs(

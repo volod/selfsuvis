@@ -141,7 +141,7 @@ venv-rebuild-xformers:
 	_ARCH="$${_ARCH:-7.5;8.0;8.6;8.9;9.0+PTX}"; \
 	echo "  TORCH_CUDA_ARCH_LIST=$${_ARCH}"; \
 	TORCH_CUDA_ARCH_LIST="$${_ARCH}" \
-	MAX_JOBS=$$(( ($$(nproc) - 2) / 2 < 1 ? 1 : ($$(nproc) - 2) / 2 )) \
+	MAX_JOBS=$$(.venv/bin/python src/selfsuvis/scripts/shell_helpers.py max-jobs) \
 	.venv/bin/python -m pip install xformers \
 	  --no-build-isolation --no-deps --no-binary xformers --force-reinstall --no-cache-dir
 	@echo "Done. Verify:  .venv/bin/python -m xformers.info"

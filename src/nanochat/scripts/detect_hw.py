@@ -372,8 +372,8 @@ def main() -> None:
         print("gpu" if has_cuda else "cpu")
 
     elif mode == "max_jobs":
-        # CLAUDE.md rule: min(max(1,(nproc-2)//2), max(1,available_ram_gb//12))
-        # Safe default (4) when RAM can't be determined.
+        # min(max(1,(nproc-2)//2), max(1,total_ram_gb//denom))
+        # denom=20 (<64 GB), denom=16 (>=64 GB). Safe default when RAM unreadable.
         nproc = os.cpu_count() or 4
         try:
             with open("/proc/meminfo") as f:
@@ -381,7 +381,8 @@ def main() -> None:
             ram_gb = ram_kb // (1024 * 1024)
         except Exception:
             ram_gb = 8
-        print(min(max(1, (nproc - 2) // 2), max(1, ram_gb // 12)))
+        denom = 20 if ram_gb < 64 else 16
+        print(min(max(1, (nproc - 2) // 2), max(1, ram_gb // denom)))
 
     elif mode == "nvcc_ver":
         _, ver = detect_cuda_nvcc()

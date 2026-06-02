@@ -89,7 +89,6 @@ venv:
 	$(eval EXTRAS := $(shell $(_EXTRAS_CMD)))
 	@echo "Detected extras: --extra $(EXTRAS)"
 	uv sync --extra $(EXTRAS)
-	@$(PYTHON) -m ensurepip --upgrade
 	@[ "$(EXTRAS)" = "gpu" ] && $(MAKE) _install-fa-if-missing || true
 
 venv-dev:
@@ -99,7 +98,6 @@ venv-dev:
 	$(eval EXTRAS := $(shell $(_EXTRAS_CMD)))
 	@echo "Detected extras: --extra $(EXTRAS) --group dev"
 	uv sync --extra $(EXTRAS) --group dev
-	@$(PYTHON) -m ensurepip --upgrade
 	@[ "$(EXTRAS)" = "gpu" ] && $(MAKE) _install-fa-if-missing || true
 
 clean-venv:
@@ -123,7 +121,7 @@ _install-fa-if-missing:
 #                                       compute_120 which nvcc < 12.8 can't compile)
 #
 # Install CUDA 12.8 toolkit to unlock SM 12.0 (RTX 5000 / Blackwell Ultra) support.
-# MAX_JOBS: min(max(1,(nproc-2)/2), max(1,RAM_GB/12))  — see CLAUDE.md.
+# MAX_JOBS: min(max(1,(nproc-2)/2), max(1,RAM_GB/denom)) — denom=20 (<64GB), 16 (>=64GB)
 install-fa:
 	@$(PYTHON) -m ensurepip --upgrade >/dev/null 2>&1 || true
 	@set -e; \
@@ -163,6 +161,7 @@ install-fa:
 		echo "No cached wheel — building from source (MAX_JOBS=$$JOBS, ~15-30 min)..."; \
 		echo "  PyTorch : $$($(PYTHON) -c 'import torch; print(torch.__version__)')"; \
 		echo "  Archs   : $$COMPILABLE_ARCHES"; \
+		uv pip install --python "$(PYTHON)" wheel --quiet; \
 		BUILD_TMP=$$(mktemp -d); \
 		if TORCH_CUDA_ARCH_LIST="$$COMPILABLE_ARCHES" MAX_JOBS=$$JOBS $(PYTHON) -m pip wheel \
 				"$$FA_SRC" \
