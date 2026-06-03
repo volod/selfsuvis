@@ -147,8 +147,8 @@ branching into adaptation, physical-world modeling, and advanced global-threat w
 
 - [Pipeline architecture](../reference/pipeline.md)
 - [Architecture](../reference/architecture.md)
-- [coop getting started](../coop/getting-started.md)
-- [coop integration](../coop/integration.md)
+- [coop getting started](../sencoop/getting-started.md)
+- [coop integration](../sencoop/integration.md)
 - [Configuration](../reference/configuration.md)
 - [Setup](../quickstart/setup.md)
 - [3D Gaussian Splat](../reference/gaussian_splat.md)

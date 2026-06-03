@@ -882,8 +882,8 @@ You do not need GPU hardware for this week — all coop components run on CPU.
 
 **Required reading before Day 38:**
 - [coop — IoT Edge Monitoring Deep Dive](16_coop_iot_edge_monitoring.md) — read sections 1-2.
-- [coop — Integration Guide](../coop/integration.md) — the API endpoint reference.
-- [coop — Getting Started](../coop/getting-started.md) — ensure you can start the stack.
+- [coop — Integration Guide](../sencoop/integration.md) — the API endpoint reference.
+- [coop — Getting Started](../sencoop/getting-started.md) — ensure you can start the stack.
 
 ---
 

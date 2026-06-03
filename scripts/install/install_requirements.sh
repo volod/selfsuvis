@@ -182,13 +182,13 @@ fi
 
 if [[ -n "$TORCH_CUDA_INDEX" ]]; then
   echo "CUDA $CUDA_VERSION detected → installing torch with $TORCH_CUDA_INDEX wheels"
-  if ! uv pip install --python "$VENV_PATH" --upgrade --index-url "https://download.pytorch.org/whl/$TORCH_CUDA_INDEX" torch==2.10.0 torchvision==0.25.0; then
+  if ! uv pip install --python "$VENV_PATH" --upgrade --index-url "https://download.pytorch.org/whl/$TORCH_CUDA_INDEX" torch==2.9.1 torchvision==0.24.1; then
     echo "CUDA wheel install failed, falling back to CPU"
-    uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.10.0 torchvision==0.25.0
+    uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.9.1 torchvision==0.24.1
   fi
 else
   echo "No CUDA detected → installing CPU-only torch"
-  uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.10.0 torchvision==0.25.0
+  uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.9.1 torchvision==0.24.1
 fi
 
 # flash-attn must be installed AFTER torch (its setup.py imports torch at build time).
@@ -349,7 +349,7 @@ _reinstall_torch() {
   local idx="$1"
   uv pip install --python "$VENV_PATH" --upgrade \
     --index-url "https://download.pytorch.org/whl/${idx}" \
-    torch==2.10.0 torchvision==0.25.0
+    torch==2.9.1 torchvision==0.24.1
 }
 
 # Ensure nvcc version == torch.version.cuda before building flash-attn.
@@ -524,24 +524,94 @@ if "$PYTHON_BIN" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 
   echo "----------------------------------------------------------------------------"
   echo ""
 
-  echo "Installing flash-attn with MAX_JOBS=${FLASH_JOBS} …"
-  # torch/torchvision are already installed above from the selected PyTorch index.
-  # Do not let pip re-resolve them here, or it may pull a newer torch from PyPI
-  # that no longer matches the pinned torchvision CUDA wheel.
-  _flash_attn_flags="--no-build-isolation --no-deps"
-  if $_FORCE_SOURCE_BUILD; then
-    # --no-binary  : build from source (skip any prebuilt wheel for wrong arch)
-    # --force-reinstall : override an already-installed sm_80/sm_90 binary
-    # --no-cache-dir   : prevent pip from serving the old cached wheel
-    _flash_attn_flags="$_flash_attn_flags --no-binary flash-attn --force-reinstall --no-cache-dir"
+  # -- wheel cache lookup -------------------------------------------------------
+  # Shared cache at .data/wheels/ (same location nanochat uses).  Cache key:
+  #   torch{ver}_cu{cuda}_{sm}_nvcc{nvcc}
+  # Exact match first; then a loose match on cu/sm/nvcc (any torch minor) so a
+  # wheel built by nanochat can be reused here when torch versions align or are
+  # ABI-compatible (flash-attn 2.x is stable across torch 2.x minors).
+  _FA_WHEEL_CACHE="${REPO_ROOT}/.data/wheels"
+  _SYS_NVCC_VER=$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9.]*\).*/\1/p' | head -1 || echo "")
+  _NVCC_COMPACT="${_SYS_NVCC_VER//.}"
+  _FA_CACHE_KEY=$("$PYTHON_BIN" -c "
+import torch, sys
+v = torch.__version__.split('+')[0]
+c = (torch.version.cuda or 'cpu').replace('.','')
+caps = sorted({torch.cuda.get_device_capability(i) for i in range(torch.cuda.device_count())})
+sm = '_'.join('sm'+''.join(str(x) for x in cap) for cap in caps)
+print('torch{}_cu{}_{}_nvcc{}'.format(v, c, sm, sys.argv[1]))
+" "$_NVCC_COMPACT" 2>/dev/null || echo "")
+  _FA_CACHE_DIR="${_FA_WHEEL_CACHE}/flash-attn_${_FA_CACHE_KEY}"
+  _FA_CACHED_WHEEL=""
+
+  if [[ -n "$_FA_CACHE_KEY" ]] && ls "${_FA_CACHE_DIR}"/flash_attn*.whl 1>/dev/null 2>&1; then
+    _FA_CACHED_WHEEL=$(ls "${_FA_CACHE_DIR}"/flash_attn*.whl | head -1)
+    echo "flash-attn: exact cached wheel found → $(basename "$_FA_CACHED_WHEEL")"
+  elif [[ -n "$_NVCC_COMPACT" ]]; then
+    _cu_tag=$("$PYTHON_BIN" -c "import torch; print((torch.version.cuda or 'cpu').replace('.','')); " 2>/dev/null || echo "")
+    _sm_tag=$("$PYTHON_BIN" -c "import torch; caps=sorted({torch.cuda.get_device_capability(i) for i in range(torch.cuda.device_count())}); print('_'.join('sm'+''.join(str(x) for x in cap) for cap in caps))" 2>/dev/null || echo "")
+    if [[ -n "$_cu_tag" ]] && [[ -n "$_sm_tag" ]]; then
+      for _fa_cand in "${_FA_WHEEL_CACHE}"/flash-attn_*_cu${_cu_tag}_${_sm_tag}_nvcc${_NVCC_COMPACT}; do
+        if [[ -d "$_fa_cand" ]] && ls "${_fa_cand}"/flash_attn*.whl 1>/dev/null 2>&1; then
+          _FA_CACHED_WHEEL=$(ls "${_fa_cand}"/flash_attn*.whl | head -1)
+          echo "flash-attn: compatible cached wheel (cu/sm/nvcc match) → $(basename "$_FA_CACHED_WHEEL")"
+          break
+        fi
+      done
+    fi
   fi
-  # shellcheck disable=SC2086
-  if MAX_JOBS="$FLASH_JOBS" "$PYTHON_BIN" -m pip install flash-attn $_flash_attn_flags -q; then
-    echo "flash-attn installed."
-  else
-    echo "WARNING: flash-attn build failed. Run later with:"
-    echo "  python -m selfsuvis.scripts.prepare_models --flash-attn"
-    echo "Models will use sdpa (PyTorch built-in SDPA) until then."
+
+  if [[ -n "$_FA_CACHED_WHEEL" ]]; then
+    if "$PYTHON_BIN" -m pip install "$_FA_CACHED_WHEEL" --no-deps --quiet; then
+      echo "flash-attn installed (from cache)."
+    else
+      echo "WARNING: cached wheel install failed — will build from source."
+      _FA_CACHED_WHEEL=""
+    fi
+  fi
+
+  if [[ -z "$_FA_CACHED_WHEEL" ]]; then
+    echo "Installing flash-attn with MAX_JOBS=${FLASH_JOBS} …"
+    # torch/torchvision are already installed above from the selected PyTorch index.
+    # Do not let pip re-resolve them here, or it may pull a newer torch from PyPI
+    # that no longer matches the pinned torchvision CUDA wheel.
+    _flash_attn_flags="--no-build-isolation --no-deps"
+    if $_FORCE_SOURCE_BUILD; then
+      # --no-binary  : build from source (skip any prebuilt wheel for wrong arch)
+      # --no-cache-dir   : prevent pip from serving the old cached wheel
+      _flash_attn_flags="$_flash_attn_flags --no-binary flash-attn --no-cache-dir"
+    fi
+
+    if [[ -n "$_FA_CACHE_KEY" ]]; then
+      mkdir -p "$_FA_CACHE_DIR"
+      _FA_BUILD_TMP=$(mktemp -d)
+      # shellcheck disable=SC2086
+      if MAX_JOBS="$FLASH_JOBS" "$PYTHON_BIN" -m pip wheel flash-attn \
+          --wheel-dir "$_FA_BUILD_TMP" \
+          $_flash_attn_flags -q; then
+        _built_whl=$(ls "${_FA_BUILD_TMP}"/flash_attn*.whl 2>/dev/null | head -1)
+        if [[ -n "$_built_whl" ]]; then
+          cp "$_built_whl" "$_FA_CACHE_DIR/"
+          echo "Wheel cached at ${_FA_CACHE_DIR}"
+          "$PYTHON_BIN" -m pip install "${_FA_CACHE_DIR}"/flash_attn*.whl --no-deps --quiet \
+            && echo "flash-attn installed."
+        fi
+      else
+        echo "WARNING: flash-attn build failed. Run later with:"
+        echo "  python -m selfsuvis.scripts.prepare_models --flash-attn"
+        echo "Models will use sdpa (PyTorch built-in SDPA) until then."
+      fi
+      rm -rf "$_FA_BUILD_TMP"
+    else
+      # shellcheck disable=SC2086
+      if MAX_JOBS="$FLASH_JOBS" "$PYTHON_BIN" -m pip install flash-attn $_flash_attn_flags -q; then
+        echo "flash-attn installed."
+      else
+        echo "WARNING: flash-attn build failed. Run later with:"
+        echo "  python -m selfsuvis.scripts.prepare_models --flash-attn"
+        echo "Models will use sdpa (PyTorch built-in SDPA) until then."
+      fi
+    fi
   fi
 else
   echo "No CUDA GPU detected — skipping flash-attn (CPU-only mode)."

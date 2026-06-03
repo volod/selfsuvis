@@ -24,7 +24,7 @@ Related code:
 Related docs:
 - [Sensor fusion fundamentals](03_sensor_fusion_fundamentals.md)
 - [Threat primitives and local inference](15_threat_primitives_local_inference.md)
-- [coop integration guide](../coop/integration.md)
+- [coop integration guide](../sencoop/integration.md)
 - [Architecture](../reference/architecture.md)
 
 ---
@@ -680,4 +680,4 @@ Then call `GET /site/synthesis` and inspect the narrative.
 | Cohen et al., "Environmental Sound Classification on Microcontrollers" (2022) | Why simple FFT classifiers work for constrained edge deployments |
 | [Sensor fusion fundamentals](03_sensor_fusion_fundamentals.md) | Clocks, calibration, and uncertainty — applies directly to LoRaWAN timestamp alignment |
 | [Threat primitives and local inference](15_threat_primitives_local_inference.md) | The two-source gate and evidence-gated scoring used by the threat aggregator |
-| [coop integration guide](../coop/integration.md) | Operator reference: MQTT topics, docker-compose, env vars, API endpoints |
+| [coop integration guide](../sencoop/integration.md) | Operator reference: MQTT topics, docker-compose, env vars, API endpoints |

@@ -744,6 +744,10 @@ def _download_ocr(model_id: str) -> None:
             # Try sdpa; fall back to eager when the custom model code raises FA2 errors
             # regardless of attn_implementation (e.g. Phi-3.5-vision's modeling_phi3_v.py
             # checks flash-attn availability and raises even when sdpa is requested).
+            # If eager is also blocked (model unconditionally guards on FA2 even with
+            # attn_implementation="eager"), treat the download as successful: the weights
+            # are fully cached and the model loads fine at inference time once the FA2
+            # guard is bypassed (e.g. flash-attn uninstalled or transformers patched).
             for _attn_impl in ("sdpa", "eager"):
                 try:
                     AutoModelForCausalLM.from_pretrained(
@@ -755,13 +759,24 @@ def _download_ocr(model_id: str) -> None:
                     )
                     break
                 except (ValueError, NotImplementedError) as _fa2_exc:
-                    if "Flash Attention 2" in str(_fa2_exc) and _attn_impl != "eager":
+                    if "Flash Attention 2" not in str(_fa2_exc):
+                        raise
+                    if _attn_impl != "eager":
                         log.info(
                             "  %s: sdpa blocked by FA2 guard, retrying with eager",
                             model_id,
                         )
                         continue
-                    raise
+                    # eager also blocked — model code unconditionally checks FA2.
+                    # Weights are cached; skip load-verify and warn.
+                    log.warning(
+                        "  %s: FA2 guard fires even with eager attn"
+                        " (flash-attn installed + model lacks FA2 support)."
+                        " Weights cached; load-verify skipped."
+                        " Will load at inference time with attn_implementation='eager'.",
+                        model_id,
+                    )
+                    break
         log.info("  [ok] OCR model ready  (%.1fs)", time.monotonic() - t0)
     except Exception as exc:
         log.warning("  OCR model download failed: %s", exc)

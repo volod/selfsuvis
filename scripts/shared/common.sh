@@ -57,6 +57,15 @@ project_load_env_optional() {
     source "$PROJECT_ENV_FILE"
     set +a
   fi
+  # .data/.env.local is the highest-priority machine-local override written by
+  # `make env`; load it after .data/.env so its values win.
+  local _local_env="$PROJECT_ROOT_DIR/.data/.env.local"
+  if [[ -f "$_local_env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$_local_env"
+    set +a
+  fi
 }
 
 project_load_env_required() {
@@ -70,16 +79,23 @@ project_default_app_env() {
 
 project_data_dir() {
   local data_dir="./.data"
-  # Load project root .env first — this is the canonical DATA_DIR source when
-  # data lives on an external drive (e.g. DATA_DIR=/media/…/.data).
-  if [[ -f "$PROJECT_ROOT_DIR/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "$PROJECT_ROOT_DIR/.env"
-    set +a
-  fi
-  # Also load .data/.env when it exists (sencoop / docker overrides).
-  project_load_env_optional
+  # Load all env layers in precedence order so DATA_DIR is always resolved
+  # from the most specific source available:
+  #   .env              — committed defaults
+  #   .data/.env        — stack / sencoop overrides
+  #   .data/.env.local  — machine-local dev overrides (highest precedence)
+  for _pdd_layer in \
+      "$PROJECT_ROOT_DIR/.env" \
+      "$PROJECT_ROOT_DIR/.data/.env" \
+      "$PROJECT_ROOT_DIR/.data/.env.local"; do
+    if [[ -f "$_pdd_layer" ]]; then
+      set -a
+      # shellcheck disable=SC1090
+      source "$_pdd_layer"
+      set +a
+    fi
+  done
+  unset _pdd_layer
   data_dir="${DATA_DIR:-$data_dir}"
   if [[ "$data_dir" != /* ]]; then
     data_dir="$PROJECT_ROOT_DIR/${data_dir#./}"

@@ -14,7 +14,7 @@ See [README.md](../README.md) for the project overview and three-playground arch
 | [Setup](quickstart/setup.md) | GPU setup, CVAT, system deps |
 | [Local learning path](quickstart/local_path.md) | 36-step pipeline walkthrough |
 | [Learning path deep dives](learning_path/README.md) | Per-phase study guides |
-| [Coop getting started](coop/getting-started.md) | IoT sensor mesh setup |
+| [Coop getting started](sencoop/getting-started.md) | IoT sensor mesh setup |
 
 ### Reference
 | | |
@@ -47,4 +47,4 @@ See [README.md](../README.md) for the project overview and three-playground arch
 | | |
 |---|---|
 | [Architecture decisions](adr/README.md) | ADR log |
-| [Coop docs](coop/getting-started.md) | IoT sensor mesh |
+| [Coop docs](sencoop/getting-started.md) | IoT sensor mesh |

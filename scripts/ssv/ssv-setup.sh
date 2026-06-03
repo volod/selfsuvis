@@ -136,21 +136,26 @@ error()   { echo -e "${RED}[ERROR]${RESET} $*"; exit 1; }
 # Always run from the repo root regardless of where the script is invoked from
 project_cd_root
 
-# -- Load project .env if present ----------------------------------------------
-# Set HF_TOKEN and DATA_DIR there, or run `make env` / `make env-interactive`.
-# Prefer the project root .env (canonical when DATA_DIR is an external path);
-# fall back to .data/.env for backwards compatibility.
-if [[ -f .env ]]; then
-  set -a   # export every variable defined from this point
-  # shellcheck source=/dev/null
-  source .env
-  set +a
-elif [[ -f .data/.env ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source .data/.env
-  set +a
-fi
+# -- Load project .env files in precedence order --------------------------------
+# Load all three layers so that DATA_DIR and HF_TOKEN are always resolved
+# from the correct source.  Later files win over earlier ones.
+#
+#   .env              — committed project defaults (DATA_DIR, model names, etc.)
+#   .data/.env        — stack overrides (sencoop / test infra; may not exist)
+#   .data/.env.local  — machine-local dev overrides written by `make env`;
+#                       highest precedence; never committed
+#
+# Variables already exported in the shell are NOT overwritten by any of these
+# files — set them in the calling shell to force an override.
+for _env_layer in ".env" ".data/.env" ".data/.env.local"; do
+  if [[ -f "$_env_layer" ]]; then
+    set -a   # export every variable defined from this point
+    # shellcheck source=/dev/null
+    source "$_env_layer"
+    set +a
+  fi
+done
+unset _env_layer
 
 # -- Resolve best CUDA toolkit for the current GPU -----------------------------
 # When multiple CUDA toolkits are installed (e.g. /usr/bin/nvcc at 12.0 and
@@ -679,14 +684,14 @@ fi
 # public-domain outdoor test video, and generates sensor sidecar files keyed
 # to that video's basename.
 #
-# Directory layout created:
-#   .data/videos/     — input video(s)
-#   .data/sensors/    — per-step sensor sidecars
-#   .data/frames/     — keyframe output (written by pipeline)
-#   data/tiles/      — tile output (written by pipeline)
-#   data/maps/       — 3DGS / splat output (written by pipeline)
-#   .data/reports/    — HTML mission summaries (written by pipeline)
-#   data/cache_test/      — integration-test cache volume
+# Directory layout created (all under DATA_DIR, default .data/):
+#   .data/videos/      — input video(s)
+#   .data/sensors/     — per-step sensor sidecars
+#   .data/frames/      — keyframe output (written by pipeline)
+#   .data/tiles/       — tile output (written by pipeline)
+#   .data/maps/        — 3DGS / splat output (written by pipeline)
+#   .data/reports/     — HTML mission summaries (written by pipeline)
+#   .data/cache_test/  — integration-test cache volume
 #
 # Test video (auto-downloaded if .data/videos/ is empty):
 #   Primary:  US Highway 60 drone flyover — real vehicles on a divided highway,

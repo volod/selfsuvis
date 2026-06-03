@@ -68,5 +68,5 @@ Start with:
 
 - [coop IoT edge monitoring deep dive](16_coop_iot_edge_monitoring.md)
 - [Day-by-day syllabus, Days 36-42](00_day_by_day_syllabus.md#week-6-iot-edge-monitoring-with-coop)
-- [coop getting started](../coop/getting-started.md)
-- [coop integration guide](../coop/integration.md)
+- [coop getting started](../sencoop/getting-started.md)
+- [coop integration guide](../sencoop/integration.md)

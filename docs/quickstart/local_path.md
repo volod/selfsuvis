@@ -98,9 +98,9 @@ runtime.
 
 | Step | Essential purpose | Go deeper |
 |---|---|---|
-| 37. Coop stack bootstrap and health | Start Mosquitto, ChirpStack, Frigate, Redis, Postgres, and the REST bridge; verify container health and credentials before debugging higher-level code. | [coop getting started](../coop/getting-started.md) |
+| 37. Coop stack bootstrap and health | Start Mosquitto, ChirpStack, Frigate, Redis, Postgres, and the REST bridge; verify container health and credentials before debugging higher-level code. | [coop getting started](../sencoop/getting-started.md) |
 | 38. MQTT and LoRaWAN ingestion | Trace ChirpStack MQTT uplinks into `SensorReading` objects; learn which fields are physical measurements vs radio-link metadata. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#2-mqtt-lorawan-and-frigate) |
-| 39. Frigate event ingestion | Trace Frigate MQTT detection events into `CameraEvent` objects and rolling camera summaries. | [coop integration](../coop/integration.md) |
+| 39. Frigate event ingestion | Trace Frigate MQTT detection events into `CameraEvent` objects and rolling camera summaries. | [coop integration](../sencoop/integration.md) |
 | 40. Rolling site state | Understand `SiteStateAggregator`: timestamp eviction, per-device deques, `/site/state`, `/site/sensors`, and `/site/cameras`. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#3-rolling-window-model-and-sitestateaggregator) |
 | 41. RTSP bridge and acoustic evidence | Bridge Frigate streams through MediaMTX for live captioning, then add FFT/Whisper acoustic observations as synthetic camera events. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#5-acoustic-analysis) |
 | 42. Site mesh and scene synthesis | Build GPS-proximity sensor graphs, query `/site/mesh`, and fuse live state plus `scene_timeline` captions into `/site/synthesis`. | [coop deep dive](../learning_path/16_coop_iot_edge_monitoring.md#4-sensor-mesh-fusion-and-gps-proximity-linking) |
