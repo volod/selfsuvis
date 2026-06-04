@@ -154,10 +154,10 @@ uv pip install --python "$VENV_PATH" --no-deps -e "${REPO_ROOT}/src/ssv_vdp"
 
 CUDA_VERSION=$(detect_cuda_version)
 
-# Allow caller to force a specific CUDA index (e.g. FORCE_CUDA=cu126 or FORCE_CUDA=1 for auto-latest)
+# Allow caller to force a specific CUDA index (e.g. FORCE_CUDA=cu126 or FORCE_CUDA=1 for auto-detect)
 if [[ -n "${FORCE_CUDA:-}" ]]; then
   if [[ "$FORCE_CUDA" == "1" ]]; then
-    TORCH_CUDA_INDEX="cu126"
+    TORCH_CUDA_INDEX=$(map_cuda_to_torch_index "$CUDA_VERSION")
   else
     TORCH_CUDA_INDEX="$FORCE_CUDA"
   fi
@@ -182,13 +182,13 @@ fi
 
 if [[ -n "$TORCH_CUDA_INDEX" ]]; then
   echo "CUDA $CUDA_VERSION detected → installing torch with $TORCH_CUDA_INDEX wheels"
-  if ! uv pip install --python "$VENV_PATH" --upgrade --index-url "https://download.pytorch.org/whl/$TORCH_CUDA_INDEX" torch==2.9.1 torchvision==0.24.1; then
+  if ! uv pip install --python "$VENV_PATH" --upgrade --index-url "https://download.pytorch.org/whl/$TORCH_CUDA_INDEX" torch torchvision; then
     echo "CUDA wheel install failed, falling back to CPU"
-    uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.9.1 torchvision==0.24.1
+    uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch torchvision
   fi
 else
   echo "No CUDA detected → installing CPU-only torch"
-  uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch==2.9.1 torchvision==0.24.1
+  uv pip install --python "$VENV_PATH" --upgrade --index-url https://download.pytorch.org/whl/cpu torch torchvision
 fi
 
 # flash-attn must be installed AFTER torch (its setup.py imports torch at build time).
@@ -349,7 +349,7 @@ _reinstall_torch() {
   local idx="$1"
   uv pip install --python "$VENV_PATH" --upgrade \
     --index-url "https://download.pytorch.org/whl/${idx}" \
-    torch==2.9.1 torchvision==0.24.1
+    torch torchvision
 }
 
 # Ensure nvcc version == torch.version.cuda before building flash-attn.

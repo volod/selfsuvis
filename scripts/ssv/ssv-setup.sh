@@ -238,6 +238,11 @@ export TORCH_HOME="${TORCH_HOME:-${CACHE_DIR}/torch}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${CACHE_DIR}/uv}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${CACHE_DIR}}"
 
+# Pre-create cache dirs so tools that cannot mkdir their own root (e.g. uv on
+# a mounted drive where the parent was created with a restrictive umask) do not
+# fail with "Permission denied".
+mkdir -p "$UV_CACHE_DIR" "$HF_HOME" "$TORCH_HOME"
+
 # =============================================================================
 # SENSOR-DATA-ONLY SHORT-CIRCUIT
 # When --sensor-data-only is passed, skip all model and environment steps.
@@ -339,8 +344,7 @@ sys.exit(0)
 " 2>/dev/null; then
     log ".venv already exists and torch supports current GPU — skipping. (rm -rf .venv to reinstall)"
   else
-    warn ".venv exists but installed PyTorch does not include kernels for current GPU."
-    warn "Re-running install_requirements.sh to install matching torch wheels..."
+    log ".venv exists but installed PyTorch does not include kernels for current GPU — reinstalling matching wheels."
     bash scripts/install/install_requirements.sh vision,dev .venv
     log "Torch wheels updated."
   fi

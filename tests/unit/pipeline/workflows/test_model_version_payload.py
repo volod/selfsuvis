@@ -95,7 +95,7 @@ def _build_point(indexer, settings_mock, **kwargs):
     defaults.update(kwargs)
     import selfsuvis.pipeline.workflows.indexer as _wf_indexer
 
-    with patch.object(_wf_indexer, "settings", settings_mock):
+    with patch.object(_wf_indexer._core, "settings", settings_mock):
         return VideoIndexer._build_frame_point(indexer, **defaults)
 
 

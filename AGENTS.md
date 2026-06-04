@@ -10,6 +10,8 @@
 - Runtime data belongs under `.data/<src_module>/` (e.g. `.data/nanochat/`, `.data/sslm/`). Never write to a module-local `.data/` inside `src/`. 
 - The shared `.data/wheels/` directory is reserved exclusively for compiled wheel artifacts.
 - Use ASCII in logs, docs, comments, and generated shell output.
+- Dependencies and library versions, such as PyTorch and Flash Attention, must be installed, taking into account the host hardware configuration (RAM, GPU) and the current host OS, GPU, and CUDA versions, which must match PyTorch's supported versions.   
+- Docker images must be able to manage the target build for GPU and CUDA versions; the configuration of the system on which the Docker image is built is used as the default.
 
 ## Heavy compilation (ninja / cmake / CUDA)
 

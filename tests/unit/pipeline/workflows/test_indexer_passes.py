@@ -95,12 +95,12 @@ class TestRunASRPass:
         wav = str(tmp_path / "audio.wav")
 
         with (
-            patch("selfsuvis.pipeline.workflows.indexer.extract_audio", return_value=wav),
+            patch("selfsuvis.pipeline.workflows.indexer._perception.extract_audio", return_value=wav),
             patch(
-                "selfsuvis.pipeline.workflows.indexer.map_subtitles_to_frames",
+                "selfsuvis.pipeline.workflows.indexer._perception.map_subtitles_to_frames",
                 return_value={1.0: "target spotted", 2.0: "target spotted"},
             ),
-            patch("selfsuvis.pipeline.workflows.indexer.ensure_dir"),
+            patch("selfsuvis.pipeline.workflows.indexer._perception.ensure_dir"),
         ):
             indexer._run_asr_pass("/fake/video.mp4", records)
 
@@ -121,8 +121,8 @@ class TestRunASRPass:
         records = _make_records(2, tmp_path)
 
         with (
-            patch("selfsuvis.pipeline.workflows.indexer.extract_audio", return_value=None),
-            patch("selfsuvis.pipeline.workflows.indexer.ensure_dir"),
+            patch("selfsuvis.pipeline.workflows.indexer._perception.extract_audio", return_value=None),
+            patch("selfsuvis.pipeline.workflows.indexer._perception.ensure_dir"),
         ):
             indexer._run_asr_pass("/fake/video.mp4", records)
 
@@ -144,8 +144,8 @@ class TestRunASRPass:
         wav = str(tmp_path / "audio.wav")
 
         with (
-            patch("selfsuvis.pipeline.workflows.indexer.extract_audio", return_value=wav),
-            patch("selfsuvis.pipeline.workflows.indexer.ensure_dir"),
+            patch("selfsuvis.pipeline.workflows.indexer._perception.extract_audio", return_value=wav),
+            patch("selfsuvis.pipeline.workflows.indexer._perception.ensure_dir"),
         ):
             indexer._run_asr_pass("/fake/video.mp4", records)
 

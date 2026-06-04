@@ -36,7 +36,7 @@ dependencies = [
     "asyncpg>=0.29",
     "pydantic>=2.8",
     "python-dotenv>=1.0",
-    "redis[asyncio]>=5.0",
+    "redis>=5.0",
     "sse-starlette>=1.6",
     "PyYAML>=6.0",
     # AI service clients
