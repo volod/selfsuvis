@@ -242,10 +242,68 @@ class LocalLogger:
     def finish(self):
         self._writer.close()
 
+# BF16 dense tensor-core throughput per SM per clock cycle (FP32 accumulate, no
+# sparsity), keyed by CUDA compute capability. Used to ESTIMATE peak FLOPS for GPUs
+# not in the exact table below so MFU stays meaningful instead of showing 0%.
+# Calibrated against known parts, e.g. RTX 5090 (SM 12.0): 170 SM x 512 x 2.41 GHz
+# ~= 209 TFLOPS, matching the tabulated value.
+_FLOPS_PER_SM_PER_CYCLE_BF16 = {
+    (7, 0): 1024,  # Volta (V100)
+    (7, 5): 512,  # Turing (T4 / RTX 20)
+    (8, 0): 2048,  # Ampere data center (A100 / A30)
+    (8, 6): 512,  # Ampere consumer (RTX 30)
+    (8, 7): 512,  # Ampere Jetson Orin
+    (8, 9): 512,  # Ada Lovelace (RTX 40 / L4 / L40)
+    (9, 0): 2048,  # Hopper (H100 / H200)
+    (10, 0): 2048,  # Blackwell data center (B100 / B200)
+    (12, 0): 512,  # Blackwell consumer / pro (RTX 50 / RTX PRO)
+    (12, 1): 512,  # Blackwell GB10
+}
+
+
+def _query_max_sm_clock_ghz():
+    """Best-effort max SM clock (GHz) from nvidia-smi; None if unavailable."""
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=clocks.max.sm", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if out.returncode == 0:
+            mhz = int(out.stdout.strip().splitlines()[0])
+            if mhz > 0:
+                return mhz / 1000.0
+    except Exception:
+        pass
+    return None
+
+
+def estimate_peak_flops_bf16(compute_cap, sm_count, clock_ghz=None):
+    """Estimate BF16 dense peak FLOPS for a GPU not in the exact table.
+
+    peak = sm_count * flops_per_sm_per_cycle(arch) * clock_hz
+
+    Returns None when SM count is unknown. Approximate (clock and per-SM throughput
+    vary), but good enough to make MFU a useful signal for untabulated GPUs such as
+    laptop / RTX PRO parts.
+    """
+    if not sm_count:
+        return None
+    fpc = _FLOPS_PER_SM_PER_CYCLE_BF16.get(tuple(compute_cap))
+    if fpc is None:
+        # Fall back to the architecture major-version default, else a safe consumer value.
+        fpc = _FLOPS_PER_SM_PER_CYCLE_BF16.get((compute_cap[0], 0), 512)
+    if clock_ghz is None:
+        clock_ghz = _query_max_sm_clock_ghz() or 2.0  # typical boost-clock fallback
+    return sm_count * fpc * clock_ghz * 1e9
+
+
 # hardcoded BF16 peak flops for various GPUs
 # inspired by torchtitan: https://github.com/pytorch/torchtitan/blob/main/torchtitan/tools/utils.py
 # and PR: https://github.com/karpathy/nanochat/pull/147
-def get_peak_flops(device_name: str) -> float:
+def get_peak_flops(device_name: str, device=None) -> float:
     name = device_name.lower()
 
     # Table order matters: more specific patterns first.
@@ -314,6 +372,23 @@ def get_peak_flops(device_name: str) -> float:
         max_comp_units = torch.xpu.get_device_properties("xpu").max_compute_units
         return 512 * max_comp_units * 1300 * 10**6
 
-    # Unknown GPU - return inf so MFU shows as 0% rather than a wrong guess
+    # Unknown GPU: estimate peak FLOPS from SM count, architecture and clock so MFU
+    # stays meaningful instead of inf -> 0% (e.g. laptop / RTX PRO Blackwell parts).
+    if torch.cuda.is_available():
+        try:
+            idx = device if isinstance(device, int) else torch.cuda.current_device()
+            props = torch.cuda.get_device_properties(idx)
+            est = estimate_peak_flops_bf16((props.major, props.minor), props.multi_processor_count)
+            if est:
+                logger.info(
+                    f"Peak FLOPS not tabulated for {device_name}; estimated {est:.2e} "
+                    f"FLOPS (BF16) from {props.multi_processor_count} SMs @ SM "
+                    f"{props.major}.{props.minor}. MFU is approximate."
+                )
+                return est
+        except Exception:
+            pass
+
+    # Could not estimate - return inf so MFU shows as 0% rather than a wrong guess.
     logger.warning(f"Peak flops undefined for: {device_name}, MFU will show as 0%")
     return float('inf')

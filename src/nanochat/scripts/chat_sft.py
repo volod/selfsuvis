@@ -570,6 +570,11 @@ def _request_stop(sig, frame):
 
 _signal.signal(_signal.SIGINT, _request_stop)
 
+wall_start = time.time()  # wall-clock start of this loop session
+wall_elapsed_base = total_training_time  # cumulative wall time from prior sessions (resume)
+_rate_t0 = None  # ETA rate baseline, set after the first step (excludes torch.compile)
+_rate_progress0 = 0.0
+
 while True:
     flops_so_far = num_flops_per_token * args.total_batch_size * step
 
@@ -762,10 +767,24 @@ while True:
     tok_per_sec = int(args.total_batch_size / dt)
     flops_per_sec = num_flops_per_token * args.total_batch_size / dt
     mfu = 100 * flops_per_sec / (gpu_peak_flops * ddp_world_size)
-    if step > 10:
-        total_training_time += dt  # only count the time after the first 10 steps
+    # Real wall-clock elapsed (includes step 1 / torch.compile), cumulative across
+    # resumes, so "total time" is meaningful from the first step.
+    total_training_time = wall_elapsed_base + (time.time() - wall_start)
+    # ETA from observed progress rate; baseline captured after the first step so the
+    # one-off torch.compile cost does not skew it.
+    if _rate_t0 is None:
+        _rate_t0 = time.time()
+        _rate_progress0 = progress
+        eta_str = " | eta: estimating (after step 0 / compile)"
+    elif progress > _rate_progress0:
+        rate = (time.time() - _rate_t0) / (progress - _rate_progress0)  # sec per unit progress
+        eta_seconds = rate * max(0.0, 1.0 - progress)
+        finish_clock = time.strftime("%H:%M:%S", time.localtime(time.time() + eta_seconds))
+        eta_str = f" | eta: {eta_seconds / 60:.1f}m (finish ~{finish_clock})"
+    else:
+        eta_str = ""
     print0(
-        f"step {step:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | epoch: {current_epoch} | total time: {total_training_time / 60:.2f}m"
+        f"step {step:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | epoch: {current_epoch} | total time: {total_training_time / 60:.2f}m{eta_str}"
     )
     if step % 10 == 0:
         run_logger.log(

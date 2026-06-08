@@ -611,7 +611,20 @@ print0(f"Total number of training tokens: {total_tokens:,}")
 print0(
     f"Tokens : Scaling params ratio: {total_batch_size * num_iterations / num_scaling_params:.2f}"
 )  # e.g. Chinchilla was ~20
-print0(f"Total training FLOPs estimate: {num_flops_per_token * total_tokens:e}")
+total_training_flops = num_flops_per_token * total_tokens
+print0(f"Total training FLOPs estimate: {total_training_flops:e}")
+
+# Rough up-front wall-clock estimate (before any steps) from total FLOPs and the GPU's
+# estimated peak, assuming a conservative sustained MFU. Refined precisely after warmup.
+_ASSUMED_MFU = 0.40
+if device_type == "cuda" and gpu_peak_flops not in (0, float("inf")):
+    _rough_seconds = total_training_flops / (gpu_peak_flops * ddp_world_size * _ASSUMED_MFU)
+    _rough_finish = time.strftime("%H:%M:%S", time.localtime(time.time() + _rough_seconds))
+    print0(
+        f"Rough estimated training time: ~{_rough_seconds / 60:.0f}m "
+        f"({_rough_seconds / 3600:.1f}h) assuming ~{_ASSUMED_MFU * 100:.0f}% MFU "
+        f"| projected finish ~{_rough_finish} (refined after warmup)"
+    )
 
 
 # Learning rate schedule (linear warmup, constant, linear warmdown)
@@ -682,8 +695,11 @@ print0(f"Total batch size {total_batch_size:,} => gradient accumulation steps: {
 # EMA decay factor for training loss smoothing (constant, defined here for interrupt handler)
 ema_beta = 0.9
 step_time_ema = None if not resuming else loop_state.get("step_time_ema")
-timed_step_count = 0 if not resuming else loop_state.get("timed_step_count", max(0, step - 10))
+timed_step_count = 0 if not resuming else loop_state.get("timed_step_count", max(0, step - 1))
 recent_step_times = deque(maxlen=50)
+_eta_announced = False  # print the one-time total-time estimate only once
+wall_start = time.time()  # wall-clock start of this loop session
+wall_elapsed_base = total_training_time  # cumulative wall time from prior sessions (resume)
 
 _stop_requested = False
 
@@ -894,25 +910,33 @@ while True:
     tok_per_sec = int(total_batch_size / dt)
     flops_per_sec = num_flops_per_token * total_batch_size / dt
     mfu = 100 * flops_per_sec / (gpu_peak_flops * ddp_world_size)
-    if step > 10:
-        total_training_time += dt  # only count the time after the first 10 steps
+    # Real wall-clock elapsed (includes step 0 / torch.compile and eval gaps),
+    # cumulative across resumes, so "total time" is meaningful from the first step.
+    total_training_time = wall_elapsed_base + (time.time() - wall_start)
+    # Per-step rate stats exclude only step 0 (it carries the one-off torch.compile cost).
+    if step >= 1:
         timed_step_count += 1
         step_time_ema = dt if step_time_ema is None else 0.9 * step_time_ema + 0.1 * dt
         recent_step_times.append(dt)
-    # Calculate ETA from recent step time, with cumulative average as a fallback.
-    if timed_step_count > 0:
-        avg_time_per_step = total_training_time / timed_step_count
-        recent_avg_time = (
-            sum(recent_step_times) / len(recent_step_times)
-            if recent_step_times
-            else avg_time_per_step
-        )
-        eta_time_per_step = max(step_time_ema or avg_time_per_step, recent_avg_time)
+    # ETA from the smoothed/recent clean step time (available from step 1 onward).
+    if recent_step_times:
+        recent_avg_time = sum(recent_step_times) / len(recent_step_times)
+        eta_time_per_step = max(step_time_ema or recent_avg_time, recent_avg_time)
         remaining_steps = num_iterations - step
         eta_seconds = remaining_steps * eta_time_per_step
-        eta_str = f" | eta: {eta_seconds / 60:.1f}m"
+        finish_clock = time.strftime("%H:%M:%S", time.localtime(time.time() + eta_seconds))
+        eta_str = f" | eta: {eta_seconds / 60:.1f}m (finish ~{finish_clock})"
+        # One-time up-front estimate of the full run, as soon as timing stabilizes.
+        if not _eta_announced:
+            total_est_seconds = num_iterations * eta_time_per_step
+            print0(
+                f"Estimated total training time: ~{total_est_seconds / 60:.1f}m "
+                f"({total_est_seconds / 3600:.2f}h) for {num_iterations:,} steps "
+                f"@ ~{eta_time_per_step:.2f}s/step | projected finish ~{finish_clock}"
+            )
+            _eta_announced = True
     else:
-        eta_str = ""
+        eta_str = " | eta: estimating (after step 0 / compile)"
     epoch = f"{dataloader_state_dict['epoch']} pq: {dataloader_state_dict['pq_idx']} rg: {dataloader_state_dict['rg_idx']}"
     print0(
         f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | bf16_mfu: {mfu:.2f} | epoch: {epoch} | total time: {total_training_time / 60:.2f}m{eta_str}"
