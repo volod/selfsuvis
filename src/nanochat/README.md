@@ -15,7 +15,7 @@ Requires [uv](https://docs.astral.sh/uv/) and a CUDA GPU ≥ 8 GB, or CPU.
 All artifacts (dataset, tokenizer, checkpoints, reports) go to `.data/nanochat/`.
 
 ```bash
-make venv         # auto-detect GPU → install CUDA or CPU deps via uv
+make venv         # auto-detect GPU -> install CPU, gpu-cu126, or gpu-cu128 deps
 make install-fa   # (optional) build flash-attn for ~2x training speedup
 make hw-info      # detect GPU + CUDA toolkit, print selected profile
 make train        # full pipeline: tokenizer → pretrain → SFT
@@ -23,8 +23,9 @@ make chat-cli     # interactive CLI chat with the trained model
 make chat-web     # streaming web UI at http://localhost:8000
 ```
 
-`make venv` and `make train` both query `nvidia-smi` at runtime and select the right
-dependencies and model size automatically — no manual configuration needed.
+`make venv` and `make train` both query `nvidia-smi` at runtime, with a
+`/proc/driver/nvidia` fallback for restricted shells, and select the right dependencies
+and model size automatically.
 
 ### Auto-selected training profiles
 
@@ -32,7 +33,7 @@ dependencies and model size automatically — no manual configuration needed.
 |------|---------|-------|-----|-------------|------------|---------------|
 | ≥ 40 GB | `40g` | 20 | 2048 | 16 | 16 | ~430 M |
 | 24–39 GB | `24g` | 18 | 2048 | 8 | 32 | ~330 M |
-| 16–23 GB | `16g` | 14 | 1024 | 8 | 64 | ~160 M |
+| 16–23 GB | `16g` | 14 | 1024 | 16 | 32 | ~160 M |
 | 12–15 GB | `12g` | 12 | 1024 | 4 | 128 | ~110 M |
 | 8–11 GB | `8g` | 10 | 512 | 2 | 512 | ~65 M |
 | CPU / none | `cpu` | 4 | 256 | 4 | 4 | ~10 M |
@@ -47,13 +48,16 @@ Gradient accumulation compensates for the smaller micro-batch on a single device
 ### Environment
 
 ```bash
-make venv        # GPU (CUDA) or CPU — auto-detected
+make venv        # CPU, gpu-cu126, or gpu-cu128 - auto-detected
 make venv-dev    # same + dev extras: pytest, ruff, tensorboard, transformers
 make clean-venv  # remove .venv entirely; re-run make venv to rebuild
 ```
 
-Under the hood, `make venv` runs `uv sync --extra gpu` or `--extra cpu` based on
-`nvidia-smi` output. The virtual environment is created at `src/nanochat/.venv`.
+Under the hood, `make venv` runs `uv sync --extra gpu-cu128`,
+`uv sync --extra gpu-cu126`, or `uv sync --extra cpu` based on detected GPU,
+driver, and compute capability. Blackwell / SM 10.0+ GPUs select `gpu-cu128`.
+Set `NANOCHAT_TORCH_CUDA=cu126` only for pre-Blackwell GPUs that need CUDA 12.6
+PyTorch wheels. The virtual environment is created at `src/nanochat/.venv`.
 
 ### Flash-attn (optional, ~2x speedup)
 
@@ -111,6 +115,7 @@ PROFILE=16g make train                           # force a specific profile
 RUN=myrun make train                             # name this run (enables TensorBoard)
 NANOCHAT_BASE_DIR=/mnt/data/nanochat make train  # custom artifact directory
 NANOCHAT_DTYPE=bfloat16 make train               # override compute precision
+NANOCHAT_TORCH_CUDA=cu126 make venv              # force CUDA 12.6 PyTorch wheels
 ```
 
 ---

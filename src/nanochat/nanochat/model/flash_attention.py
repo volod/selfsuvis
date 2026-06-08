@@ -81,9 +81,9 @@ def _resolve_impl():
         return "fa2"
     if _override_impl == 'sdpa':
         return "sdpa"
-    if HAS_FA3 and COMPUTE_DTYPE == torch.bfloat16:
+    if HAS_FA3 and COMPUTE_DTYPE in (torch.bfloat16, torch.float16):
         return "fa3"
-    if HAS_FA2 and COMPUTE_DTYPE == torch.bfloat16:
+    if HAS_FA2 and COMPUTE_DTYPE in (torch.bfloat16, torch.float16):
         return "fa2"
     return "sdpa"
 

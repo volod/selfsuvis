@@ -13,6 +13,12 @@ DATA_DIR := $(_PROJECT_DATA)/nanochat
 # Shared compiled wheels: <PROJECT_DATA>/wheels/ (shared across all sub-packages).
 WHEEL_CACHE := $(_PROJECT_DATA)/wheels
 
+# Keep uv's cache on the same filesystem as .venv so uv hardlinks wheels instead of
+# full-copying across volumes (the default ~/.cache/uv may be on a different mount).
+# Anchored to the resolved project data dir (.data/uv-cache, alongside wheels/) — no
+# hardcoded paths. Exported so every uv call (uv venv / uv sync / uv pip) picks it up.
+export UV_CACHE_DIR := $(_PROJECT_DATA)/uv-cache
+
 # ── Default target ────────────────────────────────────────────────────────────
 help:
 	@echo "================================================"
@@ -25,7 +31,7 @@ help:
 	@echo ""
 	@echo "  Setup"
 	@echo "  -----"
-	@echo "  make venv          Auto-detect GPU → install CUDA or CPU deps via uv"
+	@echo "  make venv          Auto-detect GPU -> install CPU, gpu-cu126, or gpu-cu128 deps"
 	@echo "  make venv-dev      Same + dev extras (pytest, ruff, tensorboard, transformers)"
 	@echo "  make clean-venv    Remove .venv (re-run make venv afterwards)"
 	@echo "  make install-fa    Build flash-attn; version adapts to detected nvcc:"
@@ -65,6 +71,7 @@ help:
 	@echo "  Env-var overrides:"
 	@echo "    RUN=<name>                  TensorBoard run name (default: auto timestamp)"
 	@echo "    NANOCHAT_BASE_DIR=<path>    Artifact directory (default: ../.data/nanochat/)"
+	@echo "    NANOCHAT_TORCH_CUDA=cu126   Force torch CUDA runtime (auto, cu126, cu128)"
 	@echo ""
 	@echo "  Run  make help  to show this again."
 
@@ -77,28 +84,45 @@ hw-info:
 	@echo ""
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
-# Uses system python3 (stdlib only) to detect GPU before venv exists.
-# Falls back to nvidia-smi if python3 is unavailable.
-_EXTRAS_CMD = python3 scripts/detect_hw.py extras 2>/dev/null \
-              || (command -v nvidia-smi >/dev/null 2>&1 && echo gpu || echo cpu)
+# Detect hardware once via detect_hw.py 'shell' mode (stdlib only, no venv needed)
+# and validate the driver + selected torch CUDA runtime before syncing. Sets $EXTRAS.
+# Falls back to nvidia-smi (assume CUDA 12.6 wheels, broadest driver support) when
+# python3 is unavailable. The calling recipe shell must run with `set -e`.
+_DETECT_EXTRAS = \
+  if command -v python3 >/dev/null 2>&1; then \
+    eval "$$(python3 scripts/detect_hw.py shell)"; EXTRAS="$$HW_EXTRAS"; \
+  else \
+    { command -v nvidia-smi >/dev/null 2>&1 && EXTRAS=gpu-cu126 || EXTRAS=cpu; }; \
+    HW_TORCH_DRIVER_OK=1; HW_TORCH_RUNTIME_OK=1; \
+  fi; \
+  echo "Detected extras: --extra $$EXTRAS"; \
+  if [ "$$EXTRAS" != "cpu" ] && [ "$$HW_TORCH_DRIVER_OK" != "1" ]; then \
+    echo "NVIDIA driver $${HW_DRIVER_VERSION:-unknown} is too old for torch+$${HW_TORCH_CUDA}; update the driver or set NANOCHAT_TORCH_CUDA=cu126 for pre-Blackwell GPUs."; exit 1; \
+  fi; \
+  if [ "$$EXTRAS" != "cpu" ] && [ "$$HW_TORCH_RUNTIME_OK" != "1" ]; then \
+    echo "Selected torch+$${HW_TORCH_CUDA} is not compatible with this GPU; Blackwell / SM 10.0+ requires gpu-cu128."; exit 1; \
+  fi
+
+# flash-attn is an optional ~2x speedup, so a build failure must not fail `make venv`.
+_FA_OPTIONAL_NOTE = flash-attn not built (optional ~2x speedup) - training will use the SDPA fallback. Run 'make install-fa' to retry.
 
 venv:
 	@command -v uv >/dev/null 2>&1 \
 	  || (echo "uv not found — install from https://docs.astral.sh/uv/" && exit 1)
 	@[ -d .venv ] || uv venv
-	$(eval EXTRAS := $(shell $(_EXTRAS_CMD)))
-	@echo "Detected extras: --extra $(EXTRAS)"
-	uv sync --extra $(EXTRAS)
-	@[ "$(EXTRAS)" = "gpu" ] && $(MAKE) _install-fa-if-missing || true
+	@set -e; $(_DETECT_EXTRAS); uv sync --extra "$$EXTRAS"
+	@[ "$$(python3 scripts/detect_hw.py extras 2>/dev/null || echo cpu)" = "cpu" ] \
+	  || $(MAKE) _install-fa-if-missing || echo "$(_FA_OPTIONAL_NOTE)"
 
 venv-dev:
 	@command -v uv >/dev/null 2>&1 \
 	  || (echo "uv not found — install from https://docs.astral.sh/uv/" && exit 1)
 	@[ -d .venv ] || uv venv
-	$(eval EXTRAS := $(shell $(_EXTRAS_CMD)))
-	@echo "Detected extras: --extra $(EXTRAS) --group dev"
-	uv sync --extra $(EXTRAS) --group dev
-	@[ "$(EXTRAS)" = "gpu" ] && $(MAKE) _install-fa-if-missing || true
+	@set -e; $(_DETECT_EXTRAS); \
+	  echo "(plus dev group: pytest, ruff, tensorboard, transformers)"; \
+	  uv sync --extra "$$EXTRAS" --group dev
+	@[ "$$(python3 scripts/detect_hw.py extras 2>/dev/null || echo cpu)" = "cpu" ] \
+	  || $(MAKE) _install-fa-if-missing || echo "$(_FA_OPTIONAL_NOTE)"
 
 clean-venv:
 	@echo "Removing .venv..."
@@ -130,14 +154,25 @@ install-fa:
 	  || { echo "No CUDA GPU detected — skipping flash-attn build."; exit 0; }; \
 	\
 	ARCHES=$$($(PYTHON) -c "import torch; caps=sorted({torch.cuda.get_device_capability(i) for i in range(torch.cuda.device_count())}); print(';'.join(f'{m}.{n}' for m,n in caps))"); \
+	CUDA_HOME=$$(python3 scripts/detect_hw.py cuda_home); \
+	if [ -n "$$CUDA_HOME" ]; then \
+		export CUDA_HOME; \
+		export PATH="$$CUDA_HOME/bin:$$PATH"; \
+	fi; \
 	NVCC_VER=$$(python3 scripts/detect_hw.py nvcc_ver); \
 	COMPILABLE_ARCHES=$$(python3 scripts/detect_hw.py filtered_archs "$$ARCHES" "$$NVCC_VER"); \
 	\
 	echo "GPU architectures : $$ARCHES"; \
+	if [ -n "$$CUDA_HOME" ]; then echo "CUDA_HOME         : $$CUDA_HOME"; fi; \
 	echo "nvcc version      : $$NVCC_VER  (max SM: $$(python3 scripts/detect_hw.py max_sm $$NVCC_VER))"; \
 	if [ "$$COMPILABLE_ARCHES" != "$$ARCHES" ]; then \
 		echo "  Note: nvcc $$NVCC_VER skips archs not in: $$COMPILABLE_ARCHES"; \
 		echo "        Install CUDA 12.8 toolkit for full SM support"; \
+	fi; \
+	if [ -z "$$COMPILABLE_ARCHES" ]; then \
+		echo "No GPU architectures are compilable by nvcc $$NVCC_VER; skipping flash-attn build."; \
+		echo "Install a CUDA toolkit that supports $$ARCHES, then re-run make install-fa."; \
+		exit 0; \
 	fi; \
 	\
 	FA_LATEST=$$($(PYTHON) -c "print(1 if tuple(int(x) for x in '$$NVCC_VER'.split('.')) >= (12,8) else 0)"); \

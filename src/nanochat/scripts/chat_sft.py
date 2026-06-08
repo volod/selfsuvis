@@ -9,66 +9,181 @@ Or torchrun for training:
 torchrun --standalone --nproc_per_node=8 -m scripts.chat_sft -- --device-batch-size=16
 """
 
-import gc
 import argparse
+import gc
 import os
-os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+import signal as _signal
 import time
-import torch
-from nanochat.common import compute_init, compute_cleanup, print0, SilentLogger, LocalLogger, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized
-from nanochat.tokenizer import get_token_bytes
-from nanochat.training.checkpoint_manager import save_checkpoint, load_model, load_optimizer_state
-from nanochat.eval.loss_eval import evaluate_bpb
-import torch.distributed as dist
-from nanochat.model.flash_attention import HAS_FA3
-from nanochat.inference.engine import Engine
-from scripts.chat_eval import run_chat_eval
 
+import torch
+import torch.distributed as dist
+from nanochat.common import (
+    COMPUTE_DTYPE,
+    COMPUTE_DTYPE_REASON,
+    LocalLogger,
+    SilentLogger,
+    autodetect_device_type,
+    compute_cleanup,
+    compute_init,
+    get_base_dir,
+    get_peak_flops,
+    is_ddp_initialized,
+    print0,
+)
+from nanochat.eval.loss_eval import evaluate_bpb
+from nanochat.inference.engine import Engine
+from nanochat.model.flash_attention import HAS_FA3, USE_FA2
+from nanochat.tokenizer import get_token_bytes
+from nanochat.training.checkpoint_manager import load_model, load_optimizer_state, save_checkpoint
+from nanochat.training.report import get_report
+from nanochat.training.schedule import eval_step_count, should_eval_sft
+from scripts.chat_eval import run_chat_eval
 from tasks.common import TaskMixture
+from tasks.customjson import CustomJSON
 from tasks.gsm8k import GSM8K
 from tasks.mmlu import MMLU
 from tasks.smoltalk import SmolTalk
-from tasks.customjson import CustomJSON
 from tasks.spellingbee import SimpleSpelling, SpellingBee
+
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 # -----------------------------------------------------------------------------
 # CLI arguments
 parser = argparse.ArgumentParser(description="Supervised fine-tuning (SFT) the model")
 # Logging
-parser.add_argument("--run", type=str, default=None, help="run name for TensorBoard logging (default: auto timestamp; 'dummy' = silent)")
+parser.add_argument(
+    "--run",
+    type=str,
+    default=None,
+    help="run name for TensorBoard logging (default: auto timestamp; 'dummy' = silent)",
+)
 # Runtime
 parser.add_argument("--device-type", type=str, default="", help="cuda|cpu|mps (empty = autodetect)")
 # Model loading
 parser.add_argument("--model-tag", type=str, default=None, help="model tag to load from")
 parser.add_argument("--model-step", type=int, default=None, help="model step to load from")
-parser.add_argument("--load-optimizer", type=int, default=1, help="warm-start optimizer from pretrained checkpoint (0=no, 1=yes)")
-parser.add_argument("--resume-from-step", type=int, default=-1, help="resume SFT from this step, loading from a previously saved SFT checkpoint")
-parser.add_argument("--save-every", type=int, default=0, help="save SFT checkpoint every N steps so Ctrl-C is resumable (0 = only at end; auto-set by runlocal.sh from HW_SFT_SAVE_EVERY)")
+parser.add_argument(
+    "--load-optimizer",
+    type=int,
+    default=1,
+    help="warm-start optimizer from pretrained checkpoint (0=no, 1=yes)",
+)
+parser.add_argument(
+    "--resume-from-step",
+    type=int,
+    default=-1,
+    help="resume SFT from this step, loading from a previously saved SFT checkpoint",
+)
+parser.add_argument(
+    "--save-every",
+    type=int,
+    default=0,
+    help="save SFT checkpoint every N steps so Ctrl-C is resumable (0 = only at end; auto-set by runlocal.sh from HW_SFT_SAVE_EVERY)",
+)
 # Training horizon
-parser.add_argument("--num-iterations", type=int, default=-1, help="number of optimization steps (-1 = full epoch)")
+parser.add_argument(
+    "--num-iterations", type=int, default=-1, help="number of optimization steps (-1 = full epoch)"
+)
 # Batch sizes (default: inherit from pretrained checkpoint)
-parser.add_argument("--max-seq-len", type=int, default=None, help="max context length (default: inherit from pretrain)")
-parser.add_argument("--device-batch-size", type=int, default=None, help="per-device batch size (default: inherit from pretrain)")
-parser.add_argument("--total-batch-size", type=int, default=None, help="total batch size in tokens (default: inherit from pretrain)")
+parser.add_argument(
+    "--max-seq-len",
+    type=int,
+    default=None,
+    help="max context length (default: inherit from pretrain)",
+)
+parser.add_argument(
+    "--device-batch-size",
+    type=int,
+    default=None,
+    help="per-device batch size (default: inherit from pretrain)",
+)
+parser.add_argument(
+    "--total-batch-size",
+    type=int,
+    default=None,
+    help="total batch size in tokens (default: inherit from pretrain)",
+)
 # Optimization (default: inherit from pretrained checkpoint)
-parser.add_argument("--embedding-lr", type=float, default=None, help="learning rate for embedding parameters (Adam) (default: inherit from pretrain)")
-parser.add_argument("--unembedding-lr", type=float, default=None, help="learning rate for unembedding parameters (Adam) (default: inherit from pretrain)")
-parser.add_argument("--matrix-lr", type=float, default=None, help="learning rate for matrix parameters (Muon) (default: inherit from pretrain)")
-parser.add_argument("--init-lr-frac", type=float, default=0.8, help="initial LR as fraction of base LR")
-parser.add_argument("--warmup-ratio", type=float, default=0.0, help="ratio of iterations for LR warmup")
-parser.add_argument("--warmdown-ratio", type=float, default=0.5, help="ratio of iterations for LR warmdown")
-parser.add_argument("--final-lr-frac", type=float, default=0.0, help="final LR as fraction of initial LR")
+parser.add_argument(
+    "--embedding-lr",
+    type=float,
+    default=None,
+    help="learning rate for embedding parameters (Adam) (default: inherit from pretrain)",
+)
+parser.add_argument(
+    "--unembedding-lr",
+    type=float,
+    default=None,
+    help="learning rate for unembedding parameters (Adam) (default: inherit from pretrain)",
+)
+parser.add_argument(
+    "--matrix-lr",
+    type=float,
+    default=None,
+    help="learning rate for matrix parameters (Muon) (default: inherit from pretrain)",
+)
+parser.add_argument(
+    "--init-lr-frac", type=float, default=0.8, help="initial LR as fraction of base LR"
+)
+parser.add_argument(
+    "--warmup-ratio", type=float, default=0.0, help="ratio of iterations for LR warmup"
+)
+parser.add_argument(
+    "--warmdown-ratio", type=float, default=0.5, help="ratio of iterations for LR warmdown"
+)
+parser.add_argument(
+    "--final-lr-frac", type=float, default=0.0, help="final LR as fraction of initial LR"
+)
 # Evaluation
-parser.add_argument("--eval-every", type=int, default=200, help="evaluate val bpb every N steps (-1 = disable)")
-parser.add_argument("--eval-tokens", type=int, default=40*524288, help="number of tokens to evaluate val loss on")
-parser.add_argument("--chatcore-every", type=int, default=200, help="evaluate ChatCORE metric every N steps (-1 = disable)")
-parser.add_argument("--chatcore-max-cat", type=int, default=-1, help="max problems per categorical task for ChatCORE")
-parser.add_argument("--chatcore-max-sample", type=int, default=24, help="max problems per generative task for ChatCORE")
+parser.add_argument(
+    "--eval-every", type=int, default=200, help="evaluate val bpb every N steps (-1 = disable)"
+)
+parser.add_argument(
+    "--eval-tokens", type=int, default=40 * 524288, help="number of tokens to evaluate val loss on"
+)
+parser.add_argument(
+    "--eval-at-start",
+    action="store_true",
+    help="also evaluate validation bpb at step 0 before training",
+)
+parser.add_argument(
+    "--chatcore-every",
+    type=int,
+    default=200,
+    help="evaluate ChatCORE metric every N steps (-1 = disable)",
+)
+parser.add_argument(
+    "--chatcore-max-cat",
+    type=int,
+    default=-1,
+    help="max problems per categorical task for ChatCORE",
+)
+parser.add_argument(
+    "--chatcore-max-sample",
+    type=int,
+    default=24,
+    help="max problems per generative task for ChatCORE",
+)
 # Data loading
-parser.add_argument("--loader-buffer-size", type=int, default=1000, help="conversations pre-fetched for best-fit packing (larger = less padding; auto-set by runlocal.sh from HW_SFT_BUFFER)")
+parser.add_argument(
+    "--loader-buffer-size",
+    type=int,
+    default=1000,
+    help="conversations pre-fetched for best-fit packing (larger = less padding; auto-set by runlocal.sh from HW_SFT_BUFFER)",
+)
 # Data mixture
-parser.add_argument("--mmlu-epochs", type=int, default=3, help="number of epochs of MMLU in training mixture (teaches Multiple Choice)")
-parser.add_argument("--gsm8k-epochs", type=int, default=4, help="number of epochs of GSM8K in training mixture (teaches Math and Tool Use)")
+parser.add_argument(
+    "--mmlu-epochs",
+    type=int,
+    default=3,
+    help="number of epochs of MMLU in training mixture (teaches Multiple Choice)",
+)
+parser.add_argument(
+    "--gsm8k-epochs",
+    type=int,
+    default=4,
+    help="number of epochs of GSM8K in training mixture (teaches Math and Tool Use)",
+)
 args = parser.parse_args()
 user_config = vars(args).copy()
 # -----------------------------------------------------------------------------
@@ -85,7 +200,7 @@ if device_type == "cuda":
     gpu_peak_flops = get_peak_flops(gpu_device_name)
     print0(f"GPU: {gpu_device_name} | Peak FLOPS (BF16): {gpu_peak_flops:.2e}")
 else:
-    gpu_peak_flops = float('inf')  # MFU not meaningful for CPU/MPS
+    gpu_peak_flops = float("inf")  # MFU not meaningful for CPU/MPS
 
 # logging init
 _run_name = args.run or time.strftime("%Y%m%d_%H%M%S")
@@ -94,13 +209,11 @@ if _run_name == "dummy" or not master_process:
 else:
     run_logger = LocalLogger(_run_name, project="nanochat-sft")
 
-# Flash Attention status
-from nanochat.model.flash_attention import HAS_FA2, USE_FA2
 if USE_FA2 or HAS_FA3:
-    print0(f"✓ Using Flash Attention {'3' if HAS_FA3 else '2'} — efficient kernel active.")
+    print0(f"[OK] Using Flash Attention {'3' if HAS_FA3 else '2'} - efficient kernel active.")
 else:
     print0("WARNING: flash-attn not installed. Run 'make install-fa' for a ~2x speedup.")
-    print0("WARNING: Falling back to PyTorch SDPA — training will be less efficient.")
+    print0("WARNING: Falling back to PyTorch SDPA - training will be less efficient.")
 
 # Load the model and tokenizer.
 # Two cases:
@@ -109,19 +222,23 @@ else:
 resuming = args.resume_from_step >= 0
 if resuming:
     print0(f"Resuming SFT from step {args.resume_from_step} (loading SFT checkpoint)")
-    model, tokenizer, meta = load_model("sft", device, phase="train", model_tag=args.model_tag, step=args.resume_from_step)
+    model, tokenizer, meta = load_model(
+        "sft", device, phase="train", model_tag=args.model_tag, step=args.resume_from_step
+    )
 else:
-    model, tokenizer, meta = load_model("base", device, phase="train", model_tag=args.model_tag, step=args.model_step)
+    model, tokenizer, meta = load_model(
+        "base", device, phase="train", model_tag=args.model_tag, step=args.model_step
+    )
 
 # Inherit training hyperparameters from pretrained checkpoint (None = inherit, explicit value = override)
 pretrain_user_config = meta.get("user_config", {})
 for name, fallback, source in [
-    ("max_seq_len",       2048,  meta),
-    ("device_batch_size", 32,    meta),
-    ("total_batch_size",  524288, meta),
-    ("embedding_lr",      0.3,   pretrain_user_config),
-    ("unembedding_lr",    0.004, pretrain_user_config),
-    ("matrix_lr",         0.02,  pretrain_user_config),
+    ("max_seq_len", 2048, meta),
+    ("device_batch_size", 32, meta),
+    ("total_batch_size", 524288, meta),
+    ("embedding_lr", 0.3, pretrain_user_config),
+    ("unembedding_lr", 0.004, pretrain_user_config),
+    ("matrix_lr", 0.02, pretrain_user_config),
 ]:
     arg_val = getattr(args, name)
     pretrain_val = source.get(name)
@@ -130,7 +247,9 @@ for name, fallback, source in [
         setattr(args, name, resolved)
         print0(f"Inherited {name}={resolved} from pretrained checkpoint")
     elif pretrain_val is not None and arg_val != pretrain_val:
-        print0(f"NOTE: --{name.replace('_', '-')}={arg_val} overrides pretrained value of {pretrain_val}")
+        print0(
+            f"NOTE: --{name.replace('_', '-')}={arg_val} overrides pretrained value of {pretrain_val}"
+        )
     else:
         print0(f"Using {name}={arg_val}")
 
@@ -138,18 +257,31 @@ orig_model = model
 model = torch.compile(model, dynamic=False)
 depth = model.config.n_layer
 num_flops_per_token = model.estimate_flops()
-tokens_per_fwdbwd = args.device_batch_size * args.max_seq_len # tokens per iteration for a single rank
-world_tokens_per_fwdbwd = tokens_per_fwdbwd * ddp_world_size # total tokens per iteration for all ranks
+tokens_per_fwdbwd = (
+    args.device_batch_size * args.max_seq_len
+)  # tokens per iteration for a single rank
+world_tokens_per_fwdbwd = (
+    tokens_per_fwdbwd * ddp_world_size
+)  # total tokens per iteration for all ranks
 assert args.total_batch_size % world_tokens_per_fwdbwd == 0
 grad_accum_steps = args.total_batch_size // world_tokens_per_fwdbwd
-print0(f"Tokens / micro-batch / rank: {args.device_batch_size} x {args.max_seq_len} = {tokens_per_fwdbwd:,}")
+print0(
+    f"Tokens / micro-batch / rank: {args.device_batch_size} x {args.max_seq_len} = {tokens_per_fwdbwd:,}"
+)
 print0(f"Tokens / micro-batch: {world_tokens_per_fwdbwd:,}")
-print0(f"Total batch size {args.total_batch_size:,} => gradient accumulation steps: {grad_accum_steps}")
+print0(
+    f"Total batch size {args.total_batch_size:,} => gradient accumulation steps: {grad_accum_steps}"
+)
 token_bytes = get_token_bytes(device=device)
 
 # Initialize the Optimizer (combined MuonAdamW: Muon for matrix params, AdamW for rest)
 # Note that pretraining ramps weight_decay to zero by end of pretraining, so SFT continues with zero
-optimizer = model.setup_optimizer(unembedding_lr=args.unembedding_lr, embedding_lr=args.embedding_lr, matrix_lr=args.matrix_lr, weight_decay=0.0)
+optimizer = model.setup_optimizer(
+    unembedding_lr=args.unembedding_lr,
+    embedding_lr=args.embedding_lr,
+    matrix_lr=args.matrix_lr,
+    weight_decay=0.0,
+)
 
 # Optionally warm-start optimizer from pretrained checkpoint (momentum buffers etc.)
 # Note: load_state_dict overwrites param_group metadata (LRs, betas, etc.) with the
@@ -158,7 +290,9 @@ optimizer = model.setup_optimizer(unembedding_lr=args.unembedding_lr, embedding_
 base_dir = get_base_dir()
 if resuming:
     # Resuming from a mid-run SFT checkpoint: restore optimizer state from it
-    optimizer_data = load_optimizer_state("sft", device, rank=ddp_rank, model_tag=args.model_tag, step=args.resume_from_step)
+    optimizer_data = load_optimizer_state(
+        "sft", device, rank=ddp_rank, model_tag=args.model_tag, step=args.resume_from_step
+    )
     if optimizer_data is not None:
         base_lrs = [group["lr"] for group in optimizer.param_groups]
         optimizer.load_state_dict(optimizer_data)
@@ -171,16 +305,22 @@ if resuming:
 elif args.load_optimizer:
     # Fresh SFT start: warm-start optimizer from the base pretrain checkpoint so
     # that Muon momentum buffers are pre-filled (slightly better convergence).
-    optimizer_data = load_optimizer_state("base", device, rank=ddp_rank, model_tag=args.model_tag, step=args.model_step)
+    optimizer_data = load_optimizer_state(
+        "base", device, rank=ddp_rank, model_tag=args.model_tag, step=args.model_step
+    )
     if optimizer_data is not None:
         base_lrs = [group["lr"] for group in optimizer.param_groups]
         optimizer.load_state_dict(optimizer_data)
         del optimizer_data
         for group, base_lr in zip(optimizer.param_groups, base_lrs):
             group["lr"] = base_lr
-        print0("Loaded optimizer state from pretrained checkpoint (momentum buffers only, LRs reset)")
+        print0(
+            "Loaded optimizer state from pretrained checkpoint (momentum buffers only, LRs reset)"
+        )
     else:
-        print0("WARNING: optimizer checkpoint not found, starting with fresh optimizer (slightly worse)")
+        print0(
+            "WARNING: optimizer checkpoint not found, starting with fresh optimizer (slightly worse)"
+        )
 
 # GradScaler for fp16 training (bf16/fp32 don't need it)
 scaler = torch.amp.GradScaler() if COMPUTE_DTYPE == torch.float16 else None
@@ -195,27 +335,45 @@ for group in optimizer.param_groups:
 # SFT data mixture and DataLoader
 identity_conversations_filepath = os.path.join(base_dir, "identity_conversations.jsonl")
 train_tasks = [
-    SmolTalk(split="train"), # 460K rows of general conversations
-    CustomJSON(filepath=identity_conversations_filepath), # 1000 rows of synthetic identity conversations
-    CustomJSON(filepath=identity_conversations_filepath), # 2 epochs of these
-    *[MMLU(subset="all", split="auxiliary_train") for _ in range(args.mmlu_epochs)], # 100K rows per epoch
-    *[GSM8K(subset="main", split="train") for _ in range(args.gsm8k_epochs)], # 8K rows per epoch
-    SimpleSpelling(size=200000, split="train"), # 200K rows of Simple Spelling (e.g. spell the word 'apple')
-    SpellingBee(size=80000, split="train"), # 80K rows of Spelling Bee (e.g. how many 'r' are in 'strawberry'?)
+    SmolTalk(split="train"),  # 460K rows of general conversations
+    CustomJSON(
+        filepath=identity_conversations_filepath
+    ),  # 1000 rows of synthetic identity conversations
+    CustomJSON(filepath=identity_conversations_filepath),  # 2 epochs of these
+    *[
+        MMLU(subset="all", split="auxiliary_train") for _ in range(args.mmlu_epochs)
+    ],  # 100K rows per epoch
+    *[GSM8K(subset="main", split="train") for _ in range(args.gsm8k_epochs)],  # 8K rows per epoch
+    SimpleSpelling(
+        size=200000, split="train"
+    ),  # 200K rows of Simple Spelling (e.g. spell the word 'apple')
+    SpellingBee(
+        size=80000, split="train"
+    ),  # 80K rows of Spelling Bee (e.g. how many 'r' are in 'strawberry'?)
 ]
 train_dataset = TaskMixture(train_tasks)
-print0(f"Training mixture: {len(train_dataset):,} rows (MMLU x{args.mmlu_epochs}, GSM8K x{args.gsm8k_epochs})")
-val_dataset = TaskMixture([
-    SmolTalk(split="test"), # 24K rows in test set
-    MMLU(subset="all", split="test", stop=5200), # 14K rows in test set, use only 5.2K to match the train ratios
-    GSM8K(subset="main", split="test", stop=420), # 1.32K rows in test set, use only 420 to match the train ratios
-]) # total: 24K + 5.2K + 0.42K ~= 29.6K rows
+print0(
+    f"Training mixture: {len(train_dataset):,} rows (MMLU x{args.mmlu_epochs}, GSM8K x{args.gsm8k_epochs})"
+)
+val_dataset = TaskMixture(
+    [
+        SmolTalk(split="test"),  # 24K rows in test set
+        MMLU(
+            subset="all", split="test", stop=5200
+        ),  # 14K rows in test set, use only 5.2K to match the train ratios
+        GSM8K(
+            subset="main", split="test", stop=420
+        ),  # 1.32K rows in test set, use only 420 to match the train ratios
+    ]
+)  # total: 24K + 5.2K + 0.42K ~= 29.6K rows
 # DataLoader is defined here, it emits inputs, targets : 2D tensors of shape (device_batch_size, max_seq_len)
 # A big problem is that we don't know the final num_iterations in advance. So we create
 # these two global variables and update them from within the data generator.
-last_step = False # we will toggle this to True when we reach the end of the training dataset
-approx_progress = 0.0 # will go from 0 to 1 over the course of the epoch
-current_epoch = 1 # track epoch for logging
+last_step = False  # we will toggle this to True when we reach the end of the training dataset
+approx_progress = 0.0  # will go from 0 to 1 over the course of the epoch
+current_epoch = 1  # track epoch for logging
+
+
 def sft_data_generator_bos_bestfit(split, buffer_size=None):
     """
     BOS-aligned dataloader for SFT with bestfit-pad packing.
@@ -329,8 +487,16 @@ def sft_data_generator_bos_bestfit(split, buffer_size=None):
         # Build tensors
         use_cuda = device_type == "cuda"
         batch_tensor = torch.tensor(rows, dtype=torch.long, pin_memory=use_cuda)
-        inputs = batch_tensor[:, :-1].to(device=device, dtype=torch.int32, non_blocking=use_cuda).contiguous()
-        targets = batch_tensor[:, 1:].to(device=device, dtype=torch.int64, non_blocking=use_cuda).contiguous()
+        inputs = (
+            batch_tensor[:, :-1]
+            .to(device=device, dtype=torch.int32, non_blocking=use_cuda)
+            .contiguous()
+        )
+        targets = (
+            batch_tensor[:, 1:]
+            .to(device=device, dtype=torch.int64, non_blocking=use_cuda)
+            .contiguous()
+        )
 
         # Apply the loss mask from render_conversation (mask=1 for assistant completions,
         # mask=0 for user prompts, BOS, special tokens, tool outputs). mask[1:] aligns
@@ -343,16 +509,23 @@ def sft_data_generator_bos_bestfit(split, buffer_size=None):
         # For each row, positions >= (content_length - 1) in targets should be masked
         for i, content_len in enumerate(row_lengths):
             if content_len < row_capacity:
-                targets[i, content_len-1:] = -1
+                targets[i, content_len - 1 :] = -1
 
         yield inputs, targets
 
+
 train_loader = sft_data_generator_bos_bestfit("train", buffer_size=args.loader_buffer_size)
-build_val_loader = lambda: sft_data_generator_bos_bestfit("val", buffer_size=args.loader_buffer_size)
-progress = 0 # will go from 0 to 1 over the course of the epoch
+
+
+def build_val_loader():
+    return sft_data_generator_bos_bestfit("val", buffer_size=args.loader_buffer_size)
+
+
+progress = 0  # will go from 0 to 1 over the course of the epoch
+
 
 # Learning rate schedule (linear warmup, constant, linear warmdown)
-# Same shape as base_train but uses progress (0→1) instead of absolute step counts,
+# Same shape as base_train but uses progress (0 to 1) instead of absolute step counts,
 # because SFT doesn't always know num_iterations in advance (dataset-driven stopping).
 def get_lr_multiplier(progress):
     if progress < args.warmup_ratio:
@@ -363,33 +536,38 @@ def get_lr_multiplier(progress):
         decay = (progress - (1.0 - args.warmdown_ratio)) / args.warmdown_ratio
         return (1 - decay) * 1.0 + decay * args.final_lr_frac
 
+
 # Momentum scheduler for Muon optimizer
 def get_muon_momentum(it):
     frac = min(it / 300, 1)
     momentum = (1 - frac) * 0.85 + frac * 0.95
     return momentum
 
+
 # -----------------------------------------------------------------------------
 # Training loop
-x, y = next(train_loader) # prefetch the very first batch of data
+x, y = next(train_loader)  # prefetch the very first batch of data
 min_val_bpb = float("inf")
-smooth_train_loss = 0 # EMA of training loss
-ema_beta = 0.9 # EMA decay factor
-total_training_time = 0 # total wall-clock time of training
-val_bpb = None           # set on first eval; guarded below to avoid NameError on early save
+smooth_train_loss = 0  # EMA of training loss
+ema_beta = 0.9  # EMA decay factor
+total_training_time = 0  # total wall-clock time of training
+val_bpb = None  # set on first eval; guarded below to avoid NameError on early save
 # When resuming from a mid-run SFT checkpoint, restore step and LR-schedule position.
 # The data generator always restarts from the beginning of the dataset (no exact
 # position restore), but the LR schedule continues correctly via saved progress.
 step = args.resume_from_step if resuming else 0
 progress = meta.get("sft_progress", 0.0) if resuming else 0.0
 
-import signal as _signal
 _stop_requested = False
+
+
 def _request_stop(sig, frame):
     global _stop_requested
     if not _stop_requested:
-        print0("\nInterrupt received — finishing current step then stopping...")
+        print0("\nInterrupt received - finishing current step then stopping...")
         _stop_requested = True
+
+
 _signal.signal(_signal.SIGINT, _request_stop)
 
 while True:
@@ -402,20 +580,28 @@ while True:
         last_step = bool(last_step_tensor.item())
 
     # once in a while: evaluate the val bpb (all ranks participate)
-    if last_step or (args.eval_every > 0 and step % args.eval_every == 0):
+    should_eval = should_eval_sft(step, args.eval_every, args.eval_at_start, last_step)
+    if should_eval:
         model.eval()
         val_loader = build_val_loader()
-        eval_steps = args.eval_tokens // (args.device_batch_size * args.max_seq_len * ddp_world_size)
+        eval_steps = eval_step_count(
+            args.eval_tokens,
+            args.device_batch_size,
+            args.max_seq_len,
+            ddp_world_size,
+        )
         val_bpb = evaluate_bpb(model, val_loader, eval_steps, token_bytes)
         print0(f"Step {step:05d} | Validation bpb: {val_bpb:.4f}")
         if val_bpb < min_val_bpb:
             min_val_bpb = val_bpb
-        run_logger.log({
-            "step": step,
-            "total_training_flops": flops_so_far,
-            "total_training_time": total_training_time,
-            "val/bpb": val_bpb,
-        })
+        run_logger.log(
+            {
+                "step": step,
+                "total_training_flops": flops_so_far,
+                "total_training_time": total_training_time,
+                "val/bpb": val_bpb,
+            }
+        )
         model.train()
 
     # once in a while: estimate the ChatCORE metric (all ranks participate)
@@ -424,42 +610,61 @@ while True:
     if args.chatcore_every > 0 and (last_step or (step > 0 and step % args.chatcore_every == 0)):
         model.eval()
         engine = Engine(orig_model, tokenizer)
-        all_tasks = ['ARC-Easy', 'ARC-Challenge', 'MMLU', 'GSM8K', 'HumanEval', 'SpellingBee']
-        categorical_tasks = {'ARC-Easy', 'ARC-Challenge', 'MMLU'}
+        all_tasks = ["ARC-Easy", "ARC-Challenge", "MMLU", "GSM8K", "HumanEval", "SpellingBee"]
+        categorical_tasks = {"ARC-Easy", "ARC-Challenge", "MMLU"}
         baseline_accuracies = {
-            'ARC-Easy': 0.25, 'ARC-Challenge': 0.25, 'MMLU': 0.25,
-            'GSM8K': 0.0, 'HumanEval': 0.0, 'SpellingBee': 0.0,
+            "ARC-Easy": 0.25,
+            "ARC-Challenge": 0.25,
+            "MMLU": 0.25,
+            "GSM8K": 0.0,
+            "HumanEval": 0.0,
+            "SpellingBee": 0.0,
         }
         task_results = {}
         for task_name in all_tasks:
-            limit = args.chatcore_max_cat if task_name in categorical_tasks else args.chatcore_max_sample
+            limit = (
+                args.chatcore_max_cat
+                if task_name in categorical_tasks
+                else args.chatcore_max_sample
+            )
             max_problems = None if limit < 0 else limit  # -1 means no limit
-            acc = run_chat_eval(task_name, orig_model, tokenizer, engine,
-                                batch_size=args.device_batch_size, max_problems=max_problems)
+            acc = run_chat_eval(
+                task_name,
+                orig_model,
+                tokenizer,
+                engine,
+                batch_size=args.device_batch_size,
+                max_problems=max_problems,
+            )
             task_results[task_name] = acc
-            print0(f"  {task_name}: {100*acc:.2f}%")
+            print0(f"  {task_name}: {100 * acc:.2f}%")
+
         # Compute ChatCORE metrics (mean centered accuracy, ranges from 0=random to 1=perfect)
         def centered_mean(tasks):
-            return sum((task_results[t] - baseline_accuracies[t]) / (1.0 - baseline_accuracies[t]) for t in tasks) / len(tasks)
+            return sum(
+                (task_results[t] - baseline_accuracies[t]) / (1.0 - baseline_accuracies[t])
+                for t in tasks
+            ) / len(tasks)
+
         chatcore = centered_mean(all_tasks)
         chatcore_cat = centered_mean(categorical_tasks)
         print0(f"Step {step:05d} | ChatCORE: {chatcore:.4f} | ChatCORE_cat: {chatcore_cat:.4f}")
-        run_logger.log({
-            "step": step,
-            "total_training_flops": flops_so_far,
-            "chatcore_metric": chatcore,
-            "chatcore_cat": chatcore_cat,
-            **{f"chatcore/{task_name}": acc for task_name, acc in task_results.items()},
-        })
+        run_logger.log(
+            {
+                "step": step,
+                "total_training_flops": flops_so_far,
+                "chatcore_metric": chatcore,
+                "chatcore_cat": chatcore_cat,
+                **{f"chatcore/{task_name}": acc for task_name, acc in task_results.items()},
+            }
+        )
         model.train()
 
     # Save checkpoint: always on clean completion (last_step), and optionally
     # every save_every steps so that Ctrl-C is resumable via --resume-from-step.
-    _should_save = last_step or (
-        args.save_every > 0 and step > 0 and step % args.save_every == 0
-    )
+    _should_save = last_step or (args.save_every > 0 and step > 0 and step % args.save_every == 0)
     if _should_save:
-        output_dirname = args.model_tag if args.model_tag else f"d{depth}" # e.g. d12
+        output_dirname = args.model_tag if args.model_tag else f"d{depth}"  # e.g. d12
         checkpoint_dir = os.path.join(base_dir, "chatsft_checkpoints", output_dirname)
         save_checkpoint(
             checkpoint_dir,
@@ -468,7 +673,7 @@ while True:
             optimizer.state_dict(),
             {
                 "step": step,
-                "val_bpb": val_bpb,   # None until first eval; that is fine
+                "val_bpb": val_bpb,  # None until first eval; that is fine
                 "sft_progress": progress,  # LR-schedule position for resume
                 "model_config": {
                     "sequence_len": args.max_seq_len,
@@ -479,7 +684,7 @@ while True:
                     "n_embd": model.config.n_embd,
                     "window_pattern": model.config.window_pattern,
                 },
-                "user_config": user_config, # inputs to the training script
+                "user_config": user_config,  # inputs to the training script
             },
             rank=ddp_rank,
         )
@@ -494,19 +699,24 @@ while True:
     # evaluate the gradient
     synchronize()
     t0 = time.time()
-    nan_detected = False
+    # Running on-device sum of detached micro-batch losses; NaN propagates into the sum
+    # so we check once per step instead of forcing a CPU-GPU sync every micro-step.
+    accum_loss = None
     for micro_step in range(grad_accum_steps):
         loss = model(x, y)
-        train_loss = loss.detach() # for logging
-        if not nan_detected and not (train_loss == train_loss):  # NaN self-comparison
-            nan_detected = True
-        loss = loss / grad_accum_steps # each .backward() is a grad sum => normalize loss here
+        train_loss = loss.detach()  # last micro-batch loss, for logging
+        accum_loss = train_loss if accum_loss is None else accum_loss + train_loss
+        loss = loss / grad_accum_steps  # each .backward() is a grad sum => normalize loss here
         if scaler is not None:
             scaler.scale(loss).backward()
         else:
             loss.backward()
-        x, y = next(train_loader) # prefetch the next batch while the GPU is busy with forward/backward
-        progress = max(progress, approx_progress) # only increase progress monotonically
+        x, y = next(
+            train_loader
+        )  # prefetch the next batch while the GPU is busy with forward/backward
+        progress = max(progress, approx_progress)  # only increase progress monotonically
+    # NaN detection: a single device sync per step (vs one per micro-step before).
+    nan_detected = bool(torch.isnan(accum_loss).item())
     # Synchronize NaN flag across DDP ranks so all ranks skip together
     if ddp and nan_detected:
         nan_tensor = torch.tensor(1, dtype=torch.int32, device=device)
@@ -517,10 +727,12 @@ while True:
     muon_momentum = get_muon_momentum(step)
     for group in optimizer.param_groups:
         group["lr"] = group["initial_lr"] * lrm
-        if group['kind'] == 'muon':
+        if group["kind"] == "muon":
             group["momentum"] = muon_momentum
     if nan_detected:
-        print0(f"step {step+1:05d} | WARNING: NaN loss — skipping optimizer step, zeroing gradients")
+        print0(
+            f"step {step + 1:05d} | WARNING: NaN loss - skipping optimizer step, zeroing gradients"
+        )
         model.zero_grad(set_to_none=True)
     elif scaler is not None:
         scaler.unscale_(optimizer)
@@ -545,59 +757,67 @@ while True:
     raw_loss = train_loss.item()
     if raw_loss == raw_loss:  # False when raw_loss is NaN
         smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * raw_loss
-    debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1)) # debias the EMA
+    debiased_smooth_loss = smooth_train_loss / (1 - ema_beta ** (step + 1))  # debias the EMA
     pct_done = 100 * progress
     tok_per_sec = int(args.total_batch_size / dt)
     flops_per_sec = num_flops_per_token * args.total_batch_size / dt
     mfu = 100 * flops_per_sec / (gpu_peak_flops * ddp_world_size)
     if step > 10:
-        total_training_time += dt # only count the time after the first 10 steps
-    print0(f"step {step:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | epoch: {current_epoch} | total time: {total_training_time/60:.2f}m")
+        total_training_time += dt  # only count the time after the first 10 steps
+    print0(
+        f"step {step:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | epoch: {current_epoch} | total time: {total_training_time / 60:.2f}m"
+    )
     if step % 10 == 0:
-        run_logger.log({
-            "step": step,
-            "total_training_flops": flops_so_far,
-            "total_training_time": total_training_time,
-            "train/loss": debiased_smooth_loss,
-            "train/lrm": lrm,
-            "train/dt": dt,
-            "train/tok_per_sec": tok_per_sec,
-            "train/mfu": mfu,
-            "train/epoch": current_epoch,
-        })
+        run_logger.log(
+            {
+                "step": step,
+                "total_training_flops": flops_so_far,
+                "total_training_time": total_training_time,
+                "train/loss": debiased_smooth_loss,
+                "train/lrm": lrm,
+                "train/dt": dt,
+                "train/tok_per_sec": tok_per_sec,
+                "train/mfu": mfu,
+                "train/epoch": current_epoch,
+            }
+        )
 
     # The garbage collector spends ~500ms scanning for cycles quite frequently.
     # We manually manage it to avoid these pauses during training.
     if step == 1:
-        gc.collect() # manually collect a lot of garbage from setup
-        gc.freeze() # freeze all currently surviving objects and exclude them from GC
-        gc.disable() # disable GC entirely except:
-    elif step % 5000 == 0: # every 5000 steps...
-        gc.collect() # manually collect, just to be safe for very long runs
+        gc.collect()  # manually collect a lot of garbage from setup
+        gc.freeze()  # freeze all currently surviving objects and exclude them from GC
+        gc.disable()  # disable GC entirely except:
+    elif step % 5000 == 0:  # every 5000 steps...
+        gc.collect()  # manually collect, just to be safe for very long runs
 
 print0(f"Peak memory usage: {get_max_memory() / 1024 / 1024:.2f}MiB")
-print0(f"Total training time: {total_training_time/60:.2f}m")
+print0(f"Total training time: {total_training_time / 60:.2f}m")
 print0(f"Minimum validation bpb: {min_val_bpb:.4f}")
 
 if _stop_requested:
     _smooth = smooth_train_loss / (1 - ema_beta ** max(step, 1))
     # Reconstruct the command that was used, so the user can copy-paste it.
-    _run_flag  = f" --run={args.run}"               if args.run        else ""
-    _tag_flag  = f" --model-tag={args.model_tag}"   if args.model_tag  else ""
+    _run_flag = f" --run={args.run}" if args.run else ""
+    _tag_flag = f" --model-tag={args.model_tag}" if args.model_tag else ""
     _mstep_flag = f" --model-step={args.model_step}" if args.model_step else ""
-    _save_flag = f" --save-every={args.save_every}"  if args.save_every else ""
-    _base_cmd  = (f"python -m scripts.chat_sft"
-                  f" --device-batch-size={args.device_batch_size}"
-                  f" --loader-buffer-size={args.loader_buffer_size}"
-                  f" --eval-every={args.eval_every}"
-                  f" --chatcore-every={args.chatcore_every}"
-                  f"{_save_flag}{_run_flag}{_tag_flag}{_mstep_flag}")
+    _save_flag = f" --save-every={args.save_every}" if args.save_every else ""
+    _base_cmd = (
+        "python -m scripts.chat_sft"
+        f" --device-batch-size={args.device_batch_size}"
+        f" --loader-buffer-size={args.loader_buffer_size}"
+        f" --eval-every={args.eval_every}"
+        f" --chatcore-every={args.chatcore_every}"
+        f"{_save_flag}{_run_flag}{_tag_flag}{_mstep_flag}"
+    )
     # Work out the last checkpoint step that was actually saved
     _last_ckpt = 0
     if args.save_every > 0 and step > 0:
         _last_ckpt = (step // args.save_every) * args.save_every
     print0("-" * 60)
-    print0(f"Stopped early at step {step}  |  smooth loss: {_smooth:.6f}  |  val bpb: {min_val_bpb:.6f}")
+    print0(
+        f"Stopped early at step {step}  |  smooth loss: {_smooth:.6f}  |  val bpb: {min_val_bpb:.6f}"
+    )
     print0("")
     if step == 0:
         print0("No training steps completed — nothing to resume.")
@@ -612,7 +832,7 @@ if _stop_requested:
         if step - _last_ckpt > 0:
             print0(f"  ({step - _last_ckpt} steps since last save will be repeated)")
     else:
-        print0(f"No SFT checkpoint was saved — SFT writes checkpoints only at --save-every")
+        print0("No SFT checkpoint was saved - SFT writes checkpoints only at --save-every")
         print0(f"intervals or on clean completion. The {step} steps of progress are lost.")
         print0("")
         print0("To restart SFT from the base pretrain model:")
@@ -622,17 +842,19 @@ if _stop_requested:
         print0("or use 'make train' which sets this automatically from your GPU profile.")
     print0("-" * 60)
 else:
-    from nanochat.training.report import get_report
-    get_report().log(section="SFT", data=[
-    user_config, # CLI args
-    { # stats about the training setup
-        "Number of iterations": step,
-        "DDP world size": ddp_world_size,
-    },
-    {
-        "Minimum validation bpb": min_val_bpb,
-    }
-])
+    get_report().log(
+        section="SFT",
+        data=[
+            user_config,  # CLI args
+            {  # stats about the training setup
+                "Number of iterations": step,
+                "DDP world size": ddp_world_size,
+            },
+            {
+                "Minimum validation bpb": min_val_bpb,
+            },
+        ],
+    )
 
 run_logger.finish()
 compute_cleanup()

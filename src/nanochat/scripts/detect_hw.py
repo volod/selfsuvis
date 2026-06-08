@@ -8,7 +8,7 @@ parameters needed to pick uv extras and configure the training run.
 Usage:
     python3 scripts/detect_hw.py                        # human-readable info table
     python3 scripts/detect_hw.py profile                # profile name: cpu | 8g | ...
-    python3 scripts/detect_hw.py extras                 # uv extras: cpu | gpu
+    python3 scripts/detect_hw.py extras                 # uv extras: cpu | gpu-cu126 | gpu-cu128
     python3 scripts/detect_hw.py shell                  # bash eval-able KEY=VALUE lines
     python3 scripts/detect_hw.py max_jobs               # safe MAX_JOBS for CUDA builds
     python3 scripts/detect_hw.py nvcc_ver               # best nvcc version e.g. "12.6" or "0.0"
@@ -16,8 +16,15 @@ Usage:
     python3 scripts/detect_hw.py max_sm VER             # max compilable SM for nvcc version
     python3 scripts/detect_hw.py filtered_archs A V     # filter arch list A by nvcc version V
     python3 scripts/detect_hw.py arch                   # architecture name: ada | hopper | blackwell | ...
+    python3 scripts/detect_hw.py driver_ver             # NVIDIA driver version or ""
+    python3 scripts/detect_hw.py torch_cuda             # selected torch CUDA runtime: cpu | cu126 | cu128
+    python3 scripts/detect_hw.py cu126_driver_ok        # 1 if driver can run CUDA 12.6 wheels
+    python3 scripts/detect_hw.py cu128_driver_ok        # 1 if driver can run CUDA 12.8 wheels
+    python3 scripts/detect_hw.py torch_driver_ok        # 1 if driver can run selected torch runtime
+    python3 scripts/detect_hw.py torch_runtime_ok       # 1 if selected torch runtime supports detected GPU
 """
 
+import glob
 import os
 import re
 import shlex
@@ -65,8 +72,10 @@ PROFILES = [
 # CUDA 12.8 added SM 10.0 (Blackwell B100/B200) and SM 12.0 (RTX 5000 / Blackwell Ultra).
 _NVCC_SM_TABLE: list[tuple[tuple[int, int], tuple[int, int]]] = [
     ((12, 8), (12, 0)),   # CUDA 12.8+: Blackwell B100/B200/RTX 5000 (SM 10.0 + SM 12.0)
-    ((11, 8), ( 9, 0)),   # CUDA 11.8-12.7: Hopper H100 (SM 9.0)
-    (( 0,  0), ( 8, 9)),  # fallback: Ada Lovelace and older (SM 8.9)
+    ((11, 8), ( 9, 0)),   # CUDA 11.8-12.7: Hopper H100 (SM 9.0) and Ada (SM 8.9)
+    ((11, 1), ( 8, 6)),   # CUDA 11.1-11.7: Ampere GA10x (RTX 3000)
+    ((11, 0), ( 8, 0)),   # CUDA 11.0: Ampere GA100 (A100)
+    (( 0,  0), ( 7, 5)),  # fallback: Turing and older
 ]
 
 
@@ -172,9 +181,188 @@ def _nvidia_smi(*query_fields: str) -> list[str] | None:
     return None
 
 
+def _read_text(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _proc_nvidia_gpu_info() -> dict[str, str]:
+    """Return first GPU info from /proc/driver/nvidia, or {} when unavailable."""
+    for path in sorted(glob.glob("/proc/driver/nvidia/gpus/*/information")):
+        info: dict[str, str] = {}
+        for line in _read_text(path).splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            info[key.strip().lower()] = value.strip()
+        if info:
+            return info
+    return {}
+
+
+def _proc_driver_version() -> str:
+    text = _read_text("/proc/driver/nvidia/version")
+    match = re.search(r"\b(\d{3}\.\d+(?:\.\d+)?)\b", text)
+    if match:
+        return match.group(1)
+    info = _proc_nvidia_gpu_info()
+    firmware = info.get("gpu firmware", "")
+    return firmware if _parse_version(firmware) else ""
+
+
+def _parse_version(version: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in re.findall(r"\d+", version))
+
+
+def detect_driver_version() -> str:
+    vals = _nvidia_smi("driver_version")
+    return vals[0] if vals else _proc_driver_version()
+
+
+def driver_supports_cu128(driver_version: str) -> bool:
+    """CUDA 12.8 Linux wheels need an R570+ driver."""
+    parsed = _parse_version(driver_version)
+    return parsed >= (570, 26) if parsed else False
+
+
+def driver_supports_cu126(driver_version: str) -> bool:
+    """CUDA 12.6 Linux wheels need an R560+ driver."""
+    parsed = _parse_version(driver_version)
+    return parsed >= (560, 28) if parsed else False
+
+
+def _normalize_torch_cuda(value: str) -> str:
+    value = value.strip().lower().replace("_", "-")
+    if value in {"", "auto"}:
+        return "auto"
+    if value in {"cu126", "cuda-12.6", "cuda12.6", "12.6", "126"}:
+        return "cu126"
+    if value in {"cu128", "cuda-12.8", "cuda12.8", "12.8", "128"}:
+        return "cu128"
+    raise SystemExit(
+        "Invalid NANOCHAT_TORCH_CUDA. Use auto, cu126, or cu128."
+    )
+
+
+def select_torch_cuda_runtime(has_cuda: bool, compute_cap: tuple[int, int], driver_version: str) -> str:
+    """Select the torch CUDA wheel runtime: cpu, cu126, or cu128."""
+    if not has_cuda:
+        return "cpu"
+
+    requested = _normalize_torch_cuda(os.environ.get("NANOCHAT_TORCH_CUDA", "auto"))
+    if requested != "auto":
+        return requested
+
+    if compute_cap >= (10, 0):
+        return "cu128"
+    if driver_supports_cu128(driver_version):
+        return "cu128"
+    return "cu126"
+
+
+def torch_cuda_extra(torch_cuda: str) -> str:
+    return "cpu" if torch_cuda == "cpu" else f"gpu-{torch_cuda}"
+
+
+def torch_driver_ok(torch_cuda: str, driver_version: str) -> bool:
+    if torch_cuda == "cpu":
+        return True
+    if torch_cuda == "cu126":
+        return driver_supports_cu126(driver_version)
+    if torch_cuda == "cu128":
+        return driver_supports_cu128(driver_version)
+    return False
+
+
+def torch_runtime_ok(torch_cuda: str, compute_cap: tuple[int, int]) -> bool:
+    if torch_cuda == "cpu":
+        return True
+    if compute_cap >= (10, 0):
+        return torch_cuda == "cu128"
+    return torch_cuda in {"cu126", "cu128"}
+
+
+def _compute_cap_from_name(gpu_name: str) -> tuple[int, int]:
+    """Best-effort compute capability fallback when nvidia-smi query is blocked."""
+    name = gpu_name.lower()
+    if "blackwell" in name:
+        if any(part in name for part in ("b100", "b200", "b300", "gb200", "gb300")):
+            return (10, 0)
+        if "gb10" in name:
+            return (12, 1)
+        return (12, 0)
+    if any(part in name for part in ("h100", "h200", "h800")):
+        return (9, 0)
+    if any(part in name for part in ("rtx 40", "rtx 4000 ada", "rtx 5000 ada", "rtx 6000 ada", "l40", "l4")):
+        return (8, 9)
+    if any(part in name for part in ("rtx 30", "a40", "a30")):
+        return (8, 6)
+    if any(part in name for part in ("a100", "a800")):
+        return (8, 0)
+    if any(part in name for part in ("rtx 20", "t4")):
+        return (7, 5)
+    return (0, 0)
+
+
+def _vram_from_name(gpu_name: str) -> int:
+    """Best-effort VRAM fallback in MiB for cards where /proc omits memory."""
+    name = gpu_name.lower()
+    if "blackwell" in name and ("laptop" in name or "mobile" in name):
+        mobile_pro = [
+            ("rtx pro 5000", 24 * 1024),
+            ("rtx pro 4000", 16 * 1024),
+            ("rtx pro 3000", 12 * 1024),
+            ("rtx pro 2000", 8 * 1024),
+            ("rtx pro 1000", 8 * 1024),
+        ]
+        for pattern, vram_mb in mobile_pro:
+            if pattern in name:
+                return vram_mb
+    known = [
+        ("rtx pro 6000 blackwell", 96 * 1024),
+        ("rtx 5090", 32 * 1024),
+        ("rtx 5080", 16 * 1024),
+        ("rtx 5070 ti", 16 * 1024),
+        ("rtx 5070", 12 * 1024),
+        ("rtx 5060 ti", 16 * 1024),
+        ("rtx 5060", 8 * 1024),
+    ]
+    for pattern, vram_mb in known:
+        if pattern in name:
+            return vram_mb
+    match = re.search(r"\b(\d{1,3})\s*gb\b", name)
+    return int(match.group(1)) * 1024 if match else 0
+
+
 def _sm_count_from_name(gpu_name: str) -> int:
     """Best-effort SM count fallback for common NVIDIA cards."""
     name = gpu_name.lower()
+    if "blackwell" in name and ("laptop" in name or "mobile" in name):
+        if "rtx pro 5000" in name:
+            return 82
+        if "rtx pro 4000" in name:
+            return 60
+        if "rtx pro 3000" in name:
+            return 46
+        if "rtx pro 2000" in name:
+            return 26
+        if "rtx pro 1000" in name:
+            return 20
+    if "5090" in name:
+        return 170
+    if "5080" in name:
+        return 84
+    if "5070 ti" in name:
+        return 70
+    if "5070" in name:
+        return 48
+    if "5060 ti" in name:
+        return 36
+    if "5060" in name:
+        return 30
     if "4090" in name:
         return 76 if "laptop" in name or "mobile" in name else 128
     if "4080" in name:
@@ -216,7 +404,8 @@ def detect_compute_cap() -> tuple[int, int]:
             return (int(parts[0]), int(parts[1]))
         except (ValueError, IndexError):
             pass
-    return (0, 0)
+    info = _proc_nvidia_gpu_info()
+    return _compute_cap_from_name(info.get("model", ""))
 
 
 def detect_gpu() -> tuple[int, str, int, tuple[int, int]]:
@@ -230,6 +419,12 @@ def detect_gpu() -> tuple[int, str, int, tuple[int, int]]:
         gpu_name = vals[1]
         compute_cap = detect_compute_cap()
         return vram_mb, gpu_name, _detect_sm_count(gpu_name), compute_cap
+    info = _proc_nvidia_gpu_info()
+    gpu_name = info.get("model", "")
+    if gpu_name:
+        vram_mb = _vram_from_name(gpu_name)
+        compute_cap = _compute_cap_from_name(gpu_name)
+        return vram_mb, gpu_name, _sm_count_from_name(gpu_name), compute_cap
     return 0, "", 0, (0, 0)
 
 
@@ -361,15 +556,38 @@ def main() -> None:
     mode = sys.argv[1] if len(sys.argv) > 1 else "info"
     explicit_profile = sys.argv[2] if mode in {"shell", "info"} and len(sys.argv) > 2 else ""
     vram_mb, gpu_name, sm_count, compute_cap = detect_gpu()
-    has_cuda = vram_mb > 0
+    has_cuda = bool(gpu_name)
     arch = compute_cap_arch(compute_cap)
+    driver_version = detect_driver_version() if has_cuda else ""
+    torch_cuda = select_torch_cuda_runtime(has_cuda, compute_cap, driver_version)
+    extras = torch_cuda_extra(torch_cuda)
+    torch_driver_is_ok = torch_driver_ok(torch_cuda, driver_version)
+    torch_runtime_is_ok = (not has_cuda) or torch_runtime_ok(torch_cuda, compute_cap)
     p = select_profile_name(explicit_profile) if explicit_profile else select_profile(vram_mb, sm_count, compute_cap)
 
     if mode == "profile":
         print(p["profile"])
 
     elif mode == "extras":
-        print("gpu" if has_cuda else "cpu")
+        print(extras)
+
+    elif mode == "driver_ver":
+        print(driver_version)
+
+    elif mode == "torch_cuda":
+        print(torch_cuda)
+
+    elif mode == "cu126_driver_ok":
+        print("1" if (not has_cuda or driver_supports_cu126(driver_version)) else "0")
+
+    elif mode == "cu128_driver_ok":
+        print("1" if (not has_cuda or driver_supports_cu128(driver_version)) else "0")
+
+    elif mode == "torch_driver_ok":
+        print("1" if torch_driver_is_ok else "0")
+
+    elif mode == "torch_runtime_ok":
+        print("1" if torch_runtime_is_ok else "0")
 
     elif mode == "max_jobs":
         # min(max(1,(nproc-2)//2), max(1,total_ram_gb//denom))
@@ -424,7 +642,13 @@ def main() -> None:
         print(f"HW_VRAM_MB={vram_mb}")
         print(f"HW_SM_COUNT={sm_count}")
         print(f"HW_HAS_CUDA={'1' if has_cuda else '0'}")
-        print(f"HW_EXTRAS={'gpu' if has_cuda else 'cpu'}")
+        print(f"HW_DRIVER_VERSION={shlex.quote(driver_version)}")
+        print(f"HW_CU126_DRIVER_OK={'1' if (not has_cuda or driver_supports_cu126(driver_version)) else '0'}")
+        print(f"HW_CU128_DRIVER_OK={'1' if (not has_cuda or driver_supports_cu128(driver_version)) else '0'}")
+        print(f"HW_TORCH_CUDA={shlex.quote(torch_cuda)}")
+        print(f"HW_TORCH_DRIVER_OK={'1' if torch_driver_is_ok else '0'}")
+        print(f"HW_TORCH_RUNTIME_OK={'1' if torch_runtime_is_ok else '0'}")
+        print(f"HW_EXTRAS={shlex.quote(extras)}")
         print(f"HW_COMPUTE_CAP={shlex.quote(cap_str)}")
         print(f"HW_SM_ARCH={shlex.quote(arch)}")
         print(f"HW_PROFILE={p['profile']}")
@@ -449,9 +673,13 @@ def main() -> None:
         print(f"  VRAM     : {vram_mb:,} MB  ({vram_mb / 1024:.1f} GB)")
         if sm_count:
             print(f"  SMs      : {sm_count}")
+        if driver_version:
+            cu126_ok = "yes" if driver_supports_cu126(driver_version) else "no"
+            cu128_ok = "yes" if driver_supports_cu128(driver_version) else "no"
+            print(f"  Driver   : {driver_version}  (cu126 ok: {cu126_ok}, cu128 ok: {cu128_ok})")
         print(f"  Arch     : {arch}  (SM {cap_str})")
         print(f"  Profile  : {p['profile']}  ({p['description']})")
-        print(f"  Install  : uv sync --extra {'gpu' if has_cuda else 'cpu'}")
+        print(f"  Install  : uv sync --extra {extras}  (torch {torch_cuda})")
         print(f"  Model    : depth={p['depth']}  seq={p['seq_len']}  "
               f"micro-batch={p['device_batch']}")
         print(f"  Batch    : {p['total_batch']:,} tokens/step  "

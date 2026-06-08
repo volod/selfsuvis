@@ -8,7 +8,7 @@
 #   bash runs/runlocal.sh                          # auto-detect GPU and train
 #   PROFILE=16g bash runs/runlocal.sh              # force a specific profile
 #   RUN=myrun bash runs/runlocal.sh                # enable TensorBoard logging
-#   NANOCHAT_BASE_DIR=/mnt/data/nanochat bash runs/runlocal.sh  # custom artifact dir
+#   NANOCHAT_BASE_DIR=/path/to/nanochat bash runs/runlocal.sh  # custom artifact dir
 #   RESUME_FROM_STEP=5000 bash runs/runlocal.sh    # resume base-pretrain from step
 #
 # Profiles auto-selected by VRAM and GPU size:
@@ -33,8 +33,18 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
 fi
 
 _PROJECT_DATA="${DATA_DIR:-$PROJECT_ROOT/.data}"
+# Resolve a relative data dir against the project root (not the CWD) so artifacts and
+# caches always land in the same place regardless of where the script is invoked from.
+case "$_PROJECT_DATA" in /*) ;; *) _PROJECT_DATA="$PROJECT_ROOT/${_PROJECT_DATA#./}" ;; esac
 export NANOCHAT_BASE_DIR="${NANOCHAT_BASE_DIR:-$_PROJECT_DATA/nanochat}"
 mkdir -p "$NANOCHAT_BASE_DIR"
+
+# Keep uv's cache on the same filesystem as .venv so wheels hardlink instead of copy.
+# Derived from the project data dir (honors UV_CACHE_DIR from .env); never hardcoded.
+_UV_CACHE="${UV_CACHE_DIR:-$_PROJECT_DATA/uv-cache}"
+case "$_UV_CACHE" in /*) ;; *) _UV_CACHE="$PROJECT_ROOT/${_UV_CACHE#./}" ;; esac
+export UV_CACHE_DIR="$_UV_CACHE"
+mkdir -p "$UV_CACHE_DIR"
 
 _NCPU=$(nproc 2>/dev/null || echo 4)
 
@@ -103,7 +113,7 @@ SHARDS="${NANOCHAT_SHARDS:-${HW_SHARDS:-$SHARDS}}"
 GRAD_ACCUM=$(( TOTAL_BATCH / (DEVICE_BATCH * SEQ_LEN) ))
 
 RUN="${RUN:-}"
-[ "$DEVICE_TYPE" = "cuda" ] && UV_EXTRAS="gpu" || UV_EXTRAS="cpu"
+[ "$DEVICE_TYPE" = "cuda" ] && UV_EXTRAS="${HW_EXTRAS:-gpu-cu128}" || UV_EXTRAS="cpu"
 if [ -z "${OMP_NUM_THREADS:-}" ]; then
     if [ "$DEVICE_TYPE" = "cuda" ]; then
         export OMP_NUM_THREADS=$(( _NCPU > 10 ? 8 : (_NCPU > 2 ? _NCPU - 2 : 1) ))
@@ -164,7 +174,21 @@ if [ "$DEVICE_TYPE" = "cuda" ] && [ "${HW_HAS_CUDA:-0}" != "1" ]; then
     _preflight_ok=0
 fi
 
-# 5. Python environment health — ensure core imports work before spending time on venv sync
+# 5. Driver supports the CUDA runtime used by the selected torch GPU wheel.
+if [ "$DEVICE_TYPE" = "cuda" ] && [ "${HW_TORCH_DRIVER_OK:-0}" != "1" ]; then
+    err "NVIDIA driver ${HW_DRIVER_VERSION:-unknown} is too old for torch+${HW_TORCH_CUDA:-unknown}."
+    err "  Fix: update the Linux NVIDIA driver, use NANOCHAT_TORCH_CUDA=cu126 for pre-Blackwell GPUs, or run PROFILE=cpu."
+    _preflight_ok=0
+fi
+
+# 6. Selected torch CUDA runtime supports the detected GPU architecture.
+if [ "$DEVICE_TYPE" = "cuda" ] && [ "${HW_TORCH_RUNTIME_OK:-0}" != "1" ]; then
+    err "Selected torch+${HW_TORCH_CUDA:-unknown} is not compatible with ${HW_SM_ARCH:-unknown} / SM ${HW_COMPUTE_CAP:-unknown}."
+    err "  Fix: use NANOCHAT_TORCH_CUDA=cu128 for Blackwell / SM 10.0+, or unset the override."
+    _preflight_ok=0
+fi
+
+# 7. Python environment health - ensure core imports work before spending time on venv sync
 if ! python3 -c "import sys; assert sys.version_info >= (3,10), 'Python 3.10+ required'" 2>/dev/null; then
     err "Python 3.10+ is required. Found: $(python3 --version 2>&1)"
     _preflight_ok=0
@@ -182,6 +206,7 @@ log "============================================================"
 log "  nanochat local training"
 log "  profile      : $PROFILE  (${HW_SM_ARCH:-unknown} / SM ${HW_COMPUTE_CAP:-?})"
 log "  GPU          : ${HW_GPU_NAME:-none}  (${_cur_vram} MB VRAM, ${HW_SM_COUNT:-?} SMs)"
+log "  torch cuda   : ${HW_TORCH_CUDA:-cpu}  (--extra $UV_EXTRAS)"
 log "  model        : depth=$DEPTH  seq=$SEQ_LEN  micro-batch=$DEVICE_BATCH"
 log "  batch        : $TOTAL_BATCH tokens/step  ($GRAD_ACCUM grad-accum steps)"
 log "  dataset      : $SHARDS shards  (~$(( SHARDS * 62 / 1000 ))B tokens on disk)"
@@ -205,11 +230,32 @@ uv sync --extra "$UV_EXTRAS" --quiet
 source .venv/bin/activate
 
 # flash-attn is compiled from source and not in pyproject.toml, so uv sync removes it.
-# Restore from the most-recently built wheel under .data/wheels/flash-attn_*/
-_FA_WHEEL=$(ls -t "$_PROJECT_DATA/wheels/flash-attn_"*/flash_attn*.whl 2>/dev/null | head -1) || true
+# Restore only a wheel that matches the current torch CUDA runtime and GPU SM list.
+_FA_KEY_PREFIX=""
+if [ "$DEVICE_TYPE" = "cuda" ]; then
+    _FA_KEY_PREFIX=$(python - <<'PY' 2>/dev/null || true
+import torch
+
+if not torch.cuda.is_available():
+    raise SystemExit
+torch_version = torch.__version__.split("+")[0]
+cuda_version = (torch.version.cuda or "cpu").replace(".", "")
+caps = sorted({torch.cuda.get_device_capability(i) for i in range(torch.cuda.device_count())})
+sm = "_".join("sm" + "".join(str(x) for x in cap) for cap in caps)
+print(f"torch{torch_version}_cu{cuda_version}_{sm}_")
+PY
+)
+fi
+if [ -n "$_FA_KEY_PREFIX" ]; then
+    _FA_WHEEL=$(ls -t "$_PROJECT_DATA/wheels/flash-attn_${_FA_KEY_PREFIX}"*/flash_attn*.whl 2>/dev/null | head -1) || true
+else
+    _FA_WHEEL=""
+fi
 if [ -n "$_FA_WHEEL" ] && ! python -c "import flash_attn" 2>/dev/null; then
     uv pip install --python .venv/bin/python "$_FA_WHEEL" --no-deps --quiet 2>/dev/null && \
         log "flash-attn restored ($(basename "$(dirname "$_FA_WHEEL")"))" || true
+elif [ "$DEVICE_TYPE" = "cuda" ] && [ -n "$_FA_KEY_PREFIX" ] && ! python -c "import flash_attn" 2>/dev/null; then
+    log "No matching flash-attn cached wheel for ${_FA_KEY_PREFIX}*; run 'make install-fa' to build one."
 fi
 
 # ── Flash Attention check ─────────────────────────────────────────────────────
@@ -280,7 +326,8 @@ BASE_TRAIN_ARGS=(
     --device-type="$DEVICE_TYPE"
     --window-pattern="$WINDOW_PATTERN"
     --target-param-data-ratio=12
-    --eval-every=250
+    --eval-every="${NANOCHAT_BASE_EVAL_EVERY:-250}"
+    --eval-tokens="${NANOCHAT_BASE_EVAL_TOKENS:-5242880}"
     --core-metric-every=2000
     --core-metric-max-per-task=200
     --sample-every=500
