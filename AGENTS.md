@@ -9,6 +9,7 @@
 - Reuse `scripts/shared/common.sh` for shared shell root/env/bootstrap behavior.
 - Runtime data belongs under `.data/<src_module>/` (e.g. `.data/nanochat/`, `.data/sslm/`). Never write to a module-local `.data/` inside `src/`. 
 - The shared `.data/wheels/` directory is reserved exclusively for compiled wheel artifacts.
+- Never hardcode absolute directories (e.g. `/mnt/...`, `/home/...`, `~/.cache/...`) in committed code, Makefiles, shell scripts, or config. Resolve every path from the project base directory and honor `.env`/`DATA_DIR` settings, deriving caches and artifacts under $DATA_DIR (e.g. uv cache at `.data/uv-cache/`). Resolve relative paths against the project root, not the current working directory.
 - Use ASCII in logs, docs, comments, and generated shell output.
 - Dependencies and library versions, such as PyTorch and Flash Attention, must be installed, taking into account the host hardware configuration (RAM, GPU) and the current host OS, GPU, and CUDA versions, which must match PyTorch's supported versions.   
 - Docker images must be able to manage the target build for GPU and CUDA versions; the configuration of the system on which the Docker image is built is used as the default.
