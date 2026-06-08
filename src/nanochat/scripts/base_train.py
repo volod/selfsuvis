@@ -623,7 +623,7 @@ if device_type == "cuda" and gpu_peak_flops not in (0, float("inf")):
     print0(
         f"Rough estimated training time: ~{_rough_seconds / 60:.0f}m "
         f"({_rough_seconds / 3600:.1f}h) assuming ~{_ASSUMED_MFU * 100:.0f}% MFU "
-        f"| projected finish ~{_rough_finish} (refined after warmup)"
+        f"| projected fin ~{_rough_finish} (refined after warmup)"
     )
 
 
@@ -925,21 +925,21 @@ while True:
         remaining_steps = num_iterations - step
         eta_seconds = remaining_steps * eta_time_per_step
         finish_clock = time.strftime("%H:%M:%S", time.localtime(time.time() + eta_seconds))
-        eta_str = f" | eta: {eta_seconds / 60:.1f}m (finish ~{finish_clock})"
+        eta_str = f" | eta: {eta_seconds / 60:.1f}m (fin ~{finish_clock})"
         # One-time up-front estimate of the full run, as soon as timing stabilizes.
         if not _eta_announced:
             total_est_seconds = num_iterations * eta_time_per_step
             print0(
                 f"Estimated total training time: ~{total_est_seconds / 60:.1f}m "
                 f"({total_est_seconds / 3600:.2f}h) for {num_iterations:,} steps "
-                f"@ ~{eta_time_per_step:.2f}s/step | projected finish ~{finish_clock}"
+                f"@ ~{eta_time_per_step:.2f}s/step | projected fin ~{finish_clock}"
             )
             _eta_announced = True
     else:
         eta_str = " | eta: estimating (after step 0 / compile)"
     epoch = f"{dataloader_state_dict['epoch']} pq: {dataloader_state_dict['pq_idx']} rg: {dataloader_state_dict['rg_idx']}"
     print0(
-        f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | bf16_mfu: {mfu:.2f} | epoch: {epoch} | total time: {total_training_time / 60:.2f}m{eta_str}"
+        f"s: {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | ls: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | t/s: {tok_per_sec:,} | bf16_mfu: {mfu:.2f} | e: {epoch} | ttime: {total_training_time / 60:.2f}m{eta_str}"
     )
     if step % 100 == 0:
         log_data = {

@@ -780,11 +780,11 @@ while True:
         rate = (time.time() - _rate_t0) / (progress - _rate_progress0)  # sec per unit progress
         eta_seconds = rate * max(0.0, 1.0 - progress)
         finish_clock = time.strftime("%H:%M:%S", time.localtime(time.time() + eta_seconds))
-        eta_str = f" | eta: {eta_seconds / 60:.1f}m (finish ~{finish_clock})"
+        eta_str = f" | eta: {eta_seconds / 60:.1f}m (fin ~{finish_clock})"
     else:
         eta_str = ""
     print0(
-        f"step {step:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | epoch: {current_epoch} | total time: {total_training_time / 60:.2f}m{eta_str}"
+        f"s: {step:05d} ({pct_done:.2f}%) | ls: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | e: {current_epoch} | ttime: {total_training_time / 60:.2f}m{eta_str}"
     )
     if step % 10 == 0:
         run_logger.log(
