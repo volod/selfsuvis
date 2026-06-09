@@ -72,6 +72,10 @@ help:
 	@echo "    RUN=<name>                  TensorBoard run name (default: auto timestamp)"
 	@echo "    NANOCHAT_BASE_DIR=<path>    Artifact directory (default: ../.data/nanochat/)"
 	@echo "    NANOCHAT_TORCH_CUDA=cu126   Force torch CUDA runtime (auto, cu126, cu128)"
+	@echo "    NANOCHAT_BASE_TARGET_PARAM_DATA_RATIO=12"
+	@echo "                                Restore the shorter pretrain horizon (default: 20)"
+	@echo "    NANOCHAT_SFT_LOAD_OPTIMIZER=1"
+	@echo "                                Warm-start SFT optimizer state (default: 0)"
 	@echo ""
 	@echo "  Run  make help  to show this again."
 

@@ -2,10 +2,11 @@
 Common utilities for nanochat.
 """
 
+import logging
 import os
 import re
-import logging
 import urllib.request
+
 import torch
 import torch.distributed as dist
 from filelock import FileLock
@@ -63,6 +64,8 @@ def setup_default_logging():
         level=logging.INFO,
         handlers=[handler]
     )
+    for logger_name in ("httpx", "httpcore", "urllib3", "filelock"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 setup_default_logging()
 logger = logging.getLogger(__name__)

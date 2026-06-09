@@ -65,8 +65,11 @@ parser.add_argument("--model-step", type=int, default=None, help="model step to 
 parser.add_argument(
     "--load-optimizer",
     type=int,
-    default=1,
-    help="warm-start optimizer from pretrained checkpoint (0=no, 1=yes)",
+    default=0,
+    help=(
+        "warm-start optimizer from pretrained checkpoint (0=no, recommended for clean SFT; "
+        "1=yes, faster convergence)"
+    ),
 )
 parser.add_argument(
     "--resume-from-step",
@@ -283,10 +286,12 @@ optimizer = model.setup_optimizer(
     weight_decay=0.0,
 )
 
-# Optionally warm-start optimizer from pretrained checkpoint (momentum buffers etc.)
+# Optionally warm-start optimizer from pretrained checkpoint (momentum buffers etc.).
+# A fresh optimizer is the quality-oriented default for SFT because pretraining
+# momentum points at the language-modeling objective, not the instruction mixture.
 # Note: load_state_dict overwrites param_group metadata (LRs, betas, etc.) with the
-# pretrained values. Since pretraining warmdown brings LRs to ~0, we must save and
-# restore our fresh SFT LRs after loading.
+# pretrained values. Since pretraining warmdown brings LRs to near zero, we must
+# save and restore our fresh SFT LRs after loading.
 base_dir = get_base_dir()
 if resuming:
     # Resuming from a mid-run SFT checkpoint: restore optimizer state from it

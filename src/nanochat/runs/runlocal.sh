@@ -132,6 +132,15 @@ SFT_EVAL_EVERY="${NANOCHAT_SFT_EVAL_EVERY:-${HW_SFT_EVAL_EVERY:-200}}"
 SFT_CHATCORE_EVERY="${NANOCHAT_SFT_CHATCORE_EVERY:-${HW_SFT_CHATCORE_EVERY:-200}}"
 SFT_EVAL_TOKENS="${NANOCHAT_SFT_EVAL_TOKENS:-${HW_SFT_EVAL_TOKENS:-20971520}}"
 SFT_SAVE_EVERY="${NANOCHAT_SFT_SAVE_EVERY:-${HW_SFT_SAVE_EVERY:-500}}"
+SFT_LOAD_OPTIMIZER="${NANOCHAT_SFT_LOAD_OPTIMIZER:-0}"
+SFT_MMLU_EPOCHS="${NANOCHAT_SFT_MMLU_EPOCHS:-4}"
+SFT_GSM8K_EPOCHS="${NANOCHAT_SFT_GSM8K_EPOCHS:-6}"
+
+# Quality default: the old local run used 12 tokens per scaling parameter. The
+# d12 log showed noisy base samples at that horizon; use a Chinchilla-style 20x
+# target by default and let users restore the shorter run with
+# NANOCHAT_BASE_TARGET_PARAM_DATA_RATIO=12.
+BASE_TARGET_PARAM_DATA_RATIO="${NANOCHAT_BASE_TARGET_PARAM_DATA_RATIO:-20}"
 
 # ── Pre-flight sanity checks ──────────────────────────────────────────────────
 # Run all checks up-front so failures are caught before any GPU time is spent.
@@ -210,6 +219,7 @@ log "  torch cuda   : ${HW_TORCH_CUDA:-cpu}  (--extra $UV_EXTRAS)"
 log "  model        : depth=$DEPTH  seq=$SEQ_LEN  micro-batch=$DEVICE_BATCH"
 log "  batch        : $TOTAL_BATCH tokens/step  ($GRAD_ACCUM grad-accum steps)"
 log "  dataset      : $SHARDS shards  (~$(( SHARDS * 62 / 1000 ))B tokens on disk)"
+log "  pretrain     : target-ratio=$BASE_TARGET_PARAM_DATA_RATIO"
 log "  artifacts    : $NANOCHAT_BASE_DIR"
 log "  run name     : ${RUN:-(auto timestamp)}"
 if [ -n "${RESUME_FROM_STEP:-}" ]; then
@@ -219,6 +229,7 @@ log "  cpu threads  : OMP_NUM_THREADS=$OMP_NUM_THREADS  (nproc=$_NCPU)"
 log "  tokenizer    : threads=$TOKENIZER_THREADS  loader-buffer=$LOADER_BUFFER_SIZE"
 log "  sft          : buffer=$SFT_BUFFER_SIZE  save-every=$SFT_SAVE_EVERY"
 log "                 eval-every=$SFT_EVAL_EVERY  chatcore-every=$SFT_CHATCORE_EVERY"
+log "                 load-optimizer=$SFT_LOAD_OPTIMIZER  mmlu-epochs=$SFT_MMLU_EPOCHS  gsm8k-epochs=$SFT_GSM8K_EPOCHS"
 log "  disk needed  : ~${_needed_gb} GB  (available: ~${_avail_gb} GB)"
 log "============================================================"
 
@@ -325,7 +336,7 @@ BASE_TRAIN_ARGS=(
     --total-batch-size="$TOTAL_BATCH"
     --device-type="$DEVICE_TYPE"
     --window-pattern="$WINDOW_PATTERN"
-    --target-param-data-ratio=12
+    --target-param-data-ratio="$BASE_TARGET_PARAM_DATA_RATIO"
     --eval-every="${NANOCHAT_BASE_EVAL_EVERY:-250}"
     --eval-tokens="${NANOCHAT_BASE_EVAL_TOKENS:-5242880}"
     --core-metric-every=2000
@@ -387,6 +398,9 @@ python -m scripts.chat_sft \
     --chatcore-every="$SFT_CHATCORE_EVERY" \
     --eval-tokens="$SFT_EVAL_TOKENS" \
     --save-every="$SFT_SAVE_EVERY" \
+    --load-optimizer="$SFT_LOAD_OPTIMIZER" \
+    --mmlu-epochs="$SFT_MMLU_EPOCHS" \
+    --gsm8k-epochs="$SFT_GSM8K_EPOCHS" \
     --run="$RUN"
 
 # Verify SFT checkpoint exists

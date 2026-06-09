@@ -2,15 +2,17 @@
 Utilities for generating training report cards. More messy code than usual, will fix.
 """
 
+import datetime
 import os
+import platform
 import re
 import shutil
-import subprocess
 import socket
-import datetime
-import platform
+import subprocess
+
 import psutil
 import torch
+
 
 def run_command(cmd):
     """Run a shell command and return output, or None if it fails."""
@@ -22,7 +24,7 @@ def run_command(cmd):
         if result.returncode == 0:
             return ""
         return None
-    except:
+    except Exception:
         return None
 
 def get_git_info():
@@ -184,7 +186,7 @@ Generated: {timestamp}
     # count dependencies via uv.lock
     uv_lock_lines = 0
     if os.path.exists('uv.lock'):
-        with open('uv.lock', 'r', encoding='utf-8') as f:
+        with open('uv.lock', encoding='utf-8') as f:
             uv_lock_lines = len(f.readlines())
 
     header += f"""
@@ -204,7 +206,8 @@ def slugify(text):
     """Slugify a text string."""
     return text.lower().replace(" ", "-")
 
-# the expected files and their order
+# the expected files and their order. Some sections belong to the full upstream
+# speedrun but are not produced by the local single-GPU pipeline.
 EXPECTED_FILES = [
     "tokenizer-training.md",
     "tokenizer-evaluation.md",
@@ -216,6 +219,15 @@ EXPECTED_FILES = [
     "chat-rl.md",
     "chat-evaluation-rl.md",
 ]
+OPTIONAL_FILES = {
+    "base-model-loss.md",
+    "chat-rl.md",
+    "chat-evaluation-rl.md",
+}
+SECTION_FILE_ALIASES = {
+    # local runs historically logged section="SFT", which slugifies to sft.md.
+    "chat-sft.md": ["sft.md"],
+}
 # the metrics we're currently interested in
 chat_metrics = ["ARC-Easy", "ARC-Challenge", "MMLU", "GSM8K", "HumanEval", "ChatCORE"]
 
@@ -237,9 +249,18 @@ def extract_timestamp(content, prefix):
             time_str = line.split(":", 1)[1].strip()
             try:
                 return datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
-            except:
+            except Exception:
                 pass
     return None
+
+def resolve_section_file(report_dir, file_name):
+    """Return an existing section path, accepting legacy aliases."""
+    candidates = [file_name, *SECTION_FILE_ALIASES.get(file_name, [])]
+    for candidate in candidates:
+        section_file = os.path.join(report_dir, candidate)
+        if os.path.exists(section_file):
+            return section_file
+    return os.path.join(report_dir, file_name)
 
 class Report:
     """Maintains a bunch of logs, generates a final markdown report."""
@@ -288,7 +309,7 @@ class Report:
             # write the header first
             header_file = os.path.join(report_dir, "header.md")
             if os.path.exists(header_file):
-                with open(header_file, "r", encoding="utf-8") as f:
+                with open(header_file, encoding="utf-8") as f:
                     header_content = f.read()
                     out_file.write(header_content)
                     start_time = extract_timestamp(header_content, "Run started:")
@@ -301,11 +322,12 @@ class Report:
                 print(f"Warning: {header_file} does not exist. Did you forget to run `nanochat reset`?")
             # process all the individual sections
             for file_name in EXPECTED_FILES:
-                section_file = os.path.join(report_dir, file_name)
+                section_file = resolve_section_file(report_dir, file_name)
                 if not os.path.exists(section_file):
-                    print(f"Warning: {section_file} does not exist, skipping")
+                    if file_name not in OPTIONAL_FILES:
+                        print(f"Warning: {section_file} does not exist, skipping")
                     continue
-                with open(section_file, "r", encoding="utf-8") as in_file:
+                with open(section_file, encoding="utf-8") as in_file:
                     section = in_file.read()
                 # Extract timestamp from this section (the last section's timestamp will "stick" as end_time)
                 if "rl" not in file_name:
@@ -333,7 +355,9 @@ class Report:
             # Custom ordering: CORE first, ChatCORE last, rest in middle
             all_metrics = sorted(all_metrics, key=lambda x: (x != "CORE", x == "ChatCORE", x))
             # Fixed column widths
-            stages = ["base", "sft", "rl"]
+            stages = [stage for stage in ["base", "sft", "rl"] if stage in final_metrics]
+            if not stages:
+                stages = ["base", "sft"]
             metric_width = 15
             value_width = 8
             # Write table header
@@ -364,7 +388,7 @@ class Report:
             else:
                 out_file.write("Total wall clock time: unknown\n")
         # also cp the report.md file to current directory
-        print(f"Copying report.md to current directory for convenience")
+        print("Copying report.md to current directory for convenience")
         shutil.copy(report_file, "report.md")
         return report_file
 
@@ -372,9 +396,11 @@ class Report:
         """Reset the report."""
         # Remove section files
         for file_name in EXPECTED_FILES:
-            file_path = os.path.join(self.report_dir, file_name)
-            if os.path.exists(file_path):
-                os.remove(file_path)
+            candidates = [file_name, *SECTION_FILE_ALIASES.get(file_name, [])]
+            for candidate in candidates:
+                file_path = os.path.join(self.report_dir, candidate)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
         # Remove report.md if it exists
         report_file = os.path.join(self.report_dir, "report.md")
         if os.path.exists(report_file):
