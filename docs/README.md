@@ -43,6 +43,12 @@ See [README.md](../README.md) for the project overview and three-playground arch
 | [Troubleshooting](operations/troubleshooting.md) | Common errors and fixes |
 | [Operations guide](operations/operations.md) | Deployment constraints |
 
+### Implementation state
+| | |
+|---|---|
+| [Current implementation](impl/current.md) | What exists, where it lives, how flows run |
+| [Implementation plan](impl/plan.md) | Forward work: scope, execution plan, task specs |
+
 ### Design history
 | | |
 |---|---|
